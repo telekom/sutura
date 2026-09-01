@@ -1,0 +1,189 @@
+//! The `mcp` command: the agent surface, composed over the standard input and output of this
+//! process.
+//!
+//! The composition root for [`sutura_mcp::serve_stdio`], and the point of issue #110: the agent
+//! surface used to be reachable only from its own crate's tests. An agent client launches this
+//! process and speaks the Model Context Protocol on its pipes.
+//!
+//! It shares the `query` command's composition, in [`crate::commands`]: one catalog, the in-process
+//! engine over the caller's data directory, the shared single-user identity those files are read
+//! under. The difference is the driving port - the service answers questions for a peer on the other
+//! end of a pipe instead of one taken from a path on the command line.
+
+use std::path::Path;
+use std::process::ExitCode;
+
+use sutura_app::prompt::CatalogProse;
+use sutura_app::surface::LocalService;
+use sutura_domain::pinned::SemanticCatalog as _;
+use sutura_exec_datafusion::DataFusionWarehouse;
+use sutura_runtime::TracingAuditSink;
+
+use crate::commands::{arg, catalog_reader, open_engine, render, report, single_user_broker, working_set};
+
+/// The service this command serves, over the one adapter this binary links.
+///
+/// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
+/// and the broker are the three collaborators every command in this binary composes.
+type McpSurface = LocalService<DataFusionWarehouse, TracingAuditSink, sutura_config::StaticCredentialBroker>;
+
+/// `mcp <catalog-dir> <data-dir>`: serve the agent surface over standard input and output.
+pub(crate) fn mcp(args: &[String]) -> ExitCode {
+    report((|| {
+        let usage = "mcp <catalog-dir> <data-dir>";
+        let root = arg(args, 0, "catalog-dir", usage)?;
+        let data = arg(args, 1, "data-dir", usage)?;
+        let (service, prose) = mcp_service(Path::new(&root), Path::new(&data))?;
+        // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
+        // class: a pipe has no header a token could arrive in, so this surface grants every
+        // capability to whoever can reach the process. Stated at startup, not left as a default
+        // nobody declared. Standard error, which is the log channel, so the MCP stream on stdout
+        // stays a pure protocol.
+        eprintln!(
+            "sutura: serving the agent surface over stdin/stdout - it grants every capability to \
+             whoever can launch or reach this process"
+        );
+        let runtime = tokio::runtime::Runtime::new().map_err(|e| format!("no async runtime: {e}"))?;
+        // The service is shared rather than moved in, and the reason is the one `serve_stdio`
+        // documents: rmcp keeps the engine alive inside a task of this runtime, and if this scope
+        // held no `Arc`, that task's shutdown would release the engine on a worker thread - where
+        // dropping a runtime is not allowed, and the process aborts. This handle releases it, on the
+        // main thread, once `shutdown_timeout` has let those tasks finish.
+        let service = std::sync::Arc::new(service);
+        let served = runtime
+            .block_on(sutura_mcp::serve_stdio(std::sync::Arc::clone(&service), prose))
+            .map_err(|e| render(&e));
+        // Bound the teardown the way `sutura-serve`'s `stop` does: dropping a runtime with a
+        // question still answering would wait for it however long it takes, and nothing here can
+        // cancel one. This gives the pool a moment to finish and then exits on our own terms.
+        runtime.shutdown_timeout(std::time::Duration::from_secs(5));
+        drop(service);
+        served
+    })())
+}
+
+/// The agent surface this command serves: the `query` composition behind the driving port.
+///
+/// The same answer path `query` exercises, wrapped in the service an agent client speaks to. The
+/// one difference worth stating is the audit sink: [`LocalService::start`] requires one (a service
+/// with no sink does not exist), and `TracingAuditSink` is it. A locally launched process installs
+/// no subscriber, so those records go nowhere until a composition does - the same posture the
+/// `query` command takes when it declines to write any.
+fn mcp_service(root: &Path, data: &Path) -> Result<(McpSurface, CatalogProse), String> {
+    let catalog = catalog_reader(root)?;
+    let pinned = catalog.load().map_err(|e| render(&e))?;
+    let engine = open_engine(&pinned, data)?;
+    let broker = single_user_broker()?;
+    let working_set = working_set()?.bytes() as u64;
+    // `LocalService::start` loads the catalog again and re-runs every anchor - that is its contract,
+    // the constructor that returns a service only if the bundle is fit to serve. `catalog` is handed
+    // over rather than the `pinned` rebuilt, so the two loads cannot disagree about the version or
+    // the source name.
+    let service = LocalService::start(&catalog, engine, TracingAuditSink::new(), broker, working_set)
+        .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
+    // The default treatment of catalog descriptions: quoted in, as the other commands render them.
+    Ok((service, CatalogProse::Quoted))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::mcp_service;
+
+    fn example() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
+    }
+
+    /// A client and a server joined by an in-memory pipe, with the peer permitted everything.
+    ///
+    /// The client and the server are the MCP SDK's own, so the bytes on that pipe are the protocol:
+    /// nothing in this crate sits between the assertion and the wire. This is the same shape
+    /// `sutura_mcp::server::tests` uses; the point here is that the service is THIS command's, over
+    /// the real engine and the documented example, rather than a fake warehouse.
+    ///
+    /// Takes an `Arc<S>` rather than an owned `S`, and the caller keeps another handle to the same
+    /// value out of `block_on`. The engine behind the service holds a nested `tokio` runtime, and
+    /// that runtime may only be dropped on a non-async thread - so the async server task must only
+    /// ever decrement an `Arc`, never release the engine. The caller's outer handle releases it, on
+    /// the main thread, after the runtime is gone.
+    async fn connected<S>(service: std::sync::Arc<S>) -> rmcp::service::RunningService<rmcp::RoleClient, ()>
+    where
+        S: sutura_app::surface::Surface,
+    {
+        let (client_side, server_side) = tokio::io::duplex(64 * 1024);
+        let server = rmcp::serve_server(
+            sutura_mcp::AgentSurface::new(
+                service,
+                sutura_app::Permitted::every_capability(),
+                sutura_app::prompt::CatalogProse::Quoted,
+            ),
+            server_side,
+        );
+        let client = rmcp::serve_client((), client_side);
+        let (server, client) = tokio::join!(server, client);
+        let running: rmcp::service::RunningService<rmcp::RoleServer, _> = server.expect("the server initializes");
+        drop(tokio::spawn(async move {
+            drop(running.waiting().await);
+        }));
+        client.expect("the client initializes")
+    }
+
+    /// THE claim of issue #110, end to end: the `mcp` command's own composition serves the two tools
+    /// over the protocol. The schema snapshots in `sutura-mcp` already pin the tool inputs; what was
+    /// missing is that a composition root links the surface and something answers.
+    ///
+    /// A plain `test` rather than `#[tokio::test]`, deliberately. `mcp_service` opens the engine and
+    /// re-runs its anchors, and the engine drives its OWN runtime with `block_on` - which panics when
+    /// called from within a runtime, exactly as `sutura-serve`'s `run` documents. So the service is
+    /// built before any runtime exists, and the runtime is entered only for the handshake.
+    ///
+    /// The service is kept in this scope, NOT created inside the async block: the engine's nested
+    /// runtime may only be dropped on a non-async thread, so the outer handle releases it after the
+    /// `Runtime` is gone, while every path inside `block_on` only holds an `Arc` clone.
+    #[test]
+    fn the_mcp_composition_serves_every_tool_the_surface_declares() {
+        let (service, prose) =
+            mcp_service(&example().join("catalog"), &example().join("data")).expect("the example catalog validates and opens");
+        assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
+        // Declared before `runtime`, so it is dropped after it: reverse declaration order. The
+        // runtime has to be fully gone before the engine is released.
+        let service = std::sync::Arc::new(service);
+        let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
+
+        runtime.block_on(async {
+            let client = connected(std::sync::Arc::clone(&service)).await;
+
+            // Both tools, in the declared order, over the wire.
+            let tools = client.list_all_tools().await.expect("tools/list answers");
+            let advertised: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+            let expected: Vec<&str> = sutura_app::Capability::every().map(sutura_app::Capability::id).collect();
+            assert_eq!(advertised, expected, "{advertised:?}");
+
+            // One of them answers a question the example certifies, so "something answers" is not
+            // just a listing.
+            let result = client
+                .call_tool(
+                    rmcp::model::CallToolRequestParams::new(sutura_app::Capability::AskMetric.id()).with_arguments(
+                        serde_json::json!({
+                            "metric": "recurring_revenue",
+                            "grain": "month",
+                            "range": { "start": "2026-01-01", "end": "2026-07-01" },
+                        })
+                        .as_object()
+                        .cloned()
+                        .expect("a fixture is an object"),
+                    ),
+                )
+                .await
+                .expect("a certified question is not a protocol error");
+            assert_ne!(result.is_error, Some(true), "{result:?}");
+            let structured = result
+                .structured_content
+                .as_ref()
+                .expect("an answer carries structured content");
+            assert_eq!(structured.get("outcome").and_then(serde_json::Value::as_str), Some("answer"));
+            drop(client.cancel().await);
+        });
+    }
+}

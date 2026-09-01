@@ -62,6 +62,7 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
 };
 
 mod commands;
+mod mcp;
 
 use std::process::ExitCode;
 
@@ -160,6 +161,12 @@ const COMMANDS: &[Cmd] = &[
         args: "<catalog-dir> <question.yaml> <data-dir>",
         description: "check the anchors, then answer",
         run: commands::query,
+    },
+    Cmd {
+        name: "mcp",
+        args: "<catalog-dir> <data-dir>",
+        description: "serve the agent surface over stdin/stdout",
+        run: commands::mcp,
     },
 ];
 

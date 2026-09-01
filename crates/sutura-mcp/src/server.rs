@@ -125,10 +125,9 @@ impl<S> AgentSurface<S> {
     /// the wrong answer the moment this surface is reachable over a network, and only a composition
     /// root knows which it is building. See the module documentation for what the value then gates.
     ///
-    /// **`prose` is required for the same reason, and it is a review-only value until a composition
-    /// root links this surface** - `serve_stdio` is the only caller today and it passes what the
-    /// operator configured. A `CatalogProse` with no default keeps `quoted` from being a posture
-    /// chosen here for a deployment that meant something else.
+    /// **`prose` is required for the same reason, and it is a composition-root value.** `sutura`'s
+    /// `mcp` subcommand passes what this deployment renders; a `CatalogProse` with no default keeps
+    /// `quoted` from being a posture chosen here for a deployment that meant something else.
     #[must_use]
     pub const fn new(service: Arc<S>, permitted: Permitted, prose: sutura_app::prompt::CatalogProse) -> Self {
         Self {
