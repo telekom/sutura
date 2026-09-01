@@ -341,7 +341,36 @@ jobs:
             echo "::error::the release App minted no token; nothing was pushed"
             exit 1
           fi
+          # Prove the token IS the App's before anything is pushed, because a rejected push has
+          # two indistinguishable causes - a credential that is not the App's, and a bypass entry
+          # that does not apply - and telling them apart afterwards costs a release cycle. An
+          # installation token can read its own repository list; nothing else can.
+          if ! curl -sfS \
+                 -H "Authorization: Bearer ${APP_TOKEN}" \
+                 -H "Accept: application/vnd.github+json" \
+                 https://api.github.com/installation/repositories \
+               | grep -q "\"full_name\"[[:space:]]*:[[:space:]]*\"${GITHUB_REPOSITORY}\""; then
+            echo "::error::the minted token is not an installation token for ${GITHUB_REPOSITORY}"
+            exit 1
+          fi
           release_remote="https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # THE CREDENTIAL IN THAT URL IS NOT ENOUGH ON ITS OWN, and this is the whole of why the
+          # first attempt failed. `actions/checkout` with `persist-credentials: true` writes
+          # `http.https://github.com/.extraheader` into this clone's config carrying GITHUB_TOKEN's
+          # Authorization, and git sends that header for EVERY github.com URL - so it overrides
+          # the userinfo above and the push goes out as `github-actions[bot]` no matter which
+          # remote it names.
+          #
+          # MEASURED, not reasoned about: run 33500685468 minted the token (`APP_TOKEN: ***`),
+          # pushed to `...github.com/telekom/sutura.git` - our URL, `.git` and all - and was
+          # refused by the same three rules as the run before the App existed. Identical output,
+          # different cause, which is exactly the trap the check above now closes.
+          #
+          # `http.extraHeader` is a LIST and git documents an empty value as resetting it, so
+          # `-c <key>=` per command drops the persisted header for these two pushes and leaves the
+          # trunk push below on GITHUB_TOKEN - which it needs, since that token's inability to
+          # start a workflow run is what keeps the changelog path from looping.
+          drop_persisted_header='http.https://github.com/.extraheader='
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add CHANGELOG.md Cargo.toml Cargo.lock
@@ -353,10 +382,10 @@ jobs:
           # the tag names an object `main` does not contain. `--no-write-fetch-head` is not
           # needed here; what is needed is that neither URL is echoed - `set -x` anywhere in
           # this step would put the token in the log.
-          git push "$release_remote" HEAD:main
+          git -c "$drop_persisted_header" push "$release_remote" HEAD:main
           # This one starts release.yml and docs.yml, because it is made with an App token. See
           # the header: it used to start nothing and both were dispatched by hand below.
-          git push "$release_remote" "${VERSION}"
+          git -c "$drop_persisted_header" push "$release_remote" "${VERSION}"
 
           # AND BACK ONTO THE TRUNK, because the release commit is the one thing that lands on
           # `main` without going through `dev`. Left alone, `dev`'s `Cargo.toml` stays a version
