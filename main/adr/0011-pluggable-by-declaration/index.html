@@ -1512,6 +1512,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the contribution manifest is built, and its serialized form is decided
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2566,6 +2577,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the contribution manifest is built, and its serialized form is decided
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3274,6 +3296,54 @@ number nobody here can vouch for. The split above is unchanged; the mechanism un
 the dimensions, their allowed values, the joins and their cardinality already filled, leaving a human to
 supply the measure and approve it. That is the difference between promotion being a form to fill and
 promotion being a sentence to confirm.</p>
+<h2 id="amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided">Amendment: the contribution manifest is built, and its serialized form is decided<a class="headerlink" href="#amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided" title="Permanent link">&para;</a></h2>
+<p>This amendment resolves the one thing the digest section above deferred - <em>the amendment is what a
+reviewer needs in front of them</em> - and it reconciles a sentence in that section with the shape that
+had to be built. It is the record of steps 3 and 4 of #115.</p>
+<p><strong>The sentence <em>"no manifest parameter, no closure, no trait"</em> is reconciled, not broken.</strong> Read
+against the two hash-constructor bugs the section itself names, it means: <code>PinnedDefinitions::pin</code>
+takes no digest, no hashing closure and no trait object - a caller can still not influence what the
+digest is taken over. The manifest is the fourth piece of CONTENT, in exactly the sense the
+knowledge argument already established (<code>pin(version, definitions, knowledge)</code> became
+<code>pin(version, definitions, knowledge, manifest)</code>), hashed with the rest by the domain's own
+canonical form, and stored beside them. A caller could no more hand in a manifest unconnected to
+the assembly than it could hand in definitions unconnected to the digest: the digest is computed
+over the three values being stored, and there is no parameter through which a caller reaches the
+hashing. <code>MetadataCapabilities::checked_against</code> in the assembler is what keeps a manifest entry's
+capability declaration from lying about its own content.</p>
+<p><strong>The serialized form.</strong> One entry per configured metadata source, in a <code>BTreeMap</code> keyed on the
+source's declared name (the name an operator writes as a <code>catalogs:</code> key). Each entry:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">"capabilities"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"definitions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"structure"</span><span class="p">,</span><span class="w"> </span><span class="s2">"descriptions"</span><span class="p">,</span><span class="w"> </span><span class="s2">"..."</span><span class="p">],</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"knowledge"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"glossary"</span><span class="p">,</span><span class="w"> </span><span class="s2">"..."</span><span class="p">]</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">"required_or_optional"</span><span class="p">:</span><span class="w"> </span><span class="s2">"required"</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">"reached"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Nothing else: no host, no credential, no URL, no version. The canonical JSON sequence the digest is
+taken over grows from a two-element pair <code>(definitions, knowledge)</code> to a three-element triple
+<code>(definitions, knowledge, manifest)</code>, which is the "single, reviewable diff" the section priced, and
+every committed digest moves once on the landing of this amendment.</p>
+<p><strong>Three recorded limits, each stated where the claim is.</strong> <code>required_or_optional</code> is <code>required</code> for
+every entry on every bundle this code can produce - no settings shape declares an optional source
+yet, so serving starts only when every configured source loaded, and an entry's <code>reached</code> is
+therefore always true. Both fields are carried because the availability rules this section decided
+land on top of them; a deployment that can declare <code>optional</code> is the diff that first writes a value
+other than <code>required</code>. And a manifest entry carries the source's <em>declared</em> capabilities - what the
+composition recorded it as providing - which is not a content hash per source: two different bundles
+from the same reachable sources are told apart by the assembly, exactly as before.</p>
+<p><strong>Two composing sources must name the same version.</strong> A bundle is one snapshot, and two sources
+certified at different times is the "answers that differ across a refresh boundary" shape this record
+already refuses to paper over - so the assembler refuses contributions whose versions differ, naming
+both. <strong>And a metric may reference only a model its own source also declares</strong>, which is a limit of
+the port as built: <code>SemanticCatalog::load</code> returns an already-assembled <code>PinnedDefinitions</code>, so a
+source whose metric names a model held only by another source cannot load today. The wave-one
+deployment this amendment enables therefore composes a narrow structural source with a certified
+source that is self-contained, and the cross-source-reference case - the literal "DataHub's model,
+metrics certified here" - lands with the raw-contribution port, which is a separate decision and not
+this amendment's.</p>
 
 
 
