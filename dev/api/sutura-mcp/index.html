@@ -943,6 +943,8 @@
       
         
       
+        
+      
     
     
     
@@ -1560,6 +1562,34 @@
     
   
     How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
   
 
     
@@ -2252,7 +2282,7 @@ throw away the only description of the fault that exists.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-serve_stdio"><code>fn serve_stdio</code><a class="headerlink" href="#fn-serve_stdio" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Serves the agent surface over standard input and output, until the client disconnects.</p>
 <p>The transport an agent client launches a server over: it spawns the process and speaks the
@@ -2371,9 +2401,9 @@ composition change rather than as a redesign of this handler.</p>
 <p>Holds the service behind an <code>Arc</code> because a tool call is answered on the blocking pool, so the
 port has to outlive the future that started the call.</p>
 <h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">Permitted</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>Wraps a service, and states what the peer may do.</p>
+<p>Wraps a service, and states what the peer may do and how catalog prose is treated.</p>
 <p>Takes the <code>Arc</code> rather than making one, so a composition root serving two transports shares
 one bundle and one data system rather than opening a second of each.</p>
 <p><strong><code>permitted</code> is required rather than defaulted, and that is the point of the signature.</strong> A
@@ -2381,6 +2411,10 @@ default here would be a posture chosen by this file for every deployment that ev
 <code>Permitted::every_capability</code> is the right answer over standard input and output and would be
 the wrong answer the moment this surface is reachable over a network, and only a composition
 root knows which it is building. See the module documentation for what the value then gates.</p>
+<p><strong><code>prose</code> is required for the same reason, and it is a review-only value until a composition
+root links this surface</strong> - <code>serve_stdio</code> is the only caller today and it passes what the
+operator configured. A <code>CatalogProse</code> with no default keeps <code>quoted</code> from being a posture
+chosen here for a deployment that meant something else.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>ServerHandler</code></p>
 <h2 id="module-tool">Module <code>tool</code><a class="headerlink" href="#module-tool" title="Permanent link">&para;</a></h2>

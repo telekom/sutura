@@ -943,6 +943,8 @@
       
         
       
+        
+      
     
     
     
@@ -1560,6 +1562,34 @@
     
   
     How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
   
 
     
@@ -2860,6 +2890,34 @@ passed in.</p>
 <p>Deterministic in its inputs: every collection walked here is a <code>BTreeMap</code> or a <code>BTreeSet</code>, and
 the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
 what lets the rendering be pinned by a snapshot rather than described.</p>
+<h2 id="module-untrusted">Module <code>untrusted</code><a class="headerlink" href="#module-untrusted" title="Permanent link">&para;</a></h2>
+<p>The shared prompt-injection corpus every surface walks.</p>
+<p><code>#128</code>'s two forgeries are the same defect twice: a value that enters a rendering
+from outside the transport spells a structural token the transport believes only it
+writes. A cell is a string from the data system and a description is prose from a
+catalog author - a <code>\t</code> cell crosses a column boundary, a <code>\n</code> cell crosses a row,
+and either can spell the provenance trailer, the exact channel <code>Provenance</code> exists
+to make trustworthy. On a text surface (the agent tool and the prompt) a value must
+therefore be escaped or quoted per line; on a structured surface (JSON) the encoder
+owns the boundary and a value must stay one opaque string.</p>
+<p>These are the inputs BOTH transports run, so a third transport inherits the tests
+rather than the mistake. Each entry is a deliberate escape attempt; each surface's
+test walks the list and asserts the property its own encoder provides, so the
+corpus does not carry an expected output - only the hostile input.</p>
+<p>The honest limit, and it is the whole of what this module does NOT claim:
+<code>docs/agent-prompt.md</code> says no mechanism catches prose that persuades without
+escaping. A value that never escapes can still instruct. What the quoting rejects
+is the escape, never the instruction.</p>
+<h3 id="constant-cells"><code>constant CELLS</code><a class="headerlink" href="#constant-cells" title="Permanent link">&para;</a></h3>
+<p>Row cells that try to take over the answer's text half.</p>
+<p>The text half is tab-joined columns and newline-joined rows with a provenance
+trailer, all of which the fix escapes. Each cell here would, unescaped, either
+fabricate structure or forge the identity claim.</p>
+<h3 id="constant-prose"><code>constant PROSE</code><a class="headerlink" href="#constant-prose" title="Permanent link">&para;</a></h3>
+<p>Catalog descriptions that try to reach the agent at column zero.</p>
+<p>The descriptions the tool and the prompt render are quoted per line (<code>&gt;</code>) or
+omitted. Each entry here, unquoted, would open a line an encoder did not write - a
+heading, a fence, a bare instruction, or a fake <code>definitions:</code> trailer.</p>
 <h2 id="module-warehouses">Module <code>warehouses</code><a class="headerlink" href="#module-warehouses" title="Permanent link">&para;</a></h2>
 <p>The data systems this process opened, keyed by the name a plan selects them with.</p>
 <h1 id="why-a-registry-rather-than-one-warehouse">Why a registry rather than one warehouse<a class="headerlink" href="#why-a-registry-rather-than-one-warehouse" title="Permanent link">&para;</a></h1>

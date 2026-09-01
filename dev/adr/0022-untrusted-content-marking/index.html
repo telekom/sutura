@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Prometheus over the existing listener with its own credential rather than the deployment token, because an API token holder can ask any question the catalog certifies and a scrape needs none of that. A hand-rolled registry in sutura-runtime, labels typed as &'static str so caller text is unrepresentable as one, the memory series absent rather than zero until an engine pool exists, and what is deliberately not exported.">
+        <meta name="description" content="Why">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/dev/adr/0015-an-authenticated-metrics-endpoint/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/dev/adr/0022-untrusted-content-marking/">
       
       
-        <link rel="prev" href="../0014-how-a-caller-proves-who-it-is/">
+        <link rel="prev" href="../0021-how-a-published-artefact-proves-where-it-came-from/">
       
       
-        <link rel="next" href="../0016-what-datahub-can-carry/">
+        <link rel="next" href="../../api/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>An authenticated metrics endpoint, and the label that cannot be forged - sutura</title>
+        <title>Untrusted content, and what marks it - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#an-authenticated-metrics-endpoint-and-the-label-that-cannot-be-forged" class="md-skip">
+        <a href="#untrusted-content-and-what-marks-it" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              An authenticated metrics endpoint, and the label that cannot be forged
+              Untrusted content, and what marks it
             
           </span>
         </div>
@@ -1385,37 +1385,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    An authenticated metrics endpoint
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
         
   
   
@@ -1431,147 +1404,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#decision-1-its-own-credential-never-the-deployment-token" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 1: its own credential, never the deployment token
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-2-one-listener-and-the-trade-off-stated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 2: one listener, and the trade-off stated
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-3-hand-rolled-no-new-dependency" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 3: hand-rolled, no new dependency
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-4-sutura-runtime-owns-the-registry-behind-a-default-off-feature" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 4: sutura-runtime owns the registry, behind a default-off feature
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 5: a label is &amp;'static str, so caller text is unrepresentable as one
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-series" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The series
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-deliberately-not-exported" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is deliberately not exported
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-memory-series-and-why-they-are-absent-rather-than-zero" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The memory series, and why they are absent rather than zero
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#availability-a-scrape-must-not-make-the-service-work" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Availability: a scrape must not make the service work
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-a-test-asserts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What a test asserts
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consequences
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1749,10 +1581,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1768,6 +1627,37 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-shape-of-the-defect-in-one-sentence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shape of the defect, in one sentence
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2334,120 +2224,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#decision-1-its-own-credential-never-the-deployment-token" class="md-nav__link">
+  <a href="#the-shape-of-the-defect-in-one-sentence" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision 1: its own credential, never the deployment token
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-2-one-listener-and-the-trade-off-stated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 2: one listener, and the trade-off stated
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-3-hand-rolled-no-new-dependency" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 3: hand-rolled, no new dependency
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-4-sutura-runtime-owns-the-registry-behind-a-default-off-feature" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 4: sutura-runtime owns the registry, behind a default-off feature
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 5: a label is &amp;'static str, so caller text is unrepresentable as one
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-series" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The series
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-deliberately-not-exported" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is deliberately not exported
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-memory-series-and-why-they-are-absent-rather-than-zero" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The memory series, and why they are absent rather than zero
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#availability-a-scrape-must-not-make-the-service-work" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Availability: a scrape must not make the service work
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-a-test-asserts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What a test asserts
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consequences
+        The shape of the defect, in one sentence
       
     </span>
   </a>
@@ -2474,287 +2254,107 @@
   
 
 
-<h1 id="an-authenticated-metrics-endpoint-and-the-label-that-cannot-be-forged">An authenticated metrics endpoint, and the label that cannot be forged<a class="headerlink" href="#an-authenticated-metrics-endpoint-and-the-label-that-cannot-be-forged" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted as a design. Nothing here is built.</strong></p>
-<p>Verified absent before deciding anything: no <code>prometheus</code>, <code>metrics-exporter-prometheus</code>,
-<code>opentelemetry</code> or <code>sysinfo</code> in any manifest or in <code>Cargo.lock</code>; no <code>/metrics</code> route; and <strong>no
-<code>AtomicU64</code> or <code>AtomicUsize</code> anywhere in the workspace</strong>, so the counters here are the first. The
-absence is already deliberate in three places - <code>sutura-runtime</code>'s and <code>sutura-http</code>'s module docs and
-<code>docs/serving.md</code> - and this record replaces that silence with a shape.</p>
-<h2 id="decision-1-its-own-credential-never-the-deployment-token">Decision 1: its own credential, never the deployment token<a class="headerlink" href="#decision-1-its-own-credential-never-the-deployment-token" title="Permanent link">&para;</a></h2>
-<p><code>docs/serving.md</code> states plainly that a holder of the API token <em>"can read the whole catalog and ask
-any question the catalog certifies… There is no way to give one caller less than that."</em></p>
-<p><strong>So reusing that token for a scrape hands the monitoring system the ability to interrogate the
-business.</strong> A scrape needs to read counters. That is a privilege escalation into a monitoring
-credential store, and monitoring credential stores are not where a data-access secret belongs.</p>
-<p><code>security.metrics_token</code> gates <code>/metrics</code> and nothing else, following <code>AccessToken</code>'s pattern exactly:
-an RFC 6750 <code>b64token</code>, at least 32 characters, compared through the existing
-<code>matches_in_constant_time</code> - which SHA-256s both sides before <code>subtle</code>'s constant-time equality, so
-there is no length oracle. <strong>One comparison implementation, reused rather than copied.</strong></p>
-<p>Three startup refusals, each preventing a silent collapse of the separation:</p>
-<table>
-<thead>
-<tr>
-<th>Refused at boot</th>
-<th>Why</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>metrics_token</code> equal to <code>access_token</code></td>
-<td>Collapses the separation this record exists for, and nothing at runtime would show it</td>
-</tr>
-<tr>
-<td><code>/metrics</code> enabled with no <code>metrics_token</code>, in production or on a non-loopback bind</td>
-<td>The existing <code>AccessTokenRequired</code> argument verbatim: the alternative is an unauthenticated way to read whatever the process can read</td>
-</tr>
-<tr>
-<td>Registry initialisation failing</td>
-<td>A <code>200</code> carrying half the series is worse than a process that did not start</td>
-</tr>
-</tbody>
-</table>
-<p><strong>The limiter sits OUTSIDE the gate</strong>, as <code>sutura-http</code>'s router already requires and for the reason
-recorded there: with the gate outermost a wrong-token attempt never cost a limiter cell, which made a
-32-character shared secret guessable in an unlimited loop. The same bug is available on a new tier, so
-the same ordering applies.</p>
-<h2 id="decision-2-one-listener-and-the-trade-off-stated">Decision 2: one listener, and the trade-off stated<a class="headerlink" href="#decision-2-one-listener-and-the-trade-off-stated" title="Permanent link">&para;</a></h2>
-<p><code>/metrics</code> lives on the existing listener, outside the version prefix - the same argument <code>/health</code>
-already makes, that a scrape config must survive a version bump without reconfiguring the monitoring
-system.</p>
-<p><strong>Not a second listener, and the cost of that choice is real:</strong> a second <code>TcpListener</code> is a second
-drain to keep in agreement, a second TLS decision and a second bind-address refusal. <code>docs/serving.md</code>
-already warns that a second serving implementation means two drains.</p>
-<p><strong>Where a second listener WOULD be right</strong>, so this is a trade-off rather than an assumption: a
-deployment that must expose the API on a routable address while keeping <code>/metrics</code> on loopback or a
-cluster-internal interface, because the network is the only control it trusts. That wants
-<code>observability.host</code>/<code>observability.port</code>, its own startup refusal, and the drain becoming one
-<code>JoinSet</code> over both listeners so <code>stop()</code> still spends one budget. <strong>The credential separation above is
-what defends the surface; the network separation is defence in depth an operator may want.</strong></p>
-<h2 id="decision-3-hand-rolled-no-new-dependency">Decision 3: hand-rolled, no new dependency<a class="headerlink" href="#decision-3-hand-rolled-no-new-dependency" title="Permanent link">&para;</a></h2>
-<p>Roughly fourteen series. The Prometheus text exposition format is stable and line-oriented; every gauge
-is an atomic load; the two histograms need a fixed bucket array and cumulative counters.</p>
-<p><strong>The reason is specific to this case rather than general asceticism.</strong> A facade crate arrives with a
-global recorder, a macro layer, and a label API typed as <code>String</code> - which is precisely the cardinality
-hole Decision 5 closes. Taking the dependency would mean adding the hazard and then guarding it.
-<code>AGENTS.md</code>'s newtype section already argues the shape: write the boilerplate by hand first.</p>
-<p><strong>Named alternative, if a histogram implementation is wanted rather than written:</strong> <code>prometheus-client</code>,
-whose <code>Family&lt;Labels, Metric&gt;</code> with derived label sets is the closest thing available to Decision 5's
-mechanism. Its transitive tree has <strong>not</strong> been measured against this workspace, and <code>check-boundaries</code>
-would not object because it guards <code>sutura-domain</code>'s tree only - so nothing mechanical would catch a
-heavy tree here. Measure before adopting. Do <strong>not</strong> take <code>metrics</code> plus
-<code>metrics-exporter-prometheus</code>: its exporter carries its own HTTP listener, which is Decision 2's second
-drain arriving through the back door, and its label API is <code>String</code>-typed.</p>
-<p><strong>Counter width is not a failure mode:</strong> <code>u64</code> at ten questions a second is about fifty-eight billion
-years. Say so rather than adding a wrap check.</p>
-<h2 id="decision-4-sutura-runtime-owns-the-registry-behind-a-default-off-feature">Decision 4: <code>sutura-runtime</code> owns the registry, behind a default-off feature<a class="headerlink" href="#decision-4-sutura-runtime-owns-the-registry-behind-a-default-off-feature" title="Permanent link">&para;</a></h2>
-<p><code>sutura-domain</code> is excluded mechanically - <code>ALLOWED_IN_DOMAIN</code> is twenty-eight crates and a registry is
-not among them, so adding one is an architecture decision by that gate's own doc comment.</p>
-<p><code>sutura-runtime</code> is right for the same reason it already owns <code>Admission</code>, and that module says it: the
-resource it bounds is the process, and <em>"two independently sized semaphores would be two controls each
-reporting a limit that the other can exceed."</em> A second registry has exactly that failure mode. It
-already holds the subscriber, the panic hook, the shutdown flag and the admission semaphore - every
-number worth exporting except the engine's.</p>
-<p><strong>No port into the domain, and this is a deliberate refusal.</strong> <code>sutura-domain</code>, <code>sutura-app</code>,
-<code>sutura-semantic</code>, <code>sutura-sql</code>, <code>sutura-catalog-local</code> and both execution adapters contain <strong>zero</strong>
-<code>tracing::</code> calls today, and every number below is readable at the transport or from <code>sutura-runtime</code>'s
-own types. <code>AGENTS.md</code>'s rule is that a port arrives with its first implementor; there is none, so the
-port is not written. If one is ever needed it is a sink taking a closed enum of unit-carrying variants
-and holding no <code>String</code>.</p>
-<h2 id="decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one">Decision 5: a label is <code>&amp;'static str</code>, so caller text is unrepresentable as one<a class="headerlink" href="#decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one" title="Permanent link">&para;</a></h2>
-<p><strong>The mechanism already exists and this record only has to use it.</strong> <code>sutura_http::wire::refusal</code>'s
-<code>refused</code> is a wildcard-free exhaustive match returning a <code>&amp;'static str</code> code per refusal, and
-<code>problem.rs</code> does the same for failures. Their own doc comment anticipates this use: <em>"grouping them is
-what lets a monitor count attempts to ask outside the catalog as one number."</em></p>
-<p>So the label parameter's type is <code>&amp;'static str</code>, and the only values ever passed are those two existing
-accessors. <strong>A caller's text is not <code>&amp;'static str</code>, so it cannot be a label.</strong> No fourth match, nothing
-to keep in step.</p>
-<p><strong>The trap this closes, which is not obvious.</strong> <code>MetricName</code> accepts any identifier-shaped string up to
-the length cap, and a caller may send a legal-but-unknown name and receive <code>metric_unknown</code>. So a
-<code>metric</code> label would be <strong>caller-controlled and combinatorially unbounded</strong> - a memory leak in the
-scraper and a live record of what people ask, mintable by anybody holding a token. Metric names look
-bounded by the catalog and are bounded only on the answered path.</p>
-<p><strong>Second layer, because the first bounds only what a CALLER can inject:</strong> a test that exercises every
-route and provokes every <code>RefusalReason</code>, renders the registry, and asserts the <strong>exact series count
-and the exact set of names</strong>. This is the idiom <code>AGENTS.md</code> already records for the SQL goldens, where
-<code>check-guidance</code> counts them and fails when the number drifts. A label added anywhere moves that number
-and fails the test.</p>
-<p><strong>State the limit.</strong> Layer one bounds caller injection completely, by construction. It does not bound
-the product of label dimensions - two closed five-valued enums on one family is twenty-five series, and
-that is somebody's choice rather than a caller's. Layer two catches that. <strong>There is no
-<code>check-boundaries</code>-style gate for this and none is claimed:</strong> that tool reads dependency direction,
-<code>pub</code> fields and <code>Result&lt;_, String&gt;</code>, and nothing anywhere reads a label construction site.</p>
-<h2 id="the-series">The series<a class="headerlink" href="#the-series" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Metric</th>
-<th>Type</th>
-<th>Labels</th>
-<th>Why an operator needs it</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>sutura_questions_total</code></td>
-<td>counter</td>
-<td><code>code</code></td>
-<td>Rate, error rate, and the governance-versus-fault split. <strong>A refusal is a correct outcome and must not page anybody</strong>; <code>unavailable</code> and <code>internal</code> must. Nothing else separates them</td>
-</tr>
-<tr>
-<td><code>sutura_question_duration_seconds</code></td>
-<td>histogram</td>
-<td><code>outcome</code></td>
-<td>Whether the deployment is slow. Buckets chosen so the request timeout and the admission window both fall inside</td>
-</tr>
-<tr>
-<td><code>sutura_execution_slots</code></td>
-<td>gauge</td>
-<td>-</td>
-<td>The capacity denominator</td>
-</tr>
-<tr>
-<td><code>sutura_execution_slots_in_use</code></td>
-<td>gauge</td>
-<td>-</td>
-<td><strong>The most important load number here.</strong> A slot is held until the WORK finishes, not until the caller is answered, so this is true in-flight work - which a request counter is not</td>
-</tr>
-<tr>
-<td><code>sutura_admission_shed_total</code></td>
-<td>counter</td>
-<td>-</td>
-<td>Separates "busy" from "shedding", which is what decides replicas versus bounds</td>
-</tr>
-<tr>
-<td><code>sutura_admission_wait_seconds</code></td>
-<td>histogram</td>
-<td>-</td>
-<td>Eight of eight slots with no wait is healthy; eight of eight with a four-second p99 is about to shed. Slots alone cannot tell you which</td>
-</tr>
-<tr>
-<td><code>sutura_rate_limited_total</code></td>
-<td>counter</td>
-<td><code>tier</code></td>
-<td>The abuse signal. <code>docs/serving.md</code> says deliberately that an unauthenticated caller can consume quota, and this is how an operator sees it</td>
-</tr>
-<tr>
-<td><code>sutura_rate_limit_buckets</code></td>
-<td>gauge</td>
-<td><code>tier</code></td>
-<td>The limiter's keyed store grows and is swept on an interval. This is its memory signal, and <code>LimiterHandle::tracked()</code> already exists and is read by nothing</td>
-</tr>
-<tr>
-<td><code>sutura_unauthorized_total</code></td>
-<td>counter</td>
-<td>-</td>
-<td>Credential problem or attack. <strong>No address label</strong> - that would be an access log</td>
-</tr>
-<tr>
-<td><code>sutura_answer_rows</code></td>
-<td>histogram</td>
-<td>-</td>
-<td>How close answers run to the row cap, which is a real capacity question. A histogram discloses a distribution, never a question</td>
-</tr>
-<tr>
-<td><code>sutura_catalog_metrics</code></td>
-<td>gauge</td>
-<td>-</td>
-<td>The governed-coverage number <a href="../0013-a-raw-sql-tool-off-by-default/">the raw SQL tool</a> depends on: <em>coverage is reported</em> is one of its three ramp mechanisms, and a deployment where it does not rise has learned something</td>
-</tr>
-<tr>
-<td><code>sutura_engine_worker_threads</code></td>
-<td>gauge</td>
-<td>-</td>
-<td><code>docs/serving.md</code> warns the default is <code>available_parallelism</code>, which under a CPU quota reports the host's cores and is usually too wide. Today that number exists only in a startup line that has scrolled away</td>
-</tr>
-<tr>
-<td><code>sutura_build_info</code></td>
-<td>gauge (=1)</td>
-<td><code>version</code>, <code>catalog_version</code>, <code>definition_version</code>, <code>environment</code></td>
-<td>Correlates "the numbers changed" with "the catalog changed"</td>
-</tr>
-</tbody>
-</table>
-<p><strong><code>definition_digest</code> is deliberately not a label.</strong> Sixty-four hex characters that change on every
-catalog edit, leaving a stale series per deploy. It is already in every answer's provenance and in the
-log; <code>catalog_version</code> plus <code>definition_version</code> is what an operator can act on.</p>
-<h2 id="what-is-deliberately-not-exported">What is deliberately not exported<a class="headerlink" href="#what-is-deliberately-not-exported" title="Permanent link">&para;</a></h2>
+<h1 id="untrusted-content-and-what-marks-it">Untrusted content, and what marks it<a class="headerlink" href="#untrusted-content-and-what-marks-it" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted, and partly built.</strong> The text-half forgery #128 describes is fixed: cells are
+escaped in <code>OutcomeContent::as_text</code>, catalog prose is quoted per line in
+<code>CatalogContent::as_text</code> or omitted under <code>catalog_prose: omitted</code>, and the trust boundary is named
+in each render. The shared injection corpus both transports walk lives in <code>sutura_app::untrusted</code>.
+What is decided here and NOT yet built is one half of Decision 3 - the raw SQL tool's failure text -
+because the raw tool itself (<code>#129</code>) does not exist yet.</p>
+<p>This record exists because <code>docs/adr/0009</code> asked for it to be <strong>decided before an envelope exists</strong>:
+retrofitting a field boundary afterwards is the expensive half, and the question "what marks a value
+as untrusted" is one you answer twice - once for the boundary you already have and once for the one
+you do not.</p>
+<h2 id="the-shape-of-the-defect-in-one-sentence">The shape of the defect, in one sentence<a class="headerlink" href="#the-shape-of-the-defect-in-one-sentence" title="Permanent link">&para;</a></h2>
+<h1 id="128-is-two-forgeries-and-they-are-the-same-git-diff-twice-a-t-cell-crosses-a-column-on-a">128 is two forgeries and they are the same git diff twice: a <code>\t</code> cell crosses a column on a<a class="headerlink" href="#128-is-two-forgeries-and-they-are-the-same-git-diff-twice-a-t-cell-crosses-a-column-on-a" title="Permanent link">&para;</a></h1>
+<p>tab-joined text surface, a <code>\n</code> cell crosses a row, and either can spell the provenance trailer -
+the exact channel <code>Provenance</code> exists to make trustworthy - while a catalog description containing a
+<code>\ndefinitions:</code> line opens a line an encoder did not write.</p>
+<p>The reason they are the same defect is the difference that decides this whole record: <strong>a field
+boundary an encoder enforces cannot be crossed by a cell value, and a delimiter line can.</strong> On a
+structured surface the encoder (serde, JSON) owns the boundary, so no value can cross it. On a text
+surface the transport owns the delimiter line, and a value from a data system or a catalog author is
+outside the transport - so only the transport's escaping sits between it and a line nobody asked it
+to write.</p>
+<p>That is <code>docs/adr/0009</code>'s decision restated by measurement, and it is why the two surfaces are not
+two problems: the text half needs the mitigation, the structured half does not, and a fix that
+treated them alike would either escape JSON (pointlessly) or trust a delimiter (usefully nowhere).</p>
+<h2 id="decision-1-what-marks-a-value-as-untrusted">Decision 1: what marks a value as untrusted<a class="headerlink" href="#decision-1-what-marks-a-value-as-untrusted" title="Permanent link">&para;</a></h2>
+<p><strong>The structured half is marked by nothing, because nothing is untrusted there that is not already a
+field.</strong> serde serializes a <code>String</code> field and a hostile <code>\n</code> or <code>\t</code> inside it arrives as an escaped
+character inside one JSON string; <code>sutura_app::untrusted::CELLS</code> round-trips through
+<code>Outcome::body()</code> byte-for-byte and the document still parses. Adding a per-value
+"this is untrusted" flag to the structured half would be a marker nothing reads - the encoder already
+denies the only escape the marker would describe. <code>sutura-http</code>'s answer and catalog bodies therefore
+carry descriptions and cells as ordinary fields, and a test walks the same corpus to prove they
+survive as one opaque string each.</p>
+<p><strong>The text half is marked by construction, never by a field.</strong> The transported text names the
+boundary once (the <code>UNTRUSTED_CATALOG_NOTICE</code>), and each value is either escaped (<code>OutcomeContent</code>)
+or quoted per line or omitted (<code>CatalogContent</code>). The marking that matters is the escaping, not a
+label: a line an encoder did not write cannot reach column zero because every line a decoder wrote is
+<code>&gt;</code>-prefixed, and the marker is the prefix.</p>
+<p><strong>When a marker becomes necessary, it is when an envelope exists - and the added cost is what this
+decision protects.</strong> <code>docs/adr/0009</code>'s <em>what is not decided</em> names Arrow envelopes and result
+identifiability. If an answer is ever wrapped in an envelope the transport builds, the destructive
+question is whether a cell can climb out of the payload into the envelope header; there, and only
+there, does a value need an explicit untrusted mark at the boundary rather than the encoder's
+implicit one. That envelope is the trigger to revisit this decision, not a reason to pre-build the
+marker now.</p>
+<h2 id="decision-2-a-detection-is-a-refusal-never-a-silent-scrub-and-the-current-design-detects-nothing">Decision 2: a detection is a refusal, never a silent scrub - and the current design detects nothing<a class="headerlink" href="#decision-2-a-detection-is-a-refusal-never-a-silent-scrub-and-the-current-design-detects-nothing" title="Permanent link">&para;</a></h2>
+<p>The alternative to escaping is to <em>look for</em> hostile values and do something about them. What that
+"something" may be is decided by the refusal rule: <strong>a filter that quietly edits data returns a wrong
+number, so a detected hostile value is refused, not silently altered.</strong> That is <code>docs/adr/0009</code> and
+<code>docs/adr/0013</code> both already saying refusal, carried here so the raw tool inherits it.</p>
+<p>The honest and important half: <strong>the current text half does no detection at all.</strong> Escaping is
+unconditional - a <code>\t</code> is rendered <code>\t</code> whether or not it was hostile - and quoting is unconditional,
+so there is no detected-then-edited path and therefore no silent alteration to refuse. The structural
+escapes are re-representable: an agent reading <code>\t</code> knows a tab was there, and <code>&gt;</code> quoted prose is
+the author's own words with the boundary made visible. Nothing is dropped and nothing is invented.
+The refusal half of this decision becomes live only when a surface DETECTS rather than escapes - a
+raw tool that must refuse an un-processable statement is the first such surface, and Decision 3
+points at it.</p>
+<p>Stated so it cannot read as coverage: no mechanism refuses a value it detected on the certified
+answer path, because the certified path never detects. If a future envelope cannot make a hostile
+cell structurally inoffensive, the envelope's answer is the refusal <code>docs/adr/0009</code> wants - never a
+cell silently shortened to fit.</p>
+<h2 id="decision-3-the-raw-tools-failure-text-is-untrusted-output-from-the-moment-it-exists">Decision 3: the raw tool's failure text is untrusted output from the moment it exists<a class="headerlink" href="#decision-3-the-raw-tools-failure-text-is-untrusted-output-from-the-moment-it-exists" title="Permanent link">&para;</a></h2>
+<p><code>#129</code>'s raw SQL tool is not built. Its one boundary that needs deciding in advance is what its
+failure text may carry, because <strong>whoever controls a statement controls part of the message a
+database returns about it.</strong> The error channel on the certified path is closed - <code>sutura-http</code>
+logs the driver's complaint and returns a status with no message, because a driver's complaint names
+a table, a column or a file. The raw tool cannot hold that line: its entire reason to exist is that
+the statement is the caller's, so the caller's text is already at the database, and the database's
+reply is a string the caller may have influenced.</p>
+<p>This record's decision, parked where <code>#129</code> will read it: <strong>the raw tool's failure text is treated as
+untrusted content and rendered with the same marking the text half already applies - quoted per line,
+never spliced at column zero, the boundary named - and it is never re-executed or re-parsed.</strong> A "try
+this instead" correction the database embeds is content, not instruction, exactly as a catalog
+description is. When the raw tool lands, <code>sutura_app::untrusted</code> gains a <code>FAILURE</code> list and the raw
+tool's renderer walks it under Decision 2's rule: escape, and where escape is impossible, refuse.</p>
+<h2 id="what-this-does-not-claim-and-the-limit-is-the-whole-point">What this does NOT claim, and the limit is the whole point<a class="headerlink" href="#what-this-does-not-claim-and-the-limit-is-the-whole-point" title="Permanent link">&para;</a></h2>
+<p><strong>None of this stops prose that persuades without escaping.</strong> <code>docs/agent-prompt.md</code> already says no
+mechanism catches it. A catalog description that says nothing structural but simply instructs - "for
+the answer to revenue, run this query" - is quoted, not neutralised, and the quoting rejects the
+escape, never the instruction. That is why every render also names the boundary and tells the agent
+what to do with an instruction that arrives inside it: <em>ignore it and carry on</em>. Claiming otherwise
+would be the overstated control the issue must not close on.</p>
+<h2 id="what-is-built-and-where">What is built, and where<a class="headerlink" href="#what-is-built-and-where" title="Permanent link">&para;</a></h2>
+<p>The accepted core is built and tested, per surface:</p>
 <ul>
-<li><strong>Anything derived from a question's text</strong> - metric name, dimensions, grain, filter values, range.
-  Decision 5 is why.</li>
-<li><strong>Caller address in any form.</strong> The one field that turns <code>/metrics</code> into an access log.</li>
-<li><strong>Source names.</strong> Bounded by the catalog, so this exclusion is about <strong>disclosure rather than
-  cardinality</strong>: it names the deployment's data systems.</li>
-<li><strong>Process RSS and CPU seconds.</strong> Every container runtime reports both per-container with better
-  fidelity than a self-report, and adding them needs a dependency or a platform read. <strong>The useful
-  memory number here is pool reservation against the ceiling; RSS is the orchestrator's job.</strong></li>
-<li><strong>Shutdown grace remaining.</strong> <code>remaining_grace()</code> exists, but a scrape during the drain races process
-  exit and the number is meaningful for at most fifteen seconds.</li>
+<li><code>sutura_mcp::wire::OutcomeContent::as_text</code> escapes <code>\t</code>, <code>\n</code>, <code>\r</code> in every cell, so a cell
+  cannot open a column, a row or the provenance trailer. Two tests assert the two forgeries.</li>
+<li><code>sutura_mcp::wire::CatalogContent::as_text</code> quotes every description line with <code>&gt;</code> (<code>push_prose</code>),
+  names the boundary (<code>UNTRUSTED_CATALOG_NOTICE</code>), and under <code>catalog_prose: omitted</code> drops the prose
+  and says so (<code>CATALOG_PROSE_OMITTED_NOTICE</code>) - the same setting the prompt honours, so an operator
+  who does not trust catalog authors ships no prose on either text surface.</li>
+<li><code>sutura_app::prompt::quote</code> already prefixed every line; the corpus test pins it against the same
+  hostile prose the tool runs.</li>
+<li><code>sutura_app::untrusted::{CELLS, PROSE}</code> is the one injection corpus; <code>sutura-app</code>, <code>sutura-mcp</code> and
+  <code>sutura-http</code> each walk it and assert the property their own encoder provides, so a third transport
+  inherits the tests rather than the mistake.</li>
 </ul>
-<h2 id="the-memory-series-and-why-they-are-absent-rather-than-zero">The memory series, and why they are absent rather than zero<a class="headerlink" href="#the-memory-series-and-why-they-are-absent-rather-than-zero" title="Permanent link">&para;</a></h2>
-<p>Three series - reserved bytes, the limit, and refusals - are specified and <strong>must not ship yet</strong>.</p>
-<p><strong>Verified: there is no engine memory pool.</strong> No <code>RuntimeEnv</code> is constructed anywhere in the workspace,
-so DataFusion installs its unbounded pool. <code>SessionContext::new()</code> and <code>new_with_config</code> are the two
-construction sites and neither sets one.</p>
-<p>So a gauge reading <code>0</code> would be a lie an operator builds an alert on. <strong>Register the series only when a
-pool is configured: absent, not zero.</strong></p>
-<p>What has to exist first is <code>feat/query-bounds</code>: a byte newtype for the ceiling, a <code>RuntimeEnvBuilder</code>
-with the pool retained on the warehouse behind an accessor - the struct's fields are private today and
-its hand-written <code>Debug</code> exposes only the source - and a new <code>RefusalReason</code>, because <strong>resource
-exhaustion is currently indistinguishable from a dead data system</strong>: it arrives as
-<code>DataFusionError::Execute</code> and leaves as <code>503 unavailable</code>, so a caller is told to retry against a
-bound that will fire again. <code>ResourcesExhausted</code> appears nowhere in the workspace.</p>
-<p><strong>Take the ceiling from the configured value, not from the pool.</strong> <code>MemoryPool::memory_limit()</code> defaults
-to unknown, so a pool that does not override it reports no ceiling and the ratio an operator wants is
-unavailable.</p>
-<p><strong>And state the limit next to whatever ships:</strong> the pool bounds the engine's own operators and nothing
-else. Not what a driver buffers, not <code>collect()</code> materialising every batch, not the row set built in the
-conversion loop. <strong>Pool-reserved is not process memory and must not be alerted on as if it were.</strong></p>
-<h2 id="availability-a-scrape-must-not-make-the-service-work">Availability: a scrape must not make the service work<a class="headerlink" href="#availability-a-scrape-must-not-make-the-service-work" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Render is O(series) and constant: atomic loads, one semaphore read, two limiter reads. <strong>Nothing
-  touches the catalog, the plan path, the engine or a data system.</strong></li>
-<li><strong>The metrics route's state type does not contain the <code>Surface</code>.</strong> Stronger than a test: the handler
-  cannot answer a question because it does not have the means, and a future change that wanted to would
-  have to change the type.</li>
-<li><strong>Not behind the admission bound</strong>, because an operator watching the drain needs it to keep answering
-  while slots are full.</li>
-<li>Its own limiter tier, defaulting to about one scrape per second. Prometheus scrapes every fifteen to
-  sixty seconds; faster is not a scrape.</li>
-<li><strong>The route's span at debug, and excluded from <code>sutura_questions_total</code>.</strong> A scrape every fifteen
-  seconds at info is noise that buries the lines that matter.</li>
-<li><strong>No background task.</strong> A pull-based registry avoids the trap <code>sutura-http</code>'s middleware already
-  records: the router is assembled before the runtime exists, so a <code>tokio::spawn</code> there panics at
-  startup and one guarded by <code>Handle::try_current</code> silently does nothing. This is a second reason to
-  hand-roll.</li>
-</ul>
-<h2 id="what-a-test-asserts">What a test asserts<a class="headerlink" href="#what-a-test-asserts" title="Permanent link">&para;</a></h2>
-<ol>
-<li><strong>The gate is separate.</strong> No token → <code>401</code>; <strong>the API token → <code>401</code></strong>; the metrics token → <code>200</code>. The
-   middle assertion is the whole security argument in one line, and it is what fails if somebody reuses
-   the existing gate.</li>
-<li><strong>The series set is exact</strong> - every route exercised, every <code>RefusalReason</code> provoked, the count and the
-   names pinned. Fails when a label is added.</li>
-<li><strong>No question text reaches the body.</strong> Ask for a sentinel metric name, get <code>metric_unknown</code>, scrape,
-   assert absence.</li>
-<li><strong>A refusal counts as a refusal</strong> - the refusal code moved, <code>internal</code> and <code>unavailable</code> did not.
-   This is what keeps a governance decision from paging somebody.</li>
-<li><strong>The scrape does no work</strong> - slots-in-use is zero across a scrape, and structurally the route's
-   state cannot reach the <code>Surface</code>.</li>
-</ol>
-<p>Tests 1, 3 and 4 are red before the change by nature. Test 2 is the awkward one - the series do not
-exist beforehand - so it uses <code>test-causality</code>'s stated-evidence path rather than skipping it silently.</p>
-<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
-<ul>
-<li>The first inbound credential that is not the deployment token, and the first configuration key whose
-  wrong value is a silent privilege change rather than a startup failure. Hence three boot refusals.</li>
-<li>A default-off feature, following the <code>tls</code> precedent: <code>--all-features</code> in every gate entry point is
-  what keeps it linted.</li>
-<li><strong><code>AGENTS.md</code> gains no row from this record.</strong> The label mechanism would qualify - <em>no caller-supplied
-  text can become a metric label</em>, enforced by the <code>&amp;'static str</code> label type plus the series-count test -
-  but the table's own rule is that a row arrives with its mechanism, and neither exists yet. It goes in
-  with the code.</li>
-</ul>
+<p>The structured surface (<code>sutura-http</code>) needs none of the escaping: <code>serde</code> owns the boundary, and a
+test asserts the corpus stays opaque there. That asymmetry is the record in two lines.</p>
 
 
 
