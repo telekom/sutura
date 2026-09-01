@@ -375,23 +375,18 @@ api:
     nix run .#api-docs
 
 # Shellcheck the shell inside every local composite action. `actionlint` CANNOT READ a composite
-# action - measured against 1.7.12, it parses `action.yml` as a workflow and rejects it - and
-# `shellcheck` in CI globs `*.sh`, which a `run:` block is not. So the release path's own signing
-# sequence was shell nothing had ever linted. `cargo xtask action-shell` extracts it; this pairs
-# that with the pinned shellcheck, which is why the extraction is not a hygiene gate on its own.
+# action - measured against 1.7.12, it parses `action.yml` as a workflow and rejects it - and the
+# shellcheck pass in CI globs `*.sh`, which a `run:` block is not. So the release path's own signing
+# sequence was shell nothing had ever linted. `nix/lint-action-shell.sh` is the sequence, shared with
+# `nix/lint-workflows.sh` so a local run and CI cannot check different things.
 lint-actions:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    out="$(mktemp -d)"
-    trap 'rm -rf "$out"' EXIT
-    cargo run -q -p xtask -- action-shell "$out"
-    # Globbed into an array and asserted non-empty for the reason `ci.yml` gives about its own
-    # `find`: an empty list passes by checking nothing, which is the failure mode that looks
-    # exactly like success.
-    mapfile -t scripts < <(find "$out" -name '*.sh' | sort)
-    test "${#scripts[@]}" -gt 0
-    nix run .#shellcheck -- -x "${scripts[@]}"
-    printf 'lint-actions: ok - %d extracted script(s)\n' "${#scripts[@]}"
+    bash nix/lint-action-shell.sh
+
+# Every static check that reads a workflow, an action or a shell script: zizmor, actionlint,
+# shellcheck over the tree, and the composite-action pass above. What `ci.yml` runs, reached the
+# cheap way - it used to be inline there and had no local caller at all.
+lint-workflows:
+    bash nix/lint-workflows.sh
 
 # Regenerate the committed attribution document from `cargo metadata`. `ATTRIBUTION.md` is the
 # statement a distributor hands on - every third-party crate this workspace resolves and the licence
