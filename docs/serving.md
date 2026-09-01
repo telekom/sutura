@@ -1,9 +1,22 @@
 # Serving over HTTP
 
 `sutura-serve` answers certified questions over HTTP. It is a **second binary**, separate from the
-`sutura` command-line tool, and the release artifacts do not contain it: the shipped image holds one
-executable with no server in it, and putting an async runtime, an I/O driver and a web framework
-into all four cross-compiled targets is a decision rather than a side effect.
+`sutura` command-line tool, and **a release publishes it**: a tarball and a container image at each of
+the four shipped triples, signed and with provenance like everything else on the page.
+
+That is a change. Until then the release artifacts contained the command-line tool and nothing else,
+so the HTTP surface, the caller-token verification, the rate limiter and the generated interface
+description shipped in no artefact on any platform, and this page's only answer to "how do I run it"
+was `cargo run`. It is still a second binary rather than a subcommand: `sutura` is a tool a person
+runs and this is a service a platform schedules, and folding an async runtime, an I/O driver and a web
+framework into the former would put them in every `sutura compile`.
+
+**What the published server does not carry** is in-process TLS and the BigQuery adapter. Both are
+default-off features, both cost an outbound rustls closure on two statically linked triples, and both
+are a **startup refusal that names the feature** rather than a silent degradation - so asking for
+either on a published binary stops the process rather than serving something weaker than asked for.
+A deployment that needs one builds from source; [Terminating it in this
+process](#terminating-it-in-this-process) and the `bigquery` source notes below say which command.
 
 ## Read this part first
 
@@ -283,7 +296,7 @@ depends on why:
 | `federation_not_executable` | `409` | Nothing. This build has no adapter that can execute one half of a two-source question yet |
 | `federation_link_ambiguous` | `409` | Nothing. The question's remote dimensions join through more than one relationship |
 | `measure_does_not_federate` | `409` | Nothing. The measure's aggregate cannot be recombined above two legs |
-| `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit |
+| `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit. **One code for two bounds:** more rows than this service's cap, or more data than the data system would return at once. The sentence says which, and names a number only for the first - the second bound belongs to the data system and is not reported to us |
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
 | `credential_unavailable` | `403` | Nothing you can send. You have no access to that data system, and this deployment will not read it as itself instead - the missing grant is at the data system |
@@ -315,7 +328,7 @@ places.
 as is the body shape, because only a refusal carries `outcome`:
 
 - `413` is `too_large` when the **request body** was over the limit, and `result_too_large` when the
-  **answer** was over the row cap.
+  **answer** was too much data - over the row cap, or over what the data system would return at once.
 - `503` is `unavailable` or `at_capacity` from the failure side, and `source_unavailable` from the
   refusal side.
 
@@ -571,8 +584,10 @@ the block above:
   refuses the source at startup, naming the feature. Default-off because the adapter's wire pulls an
   outbound TLS stack, and two of the four release triples are musl - so asking for it is a build
   decision a reviewer can see in a manifest line.
-- **No published artifact opens it.** The image and the cross-compiled binaries are `sutura-cli`, which
-  links the in-process engine only.
+- **No published artifact opens it, and that is now a FEATURE decision rather than a packaging one.**
+  A release publishes `sutura-serve`, and it publishes it with cargo's default features - so
+  `bigquery` is off in every published tarball and image. Opening a dataset means building from
+  source with `--features bigquery`.
 - **One process opens one KIND of data system at a time.** A catalog whose models sit on a `files`
   source and a `bigquery` source is refused at startup, naming both entries - the registry a process
   holds is generic in one adapter type, and the alternative is a source nothing opened.
@@ -668,16 +683,18 @@ mutual TLS between pods answers it differently from a flat one, and nothing here
 ### Terminating it in this process
 
 For the deployment where nothing sits in front. It needs **a build that has a TLS listener in it**,
-which the default build does not:
+which neither the default build nor the published binary is:
 
 ```bash
 cargo run -p sutura-serve --features tls
 ```
 
 The feature is default-off because most deployments do not use it, and a TLS stack compiled into an
-artifact that will never present a certificate is cost with no return. With the feature off the
-dependency is absent from the build rather than merely unused, and asking for `in-process`
-termination is a startup refusal that names the feature - so the two cannot disagree.
+artifact that will never present a certificate is cost with no return - a cost paid four times over
+on the shipped triples, two of which are statically linked. With the feature off the dependency is
+absent from the build rather than merely unused, and asking for `in-process` termination is a startup
+refusal that names the feature - so the two cannot disagree, and a published binary handed this
+configuration stops rather than serving cleartext.
 
 Then:
 
@@ -804,12 +821,71 @@ check it - the number that *is* checked is that it is neither zero nor above fiv
 
 ## Running it
 
-The engine reads files, so there is nothing to provision:
+The engine reads files, so there is nothing to provision. Three ways in, and they take the same
+environment - which is **not** three catalog keys: a `sources.<alias>` entry says what kind of data
+system the catalog's models read, where its files are and which identity a query reaches it as, and
+a catalog naming a source nobody declared is a startup refusal that names the source.
+
+**From a published release**, with no Rust toolchain. Take the tarball for your triple - the musl
+ones are statically linked and need no libc at all - and verify it before you run it;
+[verifying a release](verifying-a-release.md) is that page.
 
 ```bash
-SUTURA__CATALOG__DIR=examples/single-player/catalog \
-SUTURA__CATALOG__DATA_DIR=examples/single-player/data \
+tar -xzf sutura-serve-x86_64-unknown-linux-musl.tar.gz
+E="$PWD/examples/single-player"
+SUTURA__CATALOG__DIR="$E/catalog" \
 SUTURA__CATALOG__VERSION=local-1 \
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$E/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  ./sutura-serve
+```
+
+**Or the image.** The `-serve` tags are this binary; the unsuffixed ones are the command-line tool.
+The entrypoint is the server and it takes no arguments, so `docker run` with none starts it.
+
+```bash
+docker run --rm --network host \
+  -v "$PWD/examples/single-player:/examples:ro" \
+  -e SUTURA__CATALOG__DIR=/examples/catalog \
+  -e SUTURA__CATALOG__VERSION=local-1 \
+  -e SUTURA__SECURITY__IDENTITY=single-user \
+  -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+  -e SUTURA__SOURCES__LOCAL__KIND=files \
+  -e SUTURA__SOURCES__LOCAL__DATA_DIR=/examples/data \
+  -e SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  ghcr.io/telekom/sutura:latest-serve
+```
+
+**`--network host` rather than `-p 8080:8080`, and the difference is a startup refusal rather than a
+preference.** The default bind is loopback, and inside a container loopback is the container - so a
+published port would reach nothing. Binding `0.0.0.0` instead makes this deployment one other hosts
+can reach, and that needs `security.access_token` and a `security.tls_termination` that says which
+cleartext hop the token crosses; without both, the process refuses to start and names both. Which is
+the right shape for a real deployment and the wrong one for reading this page. The image runs as uid
+65532 with no shell and no package manager in it.
+
+**Every published x86_64 image is smoke-tested with this shape before a release is cut** -
+`.github/serve-smoke.sh`, the same mount and the same keys plus a port of its own - and the test is
+not a liveness probe. It starts the image, asks the `recurring_revenue` question from
+[`examples/single-player`](https://github.com/telekom/sutura/tree/main/examples/single-player),
+checks the certified January figure is in the answer, and checks that a question the catalog refuses
+comes back `403`. The arm64 pair is built and not run, because executing it would need an emulator
+registered on the runner.
+
+**Or from source**, which is what a change to this repository is tested with:
+
+```bash
+E="$PWD/examples/single-player"
+SUTURA__CATALOG__DIR="$E/catalog" \
+SUTURA__CATALOG__VERSION=local-1 \
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$E/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
   cargo run -p sutura-serve
 ```
 

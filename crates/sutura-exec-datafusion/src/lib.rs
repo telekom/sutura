@@ -683,6 +683,13 @@ impl Warehouse for DataFusionWarehouse {
     fn working_set_exhausted(&self, error: &Self::Error) -> Option<u64> {
         pool::refused_a_reservation(error).then(|| u64::try_from(self.working_set.bytes()).unwrap_or(u64::MAX))
     }
+
+    // `result_did_not_fit` is deliberately NOT overridden, and this is the adapter the default was
+    // written for. THE engine runs in this process: a logical plan is collected into batches in
+    // memory, so there is no reply, no page and no size a reply had to fit - the bound that exists
+    // here is the working-set ceiling above, which is a different bound counting a different thing
+    // and already has its own refusal. Answering `true` from anything here would tell a caller their
+    // question was too wide when what happened was an engine failure.
 }
 
 /// The half of the value mapping that is shared with the data source, in its own file.

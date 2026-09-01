@@ -4,17 +4,25 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md); a step that turns out harder than it looked
 does not change them. If a step cannot be done as written, argue with the ADR, not the plan.
 
-**Twenty-six steps, ten done, six of which can start at once.** Every number is counted off the table
-below rather than remembered - the fourth attempt at getting them right. A number typed by hand beside
-the table that owns it goes stale on the next row, and it has now gone stale three times: "eleven
-steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which" against
-eighteen rows and eight startable, then "twenty-two steps, one done" against twenty-four rows and
-seven done. **If the table and this sentence ever disagree again, the table is right.** The three
-commands that settle it are `grep -c '^| [0-9]'` for the rows, `grep -c '^| [0-9].*\*\*DONE\*\*'` for
-the finished ones and `grep -c '| \*\*yes\*\* |$'` for the startable ones. **The middle command used
-to search for the strikethrough and it over-counted**, because the needle appeared in the paragraph
-explaining the count as well as in the table - so every command anchors at the start of a row. Every
-step is one branch, one pull request, and green before the next depends on it. `stax` manages the
+**Twenty-six steps, fifteen done.** Every number is counted off the table below rather than
+remembered - the fourth attempt at getting them right. A number typed by hand beside the table that
+owns it goes stale on the next row, and it has now gone stale three times: "eleven steps" in a
+pull-request body against fourteen rows, then "fifteen steps, seven of which" against eighteen rows and
+eight startable, then "twenty-two steps, one done" against twenty-four rows and seven done. **If the
+table and this sentence ever disagree again, the table is right.** The two commands that settle it are
+`grep -c '^| [0-9]'` for the rows and `grep -c '^| [0-9].*\*\*DONE\*\*'` for the finished ones. **The
+second command used to search for the strikethrough and it over-counted**, because the needle appeared
+in the paragraph explaining the count as well as in the table - so both anchor at the start of a row.
+
+**There used to be a third count here - how many steps could start at once - and it is gone rather
+than corrected.** It went stale twice on its own, and the honest reason is that it was never a fact
+about this page: what can start is a function of what has landed, what is blocked and what somebody
+picked up, and all three now live where they are read rather than in prose. The
+[tracker](https://github.com/telekom/sutura/issues/134) carries the pull order and the priority tiers,
+and *blocked by* is a relationship on the issues themselves, so GitHub answers it. **A count that
+cannot be derived from the thing it describes is a count that will lie again.**
+
+Every step is one branch, one pull request, and green before the next depends on it. `stax` manages the
 stack; the `git-ops/stacked-branches` skill has the mechanics.
 
 ## The stack
@@ -35,30 +43,53 @@ internal that a stable surface can grow behind.
 | 7 | ~~`test/startup-source-refusals`~~ | - | **DONE** - #31 |
 | 8 | ~~`feat/source-registry`~~ | - | **DONE** - #48. Two of row 7's tests were replaced rather than kept: a multi-source CATALOG is servable now, and the source-NAME comparison became a declared kind |
 | 9 | ~~`feat/leg-plan-types`~~ | - | **DONE** - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md |
-| 10 | `feat/two-source-execution` | 8, 9 - both **done** | **yes** |
-| 11 | `feat/conformance-packs` | 10 for the execute half, nothing for the compile half | partly |
-| 12 | `feat/credential-port` | 2, 5, 8 - all **done** | **yes** |
-| 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |
+| 10 | ~~`feat/two-source-execution`~~ | 8, 9 - both **done** | **DONE** - #89. The splitter, the combiner and `answer_federated`; both SHIPPED adapters still decline a leg, which is #112 |
+| 11 | `feat/conformance-packs` | 10 - **done** | **#116**. None of [0012](adr/0012-conformance-packs-for-inputs-and-adapters.md) is built; the golden matrix is still a macro over three axes in one crate's tests |
+| 12 | ~~`feat/credential-port`~~ | 2, 5, 8 - all **done** | **DONE**. `Warehouse::execute` takes a `&Presented`, `LegCredentials` hoists one asker and one deadline over N legs, and a subject with no credential at a source is refused rather than answered as the process |
+| 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - all **done** | **#113**. A decision before a check: refuse a mixed-posture answer, disclose it, or make it configurable |
 | 14 | ~~`feat/compose-tier`~~ | nothing in this repo - docker on the host | **DONE** - #34 |
-| 15 | `feat/bigquery-adapter` | 8 - **done**; the fixture decision is **made**, `adr/0017`; the dependency decision is **made**, `adr/0018` | **MOSTLY DONE** - the fourth dialect, its 88 goldens, the adapter, the source declaration, the registry entry, and now the WIRE: `jobs.query` over `ureq` behind a default-off feature, plus a credential port. **A statement generated here IS now accepted by BigQuery** - three tests green on 2026-08-30 against a real dataset, and `adr/0017`'s amendment puts the repeat in CI on a GitHub environment. **What is still missing is the WIDER leg**: this is one hand-built `SUM`, not the corpus compared against the engine (#78's importer shape), and identity is untouched. Nothing links the crate, and `sutura-serve` still refuses `kind: bigquery` |
-| 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
-| 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | **static-credential half built (18 remains)** |
-| 18 | `feat/postgres-oauth` | 12, 17, and the server-side validator decision | after 17 |
-| 19 | `feat/source-mtls` | 8 - **done**, 17 | after 17 |
-| 20 | `feat/raw-sql-tool` | 3, 8 - **done**, 12 | after 12 |
-| 21 | `feat/demo-tasks` | 14, and one example to demo | after 14 |
-| 22 | `build/supply-chain` | nothing - orthogonal | **yes** |
-| 23 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
-| 24 | `feat/metrics-endpoint` | 6 for the memory series, nothing for the rest | partly |
-| 25 | `feat/metadata-capabilities` | nothing - [0011](adr/0011-pluggable-by-declaration.md) decided it and `Warehouse::IMPERSONATION` is the shape to copy | **yes** |
-| 26 | `feat/datahub-catalog` | 25 for the declaration, 11 for the packs, 14 - **done** - for an instance to read | after 25 |
+| 15 | `feat/bigquery-adapter` | 8 - **done**; the fixture decision is **made**, `adr/0017`; the dependency decision is **made**, `adr/0018` | **MOSTLY DONE, and further than the previous text said.** The fourth dialect and its goldens, the adapter, the source declaration, the registry entry, the WIRE (`jobs.query` over `ureq` behind a default-off feature) plus a credential port - and since then **the CORPUS leg, green in CI**: 22 statements accepted, 21 answers agreeing with the engine exactly, 9 refusals agreeing, 6 anchors reproduced, per `adr/0017`'s third and fourth amendments. `sutura-serve` **opens** `kind: bigquery` now, behind a default-off feature. What is left is not the adapter: no published artefact links it - #111 published `sutura-serve` and did NOT close that, because both shipped binaries carry cargo's DEFAULT features and `bigquery` is not one of them, which `checks.shipped-features` now reads off the artefact (#121 is what is left of it) - a cross-dataset read has never been EXECUTED (#118), the acceptance leg races itself (#119), and a bundle naming a table the dataset does not hold still boots (#120) |
+| 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | **#87**, and three of its five parts are built: the adapter declares `PerSubjectCredential`, `WorkloadIdentityBroker` really exchanges, and `sources.<alias>.workload_identity` is declarable. What is left is the composition plus the proof - #147 for the venue, #123 for the two-principal cell |
+| 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | **HALF DONE, and the halves are worth telling apart.** The adapter is built and held to the corpus, the differential and the anchors against a real `postgresql_18` in the nix tier - as a **dev-dependency**. `SourceKind` has no `postgres`, so no deployment can declare one: that is **#124**, and TLS to it is **#125** (row 19) |
+| 18 | `feat/postgres-oauth` | 12, 17 - and the server-side validator decision, which is **made** | **#126**, blocked by #124 and #125. The verification is answered and the answer is unwelcome: no Rust client speaks SASL `OAUTHBEARER`, so the step owes first-party protocol code, and core Postgres ships no validator that reads `aud` |
+| 19 | `feat/source-mtls` | 8 - **done**, 17 | **#125**. Nothing this repository connects OUT with verifies a certificate, and `sutura-exec-postgres` is `NoTls` unconditionally |
+| 20 | `feat/raw-sql-tool` | 3 - **done**, 8 - **done**, 12 - **done** | **#129**, blocked by #128. Three of [0013](adr/0013-a-raw-sql-tool-off-by-default.md)'s four prerequisites are now spent; the showcase is what moved it up the order |
+| 21 | `feat/demo-tasks` | 14, and one example to demo | **#130** step 4, beside the tutorial and the docs cleanup it belongs with |
+| 22 | ~~`build/supply-chain`~~ | nothing - orthogonal | **DONE** - [0021](adr/0021-how-a-published-artefact-proves-where-it-came-from.md). A Sigstore bundle per asset, `cosign` on all six image references, CycloneDX and SPDX per leaf image from the auditable binary, SLSA provenance, ORT in `licence-review.yml`, and REUSE. **The licence half is now built too:** `ATTRIBUTION.md` is committed and gated by `cargo xtask check-attribution` and `check-attribution-current`, released and signed with every tag, and documented in `docs/verifying-a-release.md` - the roadmap bullet's *signed licence reports* is no longer three-quarters |
+| 23 | ~~`ci/prose-change-cost`~~ | nothing - measure first | **DONE**. A prose-only change does not start a run (`paths` with `!` exceptions, since a semantic catalog is a directory of markdown), `classify` gates every expensive step inside the job, and the merge queue is answered. **Per-CATEGORY selection is the widening, and it is #135** - one filter per adapter, with the matrix derived from the registry rather than edited into a workflow |
+| 24 | `feat/metrics-endpoint` | 6 - **done** for the memory series, nothing for the rest | **#132**. A served deployment exports nothing, so a refusal and a fault look the same to an operator |
+| 25 | ~~`feat/metadata-capabilities`~~ | nothing - [0011](adr/0011-pluggable-by-declaration.md) decided it and `Warehouse::IMPERSONATION` is the shape to copy | **DONE**. `SemanticCatalog::capabilities` is a required associated item with no default, and `MetadataCapabilities::checked_against` runs over every registered catalog in both directions |
+| 26 | `feat/datahub-catalog` | 25 - **done**; 11 is **no longer a prerequisite** (#71 split the catalog axis by `CatalogKind`); 14 - **done** - for an instance to read | **#114**, and **#115 beside it**: a bundle of models with no metrics loads, pins and validates - and answers no question, because `Query` carries a `MetricName` and nothing else. Both roots also wire one hard-coded catalog TYPE, so nothing can open a second kind |
 
 **Rows 1 to 11 have their branch sections on this page. Rows 15 and 16 are in
 [BigQuery](implementation-plan-bigquery.md), and rows 12 to 14 and 17 to 24 are in
 [identity, services and the operational work](implementation-plan-identity-and-services.md)** - three
-file names, one document: this table stays the only owner of a step number, and the split is at the
+file names, one document: this table stays the only owner of **these twenty-six** step numbers, and the
+split is at the
 stack's own phase boundary - nothing up to and including the conformance packs needs a live service or
 an identity decision, and everything after it needs one or both.
+
+## Where the backlog lives, and why it is not this page
+
+**This table owns the twenty-six steps that produced the current tree. Everything raised since is an
+issue, and no row is added for it.** That is a change of role rather than an oversight, and the reason
+is this page's own history: it has recorded a stale count three times, and a step number here beside an
+issue number there is two names for one piece of work - which drifts by construction, because only one
+of them is where somebody looks when they pick the work up.
+
+So the division is:
+
+| | Owner |
+| --- | --- |
+| The twenty-six numbered steps, their order, and the arguments for that order | this table, and the two sibling pages |
+| Everything raised since, its priority, and what to pull next | [the tracker](https://github.com/telekom/sutura/issues/134) and the board it indexes |
+| What blocks what | the issues themselves - *blocked by* is a relationship GitHub answers, and it cannot go stale in prose |
+| Which record a piece of work needs, and its number | the tracker's reserved-number table, so two branches cannot both mint `0022` |
+
+**A row that is DONE stays here** - the argument for why a step went where it did is worth more after it
+lands than before, and deleting it would leave the next reader unable to tell a decision from an
+accident. A row that is still open now names the issue that owns it instead of a *can start now* verdict
+this page cannot keep current.
 
 **Six orderings in that table are decisions rather than convenience, and each replaced an earlier
 arrangement that would have gone wrong:**

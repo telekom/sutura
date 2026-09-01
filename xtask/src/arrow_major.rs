@@ -39,9 +39,12 @@ const ALLOWLIST: &str = "devco/arrow-majors-allow";
 const FAMILY_PREFIX: &str = "arrow";
 
 /// One `[[package]]` stanza's name and version, as read from `Cargo.lock`.
-struct Package<'a> {
-    name: &'a str,
-    version: &'a str,
+///
+/// `pub(crate)` rather than private because `attribution` reads the same pairs from the same
+/// file for the same reason: the crate list, no TOML parser.
+pub(crate) struct Package<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) version: &'a str,
 }
 
 /// Parse `name` / `version` pairs out of a lock file without a TOML dependency.
@@ -50,7 +53,7 @@ struct Package<'a> {
 /// the same argument `changes.rs` makes for keeping its area table in Rust. The shape this relies
 /// on is `cargo`'s own output: within a `[[package]]` stanza, `name` precedes `version`, and both
 /// are `key = "value"` on their own line.
-fn packages(lock: &str) -> Vec<Package<'_>> {
+pub(crate) fn packages(lock: &str) -> Vec<Package<'_>> {
     let mut found = Vec::new();
     let mut name: Option<&str> = None;
     for line in lock.lines() {

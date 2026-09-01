@@ -35,7 +35,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure};
-use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
+use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
 
@@ -422,10 +422,6 @@ impl Answered {
 /// guard un-skippable rather than merely conventional is on the domain side:
 /// `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
 /// `agreeing_with` is the only thing that builds one.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "six inputs is what a certified answer needs; naming each beats a struct nobody else reads"
-)]
 pub fn answer<W, B>(
     definitions: &Validated<PinnedDefinitions>,
     query: &Query,
@@ -550,6 +546,16 @@ where
     //
     // `dry_run` above is deliberately not given the same treatment: the port's contract is that a
     // check reads no data, so there is no reservation for a ceiling to refuse.
+    //
+    // **The order between the two predicates is a decision, and it is `working_set_exhausted` first.**
+    // An error that satisfies BOTH is reported as `ResourcesExhausted` (422), not `ResultTooLarge`
+    // (413). Exhaustion is the more fundamental bound - a reservation refused is the process saying it
+    // will not spend the memory, which no narrower question avoids - and a caller told to narrow a
+    // question over a ceiling it cannot satisfy has been told to do the impossible. The order is not
+    // the default's to decide: an adapter maps one failure into both predicates on its own, and which
+    // refusal a caller sees must not be line order nobody wrote down. Ask the adapters in a real tree
+    // whether a single error could genuinely satisfy both; until one does, the order is pinned here by
+    // a both-predicate fake and the comment at `sutura_app::tests`.
     let rows = match warehouse.execute(Executable::Query(&plan), presented) {
         Ok(rows) => rows,
         Err(cause) => {
@@ -558,6 +564,27 @@ where
                     &credentials,
                     ToolOutcome::Refusal {
                         reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
+                    },
+                ));
+            }
+            // The SAME defect one bound further out, and the arm sits here rather than beside the row
+            // cap below because there are no rows to count: the data system declined to hand the
+            // result over at all. A networked endpoint caps a reply by size, and a result INSIDE the
+            // row cap can be over that - a wide result rather than a tall one. It used to leave as
+            // `ServiceError::Warehouse` too, so the caller was told `503` and invited to retry
+            // against a bound that returns the same reply.
+            //
+            // One refusal for both bounds, because *too much data* is one answer to a caller and the
+            // remedy is the same narrowing. `ResultBound` is what keeps that from being a lie about
+            // which bound fired - and the volume arm carries no number, because the bound is the data
+            // system's and this deployment was not told it.
+            if warehouse.result_did_not_fit(&cause) {
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: RefusalReason::ResultTooLarge {
+                            bound: ResultBound::Volume,
+                        },
                     },
                 ));
             }
@@ -574,7 +601,9 @@ where
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
-                reason: RefusalReason::ResultTooLarge { limit: plan.max_rows() },
+                reason: RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Rows { limit: plan.max_rows() },
+                },
             },
         ));
     }

@@ -3865,6 +3865,7 @@ name = "sutura-serve"
 version = "0.2.4"
 dependencies = [
  "axum",
+ "mimalloc",
  "sutura-app",
  "sutura-catalog-local",
  "sutura-config",

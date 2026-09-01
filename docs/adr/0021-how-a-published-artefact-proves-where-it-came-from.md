@@ -5,17 +5,18 @@ description: Why a release is signed keylessly with Sigstore rather than with a 
 
 # How a published artefact proves where it came from
 
-Status: **accepted, and amended once.** Built. A tagged release publishes a Sigstore bundle per
+Status: **accepted, and amended twice.** Built. A tagged release publishes a Sigstore bundle per
 asset, a `cosign` signature on all six image references, a CycloneDX attestation on each of the four
 leaf images, and SLSA provenance for every asset and for the two manifest lists.
 `.github/actions/attest-and-sign` is the sequence; `docs/verifying-a-release.md` is what a consumer
 reads.
 
-**The amendment closes the gap this record left open**, and it is at the bottom under *Amendment: the
-crate graph moved inside the binary*. The paragraph below it, and the section *The SBOM, and the
-question it does not answer*, are kept as written rather than corrected in place - they are the
-argument the amendment acts on, and rewriting them would leave a reader unable to tell which half
-was decided when.
+**The second amendment closes the roadmap bullet's licence half** and is at the bottom under
+*Amendment: the licence report ships as a signed, committed document*. **The first amendment closes
+the crate-graph gap** and is at the bottom under *Amendment: the crate graph moved inside the
+binary*. The paragraphs between them are kept as written rather than corrected in place - they are
+the arguments the amendments act on, and rewriting them would leave a reader unable to tell which
+half was decided when.
 
 **Nothing here signs source, gates a merge, or says an artefact is good.** The scope is one
 question - *are these bytes the ones this pipeline emitted* - and the rest of this record is mostly
@@ -467,9 +468,12 @@ only whatever ORT exceeds the slowest of them by.
 
 **Two steps left `release.yml` for composite actions**, because that file is under the 1000-line cap
 `cargo xtask max-lines` enforces and the licence statement is what reached it. The SBOM step moved
-intact to `.github/actions/image-sbom`; `attest-and-sign`'s header had said the cap would be reached
-by the next artefact kind and that the split would then be made under pressure rather than for a
-reason, so the reason is recorded here instead.
+intact into `.github/actions/build-artefacts`, which already carries the per-target binary and image
+sequence for the same reason - **and the two extractions happened twice, in parallel, on `main` and
+on `dev`.** This branch keeps the `build-artefacts` one, because it holds all three steps rather than
+one and the release path calls it once per target instead of twice. `attest-and-sign`'s header had
+said the cap would be reached by the next artefact kind and that the split would then be made under
+pressure rather than for a reason, so the reason is recorded here instead.
 
 **And that split had already opened a hole in a gate, which this closes.**
 `cargo xtask check-workflows` reads `.github/workflows` and verifies that every `nix run .#name` is

@@ -412,6 +412,59 @@ impl Warehouse for ExhaustedEngine {
     }
 }
 
+/// A data system that reports BOTH a spent working set AND a result it would not return at once.
+///
+/// The precedence pin: `sutura_app::answer` asks [`Warehouse::working_set_exhausted`] first, so an
+/// error satisfying both predicates must leave as [`RefusalReason::ResourcesExhausted`] (422), not
+/// [`RefusalReason::ResultTooLarge`] (413) - exhaustion is the more fundamental bound, and no narrower
+/// question avoids a reservation the process refused. Kept as its own type rather than a flag on
+/// [`ExhaustedEngine`], for the same reason the fakes above give: one fake asserting both branches is
+/// a fake asserting neither.
+pub(crate) struct BothPredicatesEngine {
+    source: SourceName,
+    ceiling_bytes: u64,
+}
+
+impl BothPredicatesEngine {
+    /// A data system that refuses every question as both bound and too large.
+    pub(crate) fn at(ceiling_bytes: u64) -> Self {
+        Self {
+            source: source(),
+            ceiling_bytes,
+        }
+    }
+}
+
+impl Warehouse for BothPredicatesEngine {
+    type Error = Exhausted;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(Exhausted)
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(Exhausted)
+    }
+
+    fn working_set_exhausted(&self, _error: &Self::Error) -> Option<u64> {
+        Some(self.ceiling_bytes)
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        true
+    }
+}
+
 /// A data system that fails for some other reason.
 ///
 /// The control for the fake above: the same shape, the same error type, and the port's default answer
@@ -454,6 +507,63 @@ impl Warehouse for BrokenEngine {
     // `working_set_exhausted` is deliberately NOT overridden. The port defaults it to `None`, which
     // is the answer an adapter with no bounded pool gives, and taking the default is how this fake
     // says it has none.
+}
+
+// ------------------------------------------- the result-would-not-fit fake ---
+
+/// Why a data system would not hand back a result this large.
+///
+/// Its own type rather than [`Exhausted`], because the two are different bounds and a shared error
+/// type would let one fake's predicate answer for the other's failure.
+#[derive(Debug, thiserror::Error)]
+#[error("the data system would not return the whole result at once")]
+pub(crate) struct WouldNotFit;
+
+/// A data system that will not return the whole result at once.
+///
+/// **The instrument for the second bound, and it has to be a fake for the same reason
+/// [`ExhaustedEngine`] does.** What is asserted is the branch `sutura_app::answer` takes on the way
+/// out - a `ToolOutcome::Refusal` carrying `ResultBound::Volume` rather than a `ServiceError` the
+/// transport answers `503` - and that decision lives above the port. The real bound belongs to a
+/// networked endpoint: `sutura-exec-bigquery`'s own suite asserts that `jobs.query` answering with a
+/// page token, and a delivered count under the reported total, are what make its predicate `true`.
+///
+/// Note what this fake CANNOT be: an adapter registered in `tests/adapters`. Every adapter there
+/// executes, and this one exists to fail.
+pub(crate) struct WideForTheWire {
+    source: SourceName,
+}
+
+impl WideForTheWire {
+    pub(crate) fn new() -> Self {
+        Self { source: source() }
+    }
+}
+
+impl Warehouse for WideForTheWire {
+    type Error = WouldNotFit;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(WouldNotFit)
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(WouldNotFit)
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        true
+    }
 }
 
 /// The corpus bundle, validated the only way there is: by running its anchors.

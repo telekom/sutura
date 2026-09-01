@@ -31,18 +31,12 @@
 //! different readers - one for a client's error surface, one for a model's context - and nothing
 //! compares them.
 
-use sutura_domain::query::RefusalReason;
+use sutura_domain::query::{RefusalReason, ResultBound};
 
 /// The code and the sentence for one refusal.
 ///
 /// The match is exhaustive with no wildcard arm, and it decides both at once rather than in two
 /// matches that could drift apart.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive match over every refusal, deciding code and sentence together - so it \
-              grows by one arm per domain variant and splitting it would need a wildcard arm, which \
-              is exactly the gap the exhaustiveness exists to close"
-)]
 pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     match *reason {
         RefusalReason::MetricUnknown { ref metric } => {
@@ -83,11 +77,27 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             format!("{requested} dimensions were asked for; at most {limit} are allowed"),
         ),
         // The one refusal that is decided AFTER a data system has answered, which is why it names a
-        // limit rather than a field: nothing about the question was wrong, and the same question over
+        // bound rather than a field: nothing about the question was wrong, and the same question over
         // a narrower range or with fewer dimensions is answerable.
-        RefusalReason::ResultTooLarge { limit } => (
+        //
+        // One code for both bounds - the remedy an agent has to carry out is the same narrowing - and
+        // a nested exhaustive match for the sentence, so a bound with no number cannot be described
+        // using the other one's.
+        RefusalReason::ResultTooLarge { bound } => (
             "result_too_large",
-            format!("the answer would have been more than {limit} rows; ask a narrower question"),
+            match bound {
+                ResultBound::Rows { limit } => {
+                    format!("the answer would have been more than {limit} rows; ask a narrower question")
+                }
+                // No figure: the bound is the data system's and this deployment is not told it, so
+                // there is nothing to divide a range by. What an agent needs instead is that the
+                // remedy is still narrowing and that a retry is not one - see `ResultBound::Volume`.
+                ResultBound::Volume => String::from(
+                    "the answer was more data than the data system would return at once; nothing was \
+                     cut down to fit and retrying will not help. Ask a narrower question - a shorter \
+                     period, or fewer dimensions.",
+                ),
+            },
         ),
         RefusalReason::TimeRangeTooLong { days, limit } => (
             "time_range_too_long",
@@ -163,7 +173,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
 #[cfg(test)]
 mod tests {
     use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
-    use sutura_domain::query::RefusalReason;
+    use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::refused;
 
@@ -198,7 +208,9 @@ mod tests {
             },
             RefusalReason::DuplicateDimension { dimension: dimension() },
             RefusalReason::TooManyDimensions { requested: 5, limit: 4 },
-            RefusalReason::ResultTooLarge { limit: 10_000 },
+            RefusalReason::ResultTooLarge {
+                bound: ResultBound::Rows { limit: 10_000 },
+            },
             RefusalReason::ResourcesExhausted {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
@@ -267,6 +279,24 @@ mod tests {
         assert!(detail.contains("9000") && detail.contains("3653"), "{detail}");
         let (_, detail) = refused(&RefusalReason::TooManyDimensions { requested: 5, limit: 4 });
         assert!(detail.contains('5') && detail.contains('4'), "{detail}");
+    }
+
+    /// The bound with no number still tells an agent what to do, and names nothing it was not told.
+    #[test]
+    fn a_bound_with_no_number_still_says_narrow_and_says_not_to_retry() {
+        let (code, detail) = refused(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Volume,
+        });
+        // The same code as the row cap, because it is the same answer and the same remedy.
+        assert_eq!(code, "result_too_large");
+        // An agent that reads a figure will try to divide a range by it. There is none: the bound is
+        // the data system's and this deployment is not told it, so a digit here would be invented.
+        assert!(
+            !detail.chars().any(char::is_numeric),
+            "the sentence names a bound nobody measured: {detail}"
+        );
+        assert!(detail.contains("narrower"), "{detail}");
+        assert!(detail.contains("retrying will not help"), "{detail}");
     }
 
     fn snake_case(name: &str) -> String {

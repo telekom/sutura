@@ -142,27 +142,45 @@ fn declared_apps(text: &str) -> BTreeSet<String> {
 /// so missed everything after the first NESTED close - which meant `checks.hygiene`, declared
 /// well below `clippy`, read as undeclared while CI built it happily every run. A parser that
 /// silently sees half a file is worse than no parser.
+///
+/// THE BLOCK'S OWN OPENING BRACE IS COUNTED rather than assumed to be on the header line, and
+/// that is a second version of the same bug. `depth` used to be set to 1 the moment the header
+/// matched, which is right only while the `{` is on that line: written as
+///
+/// ```text
+/// packages = crossPackages // ociImages
+///   // nativeImages // {
+/// ```
+///
+/// the brace on the continuation line read as a NESTED attrset, so depth became 2 and every name
+/// in the block was invisible - `packages.xtask` among them, which `ci.yml` runs three times.
+/// Measured, on the change that split that line. Counting the header's braces like any other
+/// line's makes both shapes the same case, and `opened` is what keeps the `depth <= 0` break from
+/// firing before the block has started.
 fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut depth = 0_i32;
     let mut inside = false;
+    let mut opened = false;
     for line in text.lines() {
         let trimmed = line.trim();
-        if !inside {
-            if trimmed.starts_with(header) {
-                inside = true;
-                depth = 1;
-            }
+        let header_line = !inside && trimmed.starts_with(header);
+        if header_line {
+            inside = true;
+        } else if !inside {
             continue;
         }
 
         // Only the outermost level of the block declares an output; everything deeper belongs
-        // to one. Counted before the name check so the closing line of a nested attrset does
-        // not look like a declaration.
+        // to one. Counted after the name check so the closing line of a nested attrset does
+        // not look like a declaration, and never on the header line, which declares the block
+        // rather than a member of it.
         let opens = i32::try_from(trimmed.matches('{').count()).unwrap_or(0);
         let closes = i32::try_from(trimmed.matches('}').count()).unwrap_or(0);
 
-        if depth == 1
+        if !header_line
+            && opened
+            && depth == 1
             && !trimmed.starts_with('#')
             && let Some((key, _)) = trimmed.split_once('=')
         {
@@ -177,7 +195,10 @@ fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
         }
 
         depth = depth.saturating_add(opens).saturating_sub(closes);
-        if depth <= 0 {
+        if depth > 0 {
+            opened = true;
+        }
+        if opened && depth <= 0 {
             break;
         }
     }
@@ -443,5 +464,44 @@ mod tests {
         super::collect("        run: nix run .#mkdocs -- build --strict\n", "docs.yml", &mut found);
         assert_eq!(found.len(), 1);
         assert!(!apps.contains(&found[0].name), "mkdocs must read as missing");
+    }
+
+    #[test]
+    fn a_block_whose_opening_brace_is_on_a_continuation_line_still_declares_its_members() {
+        // The `packages = ` line in flake.nix grew past one line when a second shipped binary
+        // was added, and the brace moved with it. Depth was pinned to 1 at the header, so the
+        // brace on the second line read as a NESTED attrset and every member of the block became
+        // invisible - including `xtask`, which `ci.yml` runs three times. This is that shape.
+        let flake = concat!(
+            "        packages = crossPackages // ociImages\n",
+            "          // nativeImages // {\n",
+            "          default = sutura;\n",
+            "          xtask = craneLib.buildPackage (ciArgs // {\n",
+            "            pname = \"xtask\";\n",
+            "          });\n",
+            "        };\n",
+        );
+        let names = super::declared_block(flake, "packages = ");
+        assert!(names.contains("xtask"), "xtask must be declared, got {names:?}");
+        assert!(names.contains("default"), "default must be declared, got {names:?}");
+        assert!(!names.contains("pname"), "a nested attribute is not a declaration");
+    }
+
+    #[test]
+    fn a_block_whose_opening_brace_is_on_the_header_line_is_unchanged() {
+        // The shape every other block in flake.nix has, asserted beside the one above so a fix
+        // for one cannot quietly become a regression in the other.
+        let flake = concat!(
+            "        checks = {\n",
+            "          clippy = craneLib.cargoClippy (ciArgs // {\n",
+            "            cargoArtifacts = ciArtifacts;\n",
+            "          });\n",
+            "          hygiene = pkgs.runCommand \"h\" { } \"\";\n",
+            "        };\n",
+        );
+        let names = super::declared_block(flake, "checks = {");
+        assert!(names.contains("clippy"), "got {names:?}");
+        assert!(names.contains("hygiene"), "declared below a nested close, got {names:?}");
+        assert!(!names.contains("cargoArtifacts"), "a nested attribute is not a declaration");
     }
 }

@@ -98,10 +98,6 @@ fn announce_provenance(settings: &Settings) {
 /// The sentence about what the concurrency bound does *not* do is here rather than in a document,
 /// because the failure mode is an operator reading `max_concurrent_queries` as a bound on how long
 /// stopping can take. It is not: a question already executing runs to completion.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "every branch here is a tracing macro expanding into one; the control flow is a single decision"
-)]
 fn announce_capacity(settings: &Settings) {
     let runtime = settings.runtime();
     tracing::info!(
@@ -157,10 +153,6 @@ fn announce_capacity(settings: &Settings) {
 }
 
 /// Where it listens, and whether anything guards that.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "every branch here is a tracing macro expanding into one; the control flow is a single decision"
-)]
 fn announce_perimeter(settings: &Settings) {
     let bind = settings.server().bind();
     let security = settings.security();
@@ -185,10 +177,6 @@ fn announce_perimeter(settings: &Settings) {
 }
 
 /// What bounds a caller.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "every branch here is a tracing macro expanding into one; the control flow is a single decision"
-)]
 fn announce_limits(settings: &Settings) {
     let limits = settings.rate_limit();
     if limits.enabled() {
@@ -213,10 +201,6 @@ fn announce_limits(settings: &Settings) {
 }
 
 /// What is served, and what the answers are computed from.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "every branch here is a tracing macro expanding into one; the control flow is a single decision"
-)]
 fn announce_surface(settings: &Settings) {
     let api = settings.api();
     if api.docs_enabled() && settings.environment().is_production() {
@@ -264,10 +248,6 @@ fn announce_surface(settings: &Settings) {
 /// still does not have - leg 1 establishes who is asking and does not make a source execute as that
 /// person - and both sentences are read from the config types rather than written here, so neither can
 /// drift into claiming the other.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "both arms are a tracing macro expanding into branches; the control flow is one branch"
-)]
 fn announce_identity(settings: &Settings) {
     let security = settings.security();
     match security.inbound() {

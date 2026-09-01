@@ -48,25 +48,6 @@
         # file cannot disagree with the dev shell or with a bare rustup fallback.
         rustToolchainFile = ./rust-toolchain.toml;
 
-        # Targets we CROSS-build. Deliberately excludes the host architecture: on an
-        # x86_64 builder `sutura` already IS the x86_64-linux binary, and building a
-        # separate "cross" x86_64 derivation would compile the whole tree a second time
-        # for a byte-identical result. `packages.sutura-x86_64-unknown-linux-gnu` is an
-        # alias to the native build instead - see `crossPackages` below.
-        crossTargets = [
-          "aarch64-unknown-linux-gnu"
-          # The statically linked pair, and `x86_64-unknown-linux-musl` counts as a CROSS target
-          # even on an x86_64 builder: the CPU is the same but the libc is not, so it is a real
-          # second compile rather than the byte-identical one the comment above rules out.
-          #
-          # Why ship them at all: a musl artifact has no dynamic loader and no libc version
-          # floor, so it runs on a host older than the builder and in a `FROM scratch` image.
-          # What it costs is the allocator - see `crates/sutura-cli/src/main.rs`, because musl's
-          # own is why mimalloc is not optional here.
-          "x86_64-unknown-linux-musl"
-          "aarch64-unknown-linux-musl"
-        ];
-
         # The source root as a string, so the filter below can match a REPO-RELATIVE path.
         # `./.` is the flake source, and in every build that is a store path - which is the
         # whole reason the filter cannot match on the absolute one. See the filter's header.
@@ -314,172 +295,45 @@
         # is the cleanest - it reads neither crane, nor the flake inputs, nor the source filter.
         inherit (import ./nix/mimalloc.nix { inherit pkgs; }) mimallocFor optLevelFor;
 
-        # A native build for one profile. For `release` the deps derivation is identical to
-        # `cargoArtifacts` above, so Nix dedupes it and the checks' work is reused. A
-        # performance build necessarily compiles its own, since the profile is what changed.
-        nativeFor = profile:
-          let args = commonArgs // {
-            CARGO_PROFILE = profile;
-            # The prebuilt archive, so the build script links it instead of compiling the C.
-            SUTURA_MIMALLOC_LIB_DIR = "${mimallocFor { targetPkgs = pkgs; optLevel = optLevelFor profile; isMusl = false; }}/lib";
-          };
-          in craneLib.buildPackage (args // {
-            cargoArtifacts = craneLib.buildDepsOnly args;
-            # ONE package. Without this, crane builds the whole workspace and the result held
-            # three binaries - `sutura`, `sutura-dev` and `xtask` - which made two stated
-            # invariants false: the image is supposed to hold one executable, and xtask's
-            # compile-time `CARGO` reference pulled the whole cargo store path into the runtime
-            # closure. It also broke reproducibility, because that path differs between builds.
-            #
-            # On the attrset and not on `args`: `buildDepsOnly` above must stay unscoped, or
-            # the shared dependency build stops being shared with the checks.
-            cargoExtraArgs = "--package sutura-cli";
-            # Tests run as their own check below, sharing the same artifacts.
-            doCheck = false;
-          } // auditable.toolFor args // {
-            cargoBuildCommand = auditable.buildCommand profile;
-          });
+        # WHAT A RELEASE PUBLISHES: the shipped binaries, the cross matrix over them, and the
+        # images. In `nix/shipped.nix` because this file was fourteen lines under the 1000-line
+        # limit `cargo xtask max-lines` enforces and #111 adds a SECOND shipped executable; that
+        # module's header carries the reasoning, including why `binaries` is a LIST rather than a
+        # `--package` written into each derivation - which is how the HTTP surface, leg 1, the
+        # rate limiter and the generated interface description came to ship in no artefact at all.
+        #
+        # `apps.<name>`, the `packages = ` block below and the `checks = {` block after it all
+        # stay HERE, because `xtask/src/pins.rs` and `xtask/src/workflows.rs` scan this file for
+        # them textually and both fail closed on finding none. A module holds what a package or a
+        # check POINTS AT, never the declaration.
+        shipped = import ./nix/shipped.nix {
+          inherit pkgs nixpkgs system crane rust-overlay rustToolchainFile craneLib commonArgs
+            auditable mimallocFor optLevelFor;
+          inherit (commonArgs) version;
+        };
 
-        sutura = nativeFor "release";
+        inherit (shipped) binaries crossPackages imageTargets;
 
-        # One cross-compiled package per target. `cargoExtraArgs` pins the target and the
-        # cross linker comes from pkgsCross, so no developer needs a local cross setup.
-        crossFor = { target, profile }:
-          let
-            isMusl = pkgs.lib.hasSuffix "-linux-musl" target;
-            crossPkgs = import nixpkgs {
-              inherit system;
-              overlays = [ (import rust-overlay) ];
-              crossSystem = { config = target; };
-            };
-            crossLib = (crane.mkLib crossPkgs).overrideToolchain
-              (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
-            args = commonArgs // {
-              CARGO_BUILD_TARGET = target;
-              CARGO_PROFILE = profile;
-              # The prebuilt archive for THIS target. See `mimallocFor` above.
-              SUTURA_MIMALLOC_LIB_DIR = "${mimallocFor { targetPkgs = crossPkgs; optLevel = optLevelFor profile; inherit isMusl; }}/lib";
-              # Tests cannot run for a foreign architecture on this host; the native build
-              # and CI's gates job cover correctness.
-              doCheck = false;
-              strictDeps = true;
-            } // pkgs.lib.optionalAttrs isMusl {
-              # THE C COMPILER. mimalloc is C, so a musl target needs a compiler that knows
-              # MUSL's headers rather than the host's - compile against glibc headers and link
-              # against musl and mimalloc takes its `__GLIBC__` code paths. Nothing is added to
-              # `nativeBuildInputs` for it: `crossPkgs.stdenv` already carries the musl cross
-              # cc, and crane's `mkCrossToolchainEnv` exports it to the `cc` crate as
-              # `CC_<triple>` / `CXX_<triple>` / `AR_<triple>` plus the `TARGET_*` aliases, and
-              # to cargo as `CARGO_TARGET_<TRIPLE>_LINKER`. The static-linking rustflags are in
-              # `.cargo/config.toml`, which explains why they cannot live here.
-              #
-              # `-DMI_LIBC_MUSL=1` is upstream's musl switch, and it has to be a COMPILE DEFINE
-              # rather than the environment variable of the same name: that name is a CMake
-              # option, and `libmimalloc-sys` builds with the `cc` crate and never reads it.
-              # nixpkgs' own mimalloc derivation sets it whenever the host libc is musl. In
-              # mimalloc v2 it switches off `MI_USE_BUILTIN_THREAD_POINTER`
-              # (`include/mimalloc/prim.h`), so the thread id comes from the TLS slot instead of
-              # `__builtin_thread_pointer`. `CFLAGS_<triple>` is the `cc` crate's per-target
-              # hook; it is appended to the flags cc already computed, not a replacement for
-              # them, and it beats `TARGET_CFLAGS` / `CFLAGS` in cc's lookup order so nothing
-              # in the sandbox can shadow it.
-              "CFLAGS_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "-DMI_LIBC_MUSL=1";
-            };
-          in
-          crossLib.buildPackage (args // {
-            cargoArtifacts = crossLib.buildDepsOnly args;
-            # One package, and the target. Same reasoning as `nativeFor`.
-            cargoExtraArgs = "--package sutura-cli --target ${target}";
-            # The embedded dependency list, per target. Same reasoning as `nativeFor`, and
-            # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
-            # that RUNS during the build - `strictDeps = true` above makes that distinction
-            # load-bearing rather than stylistic.
-          } // auditable.toolFor args // {
-            cargoBuildCommand = auditable.buildCommand profile;
-          });
-
-        # Nix system -> Rust target triple. Needed because the alias below must be named
-        # after the RUST target CI asks for, not after the Nix system.
-        hostRustTarget = {
-          "x86_64-linux" = "x86_64-unknown-linux-gnu";
-          "aarch64-linux" = "aarch64-unknown-linux-gnu";
-          "x86_64-darwin" = "x86_64-apple-darwin";
-          "aarch64-darwin" = "aarch64-apple-darwin";
-        }.${system} or null;
-
-        # `sutura` and `sutura-<triple>` build the default profile; each has a
-        # `-performance` sibling. Two NAMES rather than one name plus a flag, so a published
-        # asset cannot be ambiguous about which profile produced it, and so a workflow can
-        # select one without the build definition growing a mode.
-        variants = [
-          { suffix = ""; profile = "release"; }
-          { suffix = "-performance"; profile = "release-performance"; }
-          # The link-check sibling, for pull requests: a branch needs to know that every target
-          # still COMPILES AND LINKS - the allocator C included, per target, which is where
-          # cross breakage actually lives - and it does not need that answer at LTO prices.
-          #
-          # `ci` and not `dev`. `dev` optimises every dependency and keeps full debuginfo,
-          # which is the right bargain in an incremental shell and the wrong one here: the
-          # sandbox starts cold and nothing executes the result, so that was optimisation and
-          # debuginfo bought and never used, cached at four targets' worth of size. See the
-          # profile in Cargo.toml.
-          #
-          # Not a shipped artifact and never published. `releaseTargets`, `imageTargets` and the
-          # `one-binary` check all key off the unsuffixed name, so nothing here can reach a
-          # release asset by accident - `nix eval` shows no `oci-*-ci` attribute exists.
-          { suffix = "-ci"; profile = "ci"; }
-        ];
-
-        crossPackages = builtins.listToAttrs (builtins.concatMap
-          (v:
-            (map
-              (t: {
-                name = "sutura-${t}${v.suffix}";
-                value = crossFor { target = t; profile = v.profile; };
-              })
-              # Never cross-build the host triple: it would compile the whole tree a second
-              # time for a byte-identical result.
-              (builtins.filter (t: t != hostRustTarget) crossTargets))
-            ++ (if hostRustTarget == null then [ ]
-            else [{
-              name = "sutura-${hostRustTarget}${v.suffix}";
-              value = nativeFor v.profile;
-            }]))
-          variants);
-
-        # Every target that becomes a published artifact: the cross list plus the host triple,
-        # which is built natively rather than cross-built. One list, so the packages, the
-        # images and the one-binary check cannot disagree about what "shipped" means.
-        releaseTargets = pkgs.lib.unique (crossTargets
-          ++ (if hostRustTarget == null then [ ] else [ hostRustTarget ]));
-
-        # The subset that can become a container image. A darwin host triple lands in
-        # `releaseTargets` and must not.
-        imageTargets = builtins.filter (t: pkgs.lib.hasInfix "-linux-" t) releaseTargets;
-
-        # A shipped binary becomes a container image. In `nix/oci.nix` for the line limit;
-        # `ociImages` below and `packages.oci` stay HERE, so the `packages = ` block
-        # `xtask/src/workflows.rs` scans out of this file is untouched by the split.
-        inherit (import ./nix/oci.nix { inherit pkgs; inherit (commonArgs) version; }) ociArch ociFor;
-
-        # One image per shipped target, named after the RUST triple like the binaries are, so a
-        # published image and a published tarball can be traced back to the same build.
-        ociImages = builtins.listToAttrs (map
-          (t: {
-            name = "oci-${t}";
-            value = ociFor { bin = crossPackages."sutura-${t}"; architecture = ociArch t; };
-          })
-          imageTargets);
       in
       {
-        packages = crossPackages // ociImages // {
-          default = sutura;
-          inherit sutura;
+        # WHAT `nix build .#<name>` OFFERS, and every name in it but `xtask` comes from
+        # `nix/shipped.nix`'s `binaries` list rather than from a line here:
+        #
+        #   * `sutura`, `sutura-serve`                        - the native release binaries
+        #   * `sutura-performance`, `sutura-serve-performance` - the same, fat LTO
+        #   * `<binary>-<triple>`, plus `-performance` and `-ci` siblings - the cross matrix
+        #   * `oci`, `oci-serve`, and `-performance` siblings  - the native images
+        #   * `oci-<triple>`, `oci-serve-<triple>`            - one image per shipped artifact
+        #
+        # `sutura-serve` and its images are what closed #111: before them every published
+        # artefact was the command-line tool, so nothing a release published could answer a
+        # question over HTTP. `docs/serving.md` is where the deployment shape lives.
+        packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
+          // shipped.nativeImages // {
+          default = shipped.nativeBinaries.sutura;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
-
-          sutura-performance = nativeFor "release-performance";
 
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
           # nothing but `nix` on the runner.
@@ -497,26 +351,6 @@
             meta.mainProgram = "xtask";
           });
 
-          # `nix build .#oci` -> a loadable image tarball, from the native binary.
-          #
-          # streamLayeredImage, not buildLayeredImage: it avoids materialising a
-          # multi-hundred-MB tarball in the store just to push it. See `ociFor`.
-          #
-          # `ociImages` above contributes the per-target set, `oci-<triple>` - four images for
-          # four binaries. This keeps the unqualified name because it is what a developer and
-          # the release workflow reach for, and on an x86_64 builder it is the same derivation
-          # as `oci-x86_64-unknown-linux-gnu`.
-          oci = ociFor {
-            bin = sutura;
-            architecture = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
-          };
-
-          # The same image built from the performance binary, so a release shipping the
-          # optimised profile ships a matching image rather than a mismatched pair.
-          oci-performance = ociFor {
-            bin = nativeFor "release-performance";
-            architecture = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
-          };
         };
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
@@ -570,30 +404,45 @@
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
 
-          # The image is supposed to hold one executable and no toolchain. It held three and
-          # a full cargo, so this is a check rather than a sentence in a comment. Reads the
-          # closure, so a compile-time store-path reference cannot sneak back in either.
+          # A shipped package holds one executable, THAT executable is the one it was supposed to
+          # build, and no toolchain is in its closure. It held three binaries and a full cargo
+          # once, so this is a check rather than a sentence in a comment.
           #
-          # EVERY shipped target, not just the native one. There are four release artifacts now
-          # and the invariant is a property of each: a cross build has its own dependency
-          # derivation and its own `cargoExtraArgs`, so "the native package holds one binary"
-          # says nothing about the musl one. The price is that this check pulls the cross builds
-          # in, which is what it costs for the assertion to be true rather than assumed.
+          # EVERY shipped binary at EVERY shipped target, and both dimensions are the point. A
+          # cross build has its own dependency derivation and its own `cargoExtraArgs`, so "the
+          # native package holds one binary" says nothing about the musl one; and since #111 there
+          # are two binaries, so "the package built one thing" says nothing about WHICH thing. The
+          # price is that this check pulls every cross build in, which is what it costs for the
+          # assertion to be true rather than assumed.
+          #
+          # **THE NAME ASSERTION IS THE HALF THAT IS NEW, and it is the cheap guard against the
+          # defect #111 was.** `cargoExtraArgs` names a cargo PACKAGE while the image names an
+          # ENTRYPOINT PATH, and nothing relates the two: a `--package` pointing at the wrong
+          # crate builds, ships, and produces an image whose entrypoint does not exist - which
+          # fails at `docker run` on somebody else's machine. Two lines here turn that into a
+          # red gate.
           one-binary =
             let
-              shipped = map (target: { inherit target; drv = crossPackages."sutura-${target}"; }) imageTargets;
+              cells = pkgs.lib.concatMap
+                (b: map (target: { inherit target; inherit (b) bin; drv = crossPackages."${b.bin}-${target}"; }) imageTargets)
+                binaries;
               checkOne = p: ''
-                echo "one-binary: ${p.target}"
+                echo "one-binary: ${p.bin} ${p.target}"
                 count="$(ls ${p.drv}/bin | wc -l)"
                 if [ "$count" != "1" ]; then
-                  echo "${p.target}: the shipped package holds $count binaries, expected 1:" >&2
+                  echo "${p.bin} ${p.target}: the shipped package holds $count binaries, expected 1:" >&2
+                  ls ${p.drv}/bin >&2
+                  exit 1
+                fi
+                if [ ! -x "${p.drv}/bin/${p.bin}" ]; then
+                  echo "${p.bin} ${p.target}: the shipped package holds no executable called '${p.bin}', so the image entrypoint would not exist:" >&2
                   ls ${p.drv}/bin >&2
                   exit 1
                 fi
                 # A toolchain in the closure means something baked a build-time path into the
                 # binary. That is how cargo got in: `env!("CARGO")` in a workspace member.
                 if grep -qE '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths; then
-                  echo "${p.target}: a Rust toolchain is in the runtime closure:" >&2
+                  echo "${p.bin} ${p.target}: a Rust toolchain is in the runtime closure:" >&2
                   grep -E '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths >&2
                   exit 1
                 fi
@@ -601,7 +450,79 @@
             in
             pkgs.runCommand "sutura-one-binary" { } ''
               set -eu
-              ${pkgs.lib.concatMapStrings checkOne shipped}
+              ${pkgs.lib.concatMapStrings checkOne cells}
+              touch $out
+            '';
+
+          # WHICH FEATURES A PUBLISHED BINARY CARRIES, asserted from inside the binary.
+          #
+          # `nix/shipped.nix` decides that both shipped binaries are built with cargo's DEFAULT
+          # feature set, and the reason is the four cross builds: `sutura-serve`'s `tls` and
+          # `bigquery` features each pull a rustls closure with `ring` in it, and two of the four
+          # release triples are musl. Issue #111 asks for that to be a STATED choice rather than
+          # one somebody discovers, and a comment is not a mechanism - so this is the mechanism.
+          #
+          # READ OUT OF THE ARTIFACT, never out of a manifest. `nix/auditable.nix` builds every
+          # shipped binary with `cargo auditable`, which puts the crates the compiler actually
+          # linked into one ELF section, and `rust-audit-info` reads them back. A check over
+          # `Cargo.toml` would be asserting what somebody wrote down; this asserts what shipped.
+          # It is the same section `release.yml`'s SBOM and `ci.yml`'s cross job already depend
+          # on, so a build that stopped embedding it fails here too rather than passing quietly.
+          #
+          # TWO DIRECTIONS, because only checking the absence would pass on a binary that linked
+          # nothing at all: `axum` must be present in the server and `ring` absent from both.
+          #
+          # **What this does NOT claim.** It is a statement about a crate NAME in a list, not
+          # about reachable code: a future default feature that pulls TLS under a different crate
+          # name is invisible to it, and so is a crate present for a reason other than the feature
+          # this row is about. It is also the NATIVE build only - the cross artifacts get the same
+          # `cargoExtraArgs` from the same list, so the feature set cannot differ per target
+          # without `nix/shipped.nix` saying so, and pulling four cross builds in to re-read the
+          # same list would double this check's cost for nothing.
+          shipped-features =
+            let
+              # `axum` for the server and `datafusion` for both: one is the transport the
+              # published server exists to carry, the other is the engine neither binary can
+              # answer a question without.
+              required = { sutura = [ "datafusion" ]; sutura-serve = [ "axum" "datafusion" ]; };
+              # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
+              # variant of, while `ring` is the one that compiles C and assembly and is therefore
+              # the one the cross builds actually pay for.
+              forbidden = [ "ring" "ureq" ];
+              quoted = name: "'\"" + name + "\"'";
+              wantOne = bin: name: ''
+                if ! grep -q ${quoted name} deps-${bin}.json; then
+                  echo "${bin}: the embedded dependency list does not name ${name}" >&2
+                  exit 1
+                fi
+              '';
+              banOne = bin: name: ''
+                if grep -q ${quoted name} deps-${bin}.json; then
+                  echo "${bin}: the embedded dependency list names ${name}, so the published binary carries a feature nix/shipped.nix says it does not - see the features paragraph there" >&2
+                  exit 1
+                fi
+              '';
+              checkOne = b:
+                let drv = shipped.nativeBinaries.${b.bin}; in ''
+                echo "shipped-features: ${b.bin}"
+                rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
+                crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
+                # A FLOOR, for the reason `ci.yml` gives at its own copy of this number: the exact
+                # count moves with every dependency bump, and what is checked is the difference
+                # between a list of crates and no list at all. `grep -o | wc -l`, never `grep -c`,
+                # because the document is one line.
+                if [ "''${crates:-0}" -lt 100 ]; then
+                  echo "${b.bin}: read $crates crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nothing below means anything" >&2
+                  exit 1
+                fi
+                echo "${b.bin}: $crates crate(s) embedded"
+                ${pkgs.lib.concatMapStrings (wantOne b.bin) required.${b.bin}}
+                ${pkgs.lib.concatMapStrings (banOne b.bin) forbidden}
+              '';
+            in
+            pkgs.runCommand "sutura-shipped-features" { nativeBuildInputs = [ pkgs.rust-audit-info ]; } ''
+              set -eu
+              ${pkgs.lib.concatMapStrings checkOne binaries}
               touch $out
             '';
 
@@ -833,7 +754,7 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            exec cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only "$@"
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features --run-ignored only "$@"
           '');
         };
         # `nix run .#crap` - the CRAP gate, outside the sandbox.

@@ -79,8 +79,14 @@ name: ci
 # survives the list, so a commit touching a README and a metric runs - the metric is the reason
 # CI exists.
 #
-# If CI is ever made a required check, add a skip-equivalent job here: a required check that
-# never runs blocks the merge.
+# `ci` IS a required check now - it is the one context in the `main` ruleset's
+# `required_status_checks` - so the sentence this paragraph used to state as a hypothetical is
+# live: a required check that never RUNS blocks the merge rather than failing it. GitHub's own
+# words, checked 2026-08-31: "If a workflow is skipped due to path filtering, branch filtering or
+# a commit message ... then checks associated with that workflow will remain in a 'Pending'
+# state." The `merge_group` trigger below is that failure fixed for one event; the path filters
+# above can still leave it pending on a pull request targeting `main`, and that exposure is the
+# promotion path only, because the `dev` ruleset requires no status check at all.
 on:
   merge_group:
   push:
@@ -114,6 +120,53 @@ on:
       - "**/fixtures/**/*.md"
       - "!docs/**"
       - "!mkdocs.yml"
+  # THE MERGE QUEUE. A queued pull request gets a ref under
+  # `gh-readonly-queue/<base>/pr-<N>-<sha>` and a `merge_group` event, and `ci` is the one context
+  # the `main` ruleset requires - so with nothing listening the required check never reports, and
+  # the queue's own `check_response_timeout_minutes` elapses, at which point GitHub assumes a check
+  # that never concluded FAILED and drops the entry. MEASURED rather than reasoned, 2026-08-31:
+  # `refs/heads/gh-readonly-queue/main/pr-107-<sha>` was on the remote while
+  # `actions/runs?event=merge_group` listed ZERO runs, so the event had fired and nothing in this
+  # repository had ever answered one. That entry did not merge from the queue - it was retargeted
+  # to `dev`, which requires no status check, and merged there.
+  #
+  # **BARE, AND THE OMISSION IS THE ONLY FORM THIS TRIGGER HAS.** There is no `paths:` key here
+  # because `merge_group` does not take one - it supports the single activity type
+  # `checks_requested` and no `paths`, `paths-ignore`, `branches` or `branches-ignore` filter
+  # (GitHub's events reference, checked 2026-08-31) - so a filter copied down from the two
+  # triggers above is an invalid workflow rather than a narrower one. Not asserted: `paths: ["**"]`
+  # was written here and `actionlint` - the step in this very file - refused it, `"paths" filter is
+  # not available for merge_group event. it is only for push, pull_request, pull_request_target
+  # events`. Next to two heavily filtered triggers the absence reads as an oversight, which is why
+  # it is written down.
+  #
+  # WHAT THAT COSTS, said plainly: a docs-only entry in the queue now starts this workflow where
+  # the filters above would have skipped it. `classify` inside the `ci` job still gates every
+  # expensive step, so the bill is the runner, the Nix install and the cache restore - not the
+  # lints, the tests, the coverage run or the build.
+  #
+  # EVERY OTHER REF TEST IN THIS FILE WAS CHECKED AGAINST THIS EVENT, because a `merge_group`
+  # run's `github.ref` is `refs/heads/gh-readonly-queue/...` and matches neither trunk nor the
+  # release ref. The three trunk-only steps - `Publish the CRAP baseline`, `Release build`,
+  # `Image` - test `== 'refs/heads/dev'`, so a queue entry SKIPS them, which is right and is left
+  # alone: a queue entry is not a promotion and must not publish a baseline or an image. The
+  # `cross` job's test was the one that came out wrong under the same reading and it MOVED to the
+  # event - see its own comment. `concurrency` is right as it stands: `cancel-in-progress` is
+  # `github.event_name == 'pull_request'`, so a merge-queue run is never cancelled, and the queue
+  # ref is unique per entry so it shares no group with the pull request's own run.
+  #
+  # THE TWO EVENT TESTS ARE RIGHT AS THEY STAND AND ARE LEFT ALONE. `crap-comment` gates on
+  # `pull_request`, so a queue entry posts nothing - there is no pull request to comment on.
+  # `bigquery-acceptance` gates on a push or a same-repository pull request, so a queue entry skips
+  # it: it is not a required context, nothing has it in `needs`, and the pull request it came from
+  # already ran it. Making a queue entry call a cloud provider would be a decision about cost and
+  # about a secret, not a fix, so it is named here rather than taken.
+  #
+  # SCOPE: this file only, and deliberately. `ci` is the only required context, so adding
+  # `merge_group` to `docs.yml` or `security-audit.yml` would buy a duplicate run and nothing
+  # else. If `verify` or `audit` is ever made required, its workflow needs this trigger too or
+  # the queue stalls exactly the way this change fixes.
+  merge_group:
 
 permissions:
   contents: read
@@ -125,8 +178,37 @@ concurrency:
   # by any completed run - the same "green while actually red" shape as using the wrong base.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # THE SHIPPED SET, and it must stay in step with `binaries` in `nix/shipped.nix` and with
+  # `BINARIES` in `release.yml`. It is not DERIVED from either: a workflow cannot evaluate a flake
+  # before it has installed nix, and a matrix takes literals.
+  #
+  # TWO RULES KEEP IT HONEST, and only the second reaches the direction that matters. The cross
+  # matrix BUILDS every name in it, so a name that is not a nix package fails the link check; and
+  # `cargo xtask check-shipped-binaries` - a `hygiene` gate, so the `Structural gates` step runs
+  # it - compares this literal against `nix/shipped.nix`, which is what catches a binary that
+  # ships and is named here by nobody.
+  BINARIES: sutura sutura-serve
+
 jobs:
   ci:
+    # SKIPPED ON THE RELEASE COMMIT, and the three jobs below `needs: [ci]` so they skip with it.
+    # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
+    # token, because the `main` ruleset requires a pull request and GITHUB_TOKEN cannot be given
+    # a bypass without bypassing every workflow here. An App token's push DOES start workflow
+    # runs, so that commit would otherwise re-run this whole workflow - and it is the most
+    # expensive commit in the repository to re-run, because it moves the workspace version and
+    # therefore crane's dependency derivation, so nothing in the build cache is reusable.
+    #
+    # WHAT IS GIVEN UP: `main` gets no `ci` run for that commit. Its tree is the promoted one
+    # plus a version number, release.yml builds and publishes from the tag, and the promotion PR
+    # that put the content on `main` was gated by this workflow - so what is skipped is a second
+    # opinion about a one-line diff, at the price of a cold full-workspace build.
+    #
+    # `head_commit` exists on `push` and on nothing else. A `pull_request` event reads the empty
+    # string and runs, which is what stops this from silently withholding a REQUIRED check: a
+    # promotion PR whose tip happens to be a release commit is still gated.
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     runs-on: rust-mcp
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
@@ -517,14 +599,33 @@ jobs:
         if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/dev'
         run: |
           set -eu
-          nix build .#sutura -L
-          # One executable and no toolchain in the closure. It shipped three binaries and a
-          # full cargo once; this is the assertion that stops that returning.
+          # BOTH SHIPPED BINARIES. `nix/shipped.nix` lists them, and since #111 that list has two
+          # entries: the command-line tool and the server. Building only the first is how the
+          # HTTP surface came to ship in no artefact at all.
+          nix build .#sutura -L -o result-sutura
+          nix build .#sutura-serve -L -o result-sutura-serve
+          # One executable, with the expected name, and no toolchain in the closure - for every
+          # shipped binary at every shipped target. It shipped three binaries and a full cargo
+          # once; this is the assertion that stops that returning.
           nix build .#checks.x86_64-linux.one-binary -L
+          # And which FEATURES the published binaries carry, read out of their own embedded
+          # dependency list rather than out of a manifest. `nix/shipped.nix` decides that both
+          # ship with default features - no `tls`, no `bigquery` - and this is what makes that a
+          # gate rather than a comment.
+          nix build .#checks.x86_64-linux.shipped-features -L
           nix build .#sutura-aarch64-unknown-linux-gnu -L -o result-aarch64
-          file result/bin/sutura result-aarch64/bin/sutura
+          nix build .#sutura-serve-aarch64-unknown-linux-gnu -L -o result-serve-aarch64
+          file result-sutura/bin/sutura result-aarch64/bin/sutura
+          file result-sutura-serve/bin/sutura-serve result-serve-aarch64/bin/sutura-serve
 
-      - name: Image
+      # ONE IMAGE PER SHIPPED BINARY, and the two smoke tests are deliberately not the same
+      # test. `--version` is all the two surfaces have in common and it proves the least
+      # interesting thing about either; for the server the claim worth making is #111's own
+      # provable outcome - that somebody runs the PUBLISHED IMAGE and asks a question over HTTP -
+      # so `.github/serve-smoke.sh` asks one, asserts the certified figure in the answer, and
+      # asserts that a question the catalog refuses comes back refused. `release.yml` runs the
+      # same script per target; this is the one that runs on every push to the trunk.
+      - name: Images
         if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/dev'
         run: |
           set -eu
@@ -532,6 +633,13 @@ jobs:
           ./result-oci | docker load
           docker run --rm sutura:latest --version
           docker run --rm sutura:latest doctor
+          nix build .#oci-serve -L -o result-oci-serve
+          ./result-oci-serve | docker load
+          # The SAME script `release.yml` runs per target: start the image, ask the corpus
+          # question, assert the certified figure, and assert that a question the catalog
+          # refuses is refused. One file rather than two copies - they had already drifted on
+          # the catalog version while both were inline.
+          ./.github/serve-smoke.sh sutura-serve:latest
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
@@ -673,9 +781,12 @@ jobs:
   # the head repository rather than on `github.event_name`, because a pull request from a BRANCH of
   # this repository can see the secret and should be held to it.
   #
-  # It is NOT in `needs` for anything and nothing needs it, so it neither delays nor gates the merge
-  # path; whether it becomes required is a branch-protection decision rather than one this file makes.
+  # It waits for `ci`, so the dependency closure that job fills is available before this one asks the
+  # cache for it and a red local gate spends no cloud request. Nothing needs this job, so an endpoint
+  # failure still does not hold the cross matrix; whether it becomes required is a branch-protection
+  # decision rather than one this file makes.
   bigquery-acceptance:
+    needs: [ci]
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: rust-mcp
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
@@ -794,11 +905,18 @@ jobs:
   cross:
     needs: [ci]
     # Same `== 'true'` test the main-only steps use, against the classification `ci` published.
-    # Neither trunk nor the release ref: this is the pull-request link check, and after the move
-    # to a `dev` trunk it has to exclude BOTH. Excluding only `main` would run all four cross
-    # builds a second time on every push to `dev`, where the `Release build` step above has
-    # already built two of them.
-    if: needs.ci.outputs.build == 'true' && github.ref != 'refs/heads/dev' && github.ref != 'refs/heads/main'
+    #
+    # THE EVENT, NOT THE REF, and the difference is four runners per queue entry. This job IS the
+    # pull-request link check, so it now says so. What it said before was two exclusions -
+    # `github.ref != 'refs/heads/dev' && github.ref != 'refs/heads/main'` - which named the two
+    # refs a run was known to arrive on and let through anything else. A `merge_group` run arrives
+    # on `refs/heads/gh-readonly-queue/<base>/pr-<N>-<sha>`, which is neither, so every queued
+    # entry would have built all four targets a SECOND time, over the pull request's own commits
+    # rebased onto the base - possibly batched with the entries ahead of them, which is a tree the
+    # merge itself will produce and not one a link check is the gate for. Positive on the
+    # event rather than negative on a list of refs: a ref shape nobody has seen yet cannot make it
+    # wrong, and the condition now states the intent instead of enumerating its exceptions.
+    if: needs.ci.outputs.build == 'true' && github.event_name == 'pull_request'
     runs-on: rust-mcp
     # 120 for the same reason as `ci`, with more of it: each target in the matrix compiles that
     # same large closure again for its own triple, and none of them shares the host's artifacts.
@@ -841,94 +959,28 @@ jobs:
       # Through `env` rather than interpolated into the script: a matrix literal is not
       # attacker-controlled, but the rule that no `${{ }}` reaches a shell body is worth more
       # as a rule than as a case-by-case judgement.
+      # EVERY SHIPPED BINARY, and the loop is what makes this job the measurement issue #111
+      # asks for. A second shipped executable changes what has to LINK for two musl triples -
+      # the allocator's C included - and this is the job that answers whether it does, on the
+      # pull request, rather than at tag time after four cross builds have been paid for.
       - name: Link check
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -eu
-          nix build ".#sutura-${TARGET}-ci" -L -o result-ci
-          # Proves the arch, not just the exit code: a linker that silently produced a host
-          # binary would pass a bare build.
-          file result-ci/bin/sutura
-          # Not a silent cap: a green branch must not read as having validated what ships.
-          echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary assertion and the container image are built on main, not here."
-
-      # DOES THE BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release path uses
-      # read it back out?
-      #
-      # `nix/auditable.nix` builds every shipped binary with `cargo auditable`, and `release.yml`
-      # depends on `syft` reading that section: the SBOM it publishes is a crate inventory only
-      # if this works. That dependency is the reason this check is HERE rather than only there.
-      # At release time the same failure is a red tag - after four cross builds and two manifest
-      # lists have been paid for - and the branch that broke it would already have merged.
-      #
-      # TWO TOOLS, because they answer two different questions and only the second one is what
-      # the release path needs:
-      #
-      #   * `rust-audit-info` proves the SECTION IS THERE. It is the reference reader, it is
-      #     format-agnostic, and if it fails the build stopped embedding.
-      #   * `syft` proves the section is there AND that the release path's reader can parse it.
-      #     `syft` goes through `go-rustaudit`, which finds the data by looking for a section
-      #     named `.dep-v0`, and that is an ELF-shaped question - these four targets are the
-      #     ELF ones that ship.
-      #
-      # **COUNT OCCURRENCES, NEVER LINES, and this is the whole reason to read the next paragraph
-      # before editing any number here.** `grep -c` counts matching LINES, and both of these tools
-      # write JSON on ONE line - so `grep -c '"name":'` returns 1 for a document naming 241
-      # packages and 1 for a document naming none. The first version of this step used it, and the
-      # measurement it produced was not merely useless, it was actively misleading: it read as
-      # "syft cannot parse this binary" and a whole false conclusion about Mach-O section naming
-      # was written up on the strength of it. `grep -o ... | wc -l` is the fix, and it is the
-      # reason this step counts what it counts below.
-      #
-      # THE THING COUNTED IS PER FORMAT, deliberately, rather than a shared key. `"name":` appears
-      # in a tool block, in properties and in metadata as well as in a component, so it is a proxy
-      # rather than a count. CycloneDX gives every component a `"bom-ref"` and SPDX gives every
-      # package an `"SPDXID"`; those are the actual inventories, so a case on the format is worth
-      # two lines. `rust-audit-info` emits `{"packages":[{"name":...}]}` and nothing else, so
-      # there `"name":` IS the count.
-      #
-      # A FLOOR of 100 rather than a fixed number, for the reason `release.yml` gives at its own
-      # assertion: the exact number moves with every dependency bump, and what is being checked is
-      # the difference between a list of crates and no list at all. MEASURED on 2026-08-31 for the
-      # native build: `rust-audit-info` 263 packages, syft 241 `bom-ref` and 242 `SPDXID` - so the
-      # floor sits an order of magnitude below the real value and well above the three files an
-      # image without the section inventories.
-      - name: The dependency list is embedded, and readable
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -eu
-          embedded="result-ci/bin/sutura"
-
-          # The reference reader first: if this fails, nothing downstream is worth checking.
-          # `grep -o ... | wc -l`, never `grep -c` - see the note above.
-          nix run .#rust-audit-info -- "$embedded" > audit-info.json
-          crates="$(grep -o '"name":' audit-info.json | wc -l)"
-          printf '%s: rust-audit-info read %s crate(s)\n' "$TARGET" "$crates"
-          if [ "${crates:-0}" -lt 100 ]; then
-            echo "::error::${TARGET}: rust-audit-info read ${crates} crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nix/auditable.nix is not doing anything"
-            exit 1
-          fi
-
-          # And the reader the release path actually uses, against the same bytes, in both the
-          # formats the release publishes - so a format syft renders differently cannot pass here
-          # and fail there.
-          nix run .#syft -- scan "file:${embedded}" \
-            -o "cyclonedx-json=binary.cdx.json" \
-            -o "spdx-json=binary.spdx.json"
-          components="$(grep -o '"bom-ref"' binary.cdx.json | wc -l)"
-          packages="$(grep -o '"SPDXID"' binary.spdx.json | wc -l)"
-          printf '%s: syft found %s CycloneDX component(s), %s SPDX id(s)\n' "$TARGET" "$components" "$packages"
-          if [ "${components:-0}" -lt 100 ] || [ "${packages:-0}" -lt 100 ]; then
-            echo "::error::${TARGET}: syft found ${components} CycloneDX component(s) and ${packages} SPDX id(s), expected at least 100 of each - the section is present (rust-audit-info read ${crates}) but syft did not turn it into an inventory, so release.yml would publish an SBOM of the image's files instead of the crates"
-            exit 1
-          fi
-          # By name, in both formats. The floor above would pass on a document listing a hundred of
-          # the wrong things; this is the crate the binary cannot ship without.
-          for sbom in binary.cdx.json binary.spdx.json; do
-            if ! grep -q '"datafusion"' "$sbom"; then
-              echo "::error::${TARGET}: ${sbom} does not name datafusion, which this binary links"
-              exit 1
-            fi
+          for bin in $BINARIES; do
+            nix build ".#${bin}-${TARGET}-ci" -L -o "result-ci-${bin}"
+            # Proves the arch, not just the exit code: a linker that silently produced a host
+            # binary would pass a bare build.
+            file "result-ci-${bin}/bin/${bin}"
           done
+          # Not a silent cap: a green branch must not read as having validated what ships.
+          echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary and shipped-features assertions and the container images are built on main, not here."
+
+      # DOES EVERY SHIPPED BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release
+      # path uses read it back out? A local composite action; its header says why it is not
+      # inline here and what `nix/auditable.nix` and `release.yml` depend on it for.
+      - uses: ./.github/actions/embedded-dependency-list
+        with:
+          target: ${{ matrix.target }}
+          binaries: ${{ env.BINARIES }}

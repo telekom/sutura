@@ -618,6 +618,96 @@ fn a_federated_leg_is_refused_because_there_is_nothing_above_it_to_combine_legs(
     assert!(warehouse.transport.seen.borrow().is_empty());
 }
 
+/// A transport whose failure IS the endpoint declining to return the result at once.
+///
+/// Its own type rather than a flag on [`Broken`], because what is under test is that the adapter asks
+/// the transport rather than guessing: two transports whose errors are indistinguishable to
+/// `BigQueryError::Endpoint` and which answer the predicate differently is the only shape that can
+/// show the delegation happening.
+struct Paged;
+
+/// One page of a larger result, as a transport would report it. Same shape as [`EndpointSaidNo`], and
+/// that is the point: the adapter cannot tell them apart and does not try.
+#[derive(Debug, thiserror::Error)]
+#[error("the endpoint answered with one page of a larger result")]
+struct OnePageOfMore;
+
+impl JobTransport for Paged {
+    type Error = OnePageOfMore;
+
+    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+        Err(OnePageOfMore)
+    }
+
+    fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        Err(OnePageOfMore)
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        true
+    }
+
+    // This fake is about a failure, so the fixtures method fails the same way the others do.
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        Err(OnePageOfMore)
+    }
+}
+
+#[test]
+fn a_result_the_endpoint_would_not_return_at_once_is_a_size_bound_and_not_an_outage() {
+    // THE defect the second bound exists for, at the adapter. `jobs.query` answers one page - as many
+    // rows as fit the maximum permitted reply size - so a result UNDER the row cap can still be over
+    // that, and both shapes that say so used to leave here as `BigQueryError` and reach a caller as
+    // `503`: the status a dead endpoint produces, inviting a retry that returns the same page.
+    //
+    // Two shapes, and each is asked of the thing that knows. The page token is a fact about the wire
+    // document, so the transport is asked - which is why the two failing transports below are
+    // indistinguishable to `BigQueryError::Endpoint` and answer differently.
+    let paged = open(Paged, shared_posture());
+    let error = paged
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .expect_err("a paged result is not a result");
+    assert!(
+        paged.result_did_not_fit(&error),
+        "a page of a larger result is a size bound: {error:?}"
+    );
+
+    // The control, and the reason this is not a test that says yes to everything: the same variant,
+    // an error the adapter cannot tell from the one above, and a transport that does not claim the
+    // bound. It must stay a failure.
+    let broken = open(Broken, shared_posture());
+    let refused = broken
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .expect_err("the endpoint said no");
+    assert!(
+        !broken.result_did_not_fit(&refused),
+        "an endpoint that refused is not a result too large: {refused:?}"
+    );
+}
+
+#[test]
+fn a_page_shorter_than_the_reported_total_is_a_size_bound_and_a_longer_one_is_not() {
+    // The second shape, and this one the ADAPTER decides: a delivered count BELOW the reported total
+    // is the same bound reached without a page token, so it is a governance refusal rather than a
+    // `503`. `a_result_shorter_than_what_the_endpoint_reported_is_refused` above asserts that it is
+    // refused at all; this asserts what a caller is then told it was.
+    let warehouse = open(Recording::empty(), shared_posture());
+    assert!(
+        warehouse.result_did_not_fit(&BigQueryError::Incomplete { delivered: 2, total: 3 }),
+        "a partial page is a result too large"
+    );
+
+    // And the OTHER side of the same variant is deliberately NOT this bound. More rows delivered than
+    // the endpoint says exist is the endpoint contradicting itself - a defect, which a retry may well
+    // not repeat - so calling it a governance refusal would tell a caller not to retry the one shape
+    // here where retrying could work.
+    assert!(
+        !warehouse.result_did_not_fit(&BigQueryError::Incomplete { delivered: 3, total: 2 }),
+        "an endpoint contradicting itself is not a result too large"
+    );
+}
+
 #[test]
 fn a_schema_this_adapter_cannot_map_is_refused_whatever_the_data_happened_to_be() {
     // **The hole review found, and it was in the comment as well as in the code.** `cell` answers a

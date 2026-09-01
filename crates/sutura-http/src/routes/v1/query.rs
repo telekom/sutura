@@ -192,10 +192,6 @@ const TAG: &str = "query";
         ),
     )
 )]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "the tracing macros expand into branches; the control flow is parse, ask, report"
-)]
 pub(crate) async fn ask(
     State(state): State<ServiceState>,
     // Leg 1's conclusion, when this deployment has leg 1. **An extractor and not a body field**, and
@@ -347,10 +343,6 @@ fn refused(shed: &AtCapacity) -> Failure {
 /// The split is the point. A data system that did not answer is a `503` and worth retrying; our own
 /// bundle or generator being wrong is a `500` and is not. Neither response carries the message,
 /// because a driver's complaint names a table, a column or a file.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "both arms are a tracing macro expanding into branches; the control flow is one match"
-)]
 fn failed(failure: &SurfaceFailure) -> Failure {
     // The chain is walked to text HERE, at the sink that writes it, and not inside the error. That
     // is the whole of the difference between a failure that can be inspected and one that has

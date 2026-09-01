@@ -27,9 +27,11 @@ mod max_lines;
 mod pins;
 mod repo;
 mod shared_client;
+mod shipped;
 mod skills;
 mod tasks;
 mod text;
+mod threshold_expect;
 mod unused_deps;
 mod warm_start;
 mod workflows;
@@ -145,6 +147,17 @@ const TASKS: &[Task] = &[
         run: shared_client::run,
     },
     Task {
+        // Beside `check-shared-client` because it is the same shape again: one declaration, read
+        // as text, and every place that had to spell it a second time. Here the declaration is
+        // `nix/shipped.nix`'s `binaries` list and the copies are `BINARIES` in two workflows and
+        // an input default in two composite actions - which cannot be derived from it, because a
+        // matrix takes literals and a job cannot evaluate a flake before installing nix.
+        name: "check-shipped-binaries",
+        description: "every release-path binary literal equals nix/shipped.nix",
+        kind: Kind::Hygiene,
+        run: shipped::run,
+    },
+    Task {
         // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
         // GENERATED artefact checked against the file it is generated from, read as text so the
         // check needs no resolver. `docs/adr/0021`'s attribution amendment is the decision, and
@@ -209,6 +222,15 @@ const TASKS: &[Task] = &[
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene,
         run: docs::run,
+    },
+    Task {
+        // A threshold lint's cause is a NUMBER, which is a property of the surrounding
+        // function rather than of the code the attribute sits on - so two branches can each
+        // move that number correctly and only their merge is wrong. See the module doc.
+        name: "check-expect-thresholds",
+        description: "no #[expect] on a count-threshold lint (too_many_lines / too_many_arguments / cognitive_complexity)",
+        kind: Kind::Hygiene,
+        run: threshold_expect::run,
     },
     Task {
         // CHEAP HALF of the CRAP gate: it reads `.cargo-crap.toml`, checks the allowlist

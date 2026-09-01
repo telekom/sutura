@@ -15,6 +15,14 @@
 # `<version>-performance`. `latest` is never moved, so nothing starts running an optimised
 # build by accident.
 #
+# THE COMMAND-LINE TOOL ONLY, and that is stated rather than left to be noticed. A release publishes
+# two binaries since `github.com/telekom/sutura#111`, and `nix/shipped.nix` gives `sutura-serve` a
+# `-performance` sibling for free - `packages.sutura-serve-performance`, `packages.oci-serve-performance`
+# - which nothing here builds. The reason is this file's own premise: fat LTO is minutes of compile
+# time for throughput SOMEBODY HAS MEASURED, and nobody has measured the server's. Building it here
+# would be paying that price on the strength of symmetry. When there is a measurement, this file gains
+# the second binary and the packages are already there.
+#
 # ACTIONS: the same three release.yml uses - checkout, the nix installer and the nix cache -
 # each pinned by commit, and nothing more. Publishing is `gh` and `docker` rather than a
 # release action, for the same reason as release.yml.
@@ -116,6 +124,9 @@ jobs:
           nix build .#checks.x86_64-linux.nextest -L
           nix build .#checks.x86_64-linux.doctest -L
           nix build .#checks.x86_64-linux.one-binary -L
+          # And which FEATURES the artefacts this release publishes carry, read out of their own
+          # embedded dependency list. `nix/shipped.nix` decides it; this is what asserts it.
+          nix build .#checks.x86_64-linux.shipped-features -L
 
       - name: Build both targets (release-performance)
         run: |

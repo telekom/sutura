@@ -22,7 +22,7 @@ use sutura_domain::knowledge::{
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
-use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason};
+use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound};
 
 // `guide_for` is imported rather than declared here. It used to live in this file under
 // `#[cfg(test)]`; it moved to `prompt.rs` when `sutura-cli` needed the same table to print a refused
@@ -330,7 +330,9 @@ fn every_refusal() -> Vec<RefusalReason> {
             requested: 9,
             limit: MAX_DIMENSIONS,
         },
-        RefusalReason::ResultTooLarge { limit: 10_000 },
+        RefusalReason::ResultTooLarge {
+            bound: ResultBound::Rows { limit: 10_000 },
+        },
         RefusalReason::TimeRangeTooLong {
             days: 99_999,
             limit: MAX_RANGE_DAYS,
