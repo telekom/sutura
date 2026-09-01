@@ -27,6 +27,12 @@ use crate::commands::{arg, catalog_reader, open_engine, render, report, single_u
 /// and the broker are the three collaborators every command in this binary composes.
 type McpSurface = LocalService<DataFusionWarehouse, TracingAuditSink, sutura_config::StaticCredentialBroker>;
 
+/// What serving the surface amounts to: the service, and how catalog descriptions are treated.
+///
+/// Named because even with `McpSurface` aliased, `(McpSurface, CatalogProse)` stays over
+/// `clippy::type_complexity` once the alias is expanded.
+type Served = (McpSurface, CatalogProse);
+
 /// `mcp <catalog-dir> <data-dir>`: serve the agent surface over standard input and output.
 pub(crate) fn mcp(args: &[String]) -> ExitCode {
     report((|| {
@@ -69,7 +75,7 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
 /// with no sink does not exist), and `TracingAuditSink` is it. A locally launched process installs
 /// no subscriber, so those records go nowhere until a composition does - the same posture the
 /// `query` command takes when it declines to write any.
-fn mcp_service(root: &Path, data: &Path) -> Result<(McpSurface, CatalogProse), String> {
+fn mcp_service(root: &Path, data: &Path) -> Result<Served, String> {
     let catalog = catalog_reader(root)?;
     let pinned = catalog.load().map_err(|e| render(&e))?;
     let engine = open_engine(&pinned, data)?;
