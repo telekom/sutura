@@ -212,8 +212,8 @@ runs:
   # the argument; `docs/adr/0021`'s amendment is the decision.
   #
   # Two formats, because they have different consumers rather than because more is better.
-  # CycloneDX is what `cosign attest --type cyclonedx` carries into the registry and what the
-  # licence-review toolchain reads; SPDX is what most ingestion pipelines take. Both are
+  # CycloneDX is what `cosign attest --type cyclonedx` carries into the registry; SPDX is what
+  # most ingestion pipelines take. Both are
   # generated from one scan, so they cannot disagree.
   #
   # ASSERTED rather than described, like the static-linking and manifest-list claims either

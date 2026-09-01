@@ -8,7 +8,7 @@
 # a gate are how the two come to check different things. A second caller also falls out of the move:
 # `just lint-workflows` reaches the whole sequence locally, which the inline version could not offer.
 #
-# TWO, measured against the `dev` trunk rather than against this branch's base: `ci.yml` there is 995
+# TWO, measured against the trunk rather than against this branch's base: `ci.yml` there is 995
 # lines against the 1000-line cap `cargo xtask max-lines` enforces, and adding the composite-action
 # pass inline took it to 1020. On `main` the same addition lands at 949 and is not forced by the cap
 # - so the cap is why the split happened WHEN it did, and the duplication is why it is right.

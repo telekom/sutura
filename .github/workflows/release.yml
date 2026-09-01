@@ -53,19 +53,13 @@ name: release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 # Nothing broad at the workflow level: a default grant applies to every job the file gains.
 permissions:
   contents: read
 
-# One release at a time per ref, and this is not hypothetical caution. version-bump.yml asks
-# for this workflow BY NAME after it pushes the tag, because a push made with GITHUB_TOKEN
-# does not start a workflow run - so the tag alone never triggered this file. If that
-# suppression rule ever changes, the tag push and the dispatch would both start a run: two
-# jobs cross-building the same four artifacts and racing to move `:latest`.
-#
-# `cancel-in-progress: false`, because cancelling a run mid-publish is exactly what leaves
+# One release at a time per tag. `cancel-in-progress: false`, because cancelling a run mid-publish
+# is exactly what leaves
 # images pushed to ghcr.io with no release object naming them. Queueing is the safe order;
 # every step below is idempotent, so the second run converges.
 concurrency:
@@ -107,6 +101,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: The tag names this exact commit on main
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$SHA"
+          test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "$SHA"
+          git merge-base --is-ancestor "$SHA" origin/main || {
+            echo "::error::${GITHUB_REF} does not point to a commit on main"
+            exit 1
+          }
 
       # Before nix installs: /nix/store is what fills. See
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
@@ -250,16 +256,8 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  # THE LICENCE STATEMENT, and it is here rather than in `licence-review.yml` because of a
-  # property of this forge rather than a preference: this repository has GitHub's immutable
-  # releases enabled, so once a release is published its assets can never be added to. A report
-  # produced by a second workflow racing this one cannot become an asset of it, and the ninety-day
-  # CI artifact it used to be was the one output an auditor asks for and no consumer could obtain
-  # or verify. Produced here, it is signed and attached before the release is published.
-  #
-  # `needs: [gates]` and not `[build]`: it compiles nothing, so it runs beside the four cross
-  # builds. IT CAN FAIL A RELEASE, and that is the trade - `docs/adr/0021`'s attribution amendment
-  # records it. `contents: read` only; `publish` is what signs and pushes.
+  # The committed attribution document is copied into the release beside the per-binary SBOMs.
+  # `needs: [gates]` lets this run beside the four cross builds; `publish` signs the result.
   licence:
     needs: [gates]
     runs-on: rust-mcp
@@ -269,17 +267,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # ORT labels its result with the project's VCS metadata, so a shallow clone would leave
-          # the report describing an unknown revision.
-          fetch-depth: 0
           persist-credentials: false
-
-      # Straight into `dist/`, which is the directory `publish` collects and the signing action
-      # signs every file of. A new asset shape is a file landing there and needs no new signing
-      # step - the action's own header says so at length.
-      - uses: ./.github/actions/licence-review
-        with:
-          pack-to: dist/sutura-licence-review.tar.gz
 
       # THE COMMITTED DOCUMENT, copied rather than generated: `just attribution` writes it from
       # `cargo metadata` and `cargo xtask check-attribution` fails when it falls behind
@@ -316,8 +304,6 @@ jobs:
       # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
       # correctly.
       #
-      # Not `if: always()`: an unsigned partial report must not reach a release, and a failed ORT
-      # run has already failed above.
       - name: Hand the report to publish
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -451,23 +437,17 @@ jobs:
           fi
           ls -l dist images facts
 
-      # THE LICENCE STATEMENT, asserted for the reason the step above exists: it is written by the
-      # `licence` job, and a release quietly shipping no statement of what a consumer may do with
-      # it is the state this path was built to leave. Two documents, because they answer two
-      # questions - `sutura-attribution.md` is the committed list of every crate the workspace
-      # resolves, `sutura-licence-review.tar.gz` is ORT's curated report over the same metadata
-      # plus an advisory pass. `docs/adr/0021`'s attribution amendment says which owns what.
+      # The release must carry the checked workspace-wide attribution statement.
       - name: The licence statement arrives with the release
         run: |
           set -eu
-          for f in sutura-attribution.md sutura-attribution.md.sha256 \
-                   sutura-licence-review.tar.gz sutura-licence-review.tar.gz.sha256; do
+          for f in sutura-attribution.md sutura-attribution.md.sha256; do
             if [ ! -s "dist/${f}" ]; then
               echo "::error::dist/${f} is missing or empty: the 'licence' job handed over nothing"
               exit 1
             fi
           done
-          ls -l dist/sutura-attribution.md dist/sutura-licence-review.tar.gz
+          ls -l dist/sutura-attribution.md
 
       # Only from a tag that looks like a release. Without this a `workflow_dispatch` on any
       # branch computed a tag from the branch name and moved `:latest`, which is what consumers
@@ -831,17 +811,14 @@ jobs:
             echo "| the crates the binary was compiled from | a \`cargo auditable\` section inside the binary, not from \`Cargo.lock\` |"
 
             # THE LICENCE STATEMENT, as a table for the reason everything here is one: it is the
-            # facts a reader chooses on. Two documents and one row each, because they answer two
-            # questions and a reader who takes the wrong one gets the wrong answer. In THIS group
-            # rather than its own, because shellcheck's SC2129 counts redirects to one file and a
-            # fourth `} >> notes.md` is what tipped it - and the two tables are adjacent anyway.
+            # facts a reader chooses on. In THIS group rather than its own, because shellcheck's
+            # SC2129 counts redirects to one file and the two tables are adjacent anyway.
             echo
             echo "### Licence"
             echo
             echo "| Document | Covers |"
             echo "| --- | --- |"
             printf "| [\`sutura-attribution.md\`](%s/sutura-attribution.md) | every third-party crate this workspace resolves and the licence it declares; committed, generated from \`cargo metadata\` |\n" "$base"
-            printf "| [\`sutura-licence-review.tar.gz\`](%s/sutura-licence-review.tar.gz) | the curated review: CycloneDX, SPDX, a rendered NOTICE and an OSV advisory pass over the same declared metadata |\n" "$base"
           } >> notes.md
 
           {

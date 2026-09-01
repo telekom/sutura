@@ -191,15 +191,13 @@ runs in CI on every dependency change and weekly regardless - a run, not a prope
 
 ## The licence statement
 
-Two assets, and they answer two different questions. Taking the wrong one gets you the wrong answer,
-so the difference comes first.
+The release carries the workspace-wide attribution document beside the per-binary SBOMs.
 
 | Asset | What it is | Generated from |
 | --- | --- | --- |
 | `sutura-attribution.md` | every third-party crate this workspace resolves, with the SPDX expression its manifest declares | `cargo metadata`, committed as `ATTRIBUTION.md` and copied into the release |
-| `sutura-licence-review.tar.gz` | the curated review: CycloneDX, SPDX, a rendered NOTICE and an OSV advisory pass | OSS Review Toolkit, run in the release workflow |
 
-Both are signed and both carry provenance, so they verify exactly like a binary tarball:
+It is signed and carries provenance, so it verifies exactly like a binary tarball:
 
 ```bash
 cosign verify-blob \

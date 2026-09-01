@@ -509,8 +509,8 @@ version to watch rather than a hope.
 
 Claimed, and checkable:
 
-- A consumer can obtain both documents **for a specific release** and verify each with the commands
-  in `docs/verifying-a-release.md`, from the bytes and the bundle alone.
+- A consumer can obtain the attribution document **for a specific release** and verify it with the
+  commands in `docs/verifying-a-release.md`, from the bytes and the bundle alone.
 - `ATTRIBUTION.md` names every third-party package in `Cargo.lock` - registry, git and vendored path
   alike - at the resolved version, and names nothing else. That is `cargo xtask check-attribution`,
   in `just validate`.
@@ -523,10 +523,10 @@ Not claimed, and each is real:
 
 - **Not that the licence expressions are TRUE of each crate's source.** They are what the manifests
   declare, copied through - and now compared against a fresh generation rather than trusted.
-  Verifying them against the licence FILES in each crate's tree is a source scan, which
-  `.github/actions/licence-review`'s header declines and for reasons that have not changed.
+  Verifying them against the licence FILES in each crate's tree is a source scan this repository
+  does not perform.
 - **Not the notice text of each dependency.** An Apache-2.0 crate's own `NOTICE` file is in its
-  source tree, not in its metadata, so neither document renders one. **This is the largest remaining
+  source tree, not in its metadata, so the document does not render one. **This is the largest remaining
   gap in the obligation** and closing it needs the scanner that is deliberately absent.
 - **Not that the document is the list a given binary links.** Deliberately wider; see above.
 - **Not that composite actions are fully linted.** Their SHELL is, now. The action metadata around
@@ -540,4 +540,15 @@ Not claimed, and each is real:
   0.11.0 and pinned by tests.
 - **Not verified end to end.** `just validate` covers the generator, the gate and the document. The
   release half is verified the way the rest of this path is - a tag, then `cosign verify-blob` and
-  `gh attestation verify` against the two new assets - and that has not been run for these two.
+  `gh attestation verify` against the released asset.
+
+### Amendment: the ORT report is removed
+
+**On 2026-09-01 the ORT report and its scheduled workflow were removed.** Its Cargo analyzer
+expands each workspace member's dependency tree independently and exhausted a 5 GiB heap on this
+workspace. Raising the heap preserves a duplicate workspace-wide SBOM and advisory pass, not a
+unique release requirement: `cargo deny check` owns licence policy and RustSec advisories,
+`ATTRIBUTION.md` owns the checked workspace-wide declared-licence list, and Syft owns the two
+per-binary SBOM formats. The source scanner was disabled, so ORT did not close the remaining
+dependency-`NOTICE` gap. This amendment supersedes the earlier sections that describe the report as
+still produced.

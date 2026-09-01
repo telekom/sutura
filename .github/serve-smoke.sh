@@ -33,9 +33,8 @@
 # process refuses to start. With `--network host` the container's loopback IS the runner's, so this
 # runs the single-player posture the example documents rather than a shape nobody would deploy.
 #
-# THE ENVIRONMENT IS MEASURED, not copied from a page. `SUTURA__CATALOG__DATA_DIR` is deliberately
-# absent: a `sources.<alias>` entry replaced it, and a catalog naming a source nobody declared is a
-# startup refusal. `docs/serving.md` was stale on exactly that key when this was written.
+# The image starts in `/examples`, so the embedded single-catalog defaults resolve `catalog/` from
+# the mounted example. Only the source is overridden here; no stale singular catalog keys survive.
 set -euo pipefail
 
 image="${1:?usage: serve-smoke.sh <image-ref> [port]}"
@@ -49,9 +48,8 @@ if [ ! -d "$examples" ]; then
 fi
 
 id="$(docker run -d --network host --user 65532:65532 \
+  -w /examples \
   -v "${examples}:/examples:ro" \
-  -e SUTURA__CATALOG__DIR=/examples/catalog \
-  -e SUTURA__CATALOG__VERSION=smoke \
   -e "SUTURA__SERVER__PORT=${port}" \
   -e SUTURA__SECURITY__IDENTITY=single-user \
   -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="the release smoke test reads its own example files" \

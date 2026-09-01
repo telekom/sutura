@@ -27,15 +27,12 @@
 # markdown documents but they are not prose - a metric's `measure:` decides generated SQL - so
 # `ci.yml` re-includes them and the `!**/catalog/**/*.md` pair below takes them back out here.
 # Exactly one workflow starts for any given edit, which is what makes "checked by the cheaper
-# workflow" a statement about this repository rather than a hope. THAT CLAIM WAS FALSE UNTIL IT WAS
-# CHECKED: `mkdocs.yml` and this file itself are in the filter below AND matched `ci.yml`'s leading
-# `**`, so an ADR-only pull request that added a nav entry started both workflows. `ci.yml` now
-# excludes `mkdocs.yml` by name, with the reasoning at its own filter. The lesson is the one this
-# repository keeps relearning: a complement asserted in a comment is not a complement, and the check
-# that would have caught it is comparing the two lists rather than reading either.
+# workflow" a statement about pushes rather than a hope. Pull requests deliberately start both:
+# docs verifies the rendered site, while the required `ci` context must report on every change to
+# the sole trunk. Classification keeps the expensive Rust work off for prose-only changes.
 #
-# **THIS FILE IS DELIBERATELY NOT A COMPLEMENT, and that is the one exception.** An edit to this
-# workflow starts `ci.yml` too. The reason is that the only static analysis any workflow gets -
+# **THIS FILE IS DELIBERATELY NOT A PUSH COMPLEMENT, and that is the one exception.** An edit to this
+# workflow starts `ci.yml` too after merge. The reason is that the only static analysis any workflow gets -
 # `zizmor`, `actionlint`, `shellcheck` - lives in `ci.yml`'s steps rather than in `hygiene`, so
 # excluding this path bought a run at the price of letting workflow code merge unanalysed. "Exactly
 # one workflow" is a cost claim, and it does not outrank linting the thing that decides what gets
@@ -52,12 +49,8 @@ name: docs
 
 on:
   push:
-    # `dev` ONLY, and `main` is deliberately absent. The site has two kinds of version: the
-    # development copy, which is the trunk, and one directory per release, which comes from the
-    # `v*` tag below. `main` is now the release ref, and a promotion to it is followed within the
-    # minute by the tag that publishes the release directory - so publishing from `main` as well
-    # would deploy the same tree twice under two names and race `gh-pages` against itself.
-    branches: [dev]
+    # The trunk's development copy; release tags publish immutable version directories below.
+    branches: [main]
     # A `v*` tag publishes that release's own directory. "Path filters are not evaluated for
     # pushes of tags" - documented GitHub behaviour - so `paths` below narrows branch pushes only
     # and a tag always builds, which is what a release needs.
@@ -321,19 +314,14 @@ jobs:
             # A release owns the `latest` alias, and the root redirect follows it.
             echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "alias=latest" >> "$GITHUB_OUTPUT"
-          elif [ "$REF_NAME" = dev ]; then
-            # `dev` is the trunk, and its directory is the development copy. It takes no alias:
+          elif [ "$REF_NAME" = main ]; then
+            # `main` is the trunk, and its directory is the development copy. It takes no alias:
             # `latest` must keep pointing at the newest RELEASE, or every push to the trunk would
             # silently move it.
-            #
-            # The DIRECTORY NAME is `dev` now rather than `main`, so the previously published
-            # `main` directory is left behind on `gh-pages` - stale, and still linked from
-            # `versions.json` until somebody runs `mike delete main`. Called out because a
-            # renamed trunk is exactly the kind of change that leaves an orphan nobody looks for.
-            echo "version=dev" >> "$GITHUB_OUTPUT"
+            echo "version=main" >> "$GITHUB_OUTPUT"
             echo "alias=" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::docs publishes from dev or a v* tag only; got $REF_NAME"
+            echo "::error::docs publishes from main or a v* tag only; got $REF_NAME"
             exit 1
           fi
 

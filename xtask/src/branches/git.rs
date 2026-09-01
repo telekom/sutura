@@ -139,16 +139,9 @@ pub(crate) fn base(root: &Path) -> Result<Base, String> {
             .map_or_else(|| rev.clone(), |(_, tail)| String::from(tail));
         return Ok(Base { rev, name });
     }
-    // ORDER IS THE MECHANISM, and `dev` is first for a reason that only applies since the trunk
-    // moved. This repository's default branch is `dev`; `main` still exists and is the RELEASE
-    // ref. Comparing a feature branch against `main` would count every unreleased commit on the
-    // trunk as "not landed", so a branch that merged days ago reads as unmerged - and the caller
-    // of this is `clean-branches`, which deletes on that answer.
-    //
-    // This list is only reached when `origin/HEAD` is unset, which is the case in a fresh clone
-    // that has not fetched it and in a worktree of a mirror. The normal path is the symbolic ref
-    // above, and that one needs no list because it asks the remote what its default is.
-    for candidate in ["origin/dev", "origin/main", "origin/master", "dev", "main", "master"] {
+    // This fallback is only reached when `origin/HEAD` is unset. Prefer the sole trunk, then the
+    // conventional legacy name for repositories where this helper is reused.
+    for candidate in ["origin/main", "origin/master", "main", "master"] {
         if exists(root, candidate) {
             let name = candidate.split_once('/').map_or(candidate, |(_, tail)| tail);
             return Ok(Base {
@@ -158,7 +151,7 @@ pub(crate) fn base(root: &Path) -> Result<Base, String> {
         }
     }
     Err(String::from(
-        "could not resolve a default branch: none of origin/dev, origin/main, origin/master, dev, main or master exists",
+        "could not resolve a default branch: none of origin/main, origin/master, main or master exists",
     ))
 }
 
