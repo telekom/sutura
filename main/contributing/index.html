@@ -2847,7 +2847,11 @@ invalidates every artifact in it.</p>
 </tr>
 <tr>
 <td>CI</td>
-<td>the same gates, plus test causality, the cross-built release binaries and the image</td>
+<td>the same gates, plus test causality and cross-built <code>ci</code>-profile link checks</td>
+</tr>
+<tr>
+<td>Release tag</td>
+<td>the same gates, then the release-profile binaries, images and image smoke tests</td>
 </tr>
 </tbody>
 </table>
