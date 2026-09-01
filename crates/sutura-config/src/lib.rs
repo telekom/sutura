@@ -118,7 +118,7 @@ mod raw;
 mod settings;
 
 pub use crate::api::ApiSettings;
-pub use crate::catalog::{CatalogKind, CatalogSettings, InvalidCatalogSettings, UnknownCatalogKind};
+pub use crate::catalog::{Catalogs, CatalogKind, CatalogSettings, InvalidCatalogSettings, UnknownCatalogKind};
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
 pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::inbound::{

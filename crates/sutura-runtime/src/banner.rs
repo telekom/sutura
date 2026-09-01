@@ -227,14 +227,33 @@ fn announce_surface(settings: &Settings) {
     } else {
         tracing::info!(docs = api.docs_enabled(), "generated interface description");
     }
-    tracing::info!(
-        catalog_dir = %settings.catalog().dir().display(),
-        data_dir = %settings.catalog().data_dir().display(),
-        definition_version = %settings.catalog().version(),
-        log_format = %settings.telemetry().format(),
-        log_format_explicit = settings.telemetry().format_was_explicit(),
-        "catalog and log"
-    );
+    let mut it = settings.catalogs().each();
+    if let Some(single) = it.next() {
+        // One catalog: the banner names where its model and data are. The N-catalog case, whose
+        // dirs the banner would otherwise have to flatten, is composed above the settings by the
+        // metadata assembler and is not this line's to render - see note on `it.next()` below.
+        debug_assert!(
+            it.next().is_none(),
+            "the banner names one catalog; a multi-catalog deployment is composed elsewhere"
+        );
+        tracing::info!(
+            catalog_name = %single.name(),
+            catalog_kind = single.kind().as_str(),
+            catalog_dir = %single.dir().display(),
+            data_dir = %single.data_dir().display(),
+            definition_version = %single.version(),
+            log_format = %settings.telemetry().format(),
+            log_format_explicit = settings.telemetry().format_was_explicit(),
+            "catalog and log"
+        );
+    } else {
+        tracing::info!(
+            catalogs = settings.catalogs().count(),
+            log_format = %settings.telemetry().format(),
+            log_format_explicit = settings.telemetry().format_was_explicit(),
+            "log, with no catalog to name"
+        );
+    }
 }
 
 /// The one line an operator must not be able to miss, and it is now two lines because the answer

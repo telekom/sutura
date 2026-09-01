@@ -34,7 +34,14 @@ pub(crate) struct RawSettings {
     pub(crate) telemetry: RawTelemetry,
     #[serde(default)]
     pub(crate) api: RawApi,
-    pub(crate) catalog: RawCatalog,
+    /// The metadata sources this deployment reads, in declaration order.
+    ///
+    /// A LIST rather than a map because declaration order is content order for the contribution
+    /// manifest; each entry names itself, which is what a reviewer reads and what the manifest
+    /// keys on. The empty-list refusal and the duplicate-name check live in
+    /// `crate::catalog::Catalogs`.
+    #[serde(default)]
+    pub(crate) catalogs: Vec<RawCatalog>,
     pub(crate) runtime: RawRuntime,
     #[serde(default)]
     pub(crate) prompt: RawPrompt,
@@ -316,6 +323,8 @@ pub(crate) struct RawApi {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawCatalog {
+    /// The declared name, which the contribution manifest keys on.
+    pub(crate) name: String,
     /// Which adapter opens this catalog. Defaulted to `markdown` - the only kind every build can
     /// open - so a deployment that has not yet chosen reads the same model it always did, and the
     /// explicit word in `defaults.yaml` is what a reader is pointed at. `datahub` here does not

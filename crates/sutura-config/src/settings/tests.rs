@@ -149,12 +149,12 @@ fn a_per_source_working_set_ceiling_is_refused_at_parse() {
     // source declaration carrying one is REFUSED rather than ignored, because somebody will tune a
     // setting that silently does nothing and believe the result.
     //
-    // **What "per source" means today, stated rather than implied.** There is no source registry yet;
-    // `catalog` is the group that names where the data is, so it is the nearest thing a deployment
-    // has to a source declaration, and `runtime` is the only group the key belongs to. The mechanism
-    // is `deny_unknown_fields` on every shape in `raw.rs`, which is why this holds for the registry
-    // too when it arrives - a new shape gets the same attribute or it is not one of these shapes.
-    for group in ["catalog", "server", "prompt"] {
+    // **What "per source" means today, stated rather than implied.** The working set is QUERY-wide,
+    // so it belongs under `runtime` and nowhere else; `server` and `prompt` are map groups that a
+    // misplaced key could otherwise be written under, and a `catalogs:` entry - the nearest thing a
+    // deployment has to a metadata-source declaration - is checked the same way. The mechanism is
+    // `deny_unknown_fields` on every shape in `raw.rs`.
+    for group in ["server", "prompt"] {
         let sources =
             Sources::defaults(Environment::Development).with_overlay(format!("{group}:\n  working_set_max_bytes: 2048\n"));
         let error = Settings::load(&sources).expect_err("a ceiling on anything but the runtime group is not a setting");
@@ -165,6 +165,15 @@ fn a_per_source_working_set_ceiling_is_refused_at_parse() {
             "{group}: the error should name the key: {rendered}"
         );
     }
+    // A catalog entry is where a per-metadata-source ceiling would now live, and it is refused there
+    // too, naming the key rather than silently ignoring it.
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "catalogs:\n  - name: model\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n    working_set_max_bytes: 2048\n",
+    );
+    let error = Settings::load(&sources).expect_err("a ceiling on a catalog entry is not a setting");
+    assert!(matches!(error, SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{:?}", core::error::Error::source(&error));
+    assert!(rendered.contains("working_set_max_bytes"), "the error should name the key: {rendered}");
     // And the one place it IS a setting still is, so this test cannot pass by the key being unknown
     // everywhere.
     let sources = Sources::defaults(Environment::Development).with_overlay("runtime:\n  working_set_max_bytes: 2048\n");
@@ -225,8 +234,14 @@ fn an_invalid_value_fails_at_startup_rather_than_falling_back_to_a_default() {
         ("telemetry:\n  service_name: \"has a space\"\n", |e| {
             matches!(*e, SettingsError::Service { .. })
         }),
-        ("catalog:\n  version: \"\"\n", |e| matches!(*e, SettingsError::Version { .. })),
-        ("catalog:\n  dir: \"\"\n", |e| matches!(*e, SettingsError::Catalog { .. })),
+        (
+            "catalogs:\n  - name: model\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: \"\"\n",
+            |e| matches!(*e, SettingsError::Version { .. }),
+        ),
+        (
+            "catalogs:\n  - name: model\n    kind: markdown\n    dir: \"\"\n    data_dir: data\n    version: test-1\n",
+            |e| matches!(*e, SettingsError::Catalog { .. }),
+        ),
     ];
     for &(overlay, is_expected) in cases {
         let sources = Sources::defaults(Environment::Development).with_overlay(overlay);

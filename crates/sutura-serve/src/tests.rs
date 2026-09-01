@@ -870,25 +870,56 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     // the BUILD rather than of the file: `sutura-config` can and must not see which catalog
     // adapter a binary linked, so the refusal lives in the composition root that would have to
     // open the kind. `datahub` is the vocabulary's one kind no binary here links.
-    use sutura_config::{CatalogKind, CatalogSettings};
+    use sutura_config::{Catalogs, CatalogKind, CatalogSettings};
+    use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
     let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
-    let settings = CatalogSettings::parse(
+    let name = SourceName::parse("model").expect("a test name is a name");
+    let datahub = CatalogSettings::parse(
+        name.clone(),
         CatalogKind::Datahub,
         PathBuf::from("/nowhere/catalog"),
         PathBuf::from("/nowhere/data"),
         version.clone(),
     )
     .expect("a directory and a version are a settings");
-    let err = super::open_catalog(&settings).expect_err("datahub cannot be opened by this build");
+    let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
+    let err = super::open_catalog(&catalogs).expect_err("datahub cannot be opened by this build");
     assert!(err.contains("datahub"), "{err}");
     assert!(err.contains("markdown"), "{err}");
     let markdown = CatalogSettings::parse(
+        name,
         CatalogKind::Markdown,
         PathBuf::from("/nowhere/catalog"),
         PathBuf::from("/nowhere/data"),
         version,
     )
     .expect("a directory and a version are a settings");
-    super::open_catalog(&markdown).expect("markdown is the kind this build links");
+    let catalogs = Catalogs::parse(vec![markdown]).expect("one declared catalog is a registry");
+    super::open_catalog(&catalogs).expect("markdown is the kind this build links");
+}
+
+#[test]
+fn a_deployment_with_more_than_one_catalog_is_refused_until_composition_lands() {
+    // Step 2 of the issue is settings plus wiring: the settings can DECLARE several metadata
+    // sources, and this build serves exactly one until the metadata assembler arrives. Refusing
+    // here rather than silently serving the first is what keeps "I declared a second source and
+    // nothing changed" from being the quiet failure mode of a half-merged settings diff.
+    use sutura_config::{Catalogs, CatalogKind, CatalogSettings};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    let entry = |raw: &str| {
+        CatalogSettings::parse(
+            SourceName::parse(raw).expect("a test name is a name"),
+            CatalogKind::Markdown,
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
+            version.clone(),
+        )
+        .expect("a directory and a version are a settings")
+    };
+    let catalogs = Catalogs::parse(vec![entry("structure"), entry("metrics")]).expect("two names are a registry");
+    let err = super::open_catalog(&catalogs).expect_err("two catalogs are not yet servable");
+    assert!(err.contains("one catalog"), "{err}");
 }

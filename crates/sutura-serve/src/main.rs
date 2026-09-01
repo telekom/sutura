@@ -122,7 +122,7 @@ fn run() -> Result<(), String> {
     banner::announce(&settings);
 
     // 6. The adapters, then the service. Both ports are named exactly here.
-    let catalog = open_catalog(settings.catalog())?;
+    let catalog = open_catalog(settings.catalogs())?;
     let pinned = catalog.load().map_err(flatten)?;
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
@@ -190,7 +190,7 @@ fn run() -> Result<(), String> {
         refuse_unattached(&served_tables(service.definitions()), &attached)?;
     }
     tracing::info!(
-        definition_version = %settings.catalog().version(),
+        definition_version = %pinned.version(),
         metrics = pinned.definitions().metrics().len(),
         "catalog loaded and every anchor reproduced its number"
     );
@@ -469,7 +469,29 @@ type Serving = Arc<dyn Surface>;
 /// **`sutura_config::CatalogKind` is the metadata side of `SourceKind`, and this is the same
 /// exhaustive no-wildcard match that dispatches a source kind in [`open_engine`].** A third kind is
 /// therefore a compile error here rather than a refusal that reads the same wherever it is written.
-fn open_catalog(settings: &sutura_config::CatalogSettings) -> Result<LocalCatalog, String> {
+///
+/// **This build serves exactly ONE catalog.** The settings can now DECLARE several - that is the
+/// metadata assembler's input - but the assembler is `sutura-app`'s and this binary does not link
+/// it yet, so a deployment that declared more than one is refused HERE rather than silently serving
+/// the first. The refusal is deliberately a sentence rather than a number: it tells an operator the
+/// capability exists and this artifact has not adopted it, which is the "one contributor in
+/// practice" shape step 4 of the issue replaces.
+fn open_catalog(catalogs: &sutura_config::Catalogs) -> Result<LocalCatalog, String> {
+    match catalogs.count() {
+        1 => open_one_catalog(catalogs.each().next().ok_or_else(|| {
+            // The count said one; as-a-matter-of-state the iterator below returns it. This is a
+            // broken invariant rather than an input, so it joins the count mismatch as a refusal.
+            String::from("`catalogs` said one and delivered none")
+        })?),
+        0 => Err(String::from("no catalog is declared - a deployment serves at least one")),
+        _ => Err(String::from(
+            "this build serves exactly one catalog; N-catalog composition arrives with the metadata assembler",
+        )),
+    }
+}
+
+/// Opens one declared catalog, dispatching its kind exhaustively.
+fn open_one_catalog(settings: &sutura_config::CatalogSettings) -> Result<LocalCatalog, String> {
     match settings.kind() {
         sutura_config::CatalogKind::Markdown => Ok(LocalCatalog::new(
             PathBuf::from(settings.dir()),
