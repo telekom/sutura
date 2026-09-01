@@ -25,6 +25,7 @@ mod max_lines;
 mod pins;
 mod repo;
 mod shared_client;
+mod shipped;
 mod skills;
 mod tasks;
 mod text;
@@ -142,6 +143,17 @@ const TASKS: &[Task] = &[
         description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018)",
         kind: Kind::Hygiene,
         run: shared_client::run,
+    },
+    Task {
+        // Beside `check-shared-client` because it is the same shape again: one declaration, read
+        // as text, and every place that had to spell it a second time. Here the declaration is
+        // `nix/shipped.nix`'s `binaries` list and the copies are `BINARIES` in two workflows and
+        // an input default in two composite actions - which cannot be derived from it, because a
+        // matrix takes literals and a job cannot evaluate a flake before installing nix.
+        name: "check-shipped-binaries",
+        description: "every release-path binary literal equals nix/shipped.nix",
+        kind: Kind::Hygiene,
+        run: shipped::run,
     },
     Task {
         name: "line-endings",

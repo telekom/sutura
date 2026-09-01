@@ -1,20 +1,20 @@
 name: Attest and sign what was published
 description: >
   Sign every release asset and every pushed image with Sigstore, attach each leaf image's
-  CycloneDX SBOM as a cosign attestation, and record SLSA provenance for the assets and for the
-  two manifest lists.
+  CycloneDX SBOM as a cosign attestation, and record SLSA provenance for the assets and for every
+  manifest list.
 
 inputs:
-  image:
-    description: >
-      The image repository the digests in `digests-file` belong to, without a tag - the
-      `subject-name` a provenance attestation is looked up by.
-    required: true
   digests-file:
     description: >
       A file of `kind name reference@digest` lines, as `release.yml`'s `Push the images` step
       writes it. `leaf` is one architecture, `list` is a manifest list. Read rather than derived,
       so a reference added to the push step is signed without a second list agreeing to it.
+
+      A `leaf`'s NAME is its asset key - `<triple>` for `sutura`, `serve-<triple>` for
+      `sutura-serve` - which is also the stem of the SBOM beside it, so nothing here has to know
+      how many binaries ship. A `list`'s name is `<prefix>glibc` or `<prefix>musl` on the same
+      rule, and `list-names` below is what says which of them must be present.
     required: false
     default: dist/image-digests.txt
   assets-dir:
@@ -23,17 +23,24 @@ inputs:
     default: dist
   expected-leaves:
     description: >
-      How many `leaf` references must be present. What this catches is a PARTIAL set - three
-      leaves where four were built - which is silent: the loop signs what it finds and reports
+      How many `leaf` references must be present. What this catches is a PARTIAL set - seven
+      leaves where eight were built - which is silent: the loop signs what it finds and reports
       success. An EMPTY set is caught one layer earlier and by something else, because `grep`
       with no match exits non-zero and `set -eu` aborts the step; so this is the check for the
       case where the file is present, well formed, and short.
+
+      Two shipped binaries at four triples is eight.
     required: false
-    default: "4"
-  expected-lists:
-    description: How many `list` references must be present, on the same reasoning.
+    default: "8"
+  list-names:
+    description: >
+      The `list` names that must be present, space separated, in the order the provenance steps
+      below consume them. NAMES rather than a count, and that is a change of shape rather than of
+      degree: `actions/attest-build-provenance` takes ONE digest per call and a composite action
+      cannot open a matrix, so each list needs its own step - which means each needs its own
+      output, which means the names have to be known here rather than counted.
     required: false
-    default: "2"
+    default: glibc musl serve-glibc serve-musl
   registry:
     description: Registry to authenticate against for the image signatures and attestations.
     required: false
@@ -101,7 +108,7 @@ runs:
         REGISTRY_USERNAME: ${{ inputs.registry-username }}
         REGISTRY_TOKEN: ${{ inputs.registry-token }}
         WANT_LEAVES: ${{ inputs.expected-leaves }}
-        WANT_LISTS: ${{ inputs.expected-lists }}
+        LIST_NAMES: ${{ inputs.list-names }}
       run: |
         set -eu
         cosign() { nix run .#cosign -- "$@"; }
@@ -114,7 +121,11 @@ runs:
         # that catches it.
         grep -E '^leaf ' "$IMAGE_DIGESTS" > leaves.txt
         grep -E '^list ' "$IMAGE_DIGESTS" > lists.txt
-        want=$((WANT_LEAVES + WANT_LISTS))
+        # The lists are counted from the NAMES this action was told to expect, so the count and
+        # the provenance steps below cannot disagree about how many there are.
+        want_lists=0
+        for _ in $LIST_NAMES; do want_lists=$((want_lists + 1)); done
+        want=$((WANT_LEAVES + want_lists))
 
         signed=0
         for refs in leaves.txt lists.txt; do
@@ -125,7 +136,7 @@ runs:
           done < "$refs"
         done
         if [ "$signed" -ne "$want" ]; then
-          echo "::error::signed ${signed} image reference(s), expected ${want} - ${WANT_LEAVES} leaves and ${WANT_LISTS} manifest lists"
+          echo "::error::signed ${signed} image reference(s), expected ${want} - ${WANT_LEAVES} leaves and ${want_lists} manifest lists"
           exit 1
         fi
 
@@ -133,13 +144,16 @@ runs:
         # inventory is per architecture: the amd64 and arm64 images hold different bytes, and one
         # document covering a manifest list would have to be true of both or true of neither.
         attested=0
-        while read -r _ target ref; do
-          sbom="${ASSETS}/sutura-oci-${target}.cdx.json"
+        while read -r _ key ref; do
+          # The leaf's name IS the SBOM's stem, which is what lets this loop stay ignorant of how
+          # many binaries ship: `release.yml` writes `sutura-oci-<key>.cdx.json` under the same
+          # key it records the leaf under.
+          sbom="${ASSETS}/sutura-oci-${key}.cdx.json"
           if [ ! -s "$sbom" ]; then
-            echo "::error::${sbom} is missing: there is no inventory to attach to ${target}"
+            echo "::error::${sbom} is missing: there is no inventory to attach to ${key}"
             exit 1
           fi
-          printf '\n=== attesting %s with %s ===\n' "$target" "$sbom"
+          printf '\n=== attesting %s with %s ===\n' "$key" "$sbom"
           cosign attest --yes --type cyclonedx --predicate "$sbom" "$ref"
           attested=$((attested + 1))
         done < leaves.txt
@@ -207,8 +221,9 @@ runs:
     # SLSA PROVENANCE for everything the release page carries, in ONE call.
     #
     # `subject-checksums` and not `subject-path`: the action accepts a `sha256sum`-format file and
-    # takes each line as a subject, so thirty-odd assets are one invocation instead of a glob per
-    # shape. The file is written from within the assets directory so the names it carries are the
+    # takes each line as a subject, so forty-odd assets - eight tarballs and their sidecars, sixteen
+    # SBOMs, four image tarballs and their sidecars, and `image-digests.txt` - are one invocation
+    # instead of a glob per shape. The file is written from within the assets directory so the names it carries are the
     # basenames a consumer downloads, which is what the attestation is looked up by.
     #
     # WHAT IS EXCLUDED, and it is one thing: the signature bundles written by the step above.
@@ -257,35 +272,65 @@ runs:
     # It would also need registry credentials, which means staying logged in across a step this
     # file does not control.
     #
-    # TWO STEPS rather than a loop: the action takes one digest per call, and a matrix cannot be
-    # opened in the middle of a job. Written out means the glibc and musl lists are visibly two
-    # things rather than two iterations of something. That is also the reason `expected-lists`
-    # exists as an input and is not read here - the count is asserted where the signing loop can
-    # act on it, and these two steps are the hardcoded consequence of it being 2.
+    # FOUR STEPS rather than a loop: the action takes one digest per call, and a matrix cannot be
+    # opened in the middle of a job. Written out means the four lists are visibly four things
+    # rather than four iterations of something. That is also the reason `list-names` exists as an
+    # input and is only counted in the signing step - the assertion belongs where the loop can act
+    # on it, and these four steps are the hardcoded consequence of there being four names.
+    #
+    # An output name cannot hold a `-` and be read back as `steps.lists.outputs.serve-glibc` in
+    # every expression context, so the key is the name with `-` folded to `_`. The digests file
+    # keeps the hyphenated name, because that is what a human reads.
     - name: Read the list digests
       id: lists
       shell: bash
       env:
         IMAGE_DIGESTS: ${{ inputs.digests-file }}
+        LIST_NAMES: ${{ inputs.list-names }}
       run: |
         set -eu
-        for variant in glibc musl; do
+        for variant in $LIST_NAMES; do
           ref="$(awk -v want="$variant" '$1 == "list" && $2 == want { print $3 }' "$IMAGE_DIGESTS")"
           digest="${ref#*@}"
           case "$digest" in
             sha256:*) ;;
             *) echo "::error::no list digest recorded for ${variant}: got '${ref}'"; exit 1 ;;
           esac
-          printf '%s=%s\n' "$variant" "$digest" >> "$GITHUB_OUTPUT"
-          printf '%s list: %s\n' "$variant" "$digest"
+          # The REPOSITORY the digest belongs to, read out of the same line rather than taken
+          # from an input: with one repository today every list reports the same string, and
+          # reading it here is what makes a second one a change to the push step alone.
+          #
+          # WITHOUT THE TAG. `subject-name` is what `gh attestation verify oci://...` looks the
+          # attestation up by, and a name carrying `:0.2.0-serve` would attest a tag rather than
+          # a repository - so the reference is stripped at the `@` and then at the tag's `:`.
+          # `%:*` is the shortest suffix from the LAST colon, which leaves a `host:port` prefix
+          # intact.
+          repo="${ref%@*}"
+          repo="${repo%:*}"
+          key="$(printf '%s' "$variant" | tr '-' '_')"
+          printf '%s=%s\n' "$key" "$digest" >> "$GITHUB_OUTPUT"
+          printf '%s_name=%s\n' "$key" "$repo" >> "$GITHUB_OUTPUT"
+          printf '%s list: %s %s\n' "$variant" "$repo" "$digest"
         done
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
       with:
-        subject-name: ${{ inputs.image }}
+        subject-name: ${{ steps.lists.outputs.glibc_name }}
         subject-digest: ${{ steps.lists.outputs.glibc }}
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
       with:
-        subject-name: ${{ inputs.image }}
+        subject-name: ${{ steps.lists.outputs.musl_name }}
         subject-digest: ${{ steps.lists.outputs.musl }}
+
+    # And the server's two lists. `sutura-serve` is what closed #111: before it, no published
+    # artefact could answer a question over HTTP, so there was nothing here to attest.
+    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-name: ${{ steps.lists.outputs.serve_glibc_name }}
+        subject-digest: ${{ steps.lists.outputs.serve_glibc }}
+
+    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-name: ${{ steps.lists.outputs.serve_musl_name }}
+        subject-digest: ${{ steps.lists.outputs.serve_musl }}

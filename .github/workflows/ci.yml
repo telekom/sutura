@@ -177,6 +177,18 @@ concurrency:
   # by any completed run - the same "green while actually red" shape as using the wrong base.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # THE SHIPPED SET, and it must stay in step with `binaries` in `nix/shipped.nix` and with
+  # `BINARIES` in `release.yml`. It is not DERIVED from either: a workflow cannot evaluate a flake
+  # before it has installed nix, and a matrix takes literals.
+  #
+  # TWO RULES KEEP IT HONEST, and only the second reaches the direction that matters. The cross
+  # matrix BUILDS every name in it, so a name that is not a nix package fails the link check; and
+  # `cargo xtask check-shipped-binaries` - a `hygiene` gate, so the `Structural gates` step runs
+  # it - compares this literal against `nix/shipped.nix`, which is what catches a binary that
+  # ships and is named here by nobody.
+  BINARIES: sutura sutura-serve
+
 jobs:
   ci:
     runs-on: rust-mcp
@@ -568,14 +580,33 @@ jobs:
         if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/dev'
         run: |
           set -eu
-          nix build .#sutura -L
-          # One executable and no toolchain in the closure. It shipped three binaries and a
-          # full cargo once; this is the assertion that stops that returning.
+          # BOTH SHIPPED BINARIES. `nix/shipped.nix` lists them, and since #111 that list has two
+          # entries: the command-line tool and the server. Building only the first is how the
+          # HTTP surface came to ship in no artefact at all.
+          nix build .#sutura -L -o result-sutura
+          nix build .#sutura-serve -L -o result-sutura-serve
+          # One executable, with the expected name, and no toolchain in the closure - for every
+          # shipped binary at every shipped target. It shipped three binaries and a full cargo
+          # once; this is the assertion that stops that returning.
           nix build .#checks.x86_64-linux.one-binary -L
+          # And which FEATURES the published binaries carry, read out of their own embedded
+          # dependency list rather than out of a manifest. `nix/shipped.nix` decides that both
+          # ship with default features - no `tls`, no `bigquery` - and this is what makes that a
+          # gate rather than a comment.
+          nix build .#checks.x86_64-linux.shipped-features -L
           nix build .#sutura-aarch64-unknown-linux-gnu -L -o result-aarch64
-          file result/bin/sutura result-aarch64/bin/sutura
+          nix build .#sutura-serve-aarch64-unknown-linux-gnu -L -o result-serve-aarch64
+          file result-sutura/bin/sutura result-aarch64/bin/sutura
+          file result-sutura-serve/bin/sutura-serve result-serve-aarch64/bin/sutura-serve
 
-      - name: Image
+      # ONE IMAGE PER SHIPPED BINARY, and the two smoke tests are deliberately not the same
+      # test. `--version` is all the two surfaces have in common and it proves the least
+      # interesting thing about either; for the server the claim worth making is #111's own
+      # provable outcome - that somebody runs the PUBLISHED IMAGE and asks a question over HTTP -
+      # so `.github/serve-smoke.sh` asks one, asserts the certified figure in the answer, and
+      # asserts that a question the catalog refuses comes back refused. `release.yml` runs the
+      # same script per target; this is the one that runs on every push to the trunk.
+      - name: Images
         if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/dev'
         run: |
           set -eu
@@ -583,6 +614,13 @@ jobs:
           ./result-oci | docker load
           docker run --rm sutura:latest --version
           docker run --rm sutura:latest doctor
+          nix build .#oci-serve -L -o result-oci-serve
+          ./result-oci-serve | docker load
+          # The SAME script `release.yml` runs per target: start the image, ask the corpus
+          # question, assert the certified figure, and assert that a question the catalog
+          # refuses is refused. One file rather than two copies - they had already drifted on
+          # the catalog version while both were inline.
+          ./.github/serve-smoke.sh sutura-serve:latest
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
@@ -902,94 +940,28 @@ jobs:
       # Through `env` rather than interpolated into the script: a matrix literal is not
       # attacker-controlled, but the rule that no `${{ }}` reaches a shell body is worth more
       # as a rule than as a case-by-case judgement.
+      # EVERY SHIPPED BINARY, and the loop is what makes this job the measurement issue #111
+      # asks for. A second shipped executable changes what has to LINK for two musl triples -
+      # the allocator's C included - and this is the job that answers whether it does, on the
+      # pull request, rather than at tag time after four cross builds have been paid for.
       - name: Link check
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -eu
-          nix build ".#sutura-${TARGET}-ci" -L -o result-ci
-          # Proves the arch, not just the exit code: a linker that silently produced a host
-          # binary would pass a bare build.
-          file result-ci/bin/sutura
-          # Not a silent cap: a green branch must not read as having validated what ships.
-          echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary assertion and the container image are built on main, not here."
-
-      # DOES THE BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release path uses
-      # read it back out?
-      #
-      # `nix/auditable.nix` builds every shipped binary with `cargo auditable`, and `release.yml`
-      # depends on `syft` reading that section: the SBOM it publishes is a crate inventory only
-      # if this works. That dependency is the reason this check is HERE rather than only there.
-      # At release time the same failure is a red tag - after four cross builds and two manifest
-      # lists have been paid for - and the branch that broke it would already have merged.
-      #
-      # TWO TOOLS, because they answer two different questions and only the second one is what
-      # the release path needs:
-      #
-      #   * `rust-audit-info` proves the SECTION IS THERE. It is the reference reader, it is
-      #     format-agnostic, and if it fails the build stopped embedding.
-      #   * `syft` proves the section is there AND that the release path's reader can parse it.
-      #     `syft` goes through `go-rustaudit`, which finds the data by looking for a section
-      #     named `.dep-v0`, and that is an ELF-shaped question - these four targets are the
-      #     ELF ones that ship.
-      #
-      # **COUNT OCCURRENCES, NEVER LINES, and this is the whole reason to read the next paragraph
-      # before editing any number here.** `grep -c` counts matching LINES, and both of these tools
-      # write JSON on ONE line - so `grep -c '"name":'` returns 1 for a document naming 241
-      # packages and 1 for a document naming none. The first version of this step used it, and the
-      # measurement it produced was not merely useless, it was actively misleading: it read as
-      # "syft cannot parse this binary" and a whole false conclusion about Mach-O section naming
-      # was written up on the strength of it. `grep -o ... | wc -l` is the fix, and it is the
-      # reason this step counts what it counts below.
-      #
-      # THE THING COUNTED IS PER FORMAT, deliberately, rather than a shared key. `"name":` appears
-      # in a tool block, in properties and in metadata as well as in a component, so it is a proxy
-      # rather than a count. CycloneDX gives every component a `"bom-ref"` and SPDX gives every
-      # package an `"SPDXID"`; those are the actual inventories, so a case on the format is worth
-      # two lines. `rust-audit-info` emits `{"packages":[{"name":...}]}` and nothing else, so
-      # there `"name":` IS the count.
-      #
-      # A FLOOR of 100 rather than a fixed number, for the reason `release.yml` gives at its own
-      # assertion: the exact number moves with every dependency bump, and what is being checked is
-      # the difference between a list of crates and no list at all. MEASURED on 2026-08-31 for the
-      # native build: `rust-audit-info` 263 packages, syft 241 `bom-ref` and 242 `SPDXID` - so the
-      # floor sits an order of magnitude below the real value and well above the three files an
-      # image without the section inventories.
-      - name: The dependency list is embedded, and readable
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -eu
-          embedded="result-ci/bin/sutura"
-
-          # The reference reader first: if this fails, nothing downstream is worth checking.
-          # `grep -o ... | wc -l`, never `grep -c` - see the note above.
-          nix run .#rust-audit-info -- "$embedded" > audit-info.json
-          crates="$(grep -o '"name":' audit-info.json | wc -l)"
-          printf '%s: rust-audit-info read %s crate(s)\n' "$TARGET" "$crates"
-          if [ "${crates:-0}" -lt 100 ]; then
-            echo "::error::${TARGET}: rust-audit-info read ${crates} crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nix/auditable.nix is not doing anything"
-            exit 1
-          fi
-
-          # And the reader the release path actually uses, against the same bytes, in both the
-          # formats the release publishes - so a format syft renders differently cannot pass here
-          # and fail there.
-          nix run .#syft -- scan "file:${embedded}" \
-            -o "cyclonedx-json=binary.cdx.json" \
-            -o "spdx-json=binary.spdx.json"
-          components="$(grep -o '"bom-ref"' binary.cdx.json | wc -l)"
-          packages="$(grep -o '"SPDXID"' binary.spdx.json | wc -l)"
-          printf '%s: syft found %s CycloneDX component(s), %s SPDX id(s)\n' "$TARGET" "$components" "$packages"
-          if [ "${components:-0}" -lt 100 ] || [ "${packages:-0}" -lt 100 ]; then
-            echo "::error::${TARGET}: syft found ${components} CycloneDX component(s) and ${packages} SPDX id(s), expected at least 100 of each - the section is present (rust-audit-info read ${crates}) but syft did not turn it into an inventory, so release.yml would publish an SBOM of the image's files instead of the crates"
-            exit 1
-          fi
-          # By name, in both formats. The floor above would pass on a document listing a hundred of
-          # the wrong things; this is the crate the binary cannot ship without.
-          for sbom in binary.cdx.json binary.spdx.json; do
-            if ! grep -q '"datafusion"' "$sbom"; then
-              echo "::error::${TARGET}: ${sbom} does not name datafusion, which this binary links"
-              exit 1
-            fi
+          for bin in $BINARIES; do
+            nix build ".#${bin}-${TARGET}-ci" -L -o "result-ci-${bin}"
+            # Proves the arch, not just the exit code: a linker that silently produced a host
+            # binary would pass a bare build.
+            file "result-ci-${bin}/bin/${bin}"
           done
+          # Not a silent cap: a green branch must not read as having validated what ships.
+          echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary and shipped-features assertions and the container images are built on main, not here."
+
+      # DOES EVERY SHIPPED BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release
+      # path uses read it back out? A local composite action; its header says why it is not
+      # inline here and what `nix/auditable.nix` and `release.yml` depend on it for.
+      - uses: ./.github/actions/embedded-dependency-list
+        with:
+          target: ${{ matrix.target }}
+          binaries: ${{ env.BINARIES }}

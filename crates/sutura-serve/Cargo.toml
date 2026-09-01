@@ -67,5 +67,12 @@ sutura-runtime = { workspace = true }
 tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { workspace = true }
 
+# The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`, for
+# the reason `sutura-cli`'s manifest gives: this way the C is never compiled - not even a build
+# script - on a macOS or Windows laptop, so the one platform we ship on is the only one that pays
+# for it. `Cargo.lock` still records it, because a lockfile is target-agnostic by design.
+[target.'cfg(target_os = "linux")'.dependencies]
+mimalloc = { workspace = true }
+
 [lints]
 workspace = true

@@ -17,11 +17,17 @@
 //!
 //! # Why this is a second binary rather than a subcommand of `sutura`
 //!
-//! Because the shipped artifact is one executable with no server in it. The release derivations
-//! build `--package sutura-cli`, the image holds that one binary, and adding an HTTP surface to it
+//! Because a shipped artifact holds one executable, and `sutura` is a command-line tool a person
+//! runs while this is a service a platform schedules. Folding the HTTP surface into that binary
 //! would put a multi-threaded runtime, an I/O driver, a web framework and a browser asset bundle
-//! into all four cross-compiled targets. Whether to pay that is a decision, and it is not this
-//! file's to make.
+//! into every invocation of `sutura compile`.
+//!
+//! **This binary IS published now**, which is a change from what this comment used to say: it named
+//! the release derivations' `--package sutura-cli` and concluded that nothing shipped a server, which
+//! was true and was the defect `github.com/telekom/sutura#111` records. `nix/shipped.nix` lists both
+//! binaries; `checks.one-binary` and `checks.shipped-features` are what assert what each artefact
+//! holds - one executable of the expected name, and no `tls` or `bigquery`, both being default-off
+//! features that cost a rustls closure across two musl triples and refuse at startup by name.
 //!
 //! # `Result<_, String>` below the surface
 //!
@@ -29,6 +35,18 @@
 //! is a person reading standard error, not code matching on a variant. Every typed error from a
 //! library crate is flattened with its whole `#[source]` chain on the way out, because the outermost
 //! message is the one that says least.
+
+// mimalloc as the global allocator, on Linux only - the same decision, for the same measurements, as
+// `crates/sutura-cli/src/main.rs`, whose comment is the long form and is not repeated here.
+//
+// IT IS HERE BECAUSE THIS BINARY IS NOW SHIPPED, and the argument is sharper for a server than for
+// the tool: two of the four release triples are musl, mallocng serialises the whole process on one
+// lock word, and a server's unit of work is a warehouse round trip fanned out over threads - the
+// shape that measured 20.7x slower on 48 cores. `#[global_allocator]` on a static is a safe
+// attribute, so this needs no `unsafe`.
+#[cfg(target_os = "linux")]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
