@@ -3669,7 +3669,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "sutura-app"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "polyglot-sql",
@@ -3687,7 +3687,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-local"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_norway",
@@ -3697,7 +3697,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "mimalloc",
@@ -3713,7 +3713,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-config"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "config",
  "serde",
@@ -3725,7 +3725,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-dev"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde_json",
  "sha2",
@@ -3733,7 +3733,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-domain"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "secrecy",
  "serde",
@@ -3744,7 +3744,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-bigquery"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.23.1",
  "ring",
@@ -3763,7 +3763,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-datafusion"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "datafusion",
  "sutura-domain",
@@ -3773,7 +3773,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-duckdb"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "duckdb",
  "sutura-domain",
@@ -3783,7 +3783,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-postgres"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3796,7 +3796,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -3823,7 +3823,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-mcp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "rmcp",
@@ -3840,7 +3840,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-runtime"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "sutura-config",
  "sutura-domain",
@@ -3854,7 +3854,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-semantic"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "sutura-domain",
  "thiserror 2.0.20",
@@ -3862,7 +3862,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-serve"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "mimalloc",
@@ -3880,7 +3880,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-sql"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "polyglot-sql",
  "serde",
@@ -4894,7 +4894,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde_json",
  "sha2",
