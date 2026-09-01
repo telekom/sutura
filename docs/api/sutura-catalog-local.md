@@ -86,10 +86,21 @@ pub struct LocalCatalog
 
 A catalog read from a directory of documents.
 
+Carries a declared NAME, the way a `sources:` entry or a `catalogs:` entry carries an alias: it
+is the key the contribution manifest records this contributor under. `sutura-serve` hands it the
+configured `catalogs:.<key>`; `sutura-cli` names its single directory a constant. The adapter
+can no more guess it than a data adapter can guess its source alias.
+
 ### Methods
 
 ```rust
-pub const fn new(root: PathBuf, version: DefinitionVersion) -> Self
+pub const fn name(&self) -> &SourceName
+```
+
+The declared name this contributor is recorded under in a bundle's contribution manifest.
+
+```rust
+pub const fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self
 ```
 
 Points a catalog at a directory.

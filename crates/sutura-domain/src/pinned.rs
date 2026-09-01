@@ -21,12 +21,15 @@
 //! been called. A report is public data anybody can build, and nothing anybody builds here turns
 //! into a bundle the service will serve.
 //!
-//! What it does hold is the hashing. [`PinnedDefinitions::pin`] takes a version, a set of definitions
-//! and the knowledge about them, and nothing else: the digest is computed here, from the values being
-//! stored, by `DefinitionDigest::of`. The previous shape took the hash *function* from its
-//! caller, on the argument that the domain could not hash - and that left the hole intact, because a
-//! function handed the definitions is not a function that read them. `crate::definitions` says what
-//! the twelve allowlisted crates bought.
+//! What it does hold is the hashing. [`PinnedDefinitions::pin`] takes a version, a set of definitions,
+//! the knowledge about them and the composition that produced both, and nothing else: the digest is
+//! computed here, from the values being stored, by `DefinitionDigest::of`. The previous shape took the
+//! hash *function* from its caller, on the argument that the domain could not hash - and that left the
+//! hole intact, because a function handed the definitions is not a function that read them.
+//! `crate::definitions` says what the twelve allowlisted crates bought, and `crate::pinned::manifest`
+//! is the fourth piece of content that made the digest cover the composition.
+
+pub mod manifest;
 
 use std::collections::BTreeMap;
 
@@ -38,6 +41,8 @@ use crate::model::{MetricName, SourceName};
 use crate::query::RefusalReason;
 use crate::source::ExecutedAs;
 use crate::text::first_invisible;
+
+pub use manifest::{Contribution, ContributionManifest, RequiredOrOptional};
 
 /// The longest version label we accept. Long enough for a commit id plus a tag, short enough that
 /// it cannot be used to smuggle a paragraph into an audit record.
@@ -208,21 +213,26 @@ impl Provenance {
 /// property somebody has to remember. `sutura_app::prompt` is the only thing in this workspace that
 /// names it.
 ///
-/// The digest covers both. A glossary decides which metric an agent asks about, so a bundle whose
+/// The digest covers all three. A glossary decides which metric an agent asks about, so a bundle whose
 /// glossary changed answers different questions from the same words - `crate::definitions` argues it
-/// where the hashing is.
+/// where the hashing is. And `ContributionManifest` is the composition: which sources composed the
+/// bundle and what each declared, so a re-composition that assembles identically is still a different
+/// bundle. `docs/adr/0011`'s *contribution manifest* section states both, and `crate::pinned::manifest`
+/// is where the digest is taken over it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PinnedDefinitions {
     version: DefinitionVersion,
     digest: DefinitionDigest,
     definitions: Definitions,
     knowledge: Knowledge,
+    manifest: ContributionManifest,
 }
 
 impl PinnedDefinitions {
-    /// Pins a set of definitions and the knowledge about them, computing the digest here, from both.
+    /// Pins a set of definitions, the knowledge about them, and the composition that produced both,
+    /// computing the digest here, from all three.
     ///
-    /// **Three arguments, and the absence of a fourth is the mechanism.** This constructor has been
+    /// **Four arguments, and the absence of a fifth is the mechanism.** This constructor has been
     /// wrong twice, and the second time is the more interesting one:
     ///
     /// * `new(version, digest, definitions)` took any syntactically valid digest next to any
@@ -242,25 +252,31 @@ impl PinnedDefinitions {
     ///
     /// The knowledge argument arrived after both of those corrections and did not reopen either: it is
     /// a third piece of CONTENT, hashed with the rest, and not a third opinion about the hashing.
+    /// The manifest is a fourth, and it is the resolution of `docs/adr/0011`'s *"no manifest
+    /// parameter"*: read against the two bugs above, that sentence means no digest, no closure, no
+    /// trait - the manifest is content like the definitions and the knowledge, a caller can still not
+    /// influence what the digest is taken over, and making the digest cover the composition is the
+    /// whole reason the manifest exists at all.
     ///
     /// The forgery a caller could write before does not compile - there is no parameter to pass it
-    /// as, and adding the knowledge did not add one:
+    /// as, and adding the knowledge and the manifest did not add one:
     ///
     /// ```compile_fail
     /// use core::convert::Infallible;
     /// use sutura_domain::catalog::Definitions;
     /// use sutura_domain::definitions::DefinitionDigest;
     /// use sutura_domain::knowledge::Knowledge;
-    /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+    /// use sutura_domain::pinned::{ContributionManifest, DefinitionVersion, PinnedDefinitions};
     ///
     /// // The digest of some OTHER catalog, returned by a closure that ignores its argument.
     /// fn _forged(
     ///     version: DefinitionVersion,
     ///     definitions: Definitions,
     ///     knowledge: Knowledge,
+    ///     manifest: ContributionManifest,
     ///     elsewhere: DefinitionDigest,
     /// ) -> Result<PinnedDefinitions, Infallible> {
-    ///     PinnedDefinitions::pin(version, definitions, knowledge, |_| Ok(elsewhere))
+    ///     PinnedDefinitions::pin(version, definitions, knowledge, manifest, |_| Ok(elsewhere))
     /// }
     /// ```
     ///
@@ -271,15 +287,16 @@ impl PinnedDefinitions {
     /// use sutura_domain::catalog::Definitions;
     /// use sutura_domain::definitions::DefinitionDigest;
     /// use sutura_domain::knowledge::Knowledge;
-    /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+    /// use sutura_domain::pinned::{ContributionManifest, DefinitionVersion, PinnedDefinitions};
     ///
     /// fn _by_hand(
     ///     version: DefinitionVersion,
     ///     digest: DefinitionDigest,
     ///     definitions: Definitions,
     ///     knowledge: Knowledge,
+    ///     manifest: ContributionManifest,
     /// ) -> PinnedDefinitions {
-    ///     PinnedDefinitions { version, digest, definitions, knowledge }
+    ///     PinnedDefinitions { version, digest, definitions, knowledge, manifest }
     /// }
     /// ```
     ///
@@ -290,23 +307,30 @@ impl PinnedDefinitions {
     /// use sutura_domain::catalog::Definitions;
     /// use sutura_domain::definitions::NotDigestible;
     /// use sutura_domain::knowledge::Knowledge;
-    /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+    /// use sutura_domain::pinned::{ContributionManifest, DefinitionVersion, PinnedDefinitions};
     ///
     /// fn _pin(
     ///     version: DefinitionVersion,
     ///     definitions: Definitions,
     ///     knowledge: Knowledge,
+    ///     manifest: ContributionManifest,
     /// ) -> Result<PinnedDefinitions, NotDigestible> {
-    ///     PinnedDefinitions::pin(version, definitions, knowledge)
+    ///     PinnedDefinitions::pin(version, definitions, knowledge, manifest)
     /// }
     /// ```
-    pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge) -> Result<Self, NotDigestible> {
-        let digest = DefinitionDigest::of(&definitions, &knowledge)?;
+    pub fn pin(
+        version: DefinitionVersion,
+        definitions: Definitions,
+        knowledge: Knowledge,
+        manifest: ContributionManifest,
+    ) -> Result<Self, NotDigestible> {
+        let digest = DefinitionDigest::of(&definitions, &knowledge, &manifest)?;
         Ok(Self {
             version,
             digest,
             definitions,
             knowledge,
+            manifest,
         })
     }
 
@@ -323,6 +347,16 @@ impl PinnedDefinitions {
     #[inline]
     pub const fn knowledge(&self) -> &Knowledge {
         &self.knowledge
+    }
+
+    /// Which metadata sources composed this bundle, and what each declared.
+    ///
+    /// Under the digest, beside the definitions and the knowledge: a re-composition that assembles
+    /// identically is a different bundle, which is the whole reason the manifest exists -
+    /// [`crate::pinned::manifest`] and `docs/adr/0011`'s contribution-manifest section.
+    #[inline]
+    pub const fn manifest(&self) -> &ContributionManifest {
+        &self.manifest
     }
 
     #[inline]

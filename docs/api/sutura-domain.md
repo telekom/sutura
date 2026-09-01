@@ -3629,12 +3629,13 @@ but not the proof. The proof is `sutura_app::Validated`, whose only constructor 
 been called. A report is public data anybody can build, and nothing anybody builds here turns
 into a bundle the service will serve.
 
-What it does hold is the hashing. `PinnedDefinitions::pin` takes a version, a set of definitions
-and the knowledge about them, and nothing else: the digest is computed here, from the values being
-stored, by `DefinitionDigest::of`. The previous shape took the hash *function* from its
-caller, on the argument that the domain could not hash - and that left the hole intact, because a
-function handed the definitions is not a function that read them. `crate::definitions` says what
-the twelve allowlisted crates bought.
+What it does hold is the hashing. `PinnedDefinitions::pin` takes a version, a set of definitions,
+the knowledge about them and the composition that produced both, and nothing else: the digest is
+computed here, from the values being stored, by `DefinitionDigest::of`. The previous shape took the
+hash *function* from its caller, on the argument that the domain could not hash - and that left the
+hole intact, because a function handed the definitions is not a function that read them.
+`crate::definitions` says what the twelve allowlisted crates bought, and `crate::pinned::manifest`
+is the fourth piece of content that made the digest cover the composition.
 
 ### `struct DefinitionVersion`
 
@@ -3749,9 +3750,12 @@ carries no prose channel at all, so reaching the knowledge would mean naming
 property somebody has to remember. `sutura_app::prompt` is the only thing in this workspace that
 names it.
 
-The digest covers both. A glossary decides which metric an agent asks about, so a bundle whose
+The digest covers all three. A glossary decides which metric an agent asks about, so a bundle whose
 glossary changed answers different questions from the same words - `crate::definitions` argues it
-where the hashing is.
+where the hashing is. And `ContributionManifest` is the composition: which sources composed the
+bundle and what each declared, so a re-composition that assembles identically is still a different
+bundle. `docs/adr/0011`'s *contribution manifest* section states both, and `crate::pinned::manifest`
+is where the digest is taken over it.
 
 #### Methods
 
@@ -3780,12 +3784,23 @@ governance argument in `crate::knowledge`: a glossary is descriptive content whi
 or an agent is the one resolving it, and a selecting input the moment the service does.
 
 ```rust
-pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge) -> Result<Self, NotDigestible>
+pub const fn manifest(&self) -> &ContributionManifest
 ```
 
-Pins a set of definitions and the knowledge about them, computing the digest here, from both.
+Which metadata sources composed this bundle, and what each declared.
 
-**Three arguments, and the absence of a fourth is the mechanism.** This constructor has been
+Under the digest, beside the definitions and the knowledge: a re-composition that assembles
+identically is a different bundle, which is the whole reason the manifest exists -
+`crate::pinned::manifest` and `docs/adr/0011`'s contribution-manifest section.
+
+```rust
+pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge, manifest: ContributionManifest) -> Result<Self, NotDigestible>
+```
+
+Pins a set of definitions, the knowledge about them, and the composition that produced both,
+computing the digest here, from all three.
+
+**Four arguments, and the absence of a fifth is the mechanism.** This constructor has been
 wrong twice, and the second time is the more interesting one:
 
 * `new(version, digest, definitions)` took any syntactically valid digest next to any
@@ -3805,25 +3820,31 @@ dependencies that made it possible.
 
 The knowledge argument arrived after both of those corrections and did not reopen either: it is
 a third piece of CONTENT, hashed with the rest, and not a third opinion about the hashing.
+The manifest is a fourth, and it is the resolution of `docs/adr/0011`'s *"no manifest
+parameter"*: read against the two bugs above, that sentence means no digest, no closure, no
+trait - the manifest is content like the definitions and the knowledge, a caller can still not
+influence what the digest is taken over, and making the digest cover the composition is the
+whole reason the manifest exists at all.
 
 The forgery a caller could write before does not compile - there is no parameter to pass it
-as, and adding the knowledge did not add one:
+as, and adding the knowledge and the manifest did not add one:
 
 ```compile_fail
 use core::convert::Infallible;
 use sutura_domain::catalog::Definitions;
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::knowledge::Knowledge;
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+use sutura_domain::pinned::{ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
 // The digest of some OTHER catalog, returned by a closure that ignores its argument.
 fn _forged(
     version: DefinitionVersion,
     definitions: Definitions,
     knowledge: Knowledge,
+    manifest: ContributionManifest,
     elsewhere: DefinitionDigest,
 ) -> Result<PinnedDefinitions, Infallible> {
-    PinnedDefinitions::pin(version, definitions, knowledge, |_| Ok(elsewhere))
+    PinnedDefinitions::pin(version, definitions, knowledge, manifest, |_| Ok(elsewhere))
 }
 ```
 
@@ -3834,15 +3855,16 @@ would pair them by hand is not a struct literal a caller can write:
 use sutura_domain::catalog::Definitions;
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::knowledge::Knowledge;
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+use sutura_domain::pinned::{ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
 fn _by_hand(
     version: DefinitionVersion,
     digest: DefinitionDigest,
     definitions: Definitions,
     knowledge: Knowledge,
+    manifest: ContributionManifest,
 ) -> PinnedDefinitions {
-    PinnedDefinitions { version, digest, definitions, knowledge }
+    PinnedDefinitions { version, digest, definitions, knowledge, manifest }
 }
 ```
 
@@ -3853,14 +3875,15 @@ them pass vacuously:
 use sutura_domain::catalog::Definitions;
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::Knowledge;
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+use sutura_domain::pinned::{ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
 fn _pin(
     version: DefinitionVersion,
     definitions: Definitions,
     knowledge: Knowledge,
+    manifest: ContributionManifest,
 ) -> Result<PinnedDefinitions, NotDigestible> {
-    PinnedDefinitions::pin(version, definitions, knowledge)
+    PinnedDefinitions::pin(version, definitions, knowledge, manifest)
 }
 ```
 
@@ -4147,6 +4170,160 @@ assert!(
     "this adapter declares no metrics, and the declaration is what says so"
 );
 ```
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### Module `manifest`
+
+The contribution manifest: which metadata sources composed a bundle, and what each declared.
+
+`PinnedDefinitions`' digest is taken over a canonical form of the definitions, the knowledge
+and this manifest, so the digest covers the **composition** and not only the assembly -
+`docs/adr/0011`'s "two different compositions that assemble identically are indistinguishable"
+is the gap this closes. Decision and serialized form: `docs/adr/0011`, *The contribution
+manifest is built, and its serialized form is decided*.
+
+**The manifest says what was configured and reached, not what a source returned.** Each entry is
+the source's own declared capability list, its required-or-optional declaration, and whether it
+was reached for this bundle - no host, no credential, no URL. Fidelity between the declaration
+and a bundle's content is `MetadataCapabilities::checked_against`, which `sutura_app`'s
+metadata assembler runs per contributor.
+
+Split out of `pinned.rs` for `cargo xtask max-lines`, the catalog precedent applied to the
+pinned-bundle half of the module.
+
+#### `enum RequiredOrOptional`
+
+```rust
+pub enum RequiredOrOptional
+```
+
+Whether a contributor is required for this deployment to serve, or may be absent.
+
+**Every value this code can produce is `Self::Required`** - no settings shape declares an
+optional source yet, so a bundle exists only when every configured source loaded. The variant is
+carried because the availability rule `docs/adr/0011` decided lands on top of it: a deployment
+that can declare `optional` is the diff that first writes `Self::Optional`, and the digest's
+job is to make that run look different from the one that included the source.
+
+##### Variants
+
+- `Required` - The deployment does not serve without this source.
+- `Optional` - The deployment may serve without it, and a bundle that did differs in digest from one that did not - nothing here can produce one yet, because no declaration says so.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct Contribution`
+
+```rust
+pub struct Contribution
+```
+
+One metadata source's record in the manifest.
+
+##### Methods
+
+```rust
+pub const fn capabilities(&self) -> &MetadataCapabilities
+```
+
+What this source declared it supplies, the manifest record of
+[`SemanticCatalog::capabilities`](crate::pinned::SemanticCatalog::capabilities).
+
+```rust
+pub const fn missing(capabilities: MetadataCapabilities) -> Self
+```
+
+The record for a configured source this bundle serves without.
+
+The availability case `docs/adr/0011` prices: optional and unreachable at startup, recorded
+as such so the digest differs from a run that included it. Nothing in this repository can
+produce one today - no deployment declares an optional source - so it is the shape a future
+declaration fills, and it stops this constructor being omitted.
+
+```rust
+pub const fn of(capabilities: MetadataCapabilities) -> Self
+```
+
+The record for a source that was configured, declared these capabilities, and loaded.
+
+**`reached = true` is what a served bundle records.** A source an optional deployment could
+not reach is a manifest entry with `reached = false`, which this constructor's `of` does not
+produce - see `Self::missing`.
+
+```rust
+pub const fn reached(&self) -> bool
+```
+
+Whether this source was reached for this bundle.
+
+```rust
+pub const fn required_or_optional(&self) -> RequiredOrOptional
+```
+
+Whether this source was declared required for the deployment to serve.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct ContributionManifest`
+
+```rust
+pub struct ContributionManifest
+```
+
+Which metadata sources composed a bundle, keyed by each source's declared name.
+
+**A `BTreeMap`, so collection order is content order** - the same determinism requirement
+`crate::catalog::Definitions` and `crate::knowledge::Knowledge` carry, for the same reason:
+the digest is taken over the serialized form, and an unordered map serializes in whatever order
+its hasher chose this run.
+
+**A single-source deployment carries a one-entry manifest** rather than none, because a shape
+that differed between one source and N would put the interesting case on the untested path.
+
+##### Methods
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many sources composed this bundle.
+
+```rust
+pub const fn entries(&self) -> &BTreeMap<SourceName, Contribution>
+```
+
+Every entry, keyed on each contributor's declared name.
+
+```rust
+pub fn get(&self, source: &SourceName) -> Option<&Contribution>
+```
+
+One contributor's record, or `None` if the name was not configured.
+
+```rust
+pub fn of(entries: impl IntoIterator<Item>) -> Self
+```
+
+A bundle read from several sources, in declaration order.
+
+```rust
+pub fn single(source: SourceName, contribution: Contribution) -> Self
+```
+
+A bundle read from exactly one source.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ## Module `plan`
 

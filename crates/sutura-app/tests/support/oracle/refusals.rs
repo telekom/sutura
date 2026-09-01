@@ -28,7 +28,7 @@ use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName, TableName,
 };
-use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, Contribution, ContributionManifest, PinnedDefinitions, SemanticCatalog};
 
 use super::super::Never;
 use super::{column, dimension, source, version};
@@ -126,7 +126,13 @@ impl SemanticCatalog for TwoSourceCatalog {
         );
         let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
             .expect("a two-source catalog is still internally consistent");
-        Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
+        Ok(PinnedDefinitions::pin(
+            version(),
+            definitions,
+            Knowledge::none(),
+            ContributionManifest::single(source(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+        )
+        .expect("the definitions hash"))
     }
 }
 
@@ -231,7 +237,13 @@ impl SemanticCatalog for SameNameTablesCatalog {
         );
         let definitions = Definitions::assemble(vec![fact, lookup], joins, vec![revenue])
             .expect("two tables of one name are still internally consistent - the QUESTION is what is refused");
-        Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
+        Ok(PinnedDefinitions::pin(
+            version(),
+            definitions,
+            Knowledge::none(),
+            ContributionManifest::single(source(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+        )
+        .expect("the definitions hash"))
     }
 }
 
@@ -349,6 +361,12 @@ impl SemanticCatalog for FederatedSameNameTablesCatalog {
         );
         let definitions = Definitions::assemble(vec![fact, crm, geo], joins, vec![revenue])
             .expect("two tables of one name are still internally consistent - the QUESTION is what is refused");
-        Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
+        Ok(PinnedDefinitions::pin(
+            version(),
+            definitions,
+            Knowledge::none(),
+            ContributionManifest::single(source(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+        )
+        .expect("the definitions hash"))
     }
 }

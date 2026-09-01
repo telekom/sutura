@@ -23,6 +23,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::catalog::Definitions;
 use crate::knowledge::Knowledge;
+use crate::pinned::ContributionManifest;
 
 /// Hex characters in a digest: SHA-256, as lower-case hex.
 const HEX_LEN: usize = 64;
@@ -77,19 +78,27 @@ impl DefinitionDigest {
         Ok(Self(trimmed.to_ascii_lowercase()))
     }
 
-    /// The digest of everything a bundle carries: the definitions, and the knowledge about them.
+    /// The digest of everything a bundle carries: the definitions, the knowledge about them, and the
+    /// composition that produced both.
     ///
-    /// Two arguments rather than one, because both are content somebody authored and both change what
-    /// an answer means - see [`canonical_form`] for why a glossary belongs under the same hash as a
-    /// measure.
+    /// Three arguments, not two, because all three are content somebody composed and all three change
+    /// what an answer means - see [`canonical_form`] for why a glossary belongs under the same hash as
+    /// a measure, and `docs/adr/0011` for why the contribution manifest belongs beside both: a bundle
+    /// that assembled identically from a different set of sources is still a different bundle, and a
+    /// digest that could not tell the two apart would report a re-composition as the same snapshot.
     ///
     /// **The trusted operation, and the only way content becomes a digest.** It is `pub(crate)`
     /// rather than `pub` on purpose: the public surface for "hash these definitions" is
     /// [`crate::pinned::PinnedDefinitions::pin`], which stores the definitions it hashed in the same
     /// step. Exposing this on its own would put a digest-of-content value in a caller's hands with
     /// nothing holding it to the content, which is one refactor away from the hole this replaced.
-    pub(crate) fn of(definitions: &Definitions, knowledge: &Knowledge) -> Result<Self, NotDigestible> {
-        let canonical = canonical_form(definitions, knowledge).map_err(|cause| NotDigestible::Canonicalize { cause })?;
+    pub(crate) fn of(
+        definitions: &Definitions,
+        knowledge: &Knowledge,
+        manifest: &ContributionManifest,
+    ) -> Result<Self, NotDigestible> {
+        let canonical =
+            canonical_form(definitions, knowledge, manifest).map_err(|cause| NotDigestible::Canonicalize { cause })?;
         let hash = Sha256::digest(&canonical);
         let hex: String = hash
             .iter()
@@ -115,23 +124,30 @@ impl DefinitionDigest {
 /// digest; changing what a metric means must. Serializing the *parsed* content gives exactly that,
 /// because everything that survives parsing is meaning and everything that does not is layout.
 ///
-/// **Both halves, and the knowledge is not decoration in here.** A glossary entry decides which
-/// metric an agent asks about, so a bundle whose glossary changed is a bundle that answers different
-/// questions from the same words - and a digest that did not move would say the two were the same
-/// snapshot. It also makes the capability distinction certifiable: a provider that declares an empty
-/// absence list and one that has no such concept serialize differently, and the prompt is allowed to
-/// say different things about them, so the digest has to be able to tell them apart.
+/// **All three halves, and the knowledge and the composition are not decoration in here.**
+/// A glossary entry decides which metric an agent asks about, so a bundle whose glossary changed is a
+/// bundle that answers different questions from the same words - and a digest that did not move would
+/// say the two were the same snapshot. The contribution manifest is the same argument one level out: a
+/// subscription that swapped which metadata sources composed it, or lost one that a previous run
+/// included, is not the bundle it used to be, and the digest is what makes that visible. It also makes
+/// the capability distinction certifiable - a provider that declares an empty absence list and one that
+/// has no such concept serialize differently, and the prompt is allowed to say different things about
+/// them, so the digest has to be able to tell them apart.
 ///
-/// Deterministic for two reasons that both have to hold: [`Definitions`] and [`Knowledge`] use
-/// `BTreeMap` throughout, so collection order is content order rather than hash order, and
-/// `serde_json` writes struct fields in declaration order. A two-element sequence rather than a
-/// struct with two keys because the shape only has to be stable, not readable - nothing ever parses
-/// these bytes back.
+/// Deterministic for three reasons that all have to hold: [`Definitions`], [`Knowledge`] and
+/// [`ContributionManifest`] use `BTreeMap` throughout, so collection order is content order rather
+/// than hash order, and `serde_json` writes struct fields in declaration order. A three-element
+/// sequence rather than a struct with three keys because the shape only has to be stable, not
+/// readable - nothing ever parses these bytes back.
 ///
 /// Private, and not merely unexported: the bytes are an implementation detail of the digest, and a
 /// second caller of this function would be a second place with an opinion about what canonical means.
-fn canonical_form(definitions: &Definitions, knowledge: &Knowledge) -> Result<Vec<u8>, serde_json::Error> {
-    serde_json::to_vec(&(definitions, knowledge))
+fn canonical_form(
+    definitions: &Definitions,
+    knowledge: &Knowledge,
+    manifest: &ContributionManifest,
+) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(&(definitions, knowledge, manifest))
 }
 
 /// One hex digit.

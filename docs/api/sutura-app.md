@@ -367,7 +367,8 @@ Why a service could not be started.
 
 #### Variants
 
-- `Catalog` - The catalog adapter could not produce a bundle.
+- `Catalog` - A catalog adapter could not produce a bundle.
+- `Composition` - The catalog contributions do not compose: two sources define one element, certify different versions, or one of them supplies a kind its declaration does not.
 - `NotValidated` - The bundle loaded and an anchor did not reproduce the number its author certified, or could not be run at all.
 
 #### Implements
@@ -409,11 +410,25 @@ that answers as the process, it is a service that does not compile.
 pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S, broker: B, working_set_bytes: u64) -> Result<Self, ServiceNotStarted>
 ```
 
-Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a
+Loads one catalog through its port, re-runs every anchor against `warehouse`, and returns a
 service only if all of them held.
+
+This is `Self::start_composed` over a single declared catalog - the metadata assembler is
+what makes several compose, and a single-catalog deployment is that function's one-entry
+case, so there is one code path to keep honest rather than a second one that happens to
+serve.
+
+```rust
+pub fn start_composed<C>(catalogs: &[C], warehouses: Warehouses<W>, sink: S, broker: B, working_set_bytes: u64) -> Result<Self, ServiceNotStarted>
+```
+
+Loads every declared catalog through its port, composes them into one bundle, re-runs every
+anchor against `warehouse`, and returns a service only if all of them held.
 
 Every port is consumed here, which is what lets a transport be transport-only: it never
 reads a catalog directory, never opens a data system and never decides where a record goes.
+The buttons the serve/schema each press are the same, which is what keeps "the bundle this
+validates is the bundle this serves" true for N sources rather than for one.
 
 `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
 startup failure is reported from wherever the composition root happens to be.
@@ -868,6 +883,85 @@ derive gives this type an `Error::source`, and `clippy::same_name_method` is den
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+## Module `assemble`
+
+The metadata assembler: N catalog contributions become one pinned bundle.
+
+This is the *"metadata sources compose"* half of `docs/adr/0011` and of #115's step 4.
+`sutura_domain::pinned::SemanticCatalog::load` reads one source; a deployment may declare
+several. The assembler is where they stop being several:
+
+- **Application code in this crate, not an adapter over adapters** - ADR 0011's three reasons
+  are recorded on the `assemble` function, and this crate is the one that owns the two driving
+  ports.
+- **One source may provide a given kind for a given entity.** Two sources defining one metric is
+  refused, always, and refused naming both sources - "guessing which wins is how a metric
+  silently means something different after a configuration change", which is the exact sentence
+  ADR 0011 refuses.
+- **The declaration-fidelity check runs per contributor, not per bundle.** `checked_against`
+  on the merged result would say nothing once two sources are merged - a narrow source's
+  undeclared kind could be hidden by what another source produced. Each contributor is held to
+  its own declaration against its own content.
+- **The contribution manifest is built from the contributors' own records.** Each source
+  `PinnedDefinitions` carries a one-entry manifest naming itself and its declared capabilities;
+  the composed manifest is those entries, keyed by name, so the digest of the composed bundle
+  covers the composition.
+
+One limit is stated here because it decides what the wave-one deployment looks like: a metric
+may reference only a model its own source also declares, because each contribution arrives
+already assembled. The cross-source-reference case - the literal "`DataHub`'s model, metrics
+certified here" - lands with a raw-content port, which is a separate decision recorded in
+`docs/adr/0011`.
+
+### `enum CompositionError`
+
+```rust
+pub enum CompositionError
+```
+
+Why N contributions will not compose.
+
+Every collision variant names both sources and the entity, which is ADR 0011's *"refuses the
+load, naming both and the entity"* - a precedence rule nobody stated is a precedence rule nobody
+reviewed, so the refusal is what carries the names.
+
+#### Variants
+
+- `Empty` - Nothing was contributed; a deployment serves at least one metadata source.
+- `NotASingleContribution` - A contribution's own manifest did not name exactly one source, so this bundle cannot say who contributed it. The `count` is what a reader needs: the manifest is supposed to be the per-source record, and a value that failed to be one has nothing to merge under.
+- `VersionMismatch` - Two contributors certify different snapshots. A bundle is one version, and `docs/adr/0011`'s amendment records the decision: two sources certified at different times is the "answers that differ across a refresh boundary" shape, refused rather than papered over.
+- `MetricCollision` - The one interpretation has no precedence, declared or otherwise: two definitions of one number is the failure this system exists to prevent.
+- `ElementCollision` - Any other element two sources supply: a model, a relationship, a glossary term, a caveat, an absence or a worked example. `kind` is the closed vocabulary the message renders and the other fields are typed. It is not a `CompositionError::MetricCollision` because the rule for metrics is the stronger one - no precedence at all - while other elements could in principle be titled, and neither is today.
+- `Unfaithful` - A contributor's declaration disagrees with its own content. Per contributor, not per bundle: on the merged result this check would say nothing once two sources are merged.
+- `Definitions` - The composed definitions do not hold together - most often a metric naming a model some contributor should have provided and none did, and the domain's own refusal names it.
+- `Knowledge` - The composed knowledge does not hold together against the composed definitions.
+- `Digest` - The composed content could not be pinned.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `fn assemble`
+
+```rust
+pub fn assemble(bundles: Vec<sutura_domain::pinned::PinnedDefinitions>) -> Result<sutura_domain::pinned::PinnedDefinitions, CompositionError>
+```
+
+Composes N contributions into one bundle, refusing a composition ADR 0011 says cannot exist.
+
+**Application code, not an adapter over adapters - the shape ADR 0011 picked, for three
+reasons.** The rules being decided here are DOMAIN rules, not one adapter's; `load` stays free
+of a request context in either shape, so that property does not choose between them; and an
+assembling *adapter* implements the port over N others and would eventually depend on every one
+of them, which is the crate-graph shape this avoids.
+
+# Errors
+
+`CompositionError`, for any of: empty input, a contribution whose own manifest names more than
+one source, two contributions certifying different versions, two sources providing the same
+element, a contributor whose content disagrees with its declaration, or definitions/knowledge
+that do not assemble once merged.
 
 ## Module `capability`
 

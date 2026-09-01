@@ -57,7 +57,7 @@ use sutura_app::surface::Surface;
 use sutura_catalog_local::LocalCatalog;
 use sutura_config::{Environment, Settings, Sources, StaticCredentialBroker, TlsMaterial};
 use sutura_domain::model::{SourceName, TableName};
-use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _};
+use sutura_domain::pinned::PinnedDefinitions;
 use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_http::{LocalService, ServiceState};
 use sutura_runtime::{Shutdown, TracingAuditSink, banner, shutdown, telemetry};
@@ -143,8 +143,8 @@ fn run() -> Result<(), String> {
     banner::announce(&settings);
 
     // 6. The adapters, then the service. Both ports are named exactly here.
-    let catalog = catalog::open_catalog(settings.catalogs())?;
-    let pinned = catalog.load().map_err(flatten)?;
+    let catalogs = catalog::open_catalog(settings.catalogs())?;
+    let pinned = catalog::load(&catalogs)?;
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
     // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
@@ -155,11 +155,12 @@ fn run() -> Result<(), String> {
         settings.runtime(),
         settings.server().request_timeout(),
     )?;
-    // `LocalService::start` loads through the catalog port a SECOND time rather than being handed
-    // the bundle above, and that is deliberate: the bundle it validates has to be the bundle it
-    // serves, and the only way to guarantee that is for the same call to do both. The load above
-    // exists so the engine can be opened for the sources the catalog actually names, which has to
-    // happen first.
+    // `LocalService::start_composed` loads the declared catalogs a SECOND time - and composes them -
+    // rather than being handed the bundle above, and that is deliberate: the bundle it validates has
+    // to be the bundle it serves, and the only way to guarantee that is for the same call to do
+    // both. The load above exists so the engine can be opened for the sources the catalog actually
+    // names, which has to happen first. For N catalogs the assembler is what makes the two bundles
+    // the same value rather than each source's own.
     //
     // The audit sink is named here too, and it is the third port this root attaches. A deployment
     // that wants records somewhere else replaces this one argument; a deployment that attaches
@@ -184,11 +185,11 @@ fn run() -> Result<(), String> {
     // `sutura_app::warehouses` describes: nothing above this line is generic.
     let (service, attached) = match opened {
         OpenedSources::Files(files) => (
-            started(&catalog, files.engines, broker, working_set_ceiling_bytes)?,
+            started(&catalogs, files.engines, broker, working_set_ceiling_bytes)?,
             Some(files.attached),
         ),
         #[cfg(feature = "bigquery")]
-        OpenedSources::BigQuery(engines) => (started(&catalog, engines, broker, working_set_ceiling_bytes)?, None),
+        OpenedSources::BigQuery(engines) => (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None),
     };
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
     // needed; the service serves the SECOND. A model added to the catalog directory between the two
@@ -485,13 +486,14 @@ type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
 /// answered stops being visible in a type exactly here.
 type Serving = Arc<dyn Surface>;
 
-/// Loads the catalog a second time through its port, verifies every anchor, and erases the adapter.
+/// Loads the catalogs a second time through their ports, composes them, verifies every anchor, and
+/// erases the adapter.
 ///
 /// Generic in the adapter and returning `Arc<dyn Surface>`, which is what lets the two arms above
 /// share every line after them: the transport takes a trait object, so the monomorphisation ends
 /// here rather than travelling through the router.
 fn started<W>(
-    catalog: &LocalCatalog,
+    catalogs: &[LocalCatalog],
     engines: sutura_app::Warehouses<W>,
     broker: StaticCredentialBroker,
     working_set_bytes: u64,
@@ -500,7 +502,7 @@ where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    LocalService::start(catalog, engines, TracingAuditSink::new(), broker, working_set_bytes)
+    LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
         .map(|service| Arc::new(service) as Serving)
         .map_err(flatten)
 }

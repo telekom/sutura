@@ -240,7 +240,7 @@ impl CatalogUnderTest for sutura_catalog_local::LocalCatalog {
     const NAME: &'static str = "markdown";
 
     fn open() -> Self {
-        Self::new(catalog_root(), version())
+        Self::new(source(), catalog_root(), version())
     }
 }
 

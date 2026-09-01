@@ -13,10 +13,11 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use sutura_config::EngineWorkers;
+use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{Definitions, Description, Model};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
 use super::{ENGINE_SOURCE, Opened, OpenedSources, open_engine, refuse_unattached};
 
@@ -158,6 +159,10 @@ fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions,
         Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::nothing()),
+        ),
     )
     .expect("the test definitions hash")
 }
@@ -208,6 +213,10 @@ fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions,
         Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::nothing()),
+        ),
     )
     .expect("the test definitions hash")
 }
@@ -900,11 +909,12 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
 }
 
 #[test]
-fn a_deployment_with_more_than_one_catalog_is_refused_until_composition_lands() {
-    // Step 2 of the issue is settings plus wiring: the settings can DECLARE several metadata
-    // sources, and this build serves exactly one until the metadata assembler arrives. Refusing
-    // here rather than silently serving the first is what keeps "I declared a second source and
-    // nothing changed" from being the quiet failure mode of a half-merged settings diff.
+fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
+    // Step 4 of the issue: the settings DECLARE several metadata sources and the composition root
+    // opens one adapter per entry, so there is no longer anything here to refuse - the refusal a
+    // second source could earn lives in the metadata assembler, where content that does not compose
+    // is refused naming both sources. What this test pins is the composition root's half: each
+    // declared markdown catalog opens, and `catalog::load` composes them.
     use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
@@ -920,6 +930,8 @@ fn a_deployment_with_more_than_one_catalog_is_refused_until_composition_lands() 
         .expect("a directory and a version are a settings")
     };
     let catalogs = Catalogs::parse(vec![entry("structure"), entry("metrics")]).expect("two names are a registry");
-    let err = super::catalog::open_catalog(&catalogs).expect_err("two catalogs are not yet servable");
-    assert!(err.contains("one catalog"), "{err}");
+    let opened = super::catalog::open_catalog(&catalogs).expect("two markdown catalogs open");
+    assert_eq!(opened.len(), 2, "one opened catalog per declared entry");
+    assert_eq!(opened[0].name().as_str(), "structure");
+    assert_eq!(opened[1].name().as_str(), "metrics");
 }

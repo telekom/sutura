@@ -58,11 +58,22 @@ fn render_filters(filters: &[RequiredFilter]) -> String {
     filters.iter().map(ToString::to_string).collect::<Vec<String>>().join(", ")
 }
 
+/// The name the CLI's single catalog is recorded under in its contribution manifest.
+///
+/// The CLI reads a raw directory and is markdown by construction - there is no `catalogs:`
+/// declaration to dispatch, and therefore no name an operator wrote. It still needs a manifest key,
+/// because a single-source deployment carries a one-entry manifest, so it is a constant here the way
+/// [`ENGINE_SOURCE`] is for the data side.
+const CATALOG_SOURCE: &str = "local";
+
 /// Reads a catalog directory into a pinned bundle.
 fn load(root: &Path) -> Result<PinnedDefinitions, String> {
     let version =
         DefinitionVersion::parse(DEFAULT_VERSION).map_err(|e| format!("the built-in default version is not a version: {e}"))?;
-    LocalCatalog::new(PathBuf::from(root), version).load().map_err(|e| render(&e))
+    let name = SourceName::parse(CATALOG_SOURCE).map_err(|e| format!("the built-in catalog name is not a name: {e}"))?;
+    LocalCatalog::new(name, PathBuf::from(root), version)
+        .load()
+        .map_err(|e| render(&e))
 }
 
 /// A typed error and every cause beneath it, on one line each.
@@ -542,11 +553,12 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::{Path, PathBuf};
 
+    use sutura_domain::capabilities::MetadataCapabilities;
     use sutura_domain::catalog::{Definitions, Description, Metric, Model};
     use sutura_domain::knowledge::Knowledge;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
-    use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
     use sutura_domain::query::{MAX_RANGE_DAYS, RefusalReason};
 
@@ -589,6 +601,10 @@ mod tests {
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
             Knowledge::none(),
+            ContributionManifest::single(
+                SourceName::parse(super::CATALOG_SOURCE).expect("the built-in catalog name is a name"),
+                Contribution::of(MetadataCapabilities::nothing()),
+            ),
         )
         .expect("the test definitions hash")
     }
@@ -659,6 +675,10 @@ mod tests {
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
             Knowledge::none(),
+            ContributionManifest::single(
+                SourceName::parse(super::CATALOG_SOURCE).expect("the built-in catalog name is a name"),
+                Contribution::of(MetadataCapabilities::nothing()),
+            ),
         )
         .expect("the test definitions hash")
     }

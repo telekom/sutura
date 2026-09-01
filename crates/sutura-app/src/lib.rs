@@ -68,6 +68,12 @@ pub mod untrusted;
 // what an absence means - while which adapters exist is the root's.
 pub mod warehouses;
 
+// The metadata assembler: how N catalog contributions become one bundle. Application code, over the
+// `SemanticCatalog` port - ADR 0011's *"the assembler is application code in `sutura-app`, not an
+// adapter over adapters"* - which is why it lives here rather than in an adapter or a composition
+// root.
+pub mod assemble;
+
 // What this surface can be asked to do, and what one caller may do of it. Here for the same reason
 // `surface` is: the tool set IS the driving port's operation set, `sutura-mcp` and `sutura-http`
 // cannot see each other, and a set owned by one transport is a set the other has to reach through

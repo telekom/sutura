@@ -35,7 +35,10 @@ use sutura_domain::knowledge::{
     Absence, Caveat, Example, GlossaryEntry, InconsistentKnowledge, InvalidNoteBody, Knowledge, KnowledgeCapabilities,
     KnowledgeInput, NoteBody,
 };
-use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::model::SourceName;
+use sutura_domain::pinned::{
+    CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
+};
 
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
 use crate::document::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc};
@@ -186,8 +189,14 @@ pub enum LocalCatalogError {
 // reimplement or import from here.
 
 /// A catalog read from a directory of documents.
+///
+/// Carries a declared NAME, the way a `sources:` entry or a `catalogs:` entry carries an alias: it
+/// is the key the contribution manifest records this contributor under. `sutura-serve` hands it the
+/// configured `catalogs:.<key>`; `sutura-cli` names its single directory a constant. The adapter
+/// can no more guess it than a data adapter can guess its source alias.
 #[derive(Debug, Clone)]
 pub struct LocalCatalog {
+    name: SourceName,
     root: PathBuf,
     version: DefinitionVersion,
 }
@@ -199,8 +208,14 @@ impl LocalCatalog {
     /// directory is not something the directory knows: it is a commit id, a build number or a tag,
     /// and only the caller has it. Deriving it from the digest would make the two say the same thing
     /// twice and leave no way to tell two builds of identical content apart.
-    pub const fn new(root: PathBuf, version: DefinitionVersion) -> Self {
-        Self { root, version }
+    pub const fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
+        Self { name, root, version }
+    }
+
+    /// The declared name this contributor is recorded under in a bundle's contribution manifest.
+    #[inline]
+    pub const fn name(&self) -> &SourceName {
+        &self.name
     }
 
     #[inline]
@@ -514,8 +529,18 @@ impl SemanticCatalog for LocalCatalog {
         // adapter no longer supplies the hasher, and that is the point: while it did, safe public
         // code could pass a function that ignored its argument and pair any digest with any
         // definitions. There is nothing to pass now, so there is nothing to get wrong. The knowledge
-        // goes under the same digest, because a glossary decides which metric a question is about.
-        PinnedDefinitions::pin(self.version.clone(), definitions, knowledge).map_err(|cause| LocalCatalogError::Digest { cause })
+        // goes under the same digest, because a glossary decides which metric a question is about,
+        // and so does the contribution manifest, because a bundle's digest has to cover which source
+        // composed it. A single-source deployment carries a one-entry manifest - `docs/adr/0011`'s
+        // shape - and this adapter stamps its own declared name and its own capability declaration,
+        // which is the one piece of composition knowledge a single source has.
+        PinnedDefinitions::pin(
+            self.version.clone(),
+            definitions,
+            knowledge,
+            ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+        )
+        .map_err(|cause| LocalCatalogError::Digest { cause })
     }
 }
 
@@ -523,10 +548,20 @@ impl SemanticCatalog for LocalCatalog {
 mod tests {
     use crate::LocalCatalog;
     use std::path::PathBuf;
+    use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
 
+    /// The name every test catalog is recorded under in its manifest.
+    fn test_name() -> SourceName {
+        SourceName::parse("test").expect("a test name is a name")
+    }
+
     fn catalog(root: PathBuf) -> LocalCatalog {
-        LocalCatalog::new(root, DefinitionVersion::parse("test-1").expect("a test version is a version"))
+        LocalCatalog::new(
+            test_name(),
+            root,
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        )
     }
 
     /// An empty directory of this test's own, cleared on the way IN.

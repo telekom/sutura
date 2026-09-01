@@ -9,8 +9,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    AnchorCheck, AnchorReport, DefinitionVersion, InvalidVersion, MAX_VERSION_LEN, NotExecutedReason, NotValidated,
-    PinnedDefinitions,
+    AnchorCheck, AnchorReport, Contribution, ContributionManifest, DefinitionVersion, InvalidVersion, MAX_VERSION_LEN,
+    NotExecutedReason, NotValidated, PinnedDefinitions,
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{Anchor, Definitions, Description, Metric, Model};
@@ -68,8 +68,17 @@ fn pin_with(definitions: Definitions, knowledge: Knowledge) -> PinnedDefinitions
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions,
         knowledge,
+        manifest("local"),
     )
     .expect("the test definitions hash")
+}
+
+/// A one-entry manifest naming one contributor, the shape a single-source test bundle carries.
+fn manifest(source: &str) -> ContributionManifest {
+    ContributionManifest::single(
+        SourceName::parse(source).expect("a test source is a source"),
+        Contribution::of(crate::capabilities::MetadataCapabilities::nothing()),
+    )
 }
 
 fn june() -> TimeRange {
@@ -334,8 +343,49 @@ fn the_digest_a_bundle_carries_is_computed_from_the_definitions_it_holds() {
     // And the digest is the one the hashing function computes for exactly these definitions -
     // asserted against an independent call rather than against a constant, so the test cannot
     // pass by pinning whatever the implementation currently happens to emit.
-    let independent = DefinitionDigest::of(pinned.definitions(), pinned.knowledge()).expect("the definitions hash");
+    let independent =
+        DefinitionDigest::of(pinned.definitions(), pinned.knowledge(), pinned.manifest()).expect("the definitions hash");
     assert_eq!(*pinned.digest(), independent);
+}
+
+#[test]
+fn two_compositions_that_assemble_identically_have_different_digests() {
+    // The contribution manifest's own reason for existing, red before green: `docs/adr/0011`
+    // measured that the digest used to be taken over the assembly alone, so two different
+    // compositions that happened to assemble to the same definitions and knowledge were
+    // indistinguishable - a deployment that swapped which metadata source contributed the content
+    // got the same digest, and the provenance travelling with an answer named the old composition.
+    //
+    // The two bundles here pin the SAME definitions and the SAME knowledge, and differ only in
+    // which source the manifest records as having contributed them. A digest that cannot tell them
+    // apart has not learned to cover the composition.
+    let definitions = definitions(None);
+    let knowledge = Knowledge::none();
+    let from_local = PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        knowledge.clone(),
+        manifest("local"),
+    )
+    .expect("a single-source conclusion hash");
+    let from_datahub = PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions,
+        knowledge,
+        manifest("datahub"),
+    )
+    .expect("a single-source conclusion hash");
+
+    assert_ne!(
+        from_local.manifest(),
+        from_datahub.manifest(),
+        "the two bundles differ in which source is recorded as having contributed - that is the premise"
+    );
+    assert_ne!(
+        from_local.digest(),
+        from_datahub.digest(),
+        "the same assembly from different sources is a different bundle, so it must move the digest"
+    );
 }
 
 #[test]

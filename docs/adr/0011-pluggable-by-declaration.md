@@ -642,3 +642,60 @@ What that buys, concretely: with a rich source present, a candidate definition c
 the dimensions, their allowed values, the joins and their cardinality already filled, leaving a human to
 supply the measure and approve it. That is the difference between promotion being a form to fill and
 promotion being a sentence to confirm.
+
+## Amendment: the contribution manifest is built, and its serialized form is decided
+
+This amendment resolves the one thing the digest section above deferred - *the amendment is what a
+reviewer needs in front of them* - and it reconciles a sentence in that section with the shape that
+had to be built. It is the record of steps 3 and 4 of #115.
+
+**The sentence *"no manifest parameter, no closure, no trait"* is reconciled, not broken.** Read
+against the two hash-constructor bugs the section itself names, it means: `PinnedDefinitions::pin`
+takes no digest, no hashing closure and no trait object - a caller can still not influence what the
+digest is taken over. The manifest is the fourth piece of CONTENT, in exactly the sense the
+knowledge argument already established (`pin(version, definitions, knowledge)` became
+`pin(version, definitions, knowledge, manifest)`), hashed with the rest by the domain's own
+canonical form, and stored beside them. A caller could no more hand in a manifest unconnected to
+the assembly than it could hand in definitions unconnected to the digest: the digest is computed
+over the three values being stored, and there is no parameter through which a caller reaches the
+hashing. `MetadataCapabilities::checked_against` in the assembler is what keeps a manifest entry's
+capability declaration from lying about its own content.
+
+**The serialized form.** One entry per configured metadata source, in a `BTreeMap` keyed on the
+source's declared name (the name an operator writes as a `catalogs:` key). Each entry:
+
+```json
+{
+  "capabilities": {
+    "definitions": ["structure", "descriptions", "..."],
+    "knowledge": ["glossary", "..."]
+  },
+  "required_or_optional": "required",
+  "reached": true
+}
+```
+
+Nothing else: no host, no credential, no URL, no version. The canonical JSON sequence the digest is
+taken over grows from a two-element pair `(definitions, knowledge)` to a three-element triple
+`(definitions, knowledge, manifest)`, which is the "single, reviewable diff" the section priced, and
+every committed digest moves once on the landing of this amendment.
+
+**Three recorded limits, each stated where the claim is.** `required_or_optional` is `required` for
+every entry on every bundle this code can produce - no settings shape declares an optional source
+yet, so serving starts only when every configured source loaded, and an entry's `reached` is
+therefore always true. Both fields are carried because the availability rules this section decided
+land on top of them; a deployment that can declare `optional` is the diff that first writes a value
+other than `required`. And a manifest entry carries the source's *declared* capabilities - what the
+composition recorded it as providing - which is not a content hash per source: two different bundles
+from the same reachable sources are told apart by the assembly, exactly as before.
+
+**Two composing sources must name the same version.** A bundle is one snapshot, and two sources
+certified at different times is the "answers that differ across a refresh boundary" shape this record
+already refuses to paper over - so the assembler refuses contributions whose versions differ, naming
+both. **And a metric may reference only a model its own source also declares**, which is a limit of
+the port as built: `SemanticCatalog::load` returns an already-assembled `PinnedDefinitions`, so a
+source whose metric names a model held only by another source cannot load today. The wave-one
+deployment this amendment enables therefore composes a narrow structural source with a certified
+source that is self-contained, and the cross-source-reference case - the literal "DataHub's model,
+metrics certified here" - lands with the raw-contribution port, which is a separate decision and not
+this amendment's.
