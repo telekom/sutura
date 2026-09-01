@@ -361,6 +361,37 @@ docs-list:
 api:
     nix run .#api-docs
 
+# Shellcheck the shell inside every local composite action. `actionlint` CANNOT READ a composite
+# action - measured against 1.7.12, it parses `action.yml` as a workflow and rejects it - and
+# `shellcheck` in CI globs `*.sh`, which a `run:` block is not. So the release path's own signing
+# sequence was shell nothing had ever linted. `cargo xtask action-shell` extracts it; this pairs
+# that with the pinned shellcheck, which is why the extraction is not a hygiene gate on its own.
+lint-actions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="$(mktemp -d)"
+    trap 'rm -rf "$out"' EXIT
+    cargo run -q -p xtask -- action-shell "$out"
+    # Globbed into an array and asserted non-empty for the reason `ci.yml` gives about its own
+    # `find`: an empty list passes by checking nothing, which is the failure mode that looks
+    # exactly like success.
+    mapfile -t scripts < <(find "$out" -name '*.sh' | sort)
+    test "${#scripts[@]}" -gt 0
+    nix run .#shellcheck -- -x "${scripts[@]}"
+    printf 'lint-actions: ok - %d extracted script(s)\n' "${#scripts[@]}"
+
+# Regenerate the committed attribution document from `cargo metadata`. `ATTRIBUTION.md` is the
+# statement a distributor hands on - every third-party crate this workspace resolves and the licence
+# it declares - and `cargo xtask check-attribution` is the gate that fails when it falls behind the
+# lock. Through a bare `cargo` rather than nix, because `cargo metadata` is the tool and it needs the
+# workspace's own resolver, not a pinned binary.
+attribution:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    cargo run -q -p xtask -- attribution
+
 # Is every file's licence answerable by a tool? `checks.reuse` is what CI runs and is the
 # authority; this reaches the same pin the cheap way, against the REAL tree rather than the
 # git-derived copy - so it also sees a file you have not staged yet, which the check cannot.
