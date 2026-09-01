@@ -540,6 +540,16 @@ where
     //
     // `dry_run` above is deliberately not given the same treatment: the port's contract is that a
     // check reads no data, so there is no reservation for a ceiling to refuse.
+    //
+    // **The order between the two predicates is a decision, and it is `working_set_exhausted` first.**
+    // An error that satisfies BOTH is reported as `ResourcesExhausted` (422), not `ResultTooLarge`
+    // (413). Exhaustion is the more fundamental bound - a reservation refused is the process saying it
+    // will not spend the memory, which no narrower question avoids - and a caller told to narrow a
+    // question over a ceiling it cannot satisfy has been told to do the impossible. The order is not
+    // the default's to decide: an adapter maps one failure into both predicates on its own, and which
+    // refusal a caller sees must not be line order nobody wrote down. Ask the adapters in a real tree
+    // whether a single error could genuinely satisfy both; until one does, the order is pinned here by
+    // a both-predicate fake and the comment at `sutura_app::tests`.
     let rows = match warehouse.execute(Executable::Query(&plan), presented) {
         Ok(rows) => rows,
         Err(cause) => {

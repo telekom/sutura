@@ -309,6 +309,18 @@ fn a_page_of_a_larger_result_is_a_size_bound_and_every_other_failure_is_not() {
         wire.result_did_not_fit(&WireError::<CannotFail>::MoreThanOnePage),
         "a page of a larger result is a size bound"
     );
+    // The same reply arrived as an HTTP refusal instead of a page token. `responseTooLarge` is the
+    // endpoint's documented reason for *the query results are larger than the maximum response size*,
+    // which IS this bound - so which spelling the service chose must not decide whether a caller sees
+    // the 413 or a retryable 503.
+    assert!(
+        wire.result_did_not_fit(&WireError::<CannotFail>::Refused {
+            status: 403,
+            named: String::from("responseTooLarge"),
+            detail: String::from("the query results are larger than the maximum response size"),
+        }),
+        "the endpoint's own reason for too-large is the size bound"
+    );
     // The control, and it is the half that matters more: every other failure has to stay a failure,
     // because telling a caller not to retry a data system that is briefly unwell is the mistake the
     // port's own documentation says costs more. `NotComplete` is the sharpest of them - a job that ran

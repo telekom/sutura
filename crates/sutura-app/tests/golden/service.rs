@@ -162,6 +162,34 @@ fn a_refused_question_never_reaches_the_data_system() {
 }
 
 #[test]
+fn a_working_set_exhaustion_wins_over_a_result_too_large_when_an_adapter_reports_both() {
+    // The precedence decision, pinned. `sutura_app::answer` asks `working_set_exhausted` before
+    // `result_did_not_fit` on the same `execute` failure, so an adapter that maps ONE endpoint error
+    // into both predicates must be reported as exhausted - the more fundamental bound - and never as
+    // a too-large result a caller would try to narrow to nothing. Which refusal a caller sees must not
+    // be the order the arms happened to be written in. `BothPredicatesEngine` answers both.
+    let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
+    let both = sutura_app::Warehouses::of(crate::support::BothPredicatesEngine::at(1024 * 1024 * 1024));
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &both,
+        1 << 30,
+    )
+    .expect("a both-predicate failure is still a refusal, not an error")
+    .into_outcome();
+    assert_eq!(
+        outcome.refusal(),
+        Some(&RefusalReason::ResourcesExhausted {
+            ceiling_bytes: 1024 * 1024 * 1024
+        }),
+        "exhaustion must win when an adapter reports both predicates"
+    );
+}
+
+#[test]
 fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
     // THE defect this variant exists for, asserted above the port. Exhaustion used to leave here as
     // `ServiceError::Warehouse`, which the HTTP surface answers `503 unavailable` - the same status a

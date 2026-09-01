@@ -412,6 +412,59 @@ impl Warehouse for ExhaustedEngine {
     }
 }
 
+/// A data system that reports BOTH a spent working set AND a result it would not return at once.
+///
+/// The precedence pin: `sutura_app::answer` asks [`Warehouse::working_set_exhausted`] first, so an
+/// error satisfying both predicates must leave as [`RefusalReason::ResourcesExhausted`] (422), not
+/// [`RefusalReason::ResultTooLarge`] (413) - exhaustion is the more fundamental bound, and no narrower
+/// question avoids a reservation the process refused. Kept as its own type rather than a flag on
+/// [`ExhaustedEngine`], for the same reason the fakes above give: one fake asserting both branches is
+/// a fake asserting neither.
+pub(crate) struct BothPredicatesEngine {
+    source: SourceName,
+    ceiling_bytes: u64,
+}
+
+impl BothPredicatesEngine {
+    /// A data system that refuses every question as both bound and too large.
+    pub(crate) fn at(ceiling_bytes: u64) -> Self {
+        Self {
+            source: source(),
+            ceiling_bytes,
+        }
+    }
+}
+
+impl Warehouse for BothPredicatesEngine {
+    type Error = Exhausted;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(Exhausted)
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(Exhausted)
+    }
+
+    fn working_set_exhausted(&self, _error: &Self::Error) -> Option<u64> {
+        Some(self.ceiling_bytes)
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        true
+    }
+}
+
 /// A data system that fails for some other reason.
 ///
 /// The control for the fake above: the same shape, the same error type, and the port's default answer

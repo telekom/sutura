@@ -624,8 +624,12 @@ where
     ///
     /// - `Endpoint` asks the transport, because the page token is a fact about the wire document and
     ///   `T::Error` is the transport's own type. See `JobTransport::result_did_not_fit`.
-    /// - `Incomplete` where the delivered count is **below** the reported total: the endpoint handed
-    ///   back part of a job it says is bigger, which is the same bound reached without a page token.
+    /// - `Incomplete` where the delivered count is **below** the reported total: this is NOT the
+    ///   documented paging shape - that is `MoreThanOnePage`, which `complete` refuses at the wire.
+    ///   It is a reply that states *total N*, carries no page token, and delivered fewer - the
+    ///   endpoint contradicting itself. Answered `true` defensively, because the caller cannot get
+    ///   the rest of this reply whatever it retries: narrowing is the only move and the shape
+    ///   returns unchanged.
     /// - `Incomplete` where delivered is **above** the total is NOT this. That is the endpoint
     ///   contradicting itself, and calling it a governance refusal would tell a caller not to retry a
     ///   defect a retry might well not repeat.

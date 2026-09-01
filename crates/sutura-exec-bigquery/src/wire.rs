@@ -51,10 +51,13 @@
 //!   in [`QueryDeadline::within_request_timeout`], so a composition root gets a deadline that already
 //!   fits inside the request timeout instead of a number it has to divide correctly.
 //! - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
-//!   `totalRows` beside the rows rather than by the rows alone. A `pageToken`, an incomplete job or a
-//!   delivered count short of the reported total is refused here - see [`WireError::MoreThanOnePage`]
-//!   and [`WireError::NotComplete`] - because to `answer()` a first page would read as *under the
-//!   cap, not truncated*, which is the exact row the row-cap invariant exists to hold. **And a wide
+//!   `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
+//!   (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
+//!   delivered count that is not the reported total is refused one port further out, in the adapter's
+//!   `BigQueryWarehouse::rows` as `BigQueryError::Incomplete` - `complete` here compares nothing, it
+//!   hands the rows and the total to the adapter - because to `answer()` a first page would read as
+//!   *under the cap, not truncated*, which is the exact row the row-cap invariant exists to hold.
+//!   **And a wide
 //!   result now leaves as a REFUSAL rather than as a `503`, which is a correction to what this header
 //!   used to say was the cost.** It used to reach a caller as `BigQueryError::Endpoint`, which both
 //!   transports answer as the status a dead endpoint produces - inviting a retry that returns the same
@@ -83,8 +86,10 @@
 //!   endpoint documents that array as *"the first errors or warnings encountered"* and says entries
 //!   *"do not necessarily mean that the job has completed or was unsuccessful"* - so refusing on it
 //!   would decline successful queries that merely warned. What refuses is `jobComplete`, a
-//!   `pageToken`, an absent `totalRows`, and a delivered count that is not the reported total; the
-//!   reported `reason` is folded into whichever of those fires, because it is the best diagnostic
+//!   `pageToken`, an absent `totalRows`, and a delivered count that is not the reported total - the
+//!   last of those in the adapter (`BigQueryWarehouse::rows`, `BigQueryError::Incomplete`), not here;
+//!   the reported
+//!   `reason` is folded into whichever of those fires, because it is the best diagnostic
 //!   available at that point. See `complete`, and the limit stated there.
 //! - **Every foreign string that reaches an error is bounded and filtered.** The endpoint's
 //!   `reason` is kept and its free-text `message` is not, because a reason is a fixed vocabulary an
@@ -894,17 +899,30 @@ where
     /// `MoreThanOnePage` is raised by `complete` when the answer carries a `pageToken`, which is the
     /// endpoint saying *there is more of this than fits one reply*. That is a governance outcome above
     /// the domain port - `ResultTooLarge` carrying `ResultBound::Volume` - and it used to reach a
-    /// caller as `503`.
+    /// caller as `503`. A refusal whose reason is `responseTooLarge` says the same thing and answers
+    /// `true` too, so which spelling the service used does not decide the answer a caller gets.
     ///
     /// Every other variant is `false`, exhaustively rather than through a wildcard, and each of them
-    /// really is a failure: an unreachable host, an unreadable body, a refused status, a job that did
-    /// not finish, an absent or unparsable total, a missing schema, a non-scalar cell. **`NotComplete`
-    /// is the one worth naming as deliberately `false`:** a job that did not finish inside
-    /// `jobTimeoutMs` may well finish on a retry, so telling a caller not to retry it would be the
-    /// mistake this predicate's documentation warns about, pointed the other way.
+    /// really is a failure: an unreachable host, an unreadable body, a job that did not finish, an
+    /// absent or unparsable total, a missing schema, a non-scalar cell. **`NotComplete` is the one
+    /// worth naming as deliberately `false`:** a job that did not finish inside `jobTimeoutMs` may
+    /// well finish on a retry, so telling a caller not to retry it would be the mistake this
+    /// predicate's documentation warns about, pointed the other way. **`bytesBilledLimitExceeded` is
+    /// the OTHER name this endpoint can refuse with, and it deliberately is NOT this bound:** that is
+    /// the deployment's own `max_bytes_billed` ceiling refusing - `ResourcesExhausted`, a different
+    /// predicate one port up, and one `dry_run` bypasses - so answering `true` here would certify a
+    /// number as "too much data" that is actually a configured spend bound.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         match *error {
             WireError::MoreThanOnePage => true,
+            // The endpoint's own name for the same shape, arriving as an HTTP error instead of a
+            // page token: `responseTooLarge` (403) is documented as *the query results are larger
+            // than the maximum response size*, which IS the volume bound. Without this arm, the same
+            // reply leaves as `413` when it comes back with a `pageToken` and as `503` when it comes
+            // back as a refusal - which answer a caller gets then depends on the service's mood. A
+            // non-matching `named` still falls through to `false`, so this cannot make things worse
+            // than the `503` it replaces.
+            WireError::Refused { ref named, .. } if named == "responseTooLarge" => true,
             WireError::Credential { .. }
             | WireError::Expired { .. }
             | WireError::NoClock { .. }

@@ -365,9 +365,7 @@ async fn an_answer_the_data_system_would_not_return_at_once_is_the_same_413_and_
     // operator would have to learn for the same remedy.
     let app = over(
         unanchored_bundle(),
-        crate::testing::WarehouseThatWillNotPage::new(
-            sutura_domain::model::SourceName::parse("local").expect("a test source is a source"),
-        ),
+        crate::testing::WarehouseThatWillNotPage::new(crate::testing::source()),
         settings(Environment::Development, ""),
     );
     let (status, code, detail) = refusal(&app, QUESTION).await;
@@ -389,6 +387,27 @@ async fn an_answer_the_data_system_would_not_return_at_once_is_the_same_413_and_
         "the sentence does not say nothing was cut: {detail}"
     );
     assert!(detail.contains("narrow"), "the sentence does not say what to do: {detail}");
+}
+
+#[tokio::test]
+async fn an_execute_failure_that_is_not_a_size_bound_is_503_not_413() {
+    // The control for the test above, and the half only a sibling fake can show: an `execute` failure
+    // whose predicate answers `false` must leave as the `503` an outage produces, not as the `413`
+    // `result_too_large` of a size bound. A caller retries an outage and the retry is reasonable;
+    // telling a caller to narrow a question because a data system was briefly unwell is the wrong
+    // instruction. `WarehouseThatFailsToExecute` is the same reach as `WarehouseThatWillNotPage`
+    // (a `dry_run` that accepts, an `execute` that fails) with the port's default `false` predicate.
+    let app = over(
+        unanchored_bundle(),
+        crate::testing::WarehouseThatFailsToExecute::new(crate::testing::source()),
+        settings(Environment::Development, ""),
+    );
+    // A `ServiceError::Warehouse` is a FAILURE, not a refusal - it is the problem body the transport
+    // reserves for an outage, with no `outcome` field - which is exactly the distinction this test is
+    // about. So it is read with `call` rather than `refusal`, and asserted by status and code.
+    let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.contains(r#""code":"unavailable""#), "{body}");
 }
 
 #[tokio::test]
