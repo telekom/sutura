@@ -291,6 +291,17 @@ const TASKS: &[Task] = &[
         run: api_docs::run,
     },
     Task {
+        // The BYTE-COMPARE half, and `check-api-docs` is the shape it copies including why it is
+        // not in the hygiene sweep: it needs an input the nix sandbox has not got - a compiler
+        // there, a resolvable registry here. It exists because a review found that the offline gate
+        // could only see that a licence cell was non-empty, so the main content of a generated
+        // artefact was trusted rather than compared.
+        name: "check-attribution-current",
+        description: "ATTRIBUTION.md is what the generator produces (needs a resolvable registry)",
+        kind: Kind::Standalone,
+        run: attribution::run_check_current,
+    },
+    Task {
         // NOT `Kind::Hygiene`, and for `check-api-docs`' reason rather than its own: it invokes
         // `cargo metadata`, which needs a resolvable registry, and the hygiene sweep runs inside a
         // nix sandbox with no network. `check-attribution` above is the half that runs everywhere,

@@ -324,6 +324,15 @@ jobs:
       - name: Secrets
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
+      # The committed attribution document is what its generator produces. NOT gated on
+      # classification: a licence value can move without `Cargo.lock` moving - a git dependency
+      # resolving to another revision keeps its name and version - and a hand edit to the document
+      # is not a dependency change at all. `cargo xtask check-attribution` in the hygiene sweep
+      # cannot see either case, because it reads the lock and can only tell that a licence cell is
+      # non-empty. Here rather than in a nix check because it needs a resolvable registry.
+      - name: The attribution document is current
+        run: nix run .#xtask -- check-attribution-current
+
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
         run: |

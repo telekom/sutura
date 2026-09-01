@@ -3,7 +3,7 @@
 # Third-party attribution
 
 sutura is Apache-2.0; `LICENSE` is the licence and `NOTICE` is its notice. This file is the other
-half: the 455 third-party crates this workspace resolves, and the licence each one declares.
+half: the 457 third-party crates this workspace resolves, and the licence each one declares.
 It exists because an allowlist of SPDX identifiers is a policy check, and a distributor of a
 shipped binary needs a statement it can hand on.
 
@@ -27,9 +27,12 @@ per-binary list is inside the binary, in a `cargo auditable` section, and
 `docs/verifying-a-release.md` says how to read it.
 - **Not the notice text of each dependency.** An Apache-2.0 crate's own `NOTICE` file lives in its
 source tree rather than in its metadata, so nothing that reads metadata can render one.
-- **Not the vendored trees.** `vendor/mimalloc_rust` is third-party code carried in this repository
-as a path dependency, so it has no registry source and is not a row below. `VENDOR.md` records
-its upstream, commit and local changes, and `REUSE.toml` records its licence per file.
+- **The vendored trees ARE in it.** `mimalloc` and `libmimalloc-sys` live under `vendor/` and are
+declared as path dependencies, so they carry no registry source - and `sutura-cli` links the
+allocator on Linux, so they are rows below like anything else somebody else wrote. What selects a
+row is not being a workspace member, never the presence of a source. `VENDOR.md` records their
+upstream, commit and local changes and `REUSE.toml` records their licence per file; both are
+provenance, and neither puts a row in this file.
 - **Not an advisory statement.** Whether any of these has a vulnerability against it is
 `cargo deny check` against the RustSec database, whose verdict is a run rather than a document.
 
@@ -242,6 +245,7 @@ its upstream, commit and local changes, and `REUSE.toml` records its licence per
 | `libc` | `0.2.189` | MIT OR Apache-2.0 |
 | `libduckdb-sys` | `1.10505.0` | MIT |
 | `libm` | `0.2.16` | MIT |
+| `libmimalloc-sys` | `0.1.49` | MIT |
 | `libredox` | `0.1.21` | MIT |
 | `linux-raw-sys` | `0.12.1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | `linux-raw-sys` | `0.4.15` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
@@ -253,6 +257,7 @@ its upstream, commit and local changes, and `REUSE.toml` records its licence per
 | `matchit` | `0.8.4` | MIT AND BSD-3-Clause |
 | `md-5` | `0.11.0` | MIT OR Apache-2.0 |
 | `memchr` | `2.8.3` | Unlicense OR MIT |
+| `mimalloc` | `0.1.52` | MIT |
 | `mime` | `0.3.17` | MIT OR Apache-2.0 |
 | `mime_guess` | `2.0.5` | MIT |
 | `minimal-lexical` | `0.2.1` | MIT/Apache-2.0 |

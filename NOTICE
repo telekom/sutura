@@ -19,5 +19,7 @@ Vendored code
 -------------
 Code derived from an upstream project retains its original licence header and is recorded
 in VENDOR.md with the upstream repository, commit, date and the local modifications made.
-REUSE.toml records its licence per file. The two crates under vendor/mimalloc_rust are path
-dependencies rather than registry ones, so they are attributed there and not in ATTRIBUTION.md.
+REUSE.toml records its licence per file. The two crates under vendor/mimalloc_rust are declared as
+path dependencies rather than registry ones, and they are named in ATTRIBUTION.md like any other
+third-party crate: what selects a row there is not being a workspace member, never where the code
+came from. VENDOR.md and REUSE.toml are their provenance record, not a substitute for attribution.
