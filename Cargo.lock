@@ -3866,6 +3866,7 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "mimalloc",
+ "serde_json",
  "sutura-app",
  "sutura-catalog-local",
  "sutura-config",
@@ -3876,6 +3877,7 @@ dependencies = [
  "sutura-runtime",
  "tokio",
  "tracing",
+ "ureq",
 ]
 
 [[package]]

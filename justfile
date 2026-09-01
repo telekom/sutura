@@ -135,6 +135,21 @@ test:
     SUTURA_DEV_REQUIRE_TIER=1 cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
+# The served-deployment e2e suite: spawns the real `sutura-serve` binary, writes a settings file
+# over `examples/single-player`, asks it over HTTP on an OS-assigned port, and stops it through the
+# real shutdown path. A real `checks.nextest` gate (a `files` source needs no network), so `just
+# test` already runs it; this is the narrow form for a change that touches the composition root's
+# boot or the transport, so a red here reads as a boot/transport problem rather than as a whole-tree
+# failure. Lives in `crates/sutura-serve/tests/served.rs`.
+serve-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "serve-e2e: scope sutura-serve - the e2e suite in crates/sutura-serve/tests/served.rs, and nothing else."
+    echo "serve-e2e: run \`just test\` for the whole workspace's suite."
+    cargo nextest run -p sutura-serve --test served --all-features
+
 # `*paths`, not `+paths`, and the no-argument form is the one a PERSON uses: with nothing to go on
 # the gate reads the working tree itself, so `just check-changed` answers "does what I have touched
 # compile" without anybody having to type a path list. The commit hook keeps passing filenames.

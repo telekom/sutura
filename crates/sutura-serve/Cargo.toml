@@ -74,5 +74,15 @@ tracing = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 mimalloc = { workspace = true }
 
+[dev-dependencies]
+# The e2e suite in `tests/served.rs` comes from the OTHER direction than the 21 unit refusals in
+# `src/tests.rs`: it spawns the real binary (`CARGO_BIN_EXE_sutura-serve`), so every request here
+# is real HTTP over a real socket. `ureq` is the client - the same blocking client the `bigquery`
+# wire ships on, so the workspace already resolves it and its feature set is already justified in
+# this file's sibling `crates/sutura-exec-bigquery/Cargo.toml`. `serde_json` decodes the bunyan
+# startup line the port is read off, and the wire documents this suite asserts on.
+ureq = { workspace = true }
+serde_json = { workspace = true }
+
 [lints]
 workspace = true
