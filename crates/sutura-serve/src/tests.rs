@@ -884,7 +884,7 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
-    let err = super::open_catalog(&catalogs).expect_err("datahub cannot be opened by this build");
+    let err = super::catalog::open_catalog(&catalogs).expect_err("datahub cannot be opened by this build");
     assert!(err.contains("datahub"), "{err}");
     assert!(err.contains("markdown"), "{err}");
     let markdown = CatalogSettings::parse(
@@ -896,7 +896,7 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![markdown]).expect("one declared catalog is a registry");
-    super::open_catalog(&catalogs).expect("markdown is the kind this build links");
+    super::catalog::open_catalog(&catalogs).expect("markdown is the kind this build links");
 }
 
 #[test]
@@ -920,6 +920,6 @@ fn a_deployment_with_more_than_one_catalog_is_refused_until_composition_lands() 
         .expect("a directory and a version are a settings")
     };
     let catalogs = Catalogs::parse(vec![entry("structure"), entry("metrics")]).expect("two names are a registry");
-    let err = super::open_catalog(&catalogs).expect_err("two catalogs are not yet servable");
+    let err = super::catalog::open_catalog(&catalogs).expect_err("two catalogs are not yet servable");
     assert!(err.contains("one catalog"), "{err}");
 }
