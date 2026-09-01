@@ -1,0 +1,3135 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.4.0/contributing/">
+      
+      
+        <link rel="prev" href="../agent-prompt/">
+      
+      
+        <link rel="next" href="../crap/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Contributing - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../css/telekom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#contributing" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Contributing
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#getting-an-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting an environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Getting an environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#nix-devenv-and-direnv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nix, devenv and direnv
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-dev-container" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dev container
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bare-cargo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bare cargo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#just-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        just setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-owns-what" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What owns what
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-toolchains-and-it-matters-which-one-you-get" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two toolchains, and it matters which one you get
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The gates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commit-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commit messages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trunk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#releasing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Releasing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-test-has-to-be-shown-to-test-something" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A test has to be shown to test something
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stacked-pull-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stacked pull requests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opening-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opening a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conventions-that-will-fail-your-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conventions that will fail your pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#getting-an-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting an environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Getting an environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#nix-devenv-and-direnv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nix, devenv and direnv
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-dev-container" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dev container
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bare-cargo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bare cargo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#just-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        just setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-owns-what" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What owns what
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-toolchains-and-it-matters-which-one-you-get" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two toolchains, and it matters which one you get
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The gates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commit-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commit messages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trunk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#releasing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Releasing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-test-has-to-be-shown-to-test-something" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A test has to be shown to test something
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stacked-pull-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stacked pull requests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opening-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opening a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conventions-that-will-fail-your-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conventions that will fail your pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!--
+This page is `CONTRIBUTING.md` from the repository root, pulled in by pymdownx.snippets rather
+than copied. GitHub looks for that file at the root when somebody opens a pull request and
+mkdocs needs a page under `docs/`, so one file holds the prose and this one includes it. The
+include is configured in `mkdocs.yml`, with `check_paths: true` so a path that stops resolving
+fails the build instead of publishing the literal directive.
+
+Relative links inside the included file resolve against THIS page, not the repository root -
+see the note in CONTRIBUTING.md itself.
+-->
+
+<!--
+Every link to a file in this repository is written as an absolute github.com URL, and that
+is deliberate. This file is rendered twice: by GitHub from the repository root, and by
+mkdocs as `docs/contributing.md`, which is a pymdownx.snippets include of this file and
+nothing else. A relative link cannot satisfy both - it resolves against the root in one
+case and against `docs/` in the other - and the site builds with `--strict`, so a link that
+does not resolve fails the build. An absolute URL resolves in both.
+-->
+
+<h1 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h1>
+<p>The design is settled and the code is a walking skeleton, so most of what exists today is the
+environment and the gates that keep the guarantees in <code>AGENTS.md</code> from becoming aspirations.
+Contributions are welcome. The fastest way to get one merged is to arrive with the gates
+already green.</p>
+<p>This repository is public and everything in it is world-readable, including comments,
+fixtures, branch names and commit messages. Read the first section of
+<a href="https://github.com/telekom/sutura/blob/main/AGENTS.md">AGENTS.md</a> before you write anything down.</p>
+<h2 id="getting-an-environment">Getting an environment<a class="headerlink" href="#getting-an-environment" title="Permanent link">&para;</a></h2>
+<p>Three routes. Take the first one your machine allows.</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>For</th>
+<th>What you get</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nix + devenv + direnv</td>
+<td>Linux, macOS, WSL2</td>
+<td>Every tool a gate uses, at the pinned version</td>
+</tr>
+<tr>
+<td>The dev container</td>
+<td>Windows without WSL2, or a host you would rather not install Nix on</td>
+<td>The same shell, in Docker</td>
+</tr>
+<tr>
+<td>Bare <code>cargo</code></td>
+<td>Neither of those</td>
+<td>A compiling checkout, and not much else</td>
+</tr>
+</tbody>
+</table>
+<p>The first two read the same <code>devenv.nix</code> and the same toolchain files, so they cannot hand
+you different compilers. On a network with no direct egress, read
+<a href="https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md">Building without direct internet egress</a> first:
+nothing that fetches is hardcoded here, every location is read from the environment, and
+the defaults are the public ones.</p>
+<h3 id="nix-devenv-and-direnv">Nix, devenv and direnv<a class="headerlink" href="#nix-devenv-and-direnv" title="Permanent link">&para;</a></h3>
+<p>The primary path. Nix with flakes enabled, then <code>devenv</code> and <code>direnv</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-L<span class="w"> </span>https://nixos.org/nix/install<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh<span class="w"> </span>-s<span class="w"> </span>--<span class="w"> </span>--daemon
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.config/nix
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">'experimental-features = nix-command flakes\n'</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.config/nix/nix.conf
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>nix<span class="w"> </span>profile<span class="w"> </span>install<span class="w"> </span>nixpkgs#devenv<span class="w"> </span>nixpkgs#direnv
+</span></code></pre></div>
+<p>Flakes are a prerequisite rather than a preference: the build <em>is</em> a flake.</p>
+<p>Then hook <code>direnv</code> into your shell. It does nothing until you do, and this is the step
+people skip:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">echo</span><span class="w"> </span><span class="s1">'eval "$(direnv hook bash)"'</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.bashrc<span class="w">   </span><span class="c1"># or the zsh / fish equivalent</span>
+</span></code></pre></div>
+<p>Then, once per clone:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>direnv<span class="w"> </span>allow
+</span></code></pre></div>
+<p>That is a trust boundary, not a formality: it consents to <code>.envrc</code> running, which loads
+<code>devenv.nix</code>. After it, entering the directory puts the toolchain on <code>PATH</code> - both compilers,
+<code>just</code>, <code>pixi</code>, <code>cargo-nextest</code>, <code>cargo-deny</code>, <code>betterleaks</code>, <code>stax</code>, <code>gh</code>, <code>rg</code>, <code>fd</code>. Then:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>just<span class="w"> </span>setup
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>just<span class="w"> </span>doctor
+</span></code></pre></div>
+<p>If <code>cargo</code> is missing once the shell has loaded, the shell evaluated but produced no
+toolchain: check that <code>devenv.nix</code> still resolves the two toolchain files through
+rust-overlay. If it is there, <code>cargo --version</code> reports the nightly pin rather than the
+stable one, and the section after next says why.</p>
+<h3 id="the-dev-container">The dev container<a class="headerlink" href="#the-dev-container" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>compose.dev.yaml<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>dev
+</span></code></pre></div>
+<p><code>just setup</code> runs on entry, hash-gated. <code>nix/container-setup.sh</code> hashes the files that decide
+what setup produces - the four lockfiles, the manifests, both toolchain files, the hook
+config - and skips the work when the hash is unchanged. Editing a <code>.rs</code> file does not re-run
+it; changing <code>pixi.lock</code> does. <code>SUTURA_SKIP_SETUP=1</code> bypasses it, which is what you want when
+running one command in a container whose environment is already current:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>compose.dev.yaml<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-e<span class="w"> </span><span class="nv">SUTURA_SKIP_SETUP</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>dev<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'just lint'</span>
+</span></code></pre></div>
+<p>The named volumes in <code>compose.dev.yaml</code> carry the performance rather than tune it.
+<code>target-dir</code> mounts over <code>/work/target</code> inside the bind mount so cargo writes its output to a
+native volume instead of through the host bind mount; <code>/nix</code>, the cargo registry and the pixi
+environment persist so a restart does not re-download. Inside the container, <code>direnv allow
+/work</code> is still yours to run. The image installs the shell hook and says so on entry, because
+pre-approving the <code>.envrc</code> would mean checking out an unreviewed branch and having its
+<code>enterShell</code> execute when you enter.</p>
+<p>Without compose, the same image builds and runs directly:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>build<span class="w"> </span>--target<span class="w"> </span>dev<span class="w"> </span>-t<span class="w"> </span>sutura-dev<span class="w"> </span>.
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--rm<span class="w"> </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">:/work"</span><span class="w"> </span>-w<span class="w"> </span>/work<span class="w"> </span>sutura-dev
+</span></code></pre></div>
+<p><code>--target build</code> runs the gates and a release build instead of dropping you in a shell,
+which is the cheapest proof that the container itself works. Every network-touching
+argument is a build <code>ARG</code> rather than a literal, so nothing internal is baked into the
+Dockerfile; <code>.env.example</code> lists them and <code>compose.dev.yaml</code> reads them from a gitignored
+<code>.env</code>.</p>
+<h3 id="bare-cargo">Bare cargo<a class="headerlink" href="#bare-cargo" title="Permanent link">&para;</a></h3>
+<p><code>rust-toolchain.toml</code> is the compiler pin and rustup honours it directly, so a clone plus
+rustup compiles and tests:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--workspace<span class="w"> </span>--all-features
+</span></code></pre></div>
+<p>Be honest with yourself about what is missing. <code>just</code>, <code>prek</code>, <code>cargo-nextest</code>, <code>cargo-deny</code>
+and <code>betterleaks</code> come from Nix and pixi, so on this route the hooks are not installed, the
+<code>just</code> tasks do not exist, and neither the secret scan nor the supply-chain gate can run
+locally. CI runs all of them regardless; you find out on the pull request instead of before it.</p>
+<p>On Windows, keep the clone somewhere your endpoint tooling allows build scripts to execute.
+Cargo runs <code>build.rs</code> and proc macros, and a blocked execution arrives as a confusing linker
+error rather than as a policy message.</p>
+<h2 id="just-setup">just setup<a class="headerlink" href="#just-setup" title="Permanent link">&para;</a></h2>
+<p>Idempotent, and worth re-running whenever an environment file changes. It:</p>
+<ul>
+<li>installs the git hooks for all three stages (<code>pre-commit</code>, <code>pre-push</code>, <code>commit-msg</code>) through
+  <code>prek</code>, and unsets a <code>core.hooksPath</code> pointing at a directory that no longer exists. This
+  repo once spent a whole session believing hooks ran that had never run: an uninstalled hook
+  does not complain, it silently never fires;</li>
+<li>installs the pixi environment, which is where the hook runner lives;</li>
+<li>builds <code>xtask</code> and <code>sutura-dev</code>, so the first hook run is not a cold compile and a broken
+  environment fails here rather than inside a git hook;</li>
+<li>ends with <code>sutura-dev doctor</code> - what is present, what is missing, what would fail.</li>
+</ul>
+<p><code>just</code> with no argument lists every task.</p>
+<h2 id="what-owns-what">What owns what<a class="headerlink" href="#what-owns-what" title="Permanent link">&para;</a></h2>
+<p>One owner per concern, because two owners for one version is one too many.</p>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Compiler version, anything shipped</td>
+<td><code>rust-toolchain.toml</code>, read by rustup and by Nix</td>
+</tr>
+<tr>
+<td>Compiler version, the local inner loop</td>
+<td><code>devco/rust-toolchain-nightly.toml</code></td>
+</tr>
+<tr>
+<td>The dev shell, tool versions, script names</td>
+<td><code>devenv.nix</code></td>
+</tr>
+<tr>
+<td>The release build, cross-compilation, the image</td>
+<td><code>flake.nix</code></td>
+</tr>
+<tr>
+<td>Anything delivered as a conda or Python package</td>
+<td><code>pixi.toml</code></td>
+</tr>
+<tr>
+<td>Which hooks run at which stage</td>
+<td><code>.pre-commit-config.yaml</code>, run by <code>prek</code></td>
+</tr>
+<tr>
+<td>The gates themselves</td>
+<td><code>xtask/</code></td>
+</tr>
+<tr>
+<td>The name you type for any of it</td>
+<td><code>justfile</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="two-toolchains-and-it-matters-which-one-you-get">Two toolchains, and it matters which one you get<a class="headerlink" href="#two-toolchains-and-it-matters-which-one-you-get" title="Permanent link">&para;</a></h2>
+<p>Read this before you believe a red <code>cargo clippy</code>.</p>
+<p>The dev shell's bare <code>cargo</code> is the pinned <strong>nightly</strong> (<code>devco/rust-toolchain-nightly.toml</code>), because
+the cranelift codegen backend is nightly-only and it is what makes the inner loop fast. The
+pinned <strong>stable</strong> (<code>rust-toolchain.toml</code>) is what every gate that lints, tests or ships uses, and
+what <code>nix/stable-env.sh</code> puts in front, with its own target directory. The one exception is
+<code>checks.api-docs</code>, which prefixes nightly onto the <code>cargo rustdoc</code> child because
+<code>--output-format json</code> is unstable; it builds nothing another gate reads.</p>
+<p><strong>CI is the authority, and it is stable throughout.</strong> Locally the split is by what the channel
+can change, and it is not uniform - so here is the actual state rather than a tidier claim:</p>
+<table>
+<thead>
+<tr>
+<th>Runs on stable</th>
+<th>Runs on the shell's cargo (nightly + cranelift)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>every <code>just</code> task and devenv script that sources <code>nix/stable-env.sh</code></td>
+<td>the <code>rust-fmt</code>, <code>rust-check-changed</code> and <code>rust-doctests</code> commit hooks</td>
+</tr>
+<tr>
+<td>the <code>rust-clippy</code> commit hook and the <code>rust-clippy-push</code> push hook</td>
+<td>typing <code>cargo</code> yourself</td>
+</tr>
+<tr>
+<td>the <code>rust-crap</code> hook, because coverage instrumentation is LLVM-only</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Anything that CODEGENS is faster on cranelift and its verdict does not depend on the channel, so
+local iteration stays there deliberately. Two things are different:</p>
+<ul>
+<li><strong>clippy.</strong> Its lint set differs between channels and this repo gates on the whole
+  <code>restriction</code> category with <code>-D warnings</code>, so a bare <code>cargo clippy</code> reports lints stable has
+  never heard of. <strong>Do not conclude your branch is red from that</strong> - run <code>just lint</code>. The commit
+  hook already forces stable for this reason.</li>
+<li><strong>rustfmt.</strong> Its <em>output</em> can differ between channels. Today the two agree byte-for-byte over
+  this tree, so the commit hook is left fast; the <code>fmt-parity</code> push hook builds <code>checks.fmt</code> -
+  the exact check CI runs, which compiles nothing - so the divergence is caught before the pull
+  request rather than by it.</li>
+</ul>
+<p>And one hard exception: <strong>the coverage run for the CRAP gate must be stable.</strong>
+<code>-C instrument-coverage</code> does not exist under cranelift, so this is not a consistency preference
+but an absence. <code>cargo xtask crap</code> re-establishes stable itself rather than trusting its caller.</p>
+<p>The separate target directory is not optional either: alternating compilers in one directory
+invalidates every artifact in it.</p>
+<h2 id="the-gates">The gates<a class="headerlink" href="#the-gates" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>commit</td>
+<td><code>cargo fmt --check</code>; clippy over the workspace, <code>--all-targets --all-features</code>, <code>-D warnings</code>; <code>hygiene</code>, the cheap structural gates in one hook; <code>cargo check</code> narrowed to the changed packages; <code>cargo nextest</code> and doctests; the <strong>CRAP score</strong> when the scored crate or its policy changed; a staged secret scan; shellcheck over every <code>.sh</code> we ship; workflow static analysis when a workflow changed</td>
+</tr>
+<tr>
+<td>commit-msg</td>
+<td>the conventional-commit subject check</td>
+</tr>
+<tr>
+<td>push</td>
+<td>a secret scan over the whole tree rather than the staged diff, <code>cargo-deny</code>, formatting on stable as CI checks it, and <strong>clippy again - the push stage compiles</strong></td>
+</tr>
+<tr>
+<td>CI</td>
+<td>the same gates, plus test causality and cross-built <code>ci</code>-profile link checks</td>
+</tr>
+<tr>
+<td>Release tag</td>
+<td>the same gates, then the release-profile binaries, images and image smoke tests</td>
+</tr>
+</tbody>
+</table>
+<p><code>hygiene</code> is one hook because <code>xtask</code> owns the list: <code>check-boundaries</code>, <code>max-lines</code>,
+<code>check-pins</code>, <code>check-warm-start</code>, <code>unused-deps</code>, <code>check-arrow</code>, <code>line-endings</code>, <code>text-hygiene</code>,
+<code>check-skills</code>, <code>check-scope</code>, <code>check-hook-tiers</code>, <code>check-guidance</code>, <code>check-workflows</code>,
+<code>check-docs</code>, <code>check-crap</code>. <code>cargo xtask --help</code> prints them, marked - and that is the authority,
+because this sentence had gone stale on two of them before <code>check-scope</code> was added to it.</p>
+<p><strong>Two rows of that table used to be wrong, and both are called out rather than quietly fixed</strong> -
+one because closing it is what this section's push gate is for, the other because it is the same
+mistake in the other direction: a document describing a tier the hook did not have.</p>
+<p><strong>The push stage used to compile nothing.</strong> Every compiling gate was a commit hook, and <code>git
+rebase</code> - <code>git rebase --continue</code> included - runs no commit hook at all. So a conflict resolution
+went to the remote with nothing having built it, which happened three times in one day: a
+hand-resolved merge whose <code>sutura-config</code> did not compile, a CLEAN merge where one branch changed
+<code>PinnedDefinitions::provenance</code> and the other added a call site for the old signature (git cannot
+see that as a conflict), and a branch red on CI's format step. <code>cargo xtask check-hook-tiers</code> is
+what keeps this row true: it fails when no <code>pre-push</code> hook compiles, and it fails when the
+push-stage invocation is not the commit stage's own.</p>
+<p>It is the SAME clippy run, and the file expresses that as a YAML anchor rather than a second copy,
+because a gate that makes <code>git push</code> slow gets bypassed with <code>--no-verify</code> and then guards nothing.
+cargo keys its fingerprints on the invocation, so an identical command reuses what the commit hook
+built. Measured on this tree: <strong>1.0 s</strong> for the push-stage clippy after a commit hook ran, <strong>2-3 s</strong>
+when a rebase changed a crate, and <strong>76.6 s</strong> for the same command into an empty target directory -
+which is the honest worst case, and is paid by the first commit in a fresh clone anyway, since
+<code>rust-clippy</code> is a commit hook too. <code>cargo check</code> was the other candidate and is worse on both
+counts: it shares no fingerprints with clippy for the workspace's own crates, so it is a second pass
+over them - 3.4 s measured right after a warm clippy - to report less. And one thing the push tier
+already caught before this hook, which is why it is not <em>"push compiled nothing"</em> without
+qualification: <code>fmt-parity</code> runs rustfmt, which cannot PARSE an unclosed delimiter, so a syntax
+error was refused there. What escaped was a tree that parses and does not type-check.</p>
+<p><strong>Shellcheck was never a push gate.</strong> It declares no <code>stages:</code>, so it has always inherited
+<code>default_stages: [pre-commit]</code>; it sat under the push banner in <code>.pre-commit-config.yaml</code> and this
+table read the banner. The hook moved up into the commit block rather than being restaged - the
+tier it has always run at is the right one for it.</p>
+<p><strong>The CRAP gate</strong> scores cyclomatic complexity weighted by the tests that cover it, which is the
+combination neither a complexity limit nor a coverage percentage catches alone. It is in two
+halves by cost: <code>check-crap</code> reads the policy and compiles nothing, so it is in the sweep above;
+<code>just crap</code> runs the coverage build and the score. It is scoped to <code>sutura-domain</code> - 11 s cold,
+where <code>--workspace</code> coverage is over six minutes and more than 80 CPU-minutes - and
+<a href="https://github.com/telekom/sutura/blob/main/docs/crap.md">The CRAP gate</a> carries the measured
+cost of every wider option, why the scope is what it is, what it therefore does not see, and why
+there is no downloaded baseline.</p>
+<p>Locally, <code>just gates</code> is everything CI runs and <code>just hygiene</code> is the structural half in
+seconds. Scope hook runs while iterating with <code>just hooks --files &lt;path&gt;</code>, then sweep with
+<code>just hooks --all-files</code> before opening a pull request. CI does not enter the dev shell - it
+runs flake outputs, so a runner needs <code>nix</code> and nothing else. The two cannot drift because they
+call the same <code>xtask</code> binary and the same cargo subcommands under the same stable pin.</p>
+<h2 id="commit-messages">Commit messages<a class="headerlink" href="#commit-messages" title="Permanent link">&para;</a></h2>
+<p>The <code>commit-msg</code> hook runs <code>cargo xtask commit-msg</code>, which judges the subject line and nothing
+else:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>&lt;type&gt;[(scope)][!]: &lt;subject&gt;
+</span></code></pre></div>
+<ul>
+<li>types: <code>feat</code>, <code>fix</code>, <code>refactor</code>, <code>chore</code>, <code>test</code>, <code>docs</code>, <code>perf</code>, <code>ci</code>, <code>build</code>, <code>style</code>,
+  <code>revert</code></li>
+<li>at most 72 characters, the width at which <code>git log --oneline</code> and GitHub's commit list start
+  truncating</li>
+<li><code>!</code> after the type or the scope marks a breaking change</li>
+<li>a space after the colon, and no trailing full stop</li>
+<li>subjects git writes itself (<code>Merge</code>, <code>Revert</code>, <code>fixup!</code>, <code>squash!</code>, <code>amend!</code>) are exempt</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>feat(semantic): compile a bounded date predicate
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>fix(catalog-local): reject a dimension absent from the pinned bundle
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>refactor!: rename the Warehouse port's execute method
+</span></code></pre></div>
+<p>The body is not checked. Use it for why.</p>
+<h2 id="trunk">Trunk<a class="headerlink" href="#trunk" title="Permanent link">&para;</a></h2>
+<p><strong><code>main</code> is the sole trunk and the base for pull requests and the merge queue.</strong> Pull requests are
+squashed, leaving one conventional commit for <code>git-cliff</code> to classify. The branch ruleset enforces
+that path and the required checks.</p>
+<h2 id="releasing">Releasing<a class="headerlink" href="#releasing" title="Permanent link">&para;</a></h2>
+<p>An approved manual dispatch of <code>version-bump</code> on <code>main</code> is the only release entry point. It derives
+the version from commit subjects, writes <code>CHANGELOG.md</code> in the release commit, and pushes that exact
+commit and its <code>v*</code> tag through the narrow release App. The tag starts <code>release.yml</code> and <code>docs.yml</code>;
+the release workflow has no manual trigger of its own.</p>
+<p>The version is <strong>derived</strong> from the commit subjects above - <code>feat</code> a minor, <code>fix</code> and the rest a
+patch, <code>!</code> or a <code>BREAKING CHANGE</code> footer a major. Nothing is tagged if no commit since the last
+tag would move it, so a dispatch over chores publishes nothing.</p>
+<p>If a tagged release fails, its commit and tag stay for diagnosis, no GitHub Release is created and
+no image manifest or moving tag is published. Fix the source and approve a new dispatch; never
+rewrite a release tag.</p>
+<h2 id="a-test-has-to-be-shown-to-test-something">A test has to be shown to test something<a class="headerlink" href="#a-test-has-to-be-shown-to-test-something" title="Permanent link">&para;</a></h2>
+<p>A new or changed test must be red against the base behaviour and green with your change. A test
+that passes both ways proves nothing and is worse than no test, because it looks like coverage.</p>
+<p><code>cargo xtask test-causality --since &lt;base&gt;</code> checks that mechanically: it re-runs the changed
+tests against the base version of the non-test sources, requires at least one to fail with no
+unrelated failures, then requires them green on your head. <code>just causality origin/main</code> is the
+same call. Where the change is not separable that way - impl and test in one file, or a rename
+with no behavioural difference - the gate says so and asks for the evidence instead: the command
+you ran, the failure you saw before the fix, the pass after. That goes in the pull request. Do
+not skip it silently.</p>
+<p><code>just ship-check</code> is the finishing sequence. It needs a clean tree and a reachable base ref,
+because it judges the committed diff from the merge base - what a reviewer will see - and over
+that range it runs the commit-stage hooks - the tests among them - the gates' own unit
+tests, the causality check and the push-stage gates. Run it before saying a change is done.</p>
+<h2 id="stacked-pull-requests">Stacked pull requests<a class="headerlink" href="#stacked-pull-requests" title="Permanent link">&para;</a></h2>
+<p>A chain of dependent changes ships as one reviewable pull request per link, not as one branch
+that grows until nobody can review it. <code>stax</code> (<code>st</code>) does the rebasing:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>st<span class="w"> </span>create<span class="w"> </span>feat/thing<span class="w">   </span><span class="c1"># branch off the current one, entering the stack</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>st<span class="w"> </span>modify<span class="w">              </span><span class="c1"># stage and amend into the branch tip</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>st<span class="w"> </span>ss<span class="w">                  </span><span class="c1"># push the stack, opening or updating a PR per branch</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>st<span class="w"> </span>ls<span class="w">                  </span><span class="c1"># what the stack looks like now</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>st<span class="w"> </span>refresh<span class="w">             </span><span class="c1"># sync trunk, restack the stack, submit the updates</span>
+</span></code></pre></div>
+<p><strong>Restack with stax (<code>st</code>); never hand-<code>git rebase</code> a branch that belongs to a stack.</strong> See the
+<code>stacked-branches</code> skill.</p>
+<p>A branch behind <code>main</code> is <strong>rebased</strong>, never merged. A merge commit from <code>main</code> into a topic
+branch comes back as a rebase request in review, and it also destroys the linear shape <code>st</code>
+relies on. Run <code>just ship-check</code> per branch rather than once for the stack, since each pull
+request is reviewed alone and so has to be green alone. Restacking rewrites history by design,
+so ask before force-pushing a branch somebody else has.</p>
+<p><code>stax.toml</code> at the repo root overlays your global stax config with this repo's forge, so a
+machine set up for a different one does not submit stacks there.
+<code>.agents/skills/git-ops/stacked-branches/SKILL.md</code> has the rest.</p>
+<h2 id="docs">Docs<a class="headerlink" href="#docs" title="Permanent link">&para;</a></h2>
+<p>The site is mkdocs-material, versioned by <a href="https://github.com/jimporter/mike">mike</a>, and every
+command goes through pixi's isolated <code>docs</code> environment - the docs toolchain is Python and pixi
+is the one resolver for Python here.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>just<span class="w"> </span>docs<span class="w">          </span><span class="c1"># render the site to site/</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>just<span class="w"> </span>docs-serve<span class="w">    </span><span class="c1"># live reload</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>just<span class="w"> </span>docs-list<span class="w">     </span><span class="c1"># what is published, per mike</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>just<span class="w"> </span>docs-deploy<span class="w">   </span><span class="c1"># one version to gh-pages; `--push` is deliberately absent</span>
+</span></code></pre></div>
+<p>The API reference under <code>docs/api/</code> is generated from rustdoc JSON and committed, so publishing
+the site needs no Rust toolchain. Regenerate it when a public type or its documentation changes:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>cargo<span class="w"> </span>rustdoc<span class="w"> </span>-q<span class="w"> </span>-p<span class="w"> </span>sutura-domain<span class="w"> </span>--all-features<span class="w"> </span>--<span class="w"> </span>-Z<span class="w"> </span>unstable-options<span class="w"> </span>--output-format<span class="w"> </span>json
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>python<span class="w"> </span>docs/.tools/rustdoc_to_markdown.py<span class="w"> </span>target/doc/sutura_domain.json
+</span></code></pre></div>
+<p><code>--output-format json</code> is an unstable rustdoc option, so run that in the dev shell where the bare
+<code>cargo</code> is the nightly pin. The generator refuses to run on a <code>format_version</code> it was not written
+for. Nothing yet fails when the committed pages fall behind the sources, and the API landing page
+records that gap rather than leaving it to be discovered.</p>
+<p>Those <code>just</code> tasks are the local form. CI reaches the same environment through nix -
+<code>nix run .#pixi -- run --frozen -e docs docs</code> - because a runner has nix on <code>PATH</code> and
+nothing else, so a bare tool name there exits 127.</p>
+<p>Two pages hold no prose of their own. <code>docs/contributing.md</code> and <code>docs/changelog.md</code> are a
+<code>pymdownx.snippets</code> include of <code>CONTRIBUTING.md</code> and <code>CHANGELOG.md</code> at the repository root,
+so each of those files has one home and GitHub and the site cannot show different text. The
+cost is that a relative link inside an included file resolves against the docs page rather
+than against the root, which is why every link to a file in this repository is written as an
+absolute github.com URL. <code>check_paths: true</code> fails the build when an include path stops
+resolving, rather than publishing the literal directive.</p>
+<p>Pages live in <code>docs/</code> and <code>nav</code> in <code>mkdocs.yml</code> is explicit rather than derived from filenames.
+<code>cargo xtask check-docs</code> fails if a page is in no nav entry, if a nav entry names a file that is
+not there, or if an asset <code>mkdocs.yml</code> names has stopped resolving. The build runs with
+<code>--strict</code>, so a broken link fails instead of warning.
+<a href="https://github.com/telekom/sutura/blob/main/docs/publishing.md">Publishing the docs</a> covers the versioning and the one
+repository setting it needs.</p>
+<h2 id="opening-a-pull-request">Opening a pull request<a class="headerlink" href="#opening-a-pull-request" title="Permanent link">&para;</a></h2>
+<p><code>.github/pull_request_template.md</code> is the form. It is short because a reviewer's first five
+seconds decide how they spend the rest, and it asks for:</p>
+<ul>
+<li>a <strong>review snapshot</strong> row - size, risk, where to look, what evidence exists;</li>
+<li><strong>what changed</strong>, named as behaviour, a port, an invariant or a boundary, not as a list of
+  files;</li>
+<li><strong>how to review</strong> - the files in reading order, and which diffs to skip as mechanical;</li>
+<li><strong>validation</strong> - the exact commands and whether they passed, including what you did not run.
+  "Should work" is not a result;</li>
+<li><strong>test causality</strong> - the gate's output, or the evidence above where the gate could not judge
+  it;</li>
+<li><strong>invariants</strong> - which mechanism would have failed if the change were wrong. "Nothing
+  mechanical" is an acceptable answer and a useful one: it tells the reviewer the judgement is
+  theirs.</li>
+</ul>
+<p>One reviewable idea per branch. If describing it needs an "and", split it.</p>
+<h2 id="conventions-that-will-fail-your-pull-request">Conventions that will fail your pull request<a class="headerlink" href="#conventions-that-will-fail-your-pull-request" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>LF line endings, no trailing whitespace, one final newline.</strong> <code>.gitattributes</code> normalises on
+  checkin, and <code>cargo xtask line-endings</code> plus <code>cargo xtask text-hygiene</code> are what fail when
+  something gets past it. <code>just fmt</code> fixes what is mechanically fixable.</li>
+<li><strong>No em dashes.</strong> Plain hyphens, in prose and in comments. It is a gate rather than a request
+  because the convention was stated from the start, files were reviewed for it by hand, and one
+  shipped anyway.</li>
+<li><strong>No first-party <code>unsafe</code>.</strong> <code>unsafe_code = "forbid"</code> in the workspace lint table, so a crate
+  cannot re-allow it locally and lifting it is a visible diff to that table.</li>
+<li><strong><code>#[expect(.., reason = "..")]</code>, never <code>#[allow]</code>.</strong> <code>clippy::allow_attributes</code> makes a bare
+  allow a lint error, and an <code>expect</code> fails once the warning it suppresses stops firing, so a
+  suppression cannot outlive its cause.</li>
+<li><strong>No file over 1000 lines.</strong> <code>cargo xtask max-lines</code>. <code>devco/max-lines-ignore</code> exempts generated
+  and vendored output only; a pattern matching anything under <code>crates/</code> or <code>xtask/</code> fails the
+  gate rather than being honoured, so the only way past it is to split the file.</li>
+<li><strong>No dependency declared and unused.</strong> <code>cargo xtask unused-deps</code>. A crate must reference
+  every dependency it declares, and every <code>[workspace.dependencies]</code> entry must be inherited by
+  somebody. Declaring a dependency to satisfy a document is what it exists to stop.</li>
+<li><strong><code>--all-features</code> on every lint and test entry point.</strong> No crate here declares a feature today,
+  so the flag is a no-op - and it stays in every entry point for exactly that reason: the day an
+  adapter goes behind one, coverage must not silently drop to nothing. A scoped
+  <code>cargo check -p sutura-domain --no-default-features</code> is the fast inner loop, never the gate -
+  which is why <code>just check</code> prints the one package it compiled and points at the wider task, and
+  why <code>cargo xtask check-scope</code> fails if that sentence and those flags ever disagree.
+  <code>just check-changed</code> with no arguments compiles what your working tree touched.</li>
+<li><strong>The domain crate acquires no framework dependency.</strong> <code>cargo xtask check-boundaries</code> checks
+  the whole transitive tree against an allowlist, so a framework reached through an innocuous
+  crate fails it too.</li>
+</ul>
+<p><code>AGENTS.md</code> holds the full invariants table - every guarantee beside the type, lint, hook or
+gate that enforces it, and the rules for changing the query path or the tool surface. Read it
+before touching either.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2742 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.4.0/implementation-plan-bigquery/">
+      
+      
+        <link rel="prev" href="../implementation-plan/">
+      
+      
+        <link rel="next" href="../implementation-plan-identity-and-services/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>The plan, BigQuery - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../css/telekom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-plan-bigquery" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              The plan, BigQuery
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#before-either-step-authenticating-a-developer-against-a-test-instance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before either step: authenticating a developer against a test instance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Before either step: authenticating a developer against a test instance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-identity-this-login-serves-and-which-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which identity this login serves, and which it does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bigquery-on-a-service-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BigQuery, on a service account
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bigquery-per-subject" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BigQuery, per subject
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#before-either-step-authenticating-a-developer-against-a-test-instance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before either step: authenticating a developer against a test instance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Before either step: authenticating a developer against a test instance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-identity-this-login-serves-and-which-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which identity this login serves, and which it does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bigquery-on-a-service-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BigQuery, on a service account
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bigquery-per-subject" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BigQuery, per subject
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="the-plan-bigquery">The plan, BigQuery<a class="headerlink" href="#the-plan-bigquery" title="Permanent link">&para;</a></h1>
+<p>The BigQuery steps of <a href="../implementation-plan/">the implementation plan</a>, on their own page.</p>
+<p><strong>The stack table on <a href="../implementation-plan/">the main page</a> stays the only owner of a step number.</strong>
+These are rows 15 and 16.</p>
+<p><strong>Two reasons for the page, and NEITHER is the line limit</strong> - which is worth saying because the first
+split of this plan was made for that reason, the limit no longer applies to prose, and a page that
+justified itself by a rule that has since been removed would be a page with no justification. The
+reasons that stand on their own:</p>
+<ul>
+<li><strong>BigQuery's identity route is a long argument with three options</strong>, each spending a different
+  control, and interleaving it with the Postgres steps made both harder to follow. A seam at a source
+  rather than at a phase is a departure from the first split - that one cut at <em>needs a live service
+  or an identity decision</em> - and it earns it here.</li>
+<li><strong>Two branches were editing the identity page at once.</strong> Moving these sections out returned that
+  file to byte-for-byte what the other branch expected, so the two merge without a conflict. That is
+  a real reason and an unglamorous one, and it is the kind that actually predicts whether a split
+  survives.</li>
+</ul>
+<h2 id="before-either-step-authenticating-a-developer-against-a-test-instance">Before either step: authenticating a developer against a test instance<a class="headerlink" href="#before-either-step-authenticating-a-developer-against-a-test-instance" title="Permanent link">&para;</a></h2>
+<p><strong><code>just gcloud-login</code> is the whole entry point</strong>, and it lands ahead of the adapter because the
+decision the first step is blocked on - <em>what does a test run against</em> - cannot be made without
+something live to try it against. It performs both logins that matter, in one task: <code>gcloud auth
+login</code> authorizes the CLI, and <code>gcloud auth application-default login</code> writes the credential a
+client library reads. Doing the first and forgetting the second is the failure that reads as a
+broken adapter.</p>
+<p><strong>The CLI is a pinned container rather than a package</strong>, and <code>pixi.toml</code> carries the argument:
+conda-forge publishes no <code>win-64</code> build of it, this workspace declares that platform, and the
+manifest's own rule is that tooling which cannot resolve on a platform we ship to is tooling nobody
+can run there. The alternative - a package on three platforms and a container on the fourth - is two
+invocations to keep in step, and the one that drifts is the one nobody runs. The image is reached
+through the same registry variable every service in the development tier uses, so a network behind a
+registry mirror needs no change here; <code>xtask</code>'s own suite compares the two defaults, because the two
+spellings cannot be compared by reading.</p>
+<p><strong>Nothing lands in this repository.</strong> Both logins write into the developer's own gcloud
+configuration directory, which is bind-mounted into the container, so a native <code>gcloud</code>, <code>bq</code> or any
+client library on the host is authenticated afterwards - and there is no repo-local credential to
+leak or to clean up. <code>CLOUDSDK_CONFIG</code> is honoured where that directory has been moved, which is
+also how a developer on Windows points at it.</p>
+<p><strong>Which project, dataset or location a developer works against is not written down here and will not
+be.</strong> A developer names it in their own environment: <code>.envrc</code> already sources a file under the user's
+own configuration directory for exactly this class of value, and <a href="../enterprise-mirrors/">building without direct
+egress</a> is the generic form of the same split. This repository is public, so
+the value belongs on the machine and only the hook belongs here.</p>
+<p><strong>This is tooling availability and not the adapter.</strong> No Rust dependency, nothing in
+<code>sutura-config</code>, no <code>Dialect::BigQuery</code>. Everything below is still to do.</p>
+<h3 id="which-identity-this-login-serves-and-which-it-does-not">Which identity this login serves, and which it does not<a class="headerlink" href="#which-identity-this-login-serves-and-which-it-does-not" title="Permanent link">&para;</a></h3>
+<p>Stated because the answer is easy to get wrong in the direction that matters, and because a reader
+who gets it wrong concludes that BigQuery authentication is solved when the part that matters is not
+built. <a href="../implementation-plan/">Row 8</a> gave a source exactly two spellings, and this login serves one
+of them:</p>
+<ul>
+<li><strong><code>SharedServiceUser</code> - what this login is for, and it is genuinely for it.</strong> One identity reaches
+  the source on behalf of everybody who asks. On a developer's machine that identity is the developer,
+  established by <code>gcloud auth application-default login</code>; in a deployment it is a service account, and
+  the credential arrives as static configuration. <strong>Not throwaway scaffolding:</strong> single-user mode is a
+  first-class posture that <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/">0008</a> part 5a
+  calls a shape rather than a degradation, and it needs exactly this. So the row below can be built and
+  demonstrated with nothing more than what <code>just gcloud-login</code> provides.</li>
+<li><strong><code>ImpersonationAtSource</code> - what this login is NOT, and cannot become.</strong> A credential is minted per
+  leg for the subject who asked, so two subjects reading the same metric get different rows. Nothing on
+  this branch moves towards it. It needs the credential port, a workforce identity pool, and an
+  RFC 8693 exchange whose subject token this deployment does not hold when it starts - none of which an
+  application-default credential participates in.</li>
+</ul>
+<p><strong>They are not two points on a spectrum, and that is the whole reason this section exists.</strong> An
+application-default credential is <em>one identity for every caller</em>. The federated exchange is <em>one
+identity per asker</em>. Widening the first never reaches the second; the second replaces it. A deployment
+that authenticated with <code>gcloud</code> and then read every row as the developer has not partially
+impersonated anybody - it has answered every question as one identity, which is the posture
+<code>SharedServiceUser</code> exists to make a deployment declare out loud.</p>
+<p><strong>Where a service account sits in the federated chain is a deployment decision and not settled here.</strong>
+The federated principal can hold the dataset grants directly, or it can impersonate a service account
+that holds them - Google recommends the first and documents services where only the second works. Both
+are different from the credential this login writes, and the choice belongs with the pool's owner. The
+per-subject step below is where it gets recorded.</p>
+<h2 id="bigquery-on-a-service-account">BigQuery, on a service account<a class="headerlink" href="#bigquery-on-a-service-account" title="Permanent link">&para;</a></h2>
+<p><strong>Goal.</strong> The first cloud data source, and the one the deployment actually cares about. Queried
+directly, no federation, no impersonation - a warehouse declaring <code>SharedServiceUser</code>, exactly the
+posture <code>examples/single-player</code> ships, authenticated by a service-account key or by the ambient
+credential the host provides.</p>
+<p><strong>Why this is ahead of Postgres now, where it used to be absent.</strong> The stack table's ordering
+argument has always been cost - Postgres is nearly free, because the dialect is compiled and the
+statement and parameter goldens exist. That is still true and it is still not the deciding argument,
+because <strong>BigQuery is where per-subject execution has to work and Postgres is where it would be nice
+if it did.</strong> An ordering that puts the cheap step first delivers the cheap step first; this stack is
+paid for by the expensive one.</p>
+<p><strong>This step is NOT nearly free, and the difference from Postgres is one line of manifest with a
+measurable blast radius.</strong> There is no <code>Dialect::BigQuery</code>: the enum is <code>DuckDb</code>, <code>Postgres</code>,
+<code>ClickHouse</code>, and <code>dialect::ALL</code> is a <code>const</code> with an exhaustiveness test, so a fourth variant is a
+generator arm and a full dialect of goldens rather than a registration. <code>polyglot-sql</code> does carry a
+<code>dialect-bigquery</code> feature - checked in the pinned 0.9.2's own manifest, alongside 32 others - so
+nothing has to be written from scratch, and the cost is the corpus:</p>
+<ul>
+<li><strong>63 snapshots become 84</strong>, being 21 questions times four dialects. <strong>Landed, and the prediction
+  held exactly:</strong> 84 files under <code>crates/sutura-app/tests/snapshots/</code> now contain <code>LIMIT 10001</code>, and
+  52 snapshot files were added in total - 42 for the question corpus and 10 for the five leg fixtures,
+  which carry no row cap and so do not move the counted number. No EXISTING snapshot changed, which is
+  what makes the fourth dialect additive. <strong>The count later moved to 88:</strong> the <code>week</code>-grain question
+  below adds a twenty-second question, and its BigQuery statement carries the row cap too, so <code>88
+  files ... contain LIMIT 10001</code> is what <code>AGENTS.md</code> reads today - the same <code>check-guidance</code> gate holds
+  that number.</li>
+<li><strong><code>cargo xtask check-guidance</code> fails until AGENTS.md says the right number.</strong> Not incidentally - the check reads
+  the number written before the marker <code>SQL goldens read</code> and compares it to what it counts, which is
+  the mechanism that caught <code>39</code> after the corpus had grown. So the invariant row is part of the
+  change, and the gate puts it in the diff rather than trusting anyone to remember.</li>
+<li>
+<p><strong>The placeholder style is a third variant or it is a bug.</strong> <code>PlaceholderStyle</code> is <code>Question</code> and
+  <code>Numbered</code>, and BigQuery's job API takes either positional parameters or <code>@name</code> named ones. Decide
+  it against the client's actual request shape, not against the dialect layer's rendering, because the
+  two are separately capable of being right.</p>
+<p><strong>Decided: <code>Question</code>, and no third variant.</strong> Verified against the REST reference rather than
+inferred - the request body carries <code>parameterMode</code>, positional parameters are written <code>?</code> and
+supplied as an ORDERED array whose entries omit <code>name</code>, and a query may use one form or the other
+and not both. A <code>GeneratedQuery</code> already carries an ordered list of values and no names, because a
+parameter's identity in a plan IS its position, so positional matches end to end. Named would need
+a name invented per parameter, a third <code>PlaceholderStyle</code> and a map on <code>GeneratedQuery</code> - three new
+things with nothing in the domain to fill them. <code>transport::JobRequest::PARAMETER_MODE</code> is where
+the adapter states it.</p>
+</li>
+<li>
+<p><strong>The generated statement needs no dataset qualifying, and that was the other thing to check.</strong> The
+  job request carries a <code>defaultDataset</code>, so a bare backticked table name resolves there - confirmed
+  on both <code>jobs.query</code> and <code>JobConfigurationQuery</code>, along with a single backtick-quoted unqualified
+  table name being a documented table path. So the generator emits the same shape it emits for every
+  other dialect, and the dataset is a declared field on the source rather than something rendering has
+  to know about.</p>
+</li>
+</ul>
+<p><strong>The blocking decision is MADE, and it is <a href="../adr/0017-what-a-bigquery-test-runs-against/">0017</a>.</strong> A
+real project reachable from a developer's own machine, with the acceptance leg marked not-in-CI. An
+emulator is refused on principle rather than on cost - it is the option that produces the most
+confident-looking green - a secret in CI is refused because this repository is public and a
+fork's pull request cannot see one, and the Storage Read API is the wrong instrument because it never
+submits the statement. <strong>So the corpus for this dialect claims rendering and parse-checking and never
+acceptance</strong>, and DuckDB remains the only data system that vouches for acceptance in CI.</p>
+<p><strong>Writing it turned that hedge into a measured number, and the finding is worth reading before the
+next dialect.</strong> Within one target the parse check cannot see a function's ARGUMENT ORDER: both bucket
+spellings, rendered for BigQuery, parse as BigQuery. <code>sutura_sql::dialect::DateTruncShape</code> is therefore
+an exhaustive declaration rather than a check, and a test keeps the measurement so the claim cannot
+quietly stop being true. 0017 carries the severity split - the bucket getting it wrong is a rejection
+at the service, while the QUOTE CHARACTER is the wrong-number risk, because a double quote opens a
+string in GoogleSQL.</p>
+<p><strong>The grain is the other place the fourth dialect silently disagrees, and it is pinned rather than
+left to drift.</strong> BigQuery's <code>DATE_TRUNC(x, WEEK)</code> begins on <strong>Sunday</strong> - its own reference says <code>WEEK</code>
+is <code>WEEK(SUNDAY)</code> - while every other dialect's week is Monday-based. So the keyword arm maps <code>Week</code>
+to <code>ISOWEEK</code> (the Monday part), and 'a week bucket renders Monday' now has a question in the corpus, a
+BigQuery statement that is rendered and parse-checked, and <code>sutura_sql::grain_keyword</code> documenting the
+wrong number a naive <code>WEEK</code> would certify. The measured reason the shared lowercase string form stays
+correct is recorded on <code>sutura_sql::unit</code>.</p>
+<p><strong>Touches.</strong> A new adapter crate; <code>crates/sutura-sql</code> for the fourth dialect; <code>Cargo.toml</code> for the
+feature; <code>crates/sutura-config</code> for the source declaration; the <code>tests/adapters</code> registry; AGENTS.md
+for the golden count.</p>
+<p><strong>Adds.</strong> A <code>Warehouse</code> over BigQuery: render through <code>sutura-sql</code> in the new dialect, bind parameters
+as parameters, forced quoting intact, <code>LIMIT 10001</code> unchanged. Nothing about the plan or the generator
+moves. <strong>A billing project is declared, not inferred</strong> - a federated identity has no project of its
+own to bill, so the declaration has to exist before the impersonation step needs it, and putting it
+here means the impersonation step does not also introduce it.</p>
+<p><strong>Tests.</strong> The whole existing golden and refusal corpus, registered for this adapter. Whether the
+acceptance leg runs in CI is the decision above.</p>
+<p><strong>Done when</strong> the corpus renders and is green, the fourth dialect's 21 statement goldens have been
+reviewed as a diff rather than typed, and the fixture decision is recorded rather than implied by
+whatever the first test happened to do.</p>
+<p><strong>Where this stands.</strong> All three are done: the corpus is green over four dialects, the goldens were
+regenerated and reviewed as a diff, and the decision is
+<a href="../adr/0017-what-a-bigquery-test-runs-against/">0017</a>. The adapter, the source declaration and the
+registry entry landed with them.</p>
+<p><strong>What did NOT land with the adapter, deliberately: the wire.</strong> <code>sutura-exec-bigquery</code> implemented
+<code>Warehouse</code> and was tested against a fake transport; <code>transport::JobTransport</code> had no implementor that
+spoke to the endpoint. 0017 decided that the change adding one is the change that can first verify it
+against a real project - which is also where the dependency decision belongs, because an outbound HTTP
+stack and a credential source reach the musl release builds and the licence gate.</p>
+<p><strong>The wire landed next, and the dependency decision is
+<a href="../adr/0018-what-the-bigquery-wire-is-built-from/">0018</a>.</strong> <code>jobs.query</code> called directly over <code>ureq</code>,
+behind a default-off <code>wire</code> feature, plus a second narrow port - <code>wire::credential::AccessTokens</code> -
+whose one implementor reads the file <code>just gcloud-login</code> writes. What decided it was not API surface:
+every wrapper crate, the official preview one included, pulls <strong><code>anyhow</code></strong> transitively through
+<code>prost</code>, which is a claim this workspace makes in writing and enforces with a gate. Two of them pull
+an Arrow major that is not the engine's and one pulls <code>openssl</code>. The chosen client costs <strong>zero new
+packages in <code>Cargo.lock</code></strong> - measured, 446 before and 446 after - because <code>libduckdb-sys</code> already
+resolves exactly that version and feature set, and it therefore costs the licence allowlist nothing
+either.</p>
+<p><strong>And 0017's prediction about itself did not come true, which is the part to read before believing
+any of this.</strong> The change that wrote the wire could NOT run it: the machine had no <code>gcloud</code>, no
+application-default credential and no project. So a leg exists at
+<code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, three <code>#[ignore]</code>d tests behind
+<code>just bigquery-acceptance</code>, and <strong>it is unexecuted</strong>. <strong>It is also narrower than what 0017 specifies</strong>
+- one hand-built <code>SUM</code> over a two-column table, exercising none of the constructs the parse check was
+measured to be blind about, so a green run of it would close a smaller gap than the records first
+claimed; the wider leg is #78's importer shape pointed at a dataset. No composition root links the
+crate,
+<code>sutura-serve</code> still refuses <code>kind: bigquery</code> by name, and the <code>data_systems:</code> axis still gains no
+entry. The honest summary is 0017's sentence with one word moved: <strong>the statement is right as far as
+five mechanisms can tell, and ONE has now been run.</strong> On 2026-08-30 the leg passed against a real
+dataset under a service-account key - a statement generated here accepted by <code>BigQuery</code>, answered as one
+complete page, with the fixture's own numbers - and <code>docs/adr/0017</code>'s amendment puts the repeat of it in
+CI, in its own job, against a GitHub environment whose secrets a fork's pull request cannot see.</p>
+<p><strong>What the per-subject step below inherits is therefore narrower and more useful than before.</strong> The
+credential path works and reads both kinds; what is still absent is the corpus-wide comparison against
+the engine (#78's importer shape), and per-subject identity is untouched - a service-account key is
+<code>SharedServiceUser</code>, one identity for everybody who asks.</p>
+<h2 id="bigquery-per-subject">BigQuery, per subject<a class="headerlink" href="#bigquery-per-subject" title="Permanent link">&para;</a></h2>
+<p><strong>Goal.</strong> The first real impersonation, and the one that matters most. A query executes as the
+subject who asked it, and two subjects get different rows.</p>
+<p><strong>Builds on the adapter above rather than introducing one.</strong> Driver, dialect, source declaration and
+corpus registration are merged and green on a service account, so this step changes one thing: how the
+connection is authenticated. Same shape as the Postgres pair below, and for the same reason - if the
+identity route fails, it blocks one step rather than the whole cloud story.</p>
+<p><strong>Blocked on one verification, to do FIRST, and it is the riskiest item in this plan:</strong> <em>can the
+enterprise identity provider mint an </em><em>ID token</em><em> whose audience is a third party's provider?</em> The
+chain needs it, and nothing else in the chain is in doubt:</p>
+<ol>
+<li>The agent presents a token whose audience is <strong>sutura</strong>. Correct per RFC 8707 - a token presented
+   to us must be for us.</li>
+<li>sutura validates it; the subject is established. This is <a href="../adr/0014-how-a-caller-proves-who-it-is/">0014</a>.</li>
+<li><strong>Exchange one, at the enterprise provider</strong> (RFC 8693): swap it for a token whose audience names
+   the workforce pool provider.</li>
+<li><strong>Exchange two, at the cloud provider's security token service</strong>: that becomes an access token for
+   the federated principal, and IAM on the dataset decides what it may read.</li>
+</ol>
+<p>Steps 1, 2 and 4 are documented mechanisms with documented request shapes. <strong>Step 3 is the one that
+can simply not be available.</strong> The pool provider takes a subject token typed as an ID token; RFC 8693
+lets a client <em>ask</em> for <code>requested_token_type: id_token</code>, and an enterprise provider commonly answers
+a token-exchange for a registered downstream resource with an <strong>access</strong> token instead - which is
+precisely what the pool provider will not accept. So the verification is not "does token exchange
+work", it is "does token exchange return an ID token for an audience we do not control".</p>
+<p><strong>And a cheaper path to price at the same time, because it may remove step 3 entirely - through a
+much narrower door than the obvious one.</strong> An earlier version of this paragraph said the pool
+provider's <em>allowed-audiences list</em> is configurable, and <strong>that was wrong</strong>: <code>allowedAudiences</code> is a
+field on a <strong>workload</strong> identity pool provider. A <strong>workforce</strong> provider's OIDC object has five
+fields - issuer, client id, client secret, JWKS and single-sign-on configuration - and no audience
+list at all. Its client id <strong>is</strong> the only audience it accepts.</p>
+<p>So the shortcut survives, and it is: <strong>set the workforce provider's client id to the audience
+sutura's own token already carries.</strong> One exchange, no provider round trip, no ID-token question at
+step 3. Three consequences the wrong version did not state, and the third can foreclose it outright:</p>
+<ol>
+<li><strong>It is one value, not a list.</strong> The provider then accepts sutura's audience and nothing else -
+   which is tighter than an allowlist in one direction and completely inflexible in the other.</li>
+<li><strong>The single-sign-on configuration is required on a workforce OIDC provider, so that same client id
+   is also the client the console and the CLI use for browser sign-in.</strong> Sutura's front-door client
+   registration and the workforce sign-in client become <strong>one registration at the identity provider.</strong>
+   That is the real coupling being bought, and it is worse than the earlier framing in a specific way:
+   an allowlist entry can be revoked, and there is no allowlist entry here to revoke.</li>
+<li><strong>The front-door token has to be an ID token, JWT-formatted.</strong> The exchange takes
+   <code>subject_token_type: id_token</code> for a workforce provider. If sutura's front door accepts an opaque
+   access token - which is the ordinary shape for a token presented to a protected resource - the
+   shortcut is foreclosed before the audience question arises. <strong>This is a token-type boundary, not
+   only an audience one</strong>, and describing it as "less isolation" understated it.</li>
+</ol>
+<p><strong>The cost that was stated correctly stays correct:</strong> a leaked sutura token is replayable at the
+exchange endpoint as that subject. So the honest framing is <em>more plumbing versus less isolation plus
+a merged client registration</em> - and it is a decision for whoever owns the pool and the identity
+provider registration, not one this step may quietly take because it is easier.</p>
+<p><strong>One thing this does NOT rest on, so nobody re-derives it as an escape:</strong> "one token cannot satisfy
+two audiences" is not a syntax limitation. An ID token's <code>aud</code> may be an array and may carry several
+audience identifiers. That does not rescue a shared credential - it is still the wrong credential
+<em>type</em> for one of the two uses, and sharing a bearer across intended recipients is the exposure
+audience restriction exists to prevent.</p>
+<p><strong>A third route exists, it is newly the most practical one, and it changes what the blocking
+verification is for.</strong> The two options above are both <strong>workforce</strong> pools. A <strong>workload</strong> identity
+pool is the one that has a configurable <code>allowedAudiences</code> list - up to ten values of 256 characters -
+and researching whether a human subject may use one produced a clearer answer than expected:</p>
+<ul>
+<li><strong>Nothing prohibits it.</strong> There is no documented statement that a workload pool subject must be a
+  machine, and the documentation's own language assumes a person: <code>google.subject</code> is described as
+  <em>"a unique identifier for the user"</em>, attribute conditions are described as restricting <em>"which
+  users"</em> may federate, and the spoofing guidance reasons about a user changing <em>their own email
+  address</em>. That is not permission granted, but it is not silence either.</li>
+<li><strong>A JWT-format ACCESS token is explicitly acceptable</strong>, which is what dissolves the token-type
+  boundary. Workload pools take <code>subject_token_type: jwt</code> as well as <code>id_token</code>, and the guidance says
+  in as many words that ID tokens are <em>typically best</em> but that an access token works provided it is
+  JWT-formatted and its issuer serves a discovery document. Opaque tokens are not supported, and that
+  is the real precondition: <strong>our front door must issue JWT access tokens, not opaque ones.</strong> Many
+  providers do; ours is a question to answer rather than assume.</li>
+<li><strong>BigQuery is GA for this and carries no workload-pool limitation.</strong> Its row reads <em>"no known
+  limitations"</em> in the Google-Cloud-API column, and every BigQuery exception listed is scoped to
+  <strong>workforce</strong> by name. That is a meaningful signal rather than an absence, because the same page does
+  record a workload-specific gap where one exists - Cloud Run's - so the column is not merely unfilled.</li>
+</ul>
+<p><strong>So the chain collapses to one exchange, with the front-door token used directly.</strong> Which is what
+makes this the most practical route: it removes the ID-token question at step 3 entirely, and it
+avoids the merged client registration that the workforce shortcut buys.</p>
+<p><strong>What it costs, stated as plainly as the benefit.</strong> The provider-URL audience default is not an
+arbitrary convention - it is documented as a <strong>confused-deputy defence</strong>, in those terms: requiring the
+provider's own URL as the audience <em>"helps reduce the risk of a confused deputy attack, in which a bad
+actor presents a token that wasn't intended to be used for Workload Identity Federation, but for some
+other API."</em> Widening the list to our own audience is the one configuration that deliberately removes
+that control, and the framing to keep is that <strong>this is turning off a named security default, not
+exercising a neutral option.</strong> The compensating control the guidance itself points to is an
+<code>attributeCondition</code> pinning the token to a trusted issuer and tenant, and a route taken this way
+without that condition has spent the control and bought nothing back.</p>
+<p><strong>Two mechanical caveats, both real and both cheap:</strong></p>
+<ul>
+<li><strong>The billing and quota project has no workload-pool fallback.</strong> The documented precedence names a
+  service account's project and a <em>workforce</em> pool's user project, and then says a request with none
+  <strong>fails</strong>; workload federation is absent from that list. So the project is set explicitly - a
+  request header, a client option or an environment variable - and the caller needs the
+  service-usage-consumer role on it. This is why the adapter step above declares a billing project
+  rather than inferring one.</li>
+<li><strong>The subject attribute maps an immutable claim.</strong> <code>sub</code>, not <code>email</code>: the spoofing guidance is
+  explicit that a provider may let a user change their own email address or aliases, and a principal
+  bound to a mutable claim is a principal somebody can become.</li>
+</ul>
+<p><strong>Which route the plan takes is not decided here, and deliberately.</strong> Two of the three spend a
+security control and one is blocked on a capability we have not confirmed, so this is an architecture
+decision with an owner outside this repository. What the plan owes is that the three are priced the
+same way - mechanism, precondition, and the control spent - so the decision is made on the trade
+rather than on which one somebody found first.</p>
+<p><strong>Touches.</strong> The adapter crate; <code>crates/sutura-config</code>; the credential port from step 12.</p>
+<p><strong>Adds.</strong> The warehouse declares <code>ImpersonationAtSource</code>. A credential is minted per leg, for the
+calling subject, per <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/">0008</a>. <strong>Not</strong> a
+service account that the request's identity is passed to as an argument: that is the shared-service-user
+posture with extra steps, and the source would authorize the service account.</p>
+<p><strong>Tests.</strong> Compose tier cannot help here - there is no local cloud - so these run wherever the fixture
+decision put the acceptance leg.</p>
+<ul>
+<li><strong>Two identities, a row access policy at the source, different rows</strong>, asserted against what each
+  identity is entitled to rather than merely against each other. "Different" alone passes against a
+  fixture that differs for the wrong reason.</li>
+<li><strong>The session reports the borrowed subject.</strong> The job's own principal is readable, so the test
+  asserts the query ran as the asker.</li>
+<li><strong>A credential is not reused past its expiry.</strong> A minted access token is short-lived by design and
+  the job outlives it, so a question after expiry mints again - the assertion that keeps a per-subject
+  credential cache from becoming the long-lived session 0008 rejects.</li>
+<li><strong>The exchange failing is a refusal, not an error.</strong> A subject the pool declines to federate is a
+  question this deployment cannot answer, which is <code>ToolOutcome::Refusal</code> in the <code>Ok</code>, per
+  <a href="../adr/0005-a-refusal-carries-a-status/">0005</a>. A caller must not be able to mistake it for a hiccup
+  and retry.</li>
+</ul>
+<p><strong>Done when</strong> two subjects get different rows through the same question, the ID-token verification has
+an answer recorded either way, and - if the answer was the allowed-audiences shortcut - the audience
+cost is written into 0008 rather than left in a commit message.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
