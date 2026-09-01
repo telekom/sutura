@@ -374,11 +374,16 @@ impl JobRows {
 
 /// A `BigQuery` endpoint, as narrow as this adapter's needs.
 ///
-/// Two methods, because the port above it has two questions with different costs: running a job reads
-/// data and is billed, and validating one does neither. The endpoint really does distinguish them -
-/// its request body carries a dry-run flag, and a dry run uses no slots and is not charged - which is
-/// what makes `Warehouse::dry_run` able to answer `PreFlight::Accepted` honestly here rather than
-/// inheriting the port's `NotAsked` default.
+/// Two methods PUT A QUESTION TO THE ENDPOINT, because the port above it has two questions with
+/// different costs: running a job reads data and is billed, and validating one does neither. The
+/// endpoint really does distinguish them - its request body carries a dry-run flag, and a dry run
+/// uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
+/// `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
+///
+/// **Two more members are not that, and the count is spelled out because it has been wrong twice.**
+/// `result_did_not_fit` asks the implementor about a failure it already has and sends nothing; and
+/// `apply`, behind the `fixtures` feature, is the third statement-issuing method - present only in a
+/// build that loads fixtures, so no deployment can reach it.
 pub trait JobTransport {
     /// Why the endpoint could not answer. The adapter wraps it and never lets it reach a caller of
     /// the domain port raw.
@@ -393,13 +398,36 @@ pub trait JobTransport {
     /// dry run's byte estimate is not something any decision above here reads.
     fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
 
+    /// Was this failure the endpoint declining to return the whole result at once?
+    ///
+    /// **The `Warehouse::result_did_not_fit` question, one port further down, and it has to be asked
+    /// here for the same reason it is asked there.** `Self::Error` is the implementor's own type, so
+    /// `BigQueryWarehouse` - which holds the failure as `BigQueryError::Endpoint` - cannot read it.
+    /// The domain port names what it needs of an adapter; this names what the adapter needs of its
+    /// transport.
+    ///
+    /// `true` becomes `RefusalReason::ResultTooLarge` carrying `ResultBound::Volume` above the domain
+    /// port, so the answer a caller gets is *too much data, ask a narrower question* and not the
+    /// `503` a dead endpoint produces. `jobs.query` returns one page - as many rows as fit the maximum
+    /// permitted reply size - so a result INSIDE the row cap can still be over that, and a retry
+    /// returns the same page.
+    ///
+    /// **A predicate rather than a conversion, and a `bool` rather than a byte count**, both for the
+    /// reasons the domain port states: the refusal vocabulary is the domain's, and the reply-size cap
+    /// is the service's own number, reported in neither the answer nor the refusal - so there is
+    /// nothing honest to put in a numeric field.
+    ///
+    /// Defaulted to `false`, which is the answer a fake gives unless a test is about this bound.
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
     /// Runs a statement that produces no result set.
     ///
-    /// **A third method rather than a use of [`Self::run`], and it is behind the `fixtures` feature
-    /// so the SHIPPED port stays at the two questions above.** The header of this module says the
-    /// port has two methods because the port above it has two questions with different costs; this is
-    /// a third question that only the corpus acceptance leg asks - *put these rows in this table* -
-    /// and nothing a deployment links can ask it.
+    /// **A method of its own rather than a use of [`Self::run`], and it is behind the `fixtures`
+    /// feature so a build that serves questions cannot issue one.** This trait's header says why it
+    /// puts two questions to the endpoint, each with its own cost; this is a third - *put these rows
+    /// in this table* - that only the corpus acceptance leg asks, and nothing a deployment links can.
     ///
     /// **Why it cannot be [`Self::run`].** `run`'s contract is a COMPLETE result set: the wire refuses
     /// an answer whose `totalRows` is absent or does not equal the delivered count, which is the

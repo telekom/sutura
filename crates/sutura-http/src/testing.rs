@@ -303,6 +303,118 @@ impl Warehouse for FailingWarehouse {
     }
 }
 
+/// What a data system says when it will not hand back a result this large.
+#[derive(Debug, thiserror::Error)]
+#[error("the data system would not return the whole result at once")]
+pub(crate) struct WouldNotReturnAtOnce;
+
+/// A data system that will not return the whole result at once.
+///
+/// **The instrument for the second half of `result_too_large`, reached past a `dry_run` that
+/// accepts.** Its `execute` returns `Err` and [`Warehouse::result_did_not_fit`] answers `true`, so
+/// the size bound leaves as a `413 result_too_large` rather than the `503` an outage produces. It is
+/// deliberately NOT compared to [`FailingWarehouse`] here - that fake fails its `dry_run` first and
+/// never reaches `execute`, so the two do not share a path. Its actual control is
+/// [`WarehouseThatFailsToExecute`]: the same reach, the same `execute` that returns `Err`, and the
+/// DEFAULT `false` predicate. The two are separate types rather than one fake with a flag, because a
+/// flag would let one code path pretend to be both a bound and an outage.
+///
+/// `dry_run` is NOT overridden: it takes the port's `NotAsked` default, so a size bound is a property
+/// of the reply and a check that reads no data cannot have hit one. That is also what makes this
+/// reach the `execute` branch rather than being refused a step earlier.
+pub(crate) struct WarehouseThatWillNotPage {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl WarehouseThatWillNotPage {
+    pub(crate) fn new(source: SourceName) -> sutura_app::Warehouses<Self> {
+        sutura_app::Warehouses::of(Self {
+            source,
+            posture: shared_posture(),
+        })
+    }
+}
+
+impl Warehouse for WarehouseThatWillNotPage {
+    type Error = WouldNotReturnAtOnce;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(WouldNotReturnAtOnce)
+    }
+
+    /// Does NOT serve the anchor path: a failed `verify_anchor` stops a bundle that carries an anchor
+    /// from booting, so the caller must use an unanchored bundle (`unanchored_bundle()`) - which is
+    /// what `harness::an_answer_the_data_system_would_not_return_at_once...` does. The comment used
+    /// to claim rows, which was false and exactly the kind of claim that misleads a later reuse.
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(WouldNotReturnAtOnce)
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        true
+    }
+}
+
+/// A data system that is up but whose `execute` fails, and whose failure is NOT a size bound.
+///
+/// **The control for [`WarehouseThatWillNotPage`], and they are exactly one predicate apart:** both
+/// accept a `dry_run` (via the port's `NotAsked` default), both return `Err` from `execute`, and one
+/// answers [`Warehouse::result_did_not_fit`] `true` - leaving as a `413` size bound - while this one
+/// takes the default `false` and leaves as the `503` an outage produces. `harness`'s
+/// `an_execute_failure_that_is_not_a_size_bound...` asserts that an `execute` failure whose predicate
+/// is false really does reach a caller as `503` and not as `413`, which is the cover
+/// `WarehouseThatWillNotPage` alone could not provide.
+pub(crate) struct WarehouseThatFailsToExecute {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl WarehouseThatFailsToExecute {
+    pub(crate) fn new(source: SourceName) -> sutura_app::Warehouses<Self> {
+        sutura_app::Warehouses::of(Self {
+            source,
+            posture: shared_posture(),
+        })
+    }
+}
+
+impl Warehouse for WarehouseThatFailsToExecute {
+    type Error = StatementRejected;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(StatementRejected {
+            cause: ConnectionRefused,
+        })
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(StatementRejected {
+            cause: ConnectionRefused,
+        })
+    }
+}
+
 /// A data system that answers every statement with one prepared result.
 ///
 /// One result for every plan, which is exactly enough: nothing in the transport layer depends on

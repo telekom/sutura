@@ -492,6 +492,13 @@ impl Warehouse for DuckDbWarehouse {
         let query = generate(plan.plan(), Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })?;
         self.run(&query).map(AnchorRows::of)
     }
+
+    // `result_did_not_fit` is deliberately NOT overridden, and the reason is a property of this
+    // adapter rather than a gap. There is no reply to be too large for: the driver is a library in
+    // this process, `run` reads the whole result set through one arrow stream, and there is no page,
+    // no page token and no reply-size cap anywhere on that path. So `false` is the honest answer, and
+    // taking the default is how this adapter says it has no such bound - the same way it takes the
+    // default for `working_set_exhausted`.
 }
 
 /// The value mapping, as a table.

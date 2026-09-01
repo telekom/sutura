@@ -11,7 +11,7 @@ use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, Reque
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{Executable, FederatedFailure, FederatedPlan, LegPlan};
-use sutura_domain::query::{RefusalReason, ToolOutcome};
+use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 
 use crate::{Answered, Answering, ServiceError, Warehouses, exceeds_row_cap, now_in_unix_seconds};
@@ -24,9 +24,25 @@ pub(crate) fn source_unavailable(source: &SourceName) -> ToolOutcome {
     }
 }
 
-/// A non-`Answered` payload carried over `answer`'s error type, so a helper can return a `RowSet`
-/// without repeating the two-generic `ServiceError` inline (which trips `type_complexity`).
-pub(crate) type FederatedLeg<W, B> = Result<RowSet, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+/// The two shapes a leg's execution can fail as: a governance refusal (the same predicates the mono
+/// path asks of its own `execute`) or a real failure that leaves as an error.
+pub(crate) enum LegError<E, Q> {
+    /// The predicates said this is a bound, so the caller learns a refusal rather than a retryable
+    /// `503`.
+    Refusal(RefusalReason),
+    /// Anything else - a dead data system, a mis-wired source - leaves as the typed error.
+    Failure(ServiceError<E, Q>),
+}
+
+impl<E, Q> From<ServiceError<E, Q>> for LegError<E, Q> {
+    fn from(error: ServiceError<E, Q>) -> Self {
+        Self::Failure(error)
+    }
+}
+
+/// The leg execution's return type, named so `execute_leg`'s signature is not a `type_complexity`
+/// finding.
+pub(crate) type LegResult<W, B> = Result<RowSet, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
 
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
@@ -123,8 +139,20 @@ where
         Agreed::Granted { credentials } => credentials,
     };
 
-    let fact = execute_leg::<_, B>(fact_warehouse, &credentials, plan.fact())?;
-    let lookup = execute_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup())?;
+    let fact = match execute_leg::<_, B>(fact_warehouse, &credentials, plan.fact()) {
+        Ok(rows) => rows,
+        Err(LegError::Refusal(reason)) => {
+            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+        }
+        Err(LegError::Failure(error)) => return Err(error),
+    };
+    let lookup = match execute_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup()) {
+        Ok(rows) => rows,
+        Err(LegError::Refusal(reason)) => {
+            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+        }
+        Err(LegError::Failure(error)) => return Err(error),
+    };
 
     // The row cap applies to the ANSWER, not to a leg - a leg carries none. The combiner checks the
     // working-set ceiling as it groups; exhaustion here is a governance refusal, anything else the
@@ -146,7 +174,9 @@ where
             &credentials,
             ToolOutcome::Refusal {
                 reason: RefusalReason::ResultTooLarge {
-                    limit: sutura_domain::plan::MAX_ROWS,
+                    bound: sutura_domain::query::ResultBound::Rows {
+                        limit: sutura_domain::plan::MAX_ROWS,
+                    },
                 },
             },
         ));
@@ -166,7 +196,7 @@ where
 /// agrees with the posture the adapter was opened with, the plan is pre-flighted where that is
 /// cheaper than running it, and the credential is still usable this instant. A deadline that ages
 /// out during the OTHER leg's work is caught by this leg's own `still_usable_at`.
-pub(crate) fn execute_leg<W, B>(warehouse: &W, credentials: &BoundToTheRequest, leg: &LegPlan) -> FederatedLeg<W, B>
+pub(crate) fn execute_leg<W, B>(warehouse: &W, credentials: &BoundToTheRequest, leg: &LegPlan) -> LegResult<W, B>
 where
     W: Warehouse,
     B: CredentialBroker,
@@ -183,9 +213,27 @@ where
     credentials
         .still_usable_at(now_in_unix_seconds())
         .map_err(|cause| ServiceError::Credentials { cause })?;
-    warehouse
-        .execute(Executable::Leg(leg), presented)
-        .map_err(|cause| ServiceError::Warehouse { cause })
+    match warehouse.execute(Executable::Leg(leg), presented) {
+        Ok(rows) => Ok(rows),
+        Err(cause) => {
+            // The two governance predicates the mono path asks of its own `execute`, asked here for
+            // the same reasons (see `sutura_app::answer`), and in the same order: exhaustion is
+            // refused first, then a result the data system would not return at once, otherwise the
+            // failure leaves as the `503` an outage produces. Without this, a leg-executing adapter
+            // that hit either bound reached a caller as `503` - a status inviting the very retry that
+            // would return the same reply. `dry_run` above is deliberately not given the treatment,
+            // mirroring the mono path: a check reads no data, so neither bound can have fired there.
+            if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
+                return Err(LegError::Refusal(RefusalReason::ResourcesExhausted { ceiling_bytes }));
+            }
+            if warehouse.result_did_not_fit(&cause) {
+                return Err(LegError::Refusal(RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Volume,
+                }));
+            }
+            Err(LegError::Failure(ServiceError::Warehouse { cause }))
+        }
+    }
 }
 
 /// The federated answer orchestration: the two-source answer path exercised above fake leg-executing
@@ -211,7 +259,7 @@ mod tests {
     use crate::tests::{asked_by_a_person, bundle, june, metric, shared};
     use crate::tests_support::FixedBroker;
     use sutura_domain::model::{Grain, SourceName};
-    use sutura_domain::query::{RefusalReason, ToolOutcome};
+    use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
     use sutura_domain::warehouse::{RowSet, Value};
 
     // ---------------------------------------------------------------------------
@@ -363,6 +411,49 @@ mod tests {
             broker.asked(),
             1,
             "a federated answer mints once over both sources, not once per leg"
+        );
+    }
+
+    #[test]
+    fn a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503() {
+        // The federated half of the volume bound, and the reason `execute_leg` asks the predicates at
+        // all. A leg against a data system that will not return the whole result at once used to leave
+        // as `ServiceError::Warehouse` - the `503` a dead data system produces - so a caller was told
+        // to retry a reply that returns the same page. Both legs here answer `Err` with
+        // `result_did_not_fit` true, and the fact leg runs first, so it must be refused as
+        // `ResultTooLarge` carrying `Volume`.
+        let shared = shared();
+        let warehouses = Warehouses::of(crate::tests_support::PageBoundLegsWarehouse::new(
+            SourceName::parse("facts").expect("a test source"),
+            shared.clone(),
+        ))
+        .and(crate::tests_support::PageBoundLegsWarehouse::new(
+            SourceName::parse("geo").expect("a test source"),
+            shared,
+        ))
+        .expect("two sources, one registry");
+
+        let plan = federated_plan();
+        let outcome = answer_federated(
+            &bundle(),
+            &plan,
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+        )
+        .expect("a bound is a refusal, not an error")
+        .into_outcome();
+        assert!(
+            matches!(
+                outcome,
+                ToolOutcome::Refusal {
+                    reason: RefusalReason::ResultTooLarge {
+                        bound: ResultBound::Volume
+                    }
+                }
+            ),
+            "a leg the data system will not return at once must be refused as the volume bound, not {outcome:?}"
         );
     }
 

@@ -39,6 +39,9 @@ pub(crate) enum AdapterFailure {
     /// without a data system.
     #[error("source `{at}` was handed {presented}, and this adapter has nowhere to put it")]
     NoPlaceForASubject { at: String, presented: &'static str },
+    /// The data system would not return the whole result at once.
+    #[error("the data system would not return the whole result at once")]
+    TooMuchData,
 }
 
 /// A data system with a declared source and posture, which either answers one fixed result or
@@ -192,6 +195,57 @@ impl Warehouse for LegsWarehouse {
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+/// A leg-executing fake whose `execute` fails because the data system would not return the whole
+/// result at once.
+///
+/// The instrument for the federated half of the volume bound: the same reach
+/// [`LegsWarehouse`] gives (it declares [`Warehouse::EXECUTES_LEGS`], so the federated path runs it),
+/// but its `execute` returns `Err` and its [`Warehouse::result_did_not_fit`] answers `true`, so
+/// `execute_leg` must turn it into a [`RefusalReason::ResultTooLarge`] carrying
+/// [`ResultBound::Volume`] and never into the `503` a dead data system produces. `federated.rs`'s
+/// `a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503` pins that.
+pub(crate) struct PageBoundLegsWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl PageBoundLegsWarehouse {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl Warehouse for PageBoundLegsWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(AdapterFailure::TooMuchData)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::TooMuchData)
+    }
+
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::TooMuchData)
     }
 }
 
