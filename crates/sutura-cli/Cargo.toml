@@ -32,6 +32,18 @@ sutura-sql = { workspace = true }
 # anybody wants. It is pure Rust, so it cross-compiles to musl - which is what forced the DuckDB
 # adapter to be default-off, and is exactly the constraint this does not have.
 sutura-exec-datafusion = { workspace = true }
+# The agent-facing surface, and the reason it is HERE rather than on `sutura-serve`: this binary is
+# the single-player composition. An agent client launches the process and speaks MCP on its pipes,
+# matching `examples/single-player` - which is exactly the shape roadmap wanted. The dependency is
+# pure Rust (`rmcp`, `schemars`), so it cross-compiles to musl like the engine it drives.
+sutura-mcp = { workspace = true }
+# `TracingAuditSink`, the implementor of the `AuditSink` the service requires, plus the async
+# runtime that drives `serve_stdio`. The sink writes to `tracing`; a locally launched process has no
+# subscriber, so records go nowhere until a composition installs one - the same posture the `query`
+# command takes when it writes none.
+sutura-runtime = { workspace = true }
+# The runtime `serve_stdio` runs in. `rt-multi-thread` because `Runtime::new()` is what there is.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 # A question arrives as a file a person wrote, so it is read the same way a catalog document is.
 serde_norway = { workspace = true }
 # The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`:
@@ -47,6 +59,12 @@ mimalloc = { workspace = true }
 # asserts what somebody wished the generator did. Every test in it runs in the default build: the
 # engine ships, so there is no longer a build in which the example cannot be executed.
 insta = { workspace = true }
+# The far side of the `mcp` handshake test: a real MCP client from the same SDK, over an in-memory
+# pipe. Nothing this crate wrote sits between the assertion and the protocol.
+rmcp = { workspace = true, features = ["client"] }
+# The request JSON in that test, and the tool result's structured content.
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

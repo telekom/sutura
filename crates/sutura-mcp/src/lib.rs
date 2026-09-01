@@ -50,9 +50,10 @@
 //! `serde_derive_internals` - counted by diffing the package names against the base branch rather
 //! than read off a dependency tree. Everything else it wants was already in the lock: `tokio-util`,
 //! `uuid`, `chrono` and `futures` arrive here through this crate for the first time, but they are
-//! nobody's new supply-chain surface. No shipped artifact grows, because **no binary links this
-//! crate yet**. `macros` is off, so no attribute of theirs writes code into this crate, and the
-//! handler is three methods written by hand.
+//! nobody's new supply-chain surface. The only shipped artifact that grows is `sutura` itself,
+//! which links this crate behind its `mcp` subcommand - and the dependency is pure Rust, so nothing
+//! about the two musl triples changes. `macros` is off, so no attribute of theirs writes code into
+//! this crate, and the handler is three methods written by hand.
 //!
 //! # What is deliberately absent
 //!
@@ -73,9 +74,10 @@
 //! * **Resources and prompts.** A gateway of the shape this product runs behind surfaces tools and
 //!   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
 //!   where they are - in `sutura_app::prompt`, advisory, for a cooperative client.
-//! * **A composition root.** Nothing links this crate yet: [`serve_stdio`] is the entry point a
-//!   binary would call, and which binary gets it - and how a deployment configures it - is a
-//!   composition decision this slice does not take.
+//! * **A composition root.** Nothing below `serve_stdio` cares about transport, and the binary that
+//!   calls it is `sutura`'s `mcp` subcommand - the single-player answer to *which binary gets it*,
+//!   composed in `sutura-cli` the way `query` is. This crate deliberately does not decide that; it
+//!   is the transport a composition root calls.
 
 mod principal;
 mod refusal;
@@ -96,14 +98,21 @@ use sutura_app::surface::Surface;
 /// authentication here - the process boundary is the boundary, and a deployment that needs a
 /// network-reachable agent surface needs the identity leg `docs/adr/0014` designs first.
 ///
-/// Consumes the service, wraps it in an `Arc`, and returns when the peer closes or is cancelled.
+/// Takes [`Arc<S>`] rather than an owned `S`, and not for convenience. The surface's engine holds a
+/// nested `tokio` runtime, which rmcp keeps alive inside a task of the CALLER's runtime; if that task
+/// held the only strong reference, the engine would be released on a worker thread when the caller's
+/// runtime shuts down - and dropping a runtime on a worker is not allowed there, so the process aborts
+/// with no message. Taking the `Arc` lets the composition root keep a handle of its own, outside the
+/// runtime, and release the engine on a non-async thread after the runtime is gone.
+///
+/// Returns when the peer closes or is cancelled.
 ///
 /// # Errors
 ///
 /// [`NotServed::Handshake`] if the client never completes `initialize`, and
 /// [`NotServed::Interrupted`] if the task driving the session did not finish - a panic, or a runtime
 /// shutting down underneath it.
-pub async fn serve_stdio<S>(service: S, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
 where
     S: Surface,
 {
@@ -112,12 +121,9 @@ where
     // an unverified claim looks like a control and is not one. `AgentSurface::new` requires the value
     // so that this line is where the decision is visible, rather than a default nobody reads.
     let permitted = sutura_app::Permitted::every_capability();
-    let running = rmcp::serve_server(
-        AgentSurface::new(std::sync::Arc::new(service), permitted, prose),
-        rmcp::transport::stdio(),
-    )
-    .await
-    .map_err(|cause| NotServed::Handshake { cause: Box::new(cause) })?;
+    let running = rmcp::serve_server(AgentSurface::new(service, permitted, prose), rmcp::transport::stdio())
+        .await
+        .map_err(|cause| NotServed::Handshake { cause: Box::new(cause) })?;
     running
         .waiting()
         .await

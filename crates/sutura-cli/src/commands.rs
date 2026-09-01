@@ -66,14 +66,22 @@ fn render_filters(filters: &[RequiredFilter]) -> String {
 /// [`ENGINE_SOURCE`] is for the data side.
 const CATALOG_SOURCE: &str = "local";
 
-/// Reads a catalog directory into a pinned bundle.
-fn load(root: &Path) -> Result<PinnedDefinitions, String> {
+/// The catalog a command reads, built from its directory on the command line.
+///
+/// Split out of [`load`] so a command that must serve a `LocalService` - the `mcp` one - has the
+/// catalog itself to hand to the service's constructor, which loads and validates it, rather than
+/// rebuilding it. Named `catalog_reader` because `catalog` is already this module's listing
+/// subcommand. Everything else keeps using `load`.
+pub(crate) fn catalog_reader(root: &Path) -> Result<LocalCatalog, String> {
     let version =
         DefinitionVersion::parse(DEFAULT_VERSION).map_err(|e| format!("the built-in default version is not a version: {e}"))?;
     let name = SourceName::parse(CATALOG_SOURCE).map_err(|e| format!("the built-in catalog name is not a name: {e}"))?;
-    LocalCatalog::new(name, PathBuf::from(root), version)
-        .load()
-        .map_err(|e| render(&e))
+    Ok(LocalCatalog::new(name, PathBuf::from(root), version))
+}
+
+/// Reads a catalog directory into a pinned bundle.
+fn load(root: &Path) -> Result<PinnedDefinitions, String> {
+    catalog_reader(root)?.load().map_err(|e| render(&e))
 }
 
 /// A typed error and every cause beneath it, on one line each.
@@ -81,7 +89,7 @@ fn load(root: &Path) -> Result<PinnedDefinitions, String> {
 /// Written out rather than relying on `Display`, which shows only the outermost message. The causes
 /// are where the useful part is: "could not read the frontmatter of x.md as a metric" is a location,
 /// and its source is the reason.
-fn render(error: &dyn core::error::Error) -> String {
+pub(crate) fn render(error: &dyn core::error::Error) -> String {
     let mut out = error.to_string();
     let mut cursor = error.source();
     while let Some(cause) = cursor {
@@ -99,7 +107,7 @@ fn read_question(path: &Path) -> Result<Query, String> {
 }
 
 /// Turns a `Result` into an exit code, printing the message on failure.
-fn report(outcome: Result<(), String>) -> ExitCode {
+pub(crate) fn report(outcome: Result<(), String>) -> ExitCode {
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
@@ -110,7 +118,7 @@ fn report(outcome: Result<(), String>) -> ExitCode {
 }
 
 /// The next argument, or a usage message.
-fn arg(args: &[String], index: usize, name: &str, usage: &str) -> Result<String, String> {
+pub(crate) fn arg(args: &[String], index: usize, name: &str, usage: &str) -> Result<String, String> {
     args.get(index)
         .cloned()
         .ok_or_else(|| format!("missing <{name}>\nusage: sutura {usage}"))
@@ -355,6 +363,14 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
     })())
 }
 
+/// The `mcp` command: the agent surface over this process's standard input and output.
+///
+/// Kept in its own module ([`crate::mcp`]) rather than inlined here, because it is a
+/// composition of its own - the driving port over a pipe, with an async runtime this file's other
+/// commands do not want - and because `commands.rs` is at the 1000-line cap. The command table in
+/// `main.rs` names it through the re-export below.
+pub(crate) use crate::mcp::mcp;
+
 /// Starts the engine and registers one file per model.
 ///
 /// The engine reads the files itself, so there is no database to create and nothing to keep in step
@@ -373,7 +389,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 /// there is no second caller for that identity to be wrong for. `ImpersonationCapability` on the
 /// adapter says the same thing from the other side, so the two agree by construction rather than by a
 /// check this command could skip.
-fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Warehouses<DataFusionWarehouse>, String> {
+pub(crate) fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Warehouses<DataFusionWarehouse>, String> {
     let sources = sutura_app::sources(pinned);
     let declared = match sources.as_slice() {
         [only] => (*only).clone(),
@@ -437,7 +453,7 @@ fn single_user_posture() -> Result<sutura_domain::source::SourcePosture, String>
 /// come from one sentence rather than two. A `SharedServiceUser` posture is the only shape the engine
 /// can execute with, and it is the honest one here: there is no second caller for this identity to be
 /// wrong for.
-fn single_user_broker() -> Result<sutura_config::StaticCredentialBroker, String> {
+pub(crate) fn single_user_broker() -> Result<sutura_config::StaticCredentialBroker, String> {
     let source = SourceName::parse(ENGINE_SOURCE).map_err(|e| format!("the built-in engine source name is not a name: {e}"))?;
     let sutura_domain::source::SourcePosture::SharedServiceUser { declared } = single_user_posture()? else {
         return Err(String::from("this command opens its engine shared, one function above"));
@@ -457,7 +473,7 @@ fn single_user_broker() -> Result<sutura_config::StaticCredentialBroker, String>
 /// directly, so this reads the same number through the same checks the service does; a test asserts the
 /// constant and `defaults.yaml` agree. `available_memory_bytes` is asked here too: a laptop with less
 /// memory than the default ceiling should be told so rather than dying inside a join.
-fn working_set() -> Result<sutura_exec_datafusion::WorkingSet, String> {
+pub(crate) fn working_set() -> Result<sutura_exec_datafusion::WorkingSet, String> {
     let ceiling = sutura_config::WorkingSetCeiling::parse(
         sutura_config::WorkingSetCeiling::DEFAULT_BYTES,
         sutura_config::available_memory_bytes(),
