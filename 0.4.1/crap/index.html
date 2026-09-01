@@ -1,0 +1,2873 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.4.1/crap/">
+      
+      
+        <link rel="prev" href="../contributing/">
+      
+      
+        <link rel="next" href="../enterprise-mirrors/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>The CRAP gate - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../css/telekom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-crap-gate" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              The CRAP gate
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-runs-and-where" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runs, and where
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-sutura-domain-and-why-only-that" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope: sutura-domain, and why only that
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-ratchet-is-a-number-and-a-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The ratchet is a number AND a delta
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The ratchet is a number AND a delta">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The number
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The delta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-baseline-comes-from-and-what-happens-when-there-is-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the baseline comes from, and what happens when there is none
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-pull-request-comment-and-what-it-costs-in-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pull request comment, and what it costs in permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-versions-and-how-they-are-pinned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool versions, and how they are pinned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coverage-runs-on-stable-and-the-gate-makes-itself-so" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage runs on stable, and the gate makes itself so
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-the-current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the current state
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-runs-and-where" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runs, and where
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-sutura-domain-and-why-only-that" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope: sutura-domain, and why only that
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-ratchet-is-a-number-and-a-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The ratchet is a number AND a delta
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The ratchet is a number AND a delta">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The number
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The delta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-baseline-comes-from-and-what-happens-when-there-is-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the baseline comes from, and what happens when there is none
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-pull-request-comment-and-what-it-costs-in-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pull request comment, and what it costs in permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-versions-and-how-they-are-pinned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool versions, and how they are pinned
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coverage-runs-on-stable-and-the-gate-makes-itself-so" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage runs on stable, and the gate makes itself so
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-the-current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the current state
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="the-crap-gate">The CRAP gate<a class="headerlink" href="#the-crap-gate" title="Permanent link">&para;</a></h1>
+<p>CRAP - Change Risk Anti-Patterns - is cyclomatic complexity weighted by the tests that cover
+it:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>CRAP(f) = CC(f)^2 * (1 - coverage(f))^3 + CC(f)
+</span></code></pre></div>
+<p>A branchy function with tests scores near its complexity. The same function untested scores an
+order of magnitude higher. It is the one number that will not let "complex but fine" and
+"untested but trivial" cancel each other out, which is what makes it worth a gate: neither a
+complexity limit nor a coverage percentage catches the combination on its own.</p>
+<p>Two consequences worth knowing before reading a report. At 100% coverage the quadratic term
+collapses and CRAP equals CC, so matching columns mean "fully covered, still complex" - good
+news, not a bug. And above CC 30 no amount of coverage keeps a function under the threshold: at
+that size the metric stops asking about tests and starts asking for a smaller function.</p>
+<h2 id="what-runs-and-where">What runs, and where<a class="headerlink" href="#what-runs-and-where" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+<th>Measured cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cargo xtask check-crap</code></td>
+<td>the policy is a gate, the allowlist is annotated, the scope names real packages</td>
+<td>milliseconds, part of <code>hygiene</code></td>
+</tr>
+<tr>
+<td><code>just crap</code></td>
+<td>the coverage run and the score, exactly as CI runs them</td>
+<td>42 s cold, ~20 s warm</td>
+</tr>
+<tr>
+<td><code>nix build .#checks.x86_64-linux.crap</code></td>
+<td>what CI runs, and the only thing that measures</td>
+<td>10.2 s of instrumented compile on top of the dependency derivation the clippy and test checks already build</td>
+</tr>
+<tr>
+<td><code>just crap-delta &lt;base&gt; [head]</code></td>
+<td>did the CHANGE make anything worse</td>
+<td>milliseconds - two JSON files, no compiler and no tool</td>
+</tr>
+</tbody>
+</table>
+<p>Measured in the dev container on 16 cores. Of the 20 s warm, about 13 s is the coverage run, 2 s
+is the AST analysis, and the rest is building <code>xtask</code> itself.</p>
+<p>The split is by cost. <code>check-crap</code> compiles nothing, so it sits in the <code>hygiene</code> sweep and runs
+on every commit and inside the Nix sandbox. <code>crap</code> compiles the scoped crates with
+<code>-C instrument-coverage</code>, so it is a task you ask for. <code>crap-delta</code> compiles nothing either, but
+it needs a baseline from another commit, which a Nix sandbox cannot fetch - so it is neither a
+hygiene gate nor a flake check.</p>
+<p>The flake check shares <code>cargoArtifacts</code> with the clippy and nextest checks. Not because the
+coverage build can reuse them - it cannot, <code>-C instrument-coverage</code> changes the rustc invocation
+so every dependency is compiled fresh regardless - but because sharing the attribute means no
+SECOND dependency derivation is created. That is what keeps the marginal CI cost to the ten
+seconds above rather than to another full workspace dependency build, which is what the
+<code>api-docs</code> check USED to pay for being on a different channel - until it moved onto this same
+closure, measured: <code>nix-store -q --references</code> on both drvs now names one <code>sutura-deps</code>.</p>
+<p><strong>ONE MEASUREMENT, TWO CONSUMERS.</strong> The check writes a path-portable copy of its score report to
+<code>target/crap/baseline.json</code>, and inside a Nix build it publishes the same file to
+<code>$out/crap-baseline.json</code> - the only channel out of a build sandbox. The gate does that itself
+rather than through a <code>postInstall</code> hook in <code>flake.nix</code>, for two reasons that <code>publish_baseline</code>
+in <code>xtask/src/crap.rs</code> gives at length: a filename agreed between two files is a filename that
+drifts, and <code>flake.nix</code> sits at exactly the 1000-line limit <code>cargo xtask max-lines</code> enforces. The
+absolute threshold and the delta both read that one file, so delta control added no coverage run,
+no second dependency closure and no second cache entry - which is the property the whole pipeline
+was recently rebuilt around.</p>
+<p>Portable means every <code>file</code> is repo-relative and the file says so in a <code>"paths":
+"repo-relative"</code> key that the reader refuses to compare without. That is not tidiness. The
+sandbox source root is a per-build directory - one measured run had
+<code>/nix/var/nix/builds/nix-91840-1992088735/lzldwfdkxzbazqvfmmc5fagm3fcxfhkv-source</code> - so absolute
+paths differ between any two builds. Handed a baseline whose root does not match, <code>cargo crap</code>
+does not fail: it reported 181 unchanged, 4 new and 4 removed for a tree with no changes at all,
+losing exactly the functions that share a name inside one file. Four invented functions in a
+review comment is worse than a refusal.</p>
+<h2 id="scope-sutura-domain-and-why-only-that">Scope: <code>sutura-domain</code>, and why only that<a class="headerlink" href="#scope-sutura-domain-and-why-only-that" title="Permanent link">&para;</a></h2>
+<p>The gate scores <code>sutura-domain</code> and nothing else. Two reasons, and the second is the one that
+would not change if the machines got faster.</p>
+<p><strong>Cost.</strong> The coverage step, measured in the dev container on 16 cores, each from a cold coverage
+profile. This is the part that varies with the scope, which is why it is the part tabulated:</p>
+<table>
+<thead>
+<tr>
+<th>scope</th>
+<th>wall</th>
+<th>CPU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura-domain</code></td>
+<td>11.1 s</td>
+<td>50.8 s</td>
+</tr>
+<tr>
+<td>plus <code>sutura-catalog-local</code> and <code>sutura-semantic</code></td>
+<td>3 m 27 s</td>
+<td>15 m 5 s</td>
+</tr>
+<tr>
+<td><code>--workspace</code></td>
+<td>more than 6 m 18 s</td>
+<td>more than 80 m</td>
+</tr>
+</tbody>
+</table>
+<p>The workspace row is a lower bound: that run never reached a test. Coverage instrumentation is a
+separate profile, so DataFusion, Arrow and DuckDB are all recompiled and none of the cached
+artifacts help. On a four-vCPU runner that is twenty minutes and up, added to a <code>ci</code> job whose
+timeout was already raised from 60 to 120 minutes because the tests alone were killing it.</p>
+<p><strong>Where the tests live.</strong> Coverage scoped to one package sees only that package's tests. For
+<code>sutura-domain</code> that is the whole truth - its unit tests are its real test suite and they
+are in the crate. For <code>sutura-semantic</code> it is not: its real tests are the golden corpus in
+<code>sutura-app</code>, which pulls both adapters. So a <code>-p sutura-semantic</code> coverage run reports <code>resolve</code>
+at 0% and scores it CRAP 210. Measured, not hypothesised, and seven such functions appear the
+moment that crate is added. They are artefacts of where the tests live, not findings, and a gate
+that cries wolf seven times gets switched off.</p>
+<p>So the rule for widening the scope is not "is it cheap". It is: <strong>does this package's own test
+suite exercise its own code?</strong> The list is <code>SCOPE</code> in <code>xtask/src/crap.rs</code>, one line, with the
+measured costs beside it.</p>
+<p><strong>What that misses, stated plainly:</strong> every dialect renderer, the resolver, the planner, the
+catalog loader and both adapters. This gate covers the invariant core and nothing else. It is
+not a coverage target for the workspace and does not pretend to be one.</p>
+<p><strong>What delta control changes about that, and what it does not.</strong> The blocker for widening was
+never only cost: adding <code>sutura-semantic</code> puts seven functions at CRAP 210 into the report on day
+one, and the absolute threshold fails all seven immediately. They are artefacts of where the
+tests live, not findings, and the only escape the number offers is an allowlist entry - which the
+policy refuses for untested code, correctly.</p>
+<p>A delta has an answer the number does not: gate that crate on "did YOU make it worse" and leave
+its inherited debt alone. That is what rules 2 and 3 below are for, and it is why they are
+written even though the number subsumes them today.</p>
+<p><strong>The scope has NOT been widened, and this page is not an argument that it should be.</strong> Two things
+still block it, and neither is about the ratchet. The cost is unchanged - 3 m 27 s wall and 15
+CPU-minutes for those two extra crates, measured, against a 12-second gate. And a widened scope
+needs the absolute threshold relaxed for the inherited set, which means a second policy concept -
+"debt admitted on entry" - that nothing here implements. Widening is a separate change with its
+own measurements; delta control is what makes it possible rather than what makes it done.</p>
+<h2 id="the-policy">The policy<a class="headerlink" href="#the-policy" title="Permanent link">&para;</a></h2>
+<p><code>.cargo-crap.toml</code> at the repo root. <code>cargo crap</code> reads it directly, so running the tool by hand
+applies the same thresholds CI does, with no flag to remember. <code>cargo xtask check-crap</code> is what
+stops it from rotting:</p>
+<ul>
+<li><code>threshold</code> must be present and positive</li>
+<li><code>fail-above = true</code> must be set - without it the tool prints a table and exits 0, which is a
+  report, not a gate</li>
+<li>every <code>allow</code> entry must carry a <code>#</code> comment saying why, on its line or immediately above it</li>
+</ul>
+<p>That last rule is the same one <code>deny.toml</code> follows for its licence list, for the same reason: an
+allowlist whose entries carry no justification becomes pre-approval for whatever is added next to
+it, and nobody can tell later which entries were reasoned about.</p>
+<p><strong>What does not belong in <code>allow</code>:</strong> a function that scores badly because it is untested. The fix
+for that is a test. An entry is for code whose complexity the metric reads wrongly - a generated
+match table, a vendored port - not for code nobody has got round to covering.</p>
+<h2 id="the-ratchet-is-a-number-and-a-delta">The ratchet is a number AND a delta<a class="headerlink" href="#the-ratchet-is-a-number-and-a-delta" title="Permanent link">&para;</a></h2>
+<p>Two independent rules, and the order matters: the number is the gate, the delta is a ratchet on
+top of it. The number is unconditional and runs on every commit. The delta is not: it needs a
+baseline for the exact merge base, and it warns and skips when there is none - see <em>Where the
+baseline comes from</em> below. So a branch whose merge base has no artifact is judged by the number
+alone, which is why the delta is a ratchet and not a guarantee.</p>
+<h3 id="the-number">The number<a class="headerlink" href="#the-number" title="Permanent link">&para;</a></h3>
+<p><code>threshold = 30.0</code> in <code>.cargo-crap.toml</code>, and it has not moved. A function above it fails, on
+every commit, with no baseline involved. This is the rule that still holds when there is nothing
+to compare against - a first run, a fork, a merge base whose artifact expired - and it is why the
+delta could be removed tomorrow without this gate becoming a report.</p>
+<p>What it cannot say is "worse than the base". A function that slides from CRAP 12 to CRAP 29
+passes, every time, and nothing anywhere records that it moved.</p>
+<h3 id="the-delta">The delta<a class="headerlink" href="#the-delta" title="Permanent link">&para;</a></h3>
+<p><code>cargo xtask crap-delta</code> compares this commit's report against the merge base's and applies three
+rules. <code>threshold</code> is the only number involved - no second knob, because a second number is a
+second thing to defend in review.</p>
+<ol>
+<li><strong>Crossed the line.</strong> <code>baseline &lt;= 30 &lt; head</code>. A function this branch pushed over.</li>
+<li><strong>Worse while over the line.</strong> <code>head &gt; 30</code> and the score rose.</li>
+<li><strong>The budget.</strong> The CRAP points added to PRE-EXISTING functions, summed, may not exceed 30.
+   One branch may not add as much rot to code that already existed as a whole new over-the-line
+   function is worth.</li>
+</ol>
+<p>Rules 1 and 2 are <strong>subsumed today</strong>: nothing may be over 30 at all, so nothing can cross the
+line or worsen while over it without the number failing first. They are written anyway, because
+they are the two rules that survive the one change that would let this gate cover more than one
+crate - see the scope section above. Rule 3 is the one that blocks something the number does not:
+slow rot that never crosses 30.</p>
+<p><strong>What deliberately does not fail: a single sub-threshold regression.</strong> Not leniency. At full
+coverage CRAP equals CC, so adding one covered branch to a fully-tested function moves it from 5
+to 6 permanently and no test can bring it back. A rule that failed that could only be escaped by
+an allowlist entry, which the policy forbids for exactly this case - so it would be bypassed or
+deleted rather than obeyed. Every regression is <strong>reported</strong>, in the job log and in the pull
+request comment, worst first, with its delta. Rule 3 is what stops a hundred of them from adding
+up unnoticed.</p>
+<p><code>epsilon</code> decides what counts as a change at all, and defaults to 0.01 - deliberately
+<code>cargo-crap</code>'s own default, so running <code>cargo crap --baseline</code> by hand agrees with the gate about
+which functions moved. <code>.cargo-crap.toml</code> may state one; it does not.</p>
+<h3 id="where-the-baseline-comes-from-and-what-happens-when-there-is-none">Where the baseline comes from, and what happens when there is none<a class="headerlink" href="#where-the-baseline-comes-from-and-what-happens-when-there-is-none" title="Permanent link">&para;</a></h3>
+<p>A push to <code>main</code> uploads that commit's report as the <code>crap-baseline</code> artifact, retained 30 days. A
+pull request resolves the artifact whose run was on the default branch <strong>and</strong> whose head SHA is
+this branch's exact merge base - the value <code>.github/workflows/ci.yml</code> already computes with <code>git
+merge-base</code>, not the base branch tip.</p>
+<p><strong>Exact, and a miss is a warning that skips the comparison rather than a failure.</strong> Both halves of
+that are deliberate.</p>
+<p>Exact, because an approximate baseline lies in both directions. Against "the latest baseline on
+main", work that landed on main after the branch point reads as this branch's regression, and
+improvements that landed there read as this branch's improvements. A gate that reports
+regressions somebody else caused is a gate that gets switched off.</p>
+<p>A warning rather than a failure, because the merge base is not guaranteed to have a baseline and
+that has nothing to do with the branch being reviewed. A push to <code>main</code> carrying several commits
+gets one CI run, so the middle commits never produced an artifact; artifacts expire; a
+docs-classified push runs no CRAP step at all. Failing there would fail pull requests for the
+shape of somebody else's push, and would train everybody to re-run the job until it went away.
+The number above has already run either way, so a skipped delta loses a ratchet, never the gate.</p>
+<h3 id="the-pull-request-comment-and-what-it-costs-in-permissions">The pull request comment, and what it costs in permissions<a class="headerlink" href="#the-pull-request-comment-and-what-it-costs-in-permissions" title="Permanent link">&para;</a></h3>
+<p>The rendered table goes to the job summary, which needs no token, and is posted as a pull request
+comment by the <code>crap-comment</code> job. That job holds <code>pull-requests: write</code> - the only write scope on
+any job a pull request can reach - because creating or editing a pull request comment has no
+read-only route. Other workflows do hold write scopes - publishing the site, cutting a release,
+the optimised release build, bumping a version and pruning the cache - eight of them across five
+files. None is on a job a pull request can start: four of those five do not run on a pull request
+at all, and <code>docs.yml</code>, which does, gates its publishing job on
+<code>github.event_name != 'pull_request'</code> and gives the pull request job <code>contents: read</code>.</p>
+<p>It is a separate job for that reason. It checks nothing out, compiles nothing, runs no code from
+the pull request, interpolates no pull request text into a shell body, and skips forks (whose
+token is read-only on a <code>pull_request</code> event regardless). The workflow-level grant is still
+<code>contents: read</code>; the <code>ci</code> job that builds and tests the branch has <code>contents: read</code> plus
+<code>actions: read</code>, the latter only so it can read the base commit's artifact. The reasoning is
+written out beside the grant in <code>ci.yml</code>, because a permission without a recorded reason is a
+permission the next person cannot audit.</p>
+<h2 id="tool-versions-and-how-they-are-pinned">Tool versions, and how they are pinned<a class="headerlink" href="#tool-versions-and-how-they-are-pinned" title="Permanent link">&para;</a></h2>
+<p><code>nix/crap.nix</code> is the one place either tool is resolved, imported by both <code>flake.nix</code> and
+<code>devenv.nix</code> - the same arrangement <code>nix/duckdb.nix</code> and <code>nix/toolchains.nix</code> use, and for a
+stronger reason: those two files have separate nixpkgs pins, and for a tool whose output is a
+verdict, two versions mean the dev shell reporting a score CI does not.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Version</th>
+<th>Route</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cargo-crap</code></td>
+<td>0.4.3</td>
+<td>prebuilt release binary, hash-pinned in <code>nix/crap.nix</code></td>
+</tr>
+<tr>
+<td><code>cargo-llvm-cov</code></td>
+<td>from the locked nixpkgs</td>
+<td><code>pkgs.cargo-llvm-cov</code></td>
+</tr>
+<tr>
+<td><code>cargo-nextest</code></td>
+<td>from the locked nixpkgs</td>
+<td><code>pkgs.cargo-nextest</code>, already pinned for the tests</td>
+</tr>
+</tbody>
+</table>
+<p><code>cargo-llvm-cov</code> is in nixpkgs, so nothing is hand-rolled for it. <code>cargo-crap</code> is not, and it is
+fetched as a prebuilt binary rather than built from the crate because from-source means compiling
+<code>clap</code>, <code>syn</code>, <code>rayon</code>, <code>comfy-table</code> and <code>indicatif</code> on the first runner that needs it - minutes
+of build for a tool that reads files. A <code>fetchurl</code> hash is the same provenance guarantee a
+<code>fetchCrate</code> hash gives; what changes is that nothing is compiled. The derivation runs
+<code>cargo-crap --version</code> at build time, so a pin that cannot execute fails where the pin is,
+not mid-branch.</p>
+<p>The dev shell echoes both versions on entry. <code>cargo xtask check-crap</code> fails if the version
+<code>nix/crap.nix</code> pins is not the version this page states.</p>
+<h2 id="coverage-runs-on-stable-and-the-gate-makes-itself-so">Coverage runs on stable, and the gate makes itself so<a class="headerlink" href="#coverage-runs-on-stable-and-the-gate-makes-itself-so" title="Permanent link">&para;</a></h2>
+<p>The dev shell's bare <code>cargo</code> is a nightly with the cranelift codegen backend, because that is
+what makes the inner loop fast. Coverage cannot use it: <code>-C instrument-coverage</code> is LLVM-specific
+and does not exist under cranelift. This is not the channel-consistency argument the lints have -
+it is that the instrumentation is absent.</p>
+<p>In this repo cranelift arrives as two environment variables,
+<code>CARGO_UNSTABLE_CODEGEN_BACKEND</code> and <code>CARGO_PROFILE_DEV_CODEGEN_BACKEND</code>, which
+<code>nix/stable-env.sh</code> unsets. There is no <code>RUSTFLAGS</code> and no <code>CARGO_TARGET_*_RUSTFLAGS</code> anywhere in
+the dev shell, and the per-target tables in <code>.cargo/config.toml</code> carry linker and target-feature
+flags only.</p>
+<p><code>cargo xtask crap</code> does not rely on its caller having sourced that file. It unsets the two
+variables itself, strips the cranelift flag out of any rustflags variable that carries one while
+keeping the linker and library flags beside it, pins <code>RUSTUP_TOOLCHAIN</code> to the channel in
+<code>rust-toolchain.toml</code>, and gives the instrumented profile its own target directory under
+<code>target/crap</code>. A gate whose failure mode is a silently empty report must not depend on a <code>source</code>
+line somebody could forget.</p>
+<h2 id="reading-the-current-state">Reading the current state<a class="headerlink" href="#reading-the-current-state" title="Permanent link">&para;</a></h2>
+<p><strong>There is deliberately no report pasted here.</strong> There used to be one - a function count and the
+four highest-scoring functions with their <code>file:line</code> - and it rotted the way a pasted report
+always does. It was taken when the crate had twelve source files; three of its four line
+references had stopped resolving before this paragraph replaced it; and nothing regenerated or
+checked it, because
+<code>cargo xtask check-crap</code> verifies the tool VERSION this page states and not the numbers.</p>
+<p>So the page states how to get the current one instead, which is one command:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just<span class="w"> </span>crap
+</span></code></pre></div>
+<p>It prints every scored function in <code>SCOPE</code>, the threshold it is judged against and the verdict, and
+leaves <code>target/crap/baseline.json</code> behind for <code>just crap-delta</code>.
+What is worth knowing about the output is the part that does not change with a re-run:</p>
+<ul>
+<li><strong><code>fail-above</code> is exclusive</strong>, so a function sitting exactly on the threshold passes. Those are
+  the ones the delta exists for: the number has no headroom left to give, and the only thing left
+  to say about them is whether they move.</li>
+<li><strong>Nothing over the line is allowlisted.</strong> For a function over it the fix is a test, not an entry
+  in a file.</li>
+<li><strong>A high score is not always a finding.</strong> Coverage scoped to one package sees only that
+  package's tests, so a function whose real tests live in another crate scores as uncovered - which
+  is the whole argument for <code>SCOPE</code> above being the crate whose suite is its own.</li>
+</ul>
+<p><code>Grain::as_str</code> is the worked example of a fix, and it is history rather than a current number: it
+headed the table at CRAP 42, a five-arm <code>const fn</code> no test in the crate called, and is now CC 6 at
+100% coverage scoring 6.0. The complexity did not change; the tests did.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

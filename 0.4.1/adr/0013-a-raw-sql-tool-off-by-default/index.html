@@ -1,0 +1,2814 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Why a deployment may enable a general SQL tool beside the certified one - because a database with DDL and comments and no semantic layer is where every adoption starts, and refusing everything until somebody commits to governance is how a governed product never gets adopted - the mechanisms that keep it from ever looking certified, which sources it can exist over at all, what it costs that the certified surface got for free, and why the record is accepted and deliberately unscheduled.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.4.1/adr/0013-a-raw-sql-tool-off-by-default/">
+      
+      
+        <link rel="prev" href="../0012-conformance-packs-for-inputs-and-adapters/">
+      
+      
+        <link rel="next" href="../0014-how-a-caller-proves-who-it-is/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>A raw SQL tool, off by default, and the ramp it exists to build - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#a-raw-sql-tool-off-by-default-and-the-ramp-it-exists-to-build" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              A raw SQL tool, off by default, and the ramp it exists to build
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#last-on-purpose-and-here-is-what-has-to-exist-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Last on purpose, and here is what has to exist first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-and-it-is-not-someone-asked-for-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why, and it is not "someone asked for it"
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-mechanisms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The mechanisms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-sources-this-tool-can-exist-over-because-over-the-shipped-engine-it-cannot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which sources this tool can exist over, because over the shipped engine it cannot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-spends-and-both-halves-have-to-be-written-down" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this spends, and both halves have to be written down
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What this spends, and both halves have to be written down">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-second-property-is-what-bounded-prompt-injection-everywhere-else-and-this-record-is-what-spends-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The second property is what bounded prompt injection everywhere else, and this record is what spends it
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-ramp-as-mechanism-rather-than-intention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The ramp, as mechanism rather than intention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-would-change-in-the-invariants-and-why-the-row-is-not-written-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this would change in the invariants, and why the row is not written yet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#last-on-purpose-and-here-is-what-has-to-exist-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Last on purpose, and here is what has to exist first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-and-it-is-not-someone-asked-for-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why, and it is not "someone asked for it"
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-mechanisms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The mechanisms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-sources-this-tool-can-exist-over-because-over-the-shipped-engine-it-cannot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which sources this tool can exist over, because over the shipped engine it cannot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-spends-and-both-halves-have-to-be-written-down" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this spends, and both halves have to be written down
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What this spends, and both halves have to be written down">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-second-property-is-what-bounded-prompt-injection-everywhere-else-and-this-record-is-what-spends-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The second property is what bounded prompt injection everywhere else, and this record is what spends it
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-ramp-as-mechanism-rather-than-intention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The ramp, as mechanism rather than intention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-would-change-in-the-invariants-and-why-the-row-is-not-written-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this would change in the invariants, and why the row is not written yet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="a-raw-sql-tool-off-by-default-and-the-ramp-it-exists-to-build">A raw SQL tool, off by default, and the ramp it exists to build<a class="headerlink" href="#a-raw-sql-tool-off-by-default-and-the-ramp-it-exists-to-build" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted, and scheduled LAST.</strong> Nothing here is built, and this record does not amend an
+invariant yet - see <em>What this would change in the invariants</em> below, which says why the row cannot be
+written before the mechanism exists.</p>
+<p><strong>Corrected:</strong> this said "deliberately UNSCHEDULED" and "no branch in the implementation stack" while
+<a href="../../implementation-plan/">the plan</a> carried <code>feat/raw-sql-tool</code> as a row, 0009's order table carried
+the same branch with a done-when, and the identity half of the plan said it has a row now. Three records
+against one is not a tie, and this was the stale one - exactly the cross-record contradiction class this
+set claims to have eliminated. It is scheduled, it is last, and what follows is why last rather than why
+never.</p>
+<p>This record decides that a rule previously stated as absolute - <em>no SQL on the tool surface</em> - is a
+rule about the CERTIFIED path rather than about the whole product. The reason is adoption rather than
+convenience.</p>
+<h2 id="last-on-purpose-and-here-is-what-has-to-exist-first">Last on purpose, and here is what has to exist first<a class="headerlink" href="#last-on-purpose-and-here-is-what-has-to-exist-first" title="Permanent link">&para;</a></h2>
+<p>Scheduled last is not scheduled next, and the distance is four things that do not exist. Naming them
+here is what stops the record from reading as a feature waiting for a sprint:</p>
+<ol>
+<li><strong>A separate outcome type.</strong> The load-bearing mechanism in this record is a result that has nowhere
+   to put a definition digest. There is one outcome type today and it carries <code>Provenance</code> with no
+   constructor that omits it, so the raw tool's result is a new type on the surface, with its own
+   serialization and its own tests, before anything else here is reachable.</li>
+<li><strong>An execution port that can cancel.</strong> <a href="../0009-the-plan-from-one-source-to-many/">The plan</a>'s third
+   decision records that <code>Warehouse::execute</code> is synchronous and blocking, so a deadline that fires in
+   the caller leaves the leg running inside the driver. That is a bound worth having on the certified
+   path and a <strong>hard prerequisite</strong> here, for the reason the bounds section below gives.</li>
+<li><strong>A scope gate on the tool surface, with tool advertisement filtered by it.</strong> A caller without the
+   scope must not see the tool listed, which means the surface has to know what a caller may call
+   before it answers the question of what exists.</li>
+<li><strong>A read-only story that is written down per mode</strong>, because the honest version has two halves and
+   only one of them is anything sutura enforces. That is the section below, and it was wrong in the
+   first draft of this record.</li>
+</ol>
+<p>And a fifth that is not a prerequisite but a fork in the road: <strong>over the shipped engine this tool
+cannot exist without reversing a decision two other records defend.</strong> That is its own section.</p>
+<h2 id="why-and-it-is-not-someone-asked-for-it">Why, and it is not "someone asked for it"<a class="headerlink" href="#why-and-it-is-not-someone-asked-for-it" title="Permanent link">&para;</a></h2>
+<p><strong>A database with DDL and comments and no semantic layer is where every adoption starts.</strong> Not an edge
+case, the normal case. The semantic layer is the valuable thing and it is also organisational work -
+somebody has to own a number and say what it means - and nobody funds that work before seeing the tool
+answer a question.</p>
+<p>So a product that refuses everything until a semantic layer exists asks for the commitment first and
+delivers the value second. That order does not survive contact with a sceptical sponsor, and the failure
+is not that they disagree about governance: it is that they never see it work.</p>
+<p><strong>Three things this has to demonstrate, in order:</strong></p>
+<ol>
+<li><strong>It works.</strong> Real questions, real data, from what a database already documents about itself.</li>
+<li><strong>Defining a metric is smooth.</strong> The step from "that answer was useful" to "that answer is certified"
+   has to be short, and the system should carry the candidate rather than leaving somebody to write it
+   from scratch.</li>
+<li><strong>Coverage grows, visibly.</strong> More certified metrics means more questions answered the governed way,
+   and that shift is a number somebody can see rather than a claim.</li>
+</ol>
+<p>The third one is what stops this record from being a hole in the design. An ungoverned path with no
+measurement becomes the comfortable default. An ungoverned path whose share is reported is a ramp. Who
+does the reporting matters and is settled further down: sutura emits, the deployment's monitoring
+computes, and a deployment that attached no sink gets the hole rather than the ramp.</p>
+<h2 id="the-mechanisms">The mechanisms<a class="headerlink" href="#the-mechanisms" title="Permanent link">&para;</a></h2>
+<p><strong>Off by default, per deployment.</strong> Enabling it is a configuration decision that shows in a diff, and a
+deployment that never enables it behaves exactly as before this record.</p>
+<p><strong>A separate tool with its own scope, never a field on the certified one.</strong> The typed question keeps
+having no field for SQL, a table, a predicate or row ids. This is a second tool, and a caller without the
+scope <strong>does not see it advertised</strong> - invisible rather than rejected, because a tool nobody may call
+should not be in the list.</p>
+<p><strong>Its result cannot claim certification, and that is a type rather than a rule.</strong> The certified answer
+carries provenance with no constructor that omits it. The raw tool returns a <strong>different outcome type,
+which has no field for a definition digest at all</strong>, so labelling a raw result as certified is
+unrepresentable rather than forbidden. That is the load-bearing mechanism in this record.</p>
+<p><strong>Nothing decides read-only by INSPECTING the statement.</strong> Doing so would mean parsing it, and a
+parser that has to be right about every dialect's write forms is exactly the fragile thing this
+codebase refuses elsewhere. Whatever bounds a write, it is not us reading the SQL.</p>
+<p><strong>What actually bounds a write has two halves, and only one of them is ours.</strong> The first draft of this
+record said "the tool may only be enabled over a credential or role that cannot write", and that
+sentence is false in the mode this tool mostly exists for. Under <code>ImpersonationAtSource</code> the credential
+is the SUBJECT's, minted per request per
+<a href="../0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a> - sutura does not choose
+it and has nothing to attenuate it with. So:</p>
+<ul>
+<li><strong>In single-user mode the static credential's grants bound it, and the OPERATOR chooses them.</strong> That
+  is a real control and it is not sutura's: it is a role at the source, written by whoever configured
+  the deployment. What this record contributes is that it must be a deliberate choice rather than
+  whatever credential was already lying in the settings file, and the startup line prints which
+  credential the raw tool would run under.</li>
+<li><strong>Under impersonation the write boundary is the source's authorization of THAT SUBJECT, full stop.</strong>
+  A subject whose grants permit writes can write through this tool. That is the same answer the
+  certified path gives - the source is the thing that knows what a person may do - and it is
+  uncomfortable here only because the statement is arbitrary. Session-level read-only is not a repair:
+  <code>default_transaction_read_only</code> and its equivalents are settable by the same session's SQL, so a
+  statement that begins by unsetting it is a statement the session accepted.</li>
+</ul>
+<p><strong>The one case sutura enforces anything is a declared capability, and it is narrow.</strong> Where an adapter
+can open the source read-only ITSELF, in a way the session cannot undo - DuckDB's read-only open flag,
+a file engine that has no write path at all - that is a capability the adapter DECLARES, per
+<a href="../0011-pluggable-by-declaration/">pluggable by declaration</a>, and a deployment may require it. Then the
+refusal is at boot: the raw tool over a source that declares neither read-only opening nor an operator
+acknowledgement of what the credential can do does not start. Note what that is worth and what it is
+not: it covers exactly the adapters whose driver has such a flag, which today is the local ones, and it
+is unavailable precisely in the impersonating network case where the concern is sharpest.</p>
+<p><strong>Impersonation is required unless the deployment is single-user.</strong> This is the sharpest constraint and
+it follows from what the tool is: arbitrary SQL under a shared service account reads everything that
+account can see, for anybody who can call the tool. So the raw tool is available where the source
+executes as the asking subject - and in single-user deployments, which are development and
+proof-of-concept shapes with one user and static credentials. Nowhere else.</p>
+<p><strong>Every bound applies unchanged:</strong> the result ceiling, the query timeout, the row cap. A raw statement is
+not a reason to be unbounded; if anything it is the path most likely to need them.</p>
+<p><strong>And one bound has to become real before this tool exists, rather than applying unchanged.</strong> A
+timeout wrapped around a blocking call stops the CALLER waiting and leaves the statement running inside
+the driver, which is what <a href="../0009-the-plan-from-one-source-to-many/">the plan</a>'s third decision says
+plainly: either the deadline travels on the port and each adapter cancels for real, or the bound is
+"stop waiting" and the failure mode ships with it. On the certified path that is a bad bound
+over a plan the compiler wrote; here it is a bad bound over text a caller wrote, and a cross join is a
+denial-of-service primitive that no result ceiling reached after the fact can stop - the ceiling is
+counted on rows returned, and the join never returns. This is the only place caller text becomes a
+statement, so it is the place where "stop waiting" and "cancel" stop being the same word. <strong>The
+deadline travelling on the port, with real per-adapter cancellation, is a prerequisite of this tool and
+not a companion improvement.</strong></p>
+<h2 id="which-sources-this-tool-can-exist-over-because-over-the-shipped-engine-it-cannot">Which sources this tool can exist over, because over the shipped engine it cannot<a class="headerlink" href="#which-sources-this-tool-can-exist-over-because-over-the-shipped-engine-it-cannot" title="Permanent link">&para;</a></h2>
+<p>The served binary links <code>sutura-exec-datafusion</code>, which executes a plan over files and generates no
+SQL. It has no SQL frontend, and that is a property of the closure rather than a convention about which
+functions get called: <code>Cargo.toml</code> pins
+<code>datafusion = { version = "55.0.0", default-features = false, features = ["parquet", "datetime_expressions"] }</code>,
+and <code>grep -n 'sqlparser\|datafusion-sql' Cargo.lock</code> returns nothing - neither crate is in the lock at
+all. <a href="../0006-several-databases-behind-one-data-system/">Several databases behind one data system</a> is
+where that was measured, and its strongest sentence is the one that applies here: <strong>not calling a
+parser is a convention, not having one is a property.</strong>
+<a href="../0007-federating-across-different-data-systems/">Federating across different data systems</a> declines a
+route for the same reason - <em>"<code>datafusion</code>'s <code>sql</code> feature stays off, so no second parser and no
+unparser arrive"</em>.</p>
+<p>So the sources split, and the split is not a detail of implementation order:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Can the raw tool exist over it?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A network data system reached under the asking subject - PostgreSQL, BigQuery, Oracle</td>
+<td><strong>yes.</strong> The statement is passed through unparsed, by us, to a system that has its own parser and its own authorization. Nothing in the closure changes</td>
+</tr>
+<tr>
+<td>The shipped file engine</td>
+<td><strong>not without accepting a second SQL parser.</strong> A raw statement over it needs DataFusion's SQL frontend, which is the <code>sql</code> feature, which is <code>datafusion-sql</code> and <code>sqlparser</code> compiled into the shipped binary beside <code>polyglot-sql</code></td>
+</tr>
+<tr>
+<td>A local DuckDB source</td>
+<td>yes in principle - it renders through <code>sutura-sql</code> and the driver takes a statement - but <code>sutura-exec-duckdb</code> is a dev-dependency and which artifact links a native driver is undecided in <a href="../0009-the-plan-from-one-source-to-many/">the plan</a></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Enabling the second row is its own decision and not a consequence of this one.</strong> It is the exact
+trade 0006 and 0007 both declined, in a different context: a second parser in the shipped binary, a
+licence surface to re-check, and the loss of the property that the only parser present is the one that
+runs at load. This record does not make that decision, and a deployment reading it should not conclude
+that the tool is available on the artifact it has.</p>
+<h2 id="what-this-spends-and-both-halves-have-to-be-written-down">What this spends, and both halves have to be written down<a class="headerlink" href="#what-this-spends-and-both-halves-have-to-be-written-down" title="Permanent link">&para;</a></h2>
+<p><strong>The first property genuinely does not hold, and pretending otherwise would be the defect.</strong> "No
+caller text reaches a statement" is false for this tool by construction - the statement <em>is</em> caller
+text. Its safety therefore comes from the source's own authorization, which is why the impersonation
+rule above is not optional.</p>
+<p>On the certified path the guarantee is untouched and keeps its own mechanism: every value from a
+question becomes a <strong>bind parameter</strong>, statement and parameters are separate fields with no merging
+constructor, and a golden asserts no question literal appears in a statement. Behind that, a filter
+value must also be a member of the catalog's declared allowlist - defence in depth, not the guarantee
+itself. Neither is weakened by this record, because the raw tool is a different tool with a different
+result type rather than a wider version of this one.</p>
+<h3 id="the-second-property-is-what-bounded-prompt-injection-everywhere-else-and-this-record-is-what-spends-it">The second property is what bounded prompt injection everywhere else, and this record is what spends it<a class="headerlink" href="#the-second-property-is-what-bounded-prompt-injection-everywhere-else-and-this-record-is-what-spends-it" title="Permanent link">&para;</a></h3>
+<p>Worth stating in the record set for the first time, because it is the thing being spent and it has been
+implicit: <strong>on the certified path a successful prompt injection cannot invent a query.</strong> The typed
+question carries no SQL, no table, no predicate and no row ids, so the most an injected instruction can
+do is make the agent ask for a DIFFERENT certified metric, over a bounded range, within the caller's
+own grants at the source. That is a wrong-answer problem. It is not a run-arbitrary-code problem, and
+the difference is a property of the surface's shape rather than of anybody's care.</p>
+<p><strong>The raw tool is precisely the capability that property depended on not existing.</strong> An injected
+instruction - in a result cell, in a catalog description, in a document an agent read three turns ago -
+can now cause arbitrary SQL to execute under the asking subject's own credential. Every mechanism this
+record has bounds <strong>authorization</strong>: the scope gate bounds WHO may call the tool, the subject's grants
+bound WHAT it may read, the bounds bound how much and how long. <strong>None of them bounds what the model
+can be talked into sending.</strong> So the honest statement is that an authorization boundary holds while an
+intent boundary does not, and enabling this tool is a decision to accept that for the sake of the ramp.</p>
+<p>Three things follow, and the third is where the record has to be careful not to overclaim a fix.</p>
+<p><strong>The prompt channel is already handled, and it is the only one that is.</strong>
+<a href="../../agent-prompt/"><code>docs/agent-prompt.md</code></a> records the mechanism: every line of catalog prose is
+emitted with <code>&gt;</code> in front of it, so no line of catalog text can reach the generated document at column
+zero, it cannot emit a heading or close a block, and a test provokes it with a description whose lines
+are a heading, a fence and a bare instruction. The trust boundary is named in the text immediately
+above the quoted block. That leaves the two channels this record adds traffic to, and neither has an
+equivalent.</p>
+<p><strong>The RESULT channel and the ERROR channel are unnamed anywhere in this set, and both are carriers.</strong>
+A result cell is text an agent reads and acts on, and with this tool the cell can be selected by
+whoever wrote the statement. Worse and less obvious: <strong>an echoed data-system error or refusal message
+is part of the prompt.</strong> Whoever controls the SQL controls part of the message a database returns about
+it - a column alias, a table name, a constraint name reflected back verbatim - so a diagnostic passed
+straight through is a channel from the statement's author into the agent's context. That is an argument
+for the raw tool's failure text being <em>structured</em> rather than echoed, and for the same field-boundary
+treatment the result envelope needs.</p>
+<p><strong>Structure is the answer, and a filter is not.</strong> <a href="../0009-the-plan-from-one-source-to-many/">The plan</a>
+already carries the decision this depends on - untrusted content marking in the result envelope, chosen
+before an encoder ships, because a field boundary an encoder enforces cannot be forged by a cell value
+and a delimiter line can. This record does not restate it or extend it; it records that the raw tool is
+the strongest reason to have it, and that its own error text belongs inside the same boundary. And the
+limit that record already states applies here without change: <strong>a filter that quietly edits data
+returns a wrong number</strong>, so a detection hit belongs in a refusal rather than a silent scrub - which is
+this repository's rule for the query path everywhere else and is not a special case here.</p>
+<h2 id="the-ramp-as-mechanism-rather-than-intention">The ramp, as mechanism rather than intention<a class="headerlink" href="#the-ramp-as-mechanism-rather-than-intention" title="Permanent link">&para;</a></h2>
+<p><strong>Every ungoverned answer is a WRITTEN demand signal, and sutura retains none of it.</strong> The question
+that was answered without a certified metric is the most valuable input the backlog has: it is
+somebody's real question, in their words, with the SQL that answered it. Refusals already carry that
+role on the certified path, and this extends it.</p>
+<p><a href="../0009-the-plan-from-one-source-to-many/">The plan</a> settles the shape and this record does not reopen
+it - and the shape is two claims rather than one, which is worth stating exactly, because an earlier
+version of this paragraph quoted the wording that record has since retired. Sutura <strong>writes</strong> one
+record per call, refusals included, carrying the whole principal chain, before the outcome returns,
+into a sink the deployment attaches. Sutura <strong>retains</strong> nothing: no archive, no rotation, no retention
+window, no query interface. So the demand signal and the coverage number below are computed over the
+records <code>feat/principal-chain</code> writes to that sink, on the emitted stream rather than over an archive,
+and nothing in this record builds a table.</p>
+<p><strong>The limit, and it is the reason this is a ramp rather than a guarantee:</strong> a deployment that attaches
+no sink keeps whatever its log pipeline keeps, which may be nothing. So "the ungoverned path cannot
+quietly become the default" is a property of a MONITORED deployment and not of sutura. That is a
+weaker claim than the heading of this section wants, and it is the true one.</p>
+<p><strong>The candidate definition is written by the AGENT, and validated by the catalog parse we already
+have.</strong> An earlier draft of this record had the tool emitting a draft definition "where the shape
+allows it - a single aggregate over one table at one grain", which means recognising that shape in the
+caller's SQL, which means parsing it - the exact thing this record refuses to do for read-only one
+section up, for the right reason. Correcting it in the direction that costs us: <strong>sutura parses no SQL
+at any point on this path.</strong> What happens instead is the division of labour the whole design already
+assumes. The agent proposes a catalog document - prose and a closed measure vocabulary, which is
+already what it writes - and sutura's existing document parse is what says whether it is a definition:
+<code>deny_unknown_fields</code> at every depth, a <code>Measure</code> with no expression field, dimensions checked against
+the model, and a refusal naming the key that was wrong. A human reviews and commits it. That is the
+difference between "define your metrics" as advice and as a workflow, and it needs no new mechanism at
+all - which is a better position than the draft's, not a weaker one.</p>
+<p><strong>Coverage is a number the deployment's monitoring computes, not a series sutura keeps.</strong> The share of
+questions answered certified against ungoverned, over time, is exactly the quantity that matters, and
+it is derivable from the per-call emission above by whatever consumes it. Saying it that way keeps this
+record consistent with the no-retention position instead of quietly reintroducing a store under the
+word "reported". Two consequences worth being plain about, because the second is a real weakness of the
+design and not a detail: <strong>a deployment that attaches no sink measures nothing</strong>, so "the ungoverned
+path cannot quietly become the default" is a property of a deployment that is monitored rather than a
+property of sutura. And <strong>rising is the whole point</strong> - a deployment where the share does not move has
+learned something worth knowing, and it can only learn it if somebody is looking.</p>
+<p><strong>And the labelling is not decoration.</strong> An ungoverned answer says so, in the payload, every time. A
+reader who cannot tell which kind of answer they are holding has the worst of both designs.</p>
+<h2 id="what-this-would-change-in-the-invariants-and-why-the-row-is-not-written-yet">What this would change in the invariants, and why the row is not written yet<a class="headerlink" href="#what-this-would-change-in-the-invariants-and-why-the-row-is-not-written-yet" title="Permanent link">&para;</a></h2>
+<p>The row reading <em>"No SQL, table name, filter expression or row-id list on the tool surface"</em> is a
+statement about the <strong>certified</strong> surface, and the mechanism behind it is untouched by this record:
+<code>Query</code> declares no such field and <code>deny_unknown_fields</code> makes an attempt an error naming it. That
+half is true today and stays true whatever happens here.</p>
+<p><strong>The second half must not be written into that table before it exists.</strong> The row this record would
+add - a raw tool exists only as a separately-scoped, off-by-default capability whose result type
+cannot carry a definition digest, available only where the source executes as the asking subject or
+the deployment is single-user - cites as its mechanism an outcome type that does not exist, in a tool
+that has no branch in any implementation stack. The table's own rule decides the case, and it decides
+it against us: <em>a row that loses its mechanism gets deleted, not demoted to advice</em>, and a row that
+never had one is the same case. A reader who finds a raw-tool row in the enforced table and then finds
+no raw tool has learned that the table can be aspirational, which costs more than the row was worth.</p>
+<p>So: <strong>the amendment lands with the implementation branch, not with this record.</strong> What has to exist
+first is the list at the top of this file - the separate outcome type, the cancelling execution port,
+the scope gate and the advertisement filter, the read-only story per mode - plus the tests that provoke
+each of them. Until then this record is the decision and <code>AGENTS.md</code> says only what holds.</p>
+<p><strong>What is NOT weakened:</strong> a certified answer is still produced by compiling a declared metric, not by a
+model writing SQL. That is the point of the whole system and this record does not touch it. A deployment
+with both paths has two clearly distinguished paths; it does not have a blurrier version of the certified
+one.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Two outcome types on the surface, and the difference between them is visible to a caller rather than
+  documented. That is the intended cost.</li>
+<li>The raw tool cannot be tested by the conformance packs that assert certified behaviour, because it
+  asserts different things. It needs its own small pack, and the list is narrower than the draft's:
+  that it is absent from the advertised tools without the scope, that its result type has nowhere to
+  put a digest, that the bounds bite, and - <strong>only where an adapter declares it can open the source
+  read-only</strong> - that a write is refused. There is no pack asserting "a write is refused by the source"
+  in general: that is the source's authorization of a subject, which the packs cannot fixture without
+  two subjects whose grants differ, and the reason is the same one that keeps impersonation out of
+  <a href="../0012-conformance-packs-for-inputs-and-adapters/">the conformance packs</a>.</li>
+<li>A deployment enabling it over a shared service account in multi-user mode must be refused at startup,
+  for the same reason and by the same mechanism as a source declaring an impersonation it cannot perform.</li>
+<li><strong>Enabling it over the shipped file engine is a separate decision about a second SQL parser</strong>, and
+  that decision belongs in its own record rather than being inherited from this one.</li>
+<li><strong>This record has no branch in the implementation stack, and that is deliberate rather than an
+  omission.</strong> It is listed among the records the plan executes, so the absence would otherwise read as
+  a gap; what it is instead is the <em>unscheduled</em> status at the top of this file, and the prerequisites
+  there are what would have to be scheduled first.</li>
+<li>The demo that motivated this becomes reproducible: catalog search plus a select, with the answers
+  labelled for what they are, and a path from there to a metric that makes the next identical question
+  certified.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
