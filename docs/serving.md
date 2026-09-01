@@ -832,15 +832,14 @@ ones are statically linked and need no libc at all - and verify it before you ru
 
 ```bash
 tar -xzf sutura-serve-x86_64-unknown-linux-musl.tar.gz
-E="$PWD/examples/single-player"
-SUTURA__CATALOG__DIR="$E/catalog" \
-SUTURA__CATALOG__VERSION=local-1 \
+BINARY="$PWD/sutura-serve"
+cd examples/single-player
 SUTURA__SECURITY__IDENTITY=single-user \
 SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
 SUTURA__SOURCES__LOCAL__KIND=files \
-SUTURA__SOURCES__LOCAL__DATA_DIR="$E/data" \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
 SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  ./sutura-serve
+  "$BINARY"
 ```
 
 **Or the image.** The `-serve` tags are this binary; the unsuffixed ones are the command-line tool.
@@ -848,9 +847,8 @@ The entrypoint is the server and it takes no arguments, so `docker run` with non
 
 ```bash
 docker run --rm --network host \
+  --workdir /examples \
   -v "$PWD/examples/single-player:/examples:ro" \
-  -e SUTURA__CATALOG__DIR=/examples/catalog \
-  -e SUTURA__CATALOG__VERSION=local-1 \
   -e SUTURA__SECURITY__IDENTITY=single-user \
   -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
   -e SUTURA__SOURCES__LOCAL__KIND=files \
@@ -878,15 +876,14 @@ registered on the runner.
 **Or from source**, which is what a change to this repository is tested with:
 
 ```bash
-E="$PWD/examples/single-player"
-SUTURA__CATALOG__DIR="$E/catalog" \
-SUTURA__CATALOG__VERSION=local-1 \
+ROOT="$PWD"
+cd examples/single-player
 SUTURA__SECURITY__IDENTITY=single-user \
 SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
 SUTURA__SOURCES__LOCAL__KIND=files \
-SUTURA__SOURCES__LOCAL__DATA_DIR="$E/data" \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
 SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  cargo run -p sutura-serve
+  cargo run --manifest-path "$ROOT/Cargo.toml" -p sutura-serve
 ```
 
 It binds `127.0.0.1:8080`, needs no token there, and serves the browser interface at `/docs`. Startup

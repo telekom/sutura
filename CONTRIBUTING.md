@@ -284,50 +284,26 @@ refactor!: rename the Warehouse port's execute method
 
 The body is not checked. Use it for why.
 
-## Two branches
+## Trunk
 
-**`dev` is the trunk. `main` is the release ref.**
-
-| | `dev` | `main` |
-| --- | --- | --- |
-| what lands | pull requests, **squashed** | promotions from `dev`, as a **merge** |
-| what runs | the full chain, plus the trunk-only release build and image | the same chain, minus those |
-| what it means | the newest reviewed code | the newest released code |
-| docs | published as the `dev` version, no alias | nothing; the `v*` tag publishes the release |
-
-**Open your pull request against `dev`.** It is the default branch, so that is what you get by
-default.
-
-Squash into `dev`, merge into `main`, and the difference is not taste. `git-cliff` derives the
-changelog and the next version from commit subjects, so `dev` wants one clean conventional
-commit per pull request - that is the squash. A promotion has to preserve those commits, because
-squashing `dev` into one commit on `main` would collapse everything the changelog is derived
-from into a single subject. Repository rulesets enforce the merge method per branch.
+**`main` is the sole trunk and the base for pull requests and the merge queue.** Pull requests are
+squashed, leaving one conventional commit for `git-cliff` to classify. The branch ruleset enforces
+that path and the required checks.
 
 ## Releasing
 
-**Automatic, on promotion.** Merge `dev` into `main` and the release cuts itself: `version-bump`
-derives the version, writes `CHANGELOG.md`, commits, tags, and asks `release.yml` and `docs.yml`
-to run on that tag. The release commit is then pushed back onto `dev`, so the two do not drift.
-
-Nothing else is needed. `gh workflow run version-bump.yml --ref main` still works if a release
-has to be re-driven by hand.
+An approved manual dispatch of `version-bump` on `main` is the only release entry point. It derives
+the version from commit subjects, writes `CHANGELOG.md` in the release commit, and pushes that exact
+commit and its `v*` tag through the narrow release App. The tag starts `release.yml` and `docs.yml`;
+the release workflow has no manual trigger of its own.
 
 The version is **derived** from the commit subjects above - `feat` a minor, `fix` and the rest a
 patch, `!` or a `BREAKING CHANGE` footer a major. Nothing is tagged if no commit since the last
-tag would move it, so a promotion of chores publishes nothing.
+tag would move it, so a dispatch over chores publishes nothing.
 
-Every push to `dev` refreshes `CHANGELOG.md`, so the `## Unreleased` heading always lists what
-is waiting. That is where you look to decide whether a promotion is worth making.
-
-**Why it is a promotion rather than every merge**, because this was reversed once in each
-direction. Releasing on every push whose commits moved the version meant one `feat` merge cut a
-release - four in one day. The cost is not the tag: the release commit edits the workspace
-version, that version reaches crane's dependency derivation, and so every release recompiles and
-re-caches the whole dependency closure for all four targets - enough to push the build cache
-past its quota, after which everything gets slower. That cost is unchanged and was re-measured
-before bringing the automation back. What changed is that a release now needs somebody to decide
-to promote, which is the same thing as "release when there is something to release".
+If a tagged release fails, its commit and tag stay for diagnosis, no GitHub Release is created and
+no image manifest or moving tag is published. Fix the source and approve a new dispatch; never
+rewrite a release tag.
 
 ## A test has to be shown to test something
 
@@ -336,7 +312,7 @@ that passes both ways proves nothing and is worse than no test, because it looks
 
 `cargo xtask test-causality --since <base>` checks that mechanically: it re-runs the changed
 tests against the base version of the non-test sources, requires at least one to fail with no
-unrelated failures, then requires them green on your head. `just causality origin/dev` is the
+unrelated failures, then requires them green on your head. `just causality origin/main` is the
 same call. Where the change is not separable that way - impl and test in one file, or a rename
 with no behavioural difference - the gate says so and asks for the evidence instead: the command
 you ran, the failure you saw before the fix, the pass after. That goes in the pull request. Do

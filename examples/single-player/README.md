@@ -238,18 +238,18 @@ documents read**. The token is *not* required on loopback and is set here anyway
 anything else can reach does require one, and the gate below is worth seeing.
 
 ```bash
-E=examples/single-player
+ROOT="$PWD"
+E="$ROOT/examples/single-player"
+cd "$E"
 export SUTURA_TOKEN="$(head -c 24 /dev/urandom | base64)"
 
-SUTURA__CATALOG__DIR=$E/catalog \
-SUTURA__CATALOG__VERSION=local-1 \
 SUTURA__SECURITY__ACCESS_TOKEN="$SUTURA_TOKEN" \
 SUTURA__SECURITY__IDENTITY=single-user \
 SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
 SUTURA__SOURCES__LOCAL__KIND=files \
-SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/$E/data" \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$E/data" \
 SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  cargo run -p sutura-serve
+  cargo run --manifest-path "$ROOT/Cargo.toml" -p sutura-serve
 ```
 
 **`SUTURA__CATALOG__DATA_DIR` is no longer what the service reads**, and the four keys that
@@ -565,8 +565,7 @@ token and nothing said about where TLS is terminated:
 
 ```bash
 SUTURA__SERVER__HOST=0.0.0.0 \
-SUTURA__CATALOG__DIR=$E/catalog \
-  cargo run -p sutura-serve
+  cargo run --manifest-path "$ROOT/Cargo.toml" -p sutura-serve
 ```
 
 ```

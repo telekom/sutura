@@ -305,27 +305,31 @@ let
       imageTargets)
     binaries);
 
-  # The NATIVE image per binary, and its performance sibling: `nix build .#oci` and
-  # `.#oci-serve` are what a developer and the release workflow reach for, and on an x86_64
-  # builder each is the same derivation as its `oci-<host triple>` entry.
+  # The local image per binary, and its performance sibling: `nix build .#oci` and
+  # `.#oci-serve` are what a developer and the release workflow reach for. Containers are Linux,
+  # so Darwin selects the matching musl cross build rather than putting a Mach-O binary in an
+  # image labelled Linux. On Linux this remains the host build.
   #
   # streamLayeredImage, not buildLayeredImage: it avoids materialising a multi-hundred-MB
   # tarball in the store just to push it. See `ociFor`.
-  nativeImages = builtins.listToAttrs (builtins.concatMap
+  localImages = builtins.listToAttrs (builtins.concatMap
     (b:
       let
-        architecture = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
-        imageOf = drv: ociFor {
-          package = drv;
-          inherit architecture;
+        imageTarget = {
+          "aarch64-darwin" = "aarch64-unknown-linux-musl";
+          "x86_64-darwin" = "x86_64-unknown-linux-musl";
+        }.${system} or hostRustTarget;
+        imageOf = suffix: ociFor {
+          package = crossPackages."${b.bin}-${imageTarget}${suffix}";
+          architecture = ociArch imageTarget;
           inherit (b) bin entrypoint cmd description;
         };
       in
       [
-        { name = ociNameFor b; value = imageOf nativeBinaries.${b.bin}; }
+        { name = ociNameFor b; value = imageOf ""; }
         {
           name = "${ociNameFor b}-performance";
-          value = imageOf nativeBinaries."${b.bin}-performance";
+          value = imageOf "-performance";
         }
       ])
     binaries);
@@ -338,7 +342,7 @@ in
     imageTargets
     keyFor
     nativeBinaries
-    nativeImages
+    localImages
     ociImages
     releaseTargets
     ;

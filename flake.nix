@@ -322,14 +322,14 @@
         #   * `sutura`, `sutura-serve`                        - the native release binaries
         #   * `sutura-performance`, `sutura-serve-performance` - the same, fat LTO
         #   * `<binary>-<triple>`, plus `-performance` and `-ci` siblings - the cross matrix
-        #   * `oci`, `oci-serve`, and `-performance` siblings  - the native images
+        #   * `oci`, `oci-serve`, and `-performance` siblings  - local Linux images
         #   * `oci-<triple>`, `oci-serve-<triple>`            - one image per shipped artifact
         #
         # `sutura-serve` and its images are what closed #111: before them every published
         # artefact was the command-line tool, so nothing a release published could answer a
         # question over HTTP. `docs/serving.md` is where the deployment shape lives.
         packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
-          // shipped.nativeImages // {
+          // shipped.localImages // {
           default = shipped.nativeBinaries.sutura;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.

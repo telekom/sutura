@@ -879,7 +879,8 @@ mod tests {
         // And the omission is stated, not silent.
         assert!(text.contains("NOT included"), "{text}");
         // The quoted default still shows the description, so the two settings provably differ.
-        assert!(content.as_text(CatalogProse::Quoted).contains("> definitions: v99"), "{text}");
+        let quoted = content.as_text(CatalogProse::Quoted);
+        assert!(quoted.contains("> definitions: v99"), "{quoted}");
     }
 
     /// Every hostile cell in the shared corpus stays arbitrary, un-structural text in the answer's

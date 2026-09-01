@@ -5,8 +5,8 @@
 //! this identifier one we accept". It says nothing a distributor can hand on. Several of the
 //! identifiers on that allowlist - Apache-2.0 and MIT among them - oblige whoever redistributes a
 //! binary to carry the licence and the copyright notice of what is inside it, and until this file
-//! existed the only output anybody could obtain was a CI artifact from `licence-review.yml` that
-//! expires after ninety days, is not signed, and is not committed. `docs/adr/0021` said the
+//! existed the only output anybody could obtain was an expiring, unsigned CI artifact.
+//! `docs/adr/0021` said the
 //! adjacent half out loud: *"There is no attribution document, and `NOTICE` still says nothing
 //! about third-party crates."* This is the mechanism for that sentence.
 //!
@@ -59,7 +59,7 @@
 //!
 //! * **Not that the licence expression is TRUE of the crate's source.** It is what the manifest
 //!   declares, copied through and now compared. Checking it against the licence FILES in a crate's
-//!   tree is a source scan, which `.github/actions/licence-review`'s header declines at length.
+//!   tree is a source scan this repository does not perform.
 //! * **Not that it is the list a given binary LINKS.** `Cargo.lock` records what cargo resolved.
 //!   `docs/adr/0021` argues that at length against generating an SBOM this way and is right - and
 //!   for an attribution document the error points the other way: naming a crate that did not ship
