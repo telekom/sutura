@@ -2768,9 +2768,20 @@
 
 <h1 id="serving-over-http">Serving over HTTP<a class="headerlink" href="#serving-over-http" title="Permanent link">&para;</a></h1>
 <p><code>sutura-serve</code> answers certified questions over HTTP. It is a <strong>second binary</strong>, separate from the
-<code>sutura</code> command-line tool, and the release artifacts do not contain it: the shipped image holds one
-executable with no server in it, and putting an async runtime, an I/O driver and a web framework
-into all four cross-compiled targets is a decision rather than a side effect.</p>
+<code>sutura</code> command-line tool, and <strong>a release publishes it</strong>: a tarball and a container image at each of
+the four shipped triples, signed and with provenance like everything else on the page.</p>
+<p>That is a change. Until then the release artifacts contained the command-line tool and nothing else,
+so the HTTP surface, the caller-token verification, the rate limiter and the generated interface
+description shipped in no artefact on any platform, and this page's only answer to "how do I run it"
+was <code>cargo run</code>. It is still a second binary rather than a subcommand: <code>sutura</code> is a tool a person
+runs and this is a service a platform schedules, and folding an async runtime, an I/O driver and a web
+framework into the former would put them in every <code>sutura compile</code>.</p>
+<p><strong>What the published server does not carry</strong> is in-process TLS and the BigQuery adapter. Both are
+default-off features, both cost an outbound rustls closure on two statically linked triples, and both
+are a <strong>startup refusal that names the feature</strong> rather than a silent degradation - so asking for
+either on a published binary stops the process rather than serving something weaker than asked for.
+A deployment that needs one builds from source; <a href="#terminating-it-in-this-process">Terminating it in this
+process</a> and the <code>bigquery</code> source notes below say which command.</p>
 <h2 id="read-this-part-first">Read this part first<a class="headerlink" href="#read-this-part-first" title="Permanent link">&para;</a></h2>
 <p><strong>A caller's identity can now be established, and it is still not per-caller access.</strong> Those are two
 different sentences and a deployment that reads them as one is the failure this section exists to
@@ -3708,8 +3719,10 @@ the block above:</p>
   refuses the source at startup, naming the feature. Default-off because the adapter's wire pulls an
   outbound TLS stack, and two of the four release triples are musl - so asking for it is a build
   decision a reviewer can see in a manifest line.</li>
-<li><strong>No published artifact opens it.</strong> The image and the cross-compiled binaries are <code>sutura-cli</code>, which
-  links the in-process engine only.</li>
+<li><strong>No published artifact opens it, and that is now a FEATURE decision rather than a packaging one.</strong>
+  A release publishes <code>sutura-serve</code>, and it publishes it with cargo's default features - so
+  <code>bigquery</code> is off in every published tarball and image. Opening a dataset means building from
+  source with <code>--features bigquery</code>.</li>
 <li><strong>One process opens one KIND of data system at a time.</strong> A catalog whose models sit on a <code>files</code>
   source and a <code>bigquery</code> source is refused at startup, naming both entries - the registry a process
   holds is generic in one adapter type, and the alternative is a source nothing opened.</li>
@@ -3831,13 +3844,15 @@ segment, and whether that segment is acceptable is a question about the cluster 
 mutual TLS between pods answers it differently from a flat one, and nothing here pretends to know.</p>
 <h3 id="terminating-it-in-this-process">Terminating it in this process<a class="headerlink" href="#terminating-it-in-this-process" title="Permanent link">&para;</a></h3>
 <p>For the deployment where nothing sits in front. It needs <strong>a build that has a TLS listener in it</strong>,
-which the default build does not:</p>
+which neither the default build nor the published binary is:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
 </span></code></pre></div>
 <p>The feature is default-off because most deployments do not use it, and a TLS stack compiled into an
-artifact that will never present a certificate is cost with no return. With the feature off the
-dependency is absent from the build rather than merely unused, and asking for <code>in-process</code>
-termination is a startup refusal that names the feature - so the two cannot disagree.</p>
+artifact that will never present a certificate is cost with no return - a cost paid four times over
+on the shipped triples, two of which are statically linked. With the feature off the dependency is
+absent from the build rather than merely unused, and asking for <code>in-process</code> termination is a startup
+refusal that names the feature - so the two cannot disagree, and a published binary handed this
+configuration stops rather than serving cleartext.</p>
 <p>Then:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">security</span><span class="p">:</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
@@ -3939,11 +3954,61 @@ says "stop on time even if that means abandoning an answer in flight", which is 
 for a deployment being replaced. Nothing here can know how long a question takes, so nothing here can
 check it - the number that <em>is</em> checked is that it is neither zero nor above five minutes.</p>
 <h2 id="running-it">Running it<a class="headerlink" href="#running-it" title="Permanent link">&para;</a></h2>
-<p>The engine reads files, so there is nothing to provision:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">SUTURA__CATALOG__DATA_DIR</span><span class="o">=</span>examples/single-player/data<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve
+<p>The engine reads files, so there is nothing to provision. Three ways in, and they take the same
+environment - which is <strong>not</strong> three catalog keys: a <code>sources.&lt;alias&gt;</code> entry says what kind of data
+system the catalog's models read, where its files are and which identity a query reaches it as, and
+a catalog naming a source nobody declared is a startup refusal that names the source.</p>
+<p><strong>From a published release</strong>, with no Rust toolchain. Take the tarball for your triple - the musl
+ones are statically linked and need no libc at all - and verify it before you run it;
+<a href="../verifying-a-release/">verifying a release</a> is that page.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>sutura-serve-x86_64-unknown-linux-musl.tar.gz
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">E</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/examples/single-player"</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$E</span><span class="s2">/catalog"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$E</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">  </span>./sutura-serve
+</span></code></pre></div>
+<p><strong>Or the image.</strong> The <code>-serve</code> tags are this binary; the unsuffixed ones are the command-line tool.
+The entrypoint is the server and it takes no arguments, so <code>docker run</code> with none starts it.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--network<span class="w"> </span>host<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/examples/single-player:/examples:ro"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span>/examples/catalog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span>/examples/data<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">  </span>ghcr.io/telekom/sutura:latest-serve
+</span></code></pre></div>
+<p><strong><code>--network host</code> rather than <code>-p 8080:8080</code>, and the difference is a startup refusal rather than a
+preference.</strong> The default bind is loopback, and inside a container loopback is the container - so a
+published port would reach nothing. Binding <code>0.0.0.0</code> instead makes this deployment one other hosts
+can reach, and that needs <code>security.access_token</code> and a <code>security.tls_termination</code> that says which
+cleartext hop the token crosses; without both, the process refuses to start and names both. Which is
+the right shape for a real deployment and the wrong one for reading this page. The image runs as uid
+65532 with no shell and no package manager in it.</p>
+<p><strong>Every published x86_64 image is smoke-tested with this shape before a release is cut</strong> -
+<code>.github/serve-smoke.sh</code>, the same mount and the same keys plus a port of its own - and the test is
+not a liveness probe. It starts the image, asks the <code>recurring_revenue</code> question from
+<a href="https://github.com/telekom/sutura/tree/main/examples/single-player"><code>examples/single-player</code></a>,
+checks the certified January figure is in the answer, and checks that a question the catalog refuses
+comes back <code>403</code>. The arm64 pair is built and not run, because executing it would need an emulator
+registered on the runner.</p>
+<p><strong>Or from source</strong>, which is what a change to this repository is tested with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nv">E</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/examples/single-player"</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$E</span><span class="s2">/catalog"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$E</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve
 </span></code></pre></div>
 <p>It binds <code>127.0.0.1:8080</code>, needs no token there, and serves the browser interface at <code>/docs</code>. Startup
 loads the catalog through its port and re-executes <strong>every declared anchor</strong> against the data system;
