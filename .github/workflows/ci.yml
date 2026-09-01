@@ -286,6 +286,22 @@ jobs:
           printf 'shellcheck: %d script(s)\n' "${#scripts[@]}"
           test "${#scripts[@]}" -gt 0
           nix run .#shellcheck -- -x "${scripts[@]}"
+          # AND THE SHELL INSIDE A COMPOSITE ACTION, which neither tool above reaches.
+          # `actionlint` is the one that would normally carry it - it shells each workflow's
+          # `run:` block out to shellcheck itself - and it CANNOT READ a composite action:
+          # measured against 1.7.12, handed `.github/actions/attest-and-sign/action.yml` it
+          # reports `"jobs" section is missing in workflow`. The glob above cannot see them
+          # either, because a `run:` block is not a `.sh` file. So the release path's own
+          # `cosign` invocations were shell nothing had ever linted. `cargo xtask action-shell`
+          # extracts each block into a real file with a pointer back to its source line, and it
+          # fails closed: no action directory, or a composite action it read no shell out of, is
+          # a non-zero exit rather than a zero-script run that reads as coverage.
+          actions_out="$(mktemp -d)"
+          nix run .#xtask -- action-shell "$actions_out"
+          mapfile -t action_scripts < <(find "$actions_out" -name '*.sh' | sort)
+          printf 'shellcheck: %d composite-action script(s)\n' "${#action_scripts[@]}"
+          test "${#action_scripts[@]}" -gt 0
+          nix run .#shellcheck -- -x "${action_scripts[@]}"
 
       - name: Tests
         if: steps.classify.outputs.rust == 'true'

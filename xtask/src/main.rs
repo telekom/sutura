@@ -7,8 +7,10 @@
 //! Gates live in one binary rather than a script per check: one thing to install, one language
 //! to review, and they are unit-tested by `cargo nextest run --workspace` like any other code.
 
+mod action_shell;
 mod api_docs;
 mod arrow_major;
+mod attribution;
 mod boundaries;
 mod branches;
 mod causality;
@@ -143,6 +145,16 @@ const TASKS: &[Task] = &[
         run: shared_client::run,
     },
     Task {
+        // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
+        // GENERATED artefact checked against the file it is generated from, read as text so the
+        // check needs no resolver. `docs/adr/0021`'s attribution amendment is the decision, and
+        // `just attribution` is the fix every failure message names.
+        name: "check-attribution",
+        description: "ATTRIBUTION.md names every third-party crate in Cargo.lock",
+        kind: Kind::Hygiene,
+        run: attribution::run_check,
+    },
+    Task {
         name: "line-endings",
         description: "every text file uses LF, not CRLF",
         kind: Kind::Hygiene,
@@ -267,6 +279,27 @@ const TASKS: &[Task] = &[
         description: "docs/api/*.md is what the generator produces (NIGHTLY; compiles)",
         kind: Kind::Standalone,
         run: api_docs::run,
+    },
+    Task {
+        // NOT `Kind::Hygiene`, and for `check-api-docs`' reason rather than its own: it invokes
+        // `cargo metadata`, which needs a resolvable registry, and the hygiene sweep runs inside a
+        // nix sandbox with no network. `check-attribution` above is the half that runs everywhere,
+        // and it reads `Cargo.lock` precisely so it can.
+        name: "attribution",
+        description: "regenerate ATTRIBUTION.md from cargo metadata (needs a resolvable registry)",
+        kind: Kind::Standalone,
+        run: attribution::run_generate,
+    },
+    Task {
+        // NOT `Kind::Hygiene`, and for a different reason from `check-api-docs`: it compiles
+        // nothing and needs no network, but it is only half a gate. It EXTRACTS; the verdict comes
+        // from `shellcheck`, which is a nix-pinned tool the cheap sweep must not require. So the
+        // pairing lives in `just lint-actions` and in `ci.yml`'s workflow-analysis step, beside
+        // the `actionlint` call that cannot read these files at all.
+        name: "action-shell",
+        description: "extract every composite action's shell into a directory, for shellcheck",
+        kind: Kind::Standalone,
+        run: action_shell::run,
     },
     Task {
         name: "fmt",

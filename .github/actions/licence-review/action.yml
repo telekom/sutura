@@ -1,0 +1,187 @@
+name: The curated licence review
+description: >
+  Run OSS Review Toolkit over a copy of the checkout, render CycloneDX, SPDX, a NOTICE file and a
+  browsable report, ask OSV about advisories, and pack the result into one tarball.
+
+inputs:
+  output-dir:
+    description: Directory the reports are written under, as `<output-dir>/reports`.
+    required: false
+    default: ort-output
+  pack-to:
+    description: >
+      Where to write the report tarball, or empty to write none. A path ending in `.tar.gz`; a
+      `.sha256` sidecar is written beside it. `release.yml` asks for one because the tarball is a
+      signed release asset; the scheduled run does not, because an upload-artifact of the directory
+      is what somebody debugging a red schedule wants.
+    required: false
+    default: ""
+  minimum-gb:
+    description: >
+      Free space to reclaim before pulling the image. Here rather than in the caller because the
+      image is the reason the requirement exists - it is the largest thing this repository pulls
+      anywhere - so the number travels with the step that needs it.
+    required: false
+    default: "25"
+
+outputs:
+  tarball:
+    description: The tarball written, or empty if `pack-to` was empty.
+    value: ${{ steps.pack.outputs.tarball }}
+
+# A LOCAL composite action, for `attest-and-sign`'s reasons and one of its own.
+#
+# The shared reason: every action this repository calls is pinned by digest and reviewed, and a
+# local one cannot drift from the workflow that uses it - one file, one behaviour, no version to
+# bump. It is `./.github/actions/...`, so it is the same commit as the caller by construction.
+#
+# ITS OWN REASON. This sequence now has TWO callers and they are in different workflows, which is
+# the fact that moved it here. `licence-review.yml` runs it on a schedule, where the output is
+# evidence for a person. `release.yml` runs it on a tag, where the output is a signed release
+# asset - and it has to be there rather than uploaded afterwards, because this repository has
+# GitHub's immutable releases enabled: once a release is published its assets can never be added
+# to. A report produced by a second workflow racing the first cannot become an asset of it at all.
+#
+# The second caller is also under the 1000-line cap `cargo xtask max-lines` enforces, and this
+# sequence is 60 lines of it. `attest-and-sign`'s header made the same argument about the part of
+# the release path that grows; this is the next thing that grew.
+#
+# The caller needs nothing but `contents: read`. Nothing here signs, pushes or writes to the forge.
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/reclaim-disk
+      with:
+        minimum-gb: ${{ inputs.minimum-gb }}
+
+    # A COPY, and this is the important part of this action.
+    #
+    # ORT's Cargo analyzer shells out to `cargo metadata`, and the cargo it uses is the one inside
+    # that image - not `rust-toolchain.toml`'s. `cargo metadata` can REWRITE `Cargo.lock`, and a
+    # second toolchain resolving our lock file is exactly the drift this repository's flake exists
+    # to remove. So the container never sees the checkout: it gets a copy, and if anything in there
+    # rewrites a lock file it rewrites the copy's.
+    #
+    # Asserted rather than assumed at the end, because a silently modified lock file is the kind of
+    # thing that would be noticed three commits later.
+    - name: Stage a copy for the container
+      shell: bash
+      env:
+        OUT: ${{ inputs.output-dir }}
+      run: |
+        set -eu
+        mkdir -p ort-input "$OUT"
+        # `.git` included: ORT reads VCS metadata to label the result. Everything else is the tree
+        # as checked out.
+        tar -cf - --exclude=./ort-input --exclude="./${OUT}" . | tar -xf - -C ort-input
+        sha256sum Cargo.lock > lock-before.sha256
+        du -sh ort-input
+
+    # Analyze, then advise, then report. Written out rather than driven by the composite action
+    # `oss-review-toolkit/ort-ci-github-action`, because that action's main job is cloning the
+    # configuration repository `.ort.yml`'s header establishes does not apply - and it would be a
+    # third party in the loop for no gain.
+    #
+    # `--user`, so the reports are owned by the runner user rather than by root and the steps below
+    # can read them. `-P ort.forceOverwrite=true` so a re-run does not abort on its own output.
+    #
+    # THE ONE UNPINNED TOOLCHAIN IN THIS REPOSITORY, stated because it is a real exception. ORT is
+    # a JVM application and is not in nixpkgs, so it cannot come from `flake.lock` like everything
+    # else. It is pinned by IMAGE DIGEST, and no build reads what it produces.
+    #
+    # Pinned by DIGEST and labelled by tag. Docker validates both, so the tag is documentation that
+    # cannot be a lie: if the publisher moves `92.5.0`, the pull fails rather than silently running
+    # something else. The digest was read with `crane digest` and cross-checked against
+    # `skopeo inspect --raw | sha256sum` - two tools, same answer.
+    #
+    # NO EVALUATOR and NO SCANNER, and both absences are decisions with reasons - ORT's policy
+    # rules and licence classifications live in a configuration repository that does not apply
+    # here, and a source-code licence scan of this closure is hours of work wanting a shared result
+    # cache. `licence-review.yml`'s header carries both arguments in full. What this uses is the
+    # analyzer's DECLARED licences, which is what crate metadata carries - the same input
+    # `ATTRIBUTION.md` is generated from, by a different tool, which is the point of running both.
+    - name: ORT
+      shell: bash
+      env:
+        OUT: ${{ inputs.output-dir }}
+        ORT_IMAGE: ghcr.io/oss-review-toolkit/ort:92.5.0@sha256:eab01e27069abd0b18c1509b8d639c8b3cc30f44d1eed654e4a3cb6d29cdcc42
+      run: |
+        set -eu
+        run_ort() {
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e JDK_JAVA_OPTIONS=-Xmx5g \
+            -v "${PWD}/ort-input:/project" \
+            -v "${PWD}/${OUT}:/out" \
+            "$ORT_IMAGE" "$@"
+        }
+
+        echo "::group::analyzer"
+        run_ort --info -P ort.forceOverwrite=true \
+          analyze -i /project -o /out/analyzer -f JSON
+        echo "::endgroup::"
+
+        # OSV rather than every advisor: it needs no API key, covers crates.io, and an advisory
+        # source that needs a secret cannot run on a schedule without one.
+        echo "::group::advisor"
+        run_ort --info -P ort.forceOverwrite=true \
+          advise -i /out/analyzer/analyzer-result.json -o /out/advisor -a OSV
+        echo "::endgroup::"
+
+        # `PlainTextTemplate` is the one that matters and the least obvious: it renders the NOTICE
+        # file. The other three are for machines, for ingestion pipelines, and for a human
+        # respectively.
+        echo "::group::reporter"
+        run_ort --info -P ort.forceOverwrite=true \
+          report -i /out/advisor/advisor-result.json -o /out/reports \
+          -f CycloneDx,SpdxDocument,PlainTextTemplate,WebApp
+        echo "::endgroup::"
+
+    # The lock file the CONTAINER could have touched is the copy's; this proves the real one is
+    # untouched. Cheap, and it is the whole reason the copy exists.
+    - name: The real Cargo.lock is unchanged
+      if: always()
+      shell: bash
+      run: |
+        set -eu
+        if ! sha256sum -c lock-before.sha256; then
+          echo "::error::Cargo.lock changed during the licence review. The container was supposed to see a copy - check the 'Stage a copy' step."
+          exit 1
+        fi
+        echo "Cargo.lock unchanged"
+
+    # ONE TARBALL, because a release asset is a thing a consumer downloads and verifies with one
+    # `cosign verify-blob`. The reports are four files plus a WebApp bundle; publishing them
+    # individually would be five assets, five bundles and five verifications for one document.
+    #
+    # NOT `if: always()`, unlike the upload in the scheduled workflow: a partial report is what
+    # somebody debugging a red run wants and is not something to sign and publish. A failed ORT run
+    # has already failed the step above, and the release must not carry a licence statement that is
+    # whatever survived.
+    #
+    # `--sort=name` and a fixed `--mtime`, so two runs over the same tree produce the same bytes.
+    # Without them the tarball's digest is a function of directory order and of when it ran, which
+    # makes a signature over it unreproducible for no reason.
+    - name: Pack the report
+      id: pack
+      if: inputs.pack-to != ''
+      shell: bash
+      env:
+        OUT: ${{ inputs.output-dir }}
+        PACK_TO: ${{ inputs.pack-to }}
+      run: |
+        set -eu
+        if [ ! -d "${OUT}/reports" ]; then
+          echo "::error::${OUT}/reports does not exist: the reporter produced nothing to pack"
+          exit 1
+        fi
+        mkdir -p "$(dirname "$PACK_TO")"
+        tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+          -czf "$PACK_TO" -C "$OUT" reports
+        ( cd "$(dirname "$PACK_TO")" && sha256sum "$(basename "$PACK_TO")" > "$(basename "$PACK_TO").sha256" )
+        if [ ! -s "$PACK_TO" ]; then
+          echo "::error::${PACK_TO} is empty"
+          exit 1
+        fi
+        printf 'tarball=%s\n' "$PACK_TO" >> "$GITHUB_OUTPUT"
+        ls -l "$PACK_TO" "${PACK_TO}.sha256"

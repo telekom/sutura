@@ -293,104 +293,16 @@ jobs:
           esac
           ls -l dist images
 
-      # An SBOM of the IMAGE, per target, and what it does and does not describe is the whole
-      # point of this comment.
-      #
-      # It reads the image TARBALL rather than the daemon or the registry, so what it inventories
-      # is exactly the bytes `publish` pushes - not an image resolved by a tag that could have
-      # moved between two steps. Decompressed to a scratch file rather than piped, because
-      # `docker-archive:` seeks within the archive; the copy is transient and is deleted in the
-      # same step, so peak disk is what the `Image` step above already reached.
-      #
-      # In `build` and not in `publish`, for the reason the header gives: this is compute, and the
-      # job holding the write tokens compiles and inspects nothing.
-      #
-      # **WHAT IT COVERS.** The image's files - which is the binary, `cacert` and `tzdata`, since
-      # there is no shell and no package manager in there - AND the crate graph the binary was
-      # compiled from, because `nix/auditable.nix` builds it with `cargo auditable` and `syft`
-      # reads that ELF section back out with its `cargo-auditable-binary-cataloger`.
-      #
-      # **THE SECOND HALF IS NOT READ OUT OF A LOCK FILE, AND THAT IS THE POINT.** A document
-      # generated from `Cargo.lock` beside the binary is a CHECKED claim about it - the two can
-      # drift and neither says so - and it would also be the WRONG graph: `sutura-cli` links the
-      # engine only, while `libduckdb-sys` and the BigQuery wire put `ureq`, rustls and `ring` in
-      # the resolve for a binary that links none of them. What is inventoried here is what the
-      # compiler actually put in, from inside the bytes being scanned. `nix/auditable.nix` carries
-      # the argument; `docs/adr/0021`'s amendment is the decision.
-      #
-      # Two formats, because they have different consumers rather than because more is better.
-      # CycloneDX is what `cosign attest --type cyclonedx` carries into the registry and what the
-      # licence-review toolchain reads; SPDX is what most ingestion pipelines take. Both are
-      # generated from one scan, so they cannot disagree.
-      #
-      # ASSERTED rather than described, like the static-linking and manifest-list claims either
-      # side of it, and the assertion is now about CONTENT rather than about the file existing.
-      # The failure this catches is specific and silent: if the embedded section stops being
-      # produced - a crane bump that drops `cargoBuildCommand`, a `cargo-auditable` that changes
-      # its wrapper - the scan still succeeds, still writes valid CycloneDX, and inventories three
-      # files. Nothing downstream can tell that apart from a correct run, so the count and one
-      # named crate are checked here.
-      - name: SBOM
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -eu
-          mkdir -p dist
-          gzip -dc "images/sutura-oci-${TARGET}.tar.gz" > sbom-input.tar
-          nix run .#syft -- scan "docker-archive:sbom-input.tar" \
-            --source-name "sutura-${TARGET}" \
-            --source-version "${GITHUB_REF_NAME}" \
-            -o "cyclonedx-json=dist/sutura-oci-${TARGET}.cdx.json" \
-            -o "spdx-json=dist/sutura-oci-${TARGET}.spdx.json"
-          rm -f sbom-input.tar
-          for sbom in "dist/sutura-oci-${TARGET}.cdx.json" "dist/sutura-oci-${TARGET}.spdx.json"; do
-            if [ ! -s "$sbom" ]; then
-              echo "::error::${sbom} was not written"
-              exit 1
-            fi
-            # No jq: it is not a pinned tool here, and neither question needs a JSON parser.
-            #
-            # **`grep -o ... | wc -l`, NEVER `grep -c`.** `grep -c` counts matching LINES, and
-            # syft writes JSON on ONE line - so it returns 1 for a document naming 241 packages
-            # and 1 for a document naming none. This step shipped with `grep -c` and would have
-            # failed every release; `ci.yml`'s cross job is what caught it, on the pull request,
-            # which is the argument for that check existing at all.
-            #
-            # COUNTED PER FORMAT rather than through a shared key. `"name":` also appears in tool
-            # blocks, properties and metadata, so it is a proxy rather than a count; CycloneDX
-            # gives every component a `"bom-ref"` and SPDX gives every package an `"SPDXID"`, and
-            # a two-line case buys an exact number.
-            case "$sbom" in
-              *.cdx.json) key='"bom-ref"' ;;
-              *) key='"SPDXID"' ;;
-            esac
-            named="$(grep -o "$key" "$sbom" | wc -l)"
-            # A FLOOR, not a fixed number. The exact count moves with every dependency bump, so
-            # pinning it would make `just update` fail on a correct tree - and this check is not
-            # about the count being right, it is about the embedded section being THERE. Without
-            # it the answer is three files; with it, the engine alone brings DataFusion, Arrow and
-            # tokio. MEASURED on 2026-08-31: 241 CycloneDX components and 242 SPDX ids, against
-            # three files without the section - so 100 sits between the two by an order of
-            # magnitude and a dropped adapter cannot trip it.
-            if [ "${named:-0}" -lt 100 ]; then
-              echo "::error::${sbom} names ${named} thing(s), expected at least 100 - the cargo auditable section is missing, so this inventories the image's files and not the crates the binary was built from"
-              exit 1
-            fi
-            # AND the engine by name. The floor above would still pass on a document listing a
-            # hundred of the wrong things; DataFusion is the one crate `sutura-cli` cannot ship
-            # without, so its absence means the section describes something other than this binary.
-            if ! grep -q '"datafusion"' "$sbom"; then
-              echo "::error::${sbom} does not name datafusion, which the shipped binary links: this is not an inventory of the crates it was built from"
-              exit 1
-            fi
-            printf '%s: %s named entries\n' "$sbom" "$named"
-          done
-          # NO `.sha256` sidecar, unlike the tarballs. The tarballs have one because they predate
-          # anything better and a consumer's script may read it; an SBOM ships from the first
-          # release that has signatures, and its Sigstore bundle already commits to its digest and
-          # says who produced it. Adding a bare hash beside a signature is a weaker mechanism next
-          # to a stronger one, and the failure mode is a reader checking the weak one.
-          ls -l dist
+      # An SBOM of the IMAGE, per target. A LOCAL composite action for `attest-and-sign`'s
+      # reasons: the sequence is a hundred lines of argument about what an inventory covers, this
+      # file is under the 1000-line cap `cargo xtask max-lines` enforces, and that header predicted
+      # the cap would be reached by the next artefact kind added to the release path. It was, by
+      # the licence statement below. The action carries the whole argument, including why the crate
+      # graph is read out of the binary rather than out of `Cargo.lock`.
+      - uses: ./.github/actions/image-sbom
+        with:
+          target: ${{ matrix.target }}
+          version: ${{ github.ref_name }}
 
       # The handover. `dist/` is release assets, `images/` is what `publish` pushes and never
       # ships, `facts/` is one line of prose for the notes.
@@ -413,6 +325,83 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  # THE LICENCE STATEMENT, and it is here rather than in `licence-review.yml` because of a
+  # property of this forge rather than a preference: this repository has GitHub's immutable
+  # releases enabled, so once a release is published its assets can never be added to. A report
+  # produced by a second workflow racing this one cannot become an asset of it, and the ninety-day
+  # CI artifact it used to be was the one output an auditor asks for and no consumer could obtain
+  # or verify. Produced here, it is signed and attached before the release is published.
+  #
+  # `needs: [gates]` and not `[build]`: it compiles nothing, so it runs beside the four cross
+  # builds. IT CAN FAIL A RELEASE, and that is the trade - `docs/adr/0021`'s attribution amendment
+  # records it. `contents: read` only; `publish` is what signs and pushes.
+  licence:
+    needs: [gates]
+    runs-on: rust-mcp
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # ORT labels its result with the project's VCS metadata, so a shallow clone would leave
+          # the report describing an unknown revision.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Straight into `dist/`, which is the directory `publish` collects and the signing action
+      # signs every file of. A new asset shape is a file landing there and needs no new signing
+      # step - the action's own header says so at length.
+      - uses: ./.github/actions/licence-review
+        with:
+          pack-to: dist/sutura-licence-review.tar.gz
+
+      # THE COMMITTED DOCUMENT, copied rather than generated: `just attribution` writes it from
+      # `cargo metadata` and `cargo xtask check-attribution` fails when it falls behind
+      # `Cargo.lock`, so the tagged tree already carries a current one and generating a second
+      # copy here would be a second owner for one artefact. Deliberately WIDER than any one
+      # binary - every crate the workspace resolves - because for attribution the safe error is
+      # naming a crate that did not ship, not omitting one that did.
+      #
+      # The count is a FLOOR, for the reason the SBOM assertion in `build` gives: pinning it would
+      # make a dependency bump fail on a correct tree. What it catches is the silent case, a
+      # generator that still writes a well formed document naming nothing.
+      - name: The attribution document travels with the report
+        run: |
+          set -eu
+          if [ ! -s ATTRIBUTION.md ]; then
+            echo "::error::ATTRIBUTION.md is missing from the checkout; 'just attribution' writes it"
+            exit 1
+          fi
+          cp ATTRIBUTION.md dist/sutura-attribution.md
+          ( cd dist && sha256sum sutura-attribution.md > sutura-attribution.md.sha256 )
+          named="$(grep -c '^| `' dist/sutura-attribution.md || true)"
+          if [ "$named" -lt 100 ]; then
+            echo "::error::sutura-attribution.md names ${named} package(s); a workspace this size resolves hundreds"
+            exit 1
+          fi
+          printf 'attribution: %s packages\n' "$named"
+
+      # NOT `release-*`, deliberately, and this is the one thing about the handover worth reading.
+      # `upload-artifact` roots an artifact at the least common ancestor of what it matched, so a
+      # single `path: dist/` produces an artifact whose entries are BARE FILE NAMES - where the
+      # matrix, matching three directories, produces one whose entries are `dist/...`. Merged into
+      # `publish` under the `release-*` pattern this would have unpacked to the workspace root and
+      # the arrival check would have reported both documents missing. So it is named out of that
+      # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
+      # correctly.
+      #
+      # Not `if: always()`: an unsigned partial report must not reach a release, and a failed ORT
+      # run has already failed above.
+      - name: Hand the report to publish
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: licence-statement
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
   # The only job that can write anything, and the only one that builds nothing.
   #
   # Gated at the JOB level rather than per step, so on a branch dispatch the job holding the
@@ -420,7 +409,7 @@ jobs:
   # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
   # `vN.N.N` tag may move `:latest`, which is what consumers pull.
   publish:
-    needs: [build]
+    needs: [build, licence]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: rust-mcp
     timeout-minutes: 60
@@ -469,6 +458,14 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
+      # Its own step for the reason the upload states: this artifact is rooted at `dist/`, so its
+      # entries are bare file names and it has to be told where they go.
+      - name: Collect the licence statement
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: licence-statement
+          path: dist
+
       # The failure mode the split introduces, gated before anything is published. A single job
       # could not lose a target; four jobs and an artifact round-trip can, and a release that
       # quietly shipped three binaries and a table one row short is exactly the kind of thing
@@ -510,6 +507,24 @@ jobs:
             exit 1
           fi
           ls -l dist images facts
+
+      # THE LICENCE STATEMENT, asserted for the reason the step above exists: it is written by the
+      # `licence` job, and a release quietly shipping no statement of what a consumer may do with
+      # it is the state this path was built to leave. Two documents, because they answer two
+      # questions - `sutura-attribution.md` is the committed list of every crate the workspace
+      # resolves, `sutura-licence-review.tar.gz` is ORT's curated report over the same metadata
+      # plus an advisory pass. `docs/adr/0021`'s attribution amendment says which owns what.
+      - name: The licence statement arrives with the release
+        run: |
+          set -eu
+          for f in sutura-attribution.md sutura-attribution.md.sha256 \
+                   sutura-licence-review.tar.gz sutura-licence-review.tar.gz.sha256; do
+            if [ ! -s "dist/${f}" ]; then
+              echo "::error::dist/${f} is missing or empty: the 'licence' job handed over nothing"
+              exit 1
+            fi
+          done
+          ls -l dist/sutura-attribution.md dist/sutura-licence-review.tar.gz
 
       # Only from a tag that looks like a release. Without this a `workflow_dispatch` on any
       # branch computed a tag from the branch name and moved `:latest`, which is what consumers
@@ -811,6 +826,19 @@ jobs:
             echo "| --- | --- |"
             echo "| the files in the image: the binary, CA certificates, tzdata | the image layers |"
             echo "| the crates the binary was compiled from | a \`cargo auditable\` section inside the binary, not from \`Cargo.lock\` |"
+
+            # THE LICENCE STATEMENT, as a table for the reason everything here is one: it is the
+            # facts a reader chooses on. Two documents and one row each, because they answer two
+            # questions and a reader who takes the wrong one gets the wrong answer. In THIS group
+            # rather than its own, because shellcheck's SC2129 counts redirects to one file and a
+            # fourth `} >> notes.md` is what tipped it - and the two tables are adjacent anyway.
+            echo
+            echo "### Licence"
+            echo
+            echo "| Document | Covers |"
+            echo "| --- | --- |"
+            printf "| [\`sutura-attribution.md\`](%s/sutura-attribution.md) | every third-party crate this workspace resolves and the licence it declares; committed, generated from \`cargo metadata\` |\n" "$base"
+            printf "| [\`sutura-licence-review.tar.gz\`](%s/sutura-licence-review.tar.gz) | the curated review: CycloneDX, SPDX, a rendered NOTICE and an OSV advisory pass over the same declared metadata |\n" "$base"
           } >> notes.md
 
           {
@@ -819,7 +847,7 @@ jobs:
             echo
             echo "| Artefact | Sigstore bundle | SLSA provenance | Registry signature |"
             echo "| --- | --- | --- | --- |"
-            echo "| binaries, image tarballs, SBOMs, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
+            echo "| binaries, image tarballs, SBOMs, the two licence documents, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
             echo "| the \`.sha256\` sidecars | no: the bundle above already commits to the digest | yes | n/a |"
             echo "| images, four leaves and two manifest lists | n/a | the two manifest lists | \`cosign\`, all six references |"
             echo "| each leaf image's CycloneDX SBOM | n/a | n/a | \`cosign attest --type cyclonedx\` |"

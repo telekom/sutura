@@ -18,6 +18,9 @@ second, and nothing says the third.
 lock file.** Why that distinction is worth the sentence is under
 [What the SBOM covers](#what-the-sbom-covers).
 
+**A release also carries a licence statement, and it is a different list on purpose.** What each of
+the two documents answers is under [The licence statement](#the-licence-statement).
+
 ## What is signed
 
 | Artefact | Sigstore bundle | SLSA provenance | Registry signature |
@@ -25,6 +28,7 @@ lock file.** Why that distinction is worth the sentence is under
 | the four binary tarballs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | the two musl image tarballs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | the eight SBOMs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
+| the two licence documents | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | `image-digests.txt` | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | the `.sha256` sidecars | no | yes | n/a |
 | the four leaf images | n/a | no | `cosign sign`, by digest |
@@ -150,6 +154,45 @@ Whether any of them has an advisory against it is `cargo-deny` against the RustS
 runs in CI on every dependency change and weekly regardless - a run, not a property of the artefact.
 `cargo audit --bin` will read this section and answer that question against the file you have.
 
+## The licence statement
+
+Two assets, and they answer two different questions. Taking the wrong one gets you the wrong answer,
+so the difference comes first.
+
+| Asset | What it is | Generated from |
+| --- | --- | --- |
+| `sutura-attribution.md` | every third-party crate this workspace resolves, with the SPDX expression its manifest declares | `cargo metadata`, committed as `ATTRIBUTION.md` and copied into the release |
+| `sutura-licence-review.tar.gz` | the curated review: CycloneDX, SPDX, a rendered NOTICE and an OSV advisory pass | OSS Review Toolkit, run in the release workflow |
+
+Both are signed and both carry provenance, so they verify exactly like a binary tarball:
+
+```bash
+cosign verify-blob \
+  --bundle sutura-attribution.md.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  sutura-attribution.md
+```
+
+**The attribution document is deliberately WIDER than the SBOM, and that is not a contradiction.**
+The SBOM says what is *in* one binary, so overstating it would be a false statement about the file
+in your hand - which is why that list lives inside the executable. The attribution document
+discharges a licence obligation, and there the errors are not symmetric: naming a crate that did not
+ship costs you one line to read, while omitting one that did ship is the failure the document exists
+to prevent. So it names every crate the workspace resolves at all features, which is more than
+`sutura-cli` links.
+
+**Why it is committed rather than generated at release time.** It has an owner and a gate:
+`just attribution` writes it and `cargo xtask check-attribution` fails when it falls behind
+`Cargo.lock`, so it cannot quietly drift. The release copies it and asserts it names at least a
+hundred crates, which catches the silent case - a generator that still writes a well formed document
+naming nothing.
+
+**What neither document carries is the notice text of each dependency.** An Apache-2.0 crate's own
+`NOTICE` file lives in its source tree rather than in its metadata, so nothing that reads metadata
+can render one. That is the largest remaining gap in the obligation, and closing it needs a
+source-code licence scan of the whole closure, which is deliberately not run.
+
 ## What none of this establishes
 
 Stated plainly, because a page full of green checkmarks invites the larger reading:
@@ -160,8 +203,10 @@ Stated plainly, because a page full of green checkmarks invites the larger readi
 - **Not that dependencies are free of known advisories.** That is `cargo-deny` against the RustSec
   database, run in CI on every dependency change and weekly regardless, and its verdict is a CI run
   rather than an artefact you can check offline.
-- **Not that the licence obligations of the dependency set are discharged.** `deny.toml` holds an
-  exact allowlist of SPDX identifiers, which is a policy check and not an attribution document.
+- **Not that the licence obligations of the dependency set are fully discharged.** There is an
+  attribution document now, and it is signed - see above. What is still missing is the notice text
+  each Apache-2.0 dependency's own `NOTICE` file carries, which is in its source and not in its
+  metadata. `deny.toml`'s allowlist remains a policy check either way.
 - **Not that the crate list covers everything in the binary.** It is what `cargo` compiled in. C
   that a build script compiled - the allocator, for one - is linked into the executable and is not
   a crate, so it appears in the image inventory as a file and not in the crate list as a package.
