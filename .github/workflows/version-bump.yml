@@ -1,8 +1,8 @@
 # One job, two behaviours, split by WHICH BRANCH it ran on.
 #
 #   push to dev          -> write CHANGELOG.md and nothing else.
-#   push to main         -> work out the next version, tag it, and ask release.yml AND docs.yml
-#                           to run on that tag. Then put the release commit back on dev.
+#   push to main         -> work out the next version and tag it; the tag push starts release.yml
+#                           and docs.yml. Then put the release commit back on dev.
 #   workflow_dispatch    -> the same, decided by the ref it was dispatched on.
 #
 # This file publishes nothing itself.
@@ -28,11 +28,49 @@
 # and still independent; it is the thing to do if promotions ever get frequent enough to hurt,
 # and it is not needed to make this safe.
 #
-# It asks, rather than leaving the tag to do it. A push made with GITHUB_TOKEN does not start
-# a workflow run - GitHub suppresses that so a workflow cannot trigger itself - so `git push
-# origin "$VERSION"` lands the tag and nothing happens. `workflow_dispatch` is the documented
-# exception to the same rule, so the release is requested explicitly, on the tag's own ref.
-# That suppression is also what stops the changelog refresh below from looping.
+# THE TAG STARTS THE RELEASE ITSELF, and that is new. It used to be dispatched explicitly,
+# because a push made with GITHUB_TOKEN does not start a workflow run - GitHub suppresses that
+# so a workflow cannot trigger itself - so `git push origin "$VERSION"` landed the tag and
+# nothing happened. The two pushes to `main` now go out under a GitHub App installation token,
+# which GitHub documents as the way to trigger events that require a token, so the tag push
+# starts release.yml and docs.yml on its own and the dispatch step is gone.
+#
+# WHY AN APP TOKEN AT ALL, and this was MEASURED rather than anticipated - run 33488456161 on
+# 2026-09-01 died here, trying to release `v0.3.0`:
+#
+#   remote: error: GH013: Repository rule violations found for refs/heads/main.
+#   remote: - Changes must be made through a pull request.
+#   remote: - Required status check "ci" is expected.
+#   remote: - Changes must be made through the merge queue
+#
+# Three rules, one direct push. The release commit is a direct push by design and cannot become a
+# pull request without a human merging every release. GITHUB_TOKEN cannot be given a bypass
+# without bypassing every workflow in the repository - a ruleset bypass entry is an ACTOR, and
+# `github-actions[bot]` is the actor for all of CI - so the bypass is a dedicated App installed
+# on this repository with `Contents: write` and nothing else: one actor, one commit, in the
+# bypass list for `main` by name.
+#
+# WHO OWNS THAT APP IS A LIMIT, not a detail, and it is stated here because nothing enforces it:
+# the App is owned by a PERSONAL account today, because only an organisation OWNER can register
+# an org-owned App or accept a transfer, and it had to be installable to unblock a release. Two
+# consequences follow. It is registered PUBLIC - a private App can only be installed on the
+# account that owns it, so a personal private App can never reach this organisation's repository
+# - which costs a discoverable App page and nothing else, since an installation only ever reaches
+# repositories the installer owns and the private key never leaves this repository's `release`
+# environment. And the release path depends on one person's account surviving, which is an
+# offboarding hazard rather than a security one. THE FIX IS A TRANSFER to the organisation, at
+# which point the App can go private again; it is an owner's click and it is owed.
+#
+# THE ORDER OF THE TWO PUSHES IS WHAT KEPT THAT FAILURE CLEAN, and it stays that way: the commit
+# goes first, so `set -eu` aborted before the tag push and no `v0.3.0` tag exists. A tag pushed
+# before its commit lands is a release pointing at an object `main` does not contain, which
+# release.yml would then happily publish.
+#
+# THE SUPPRESSION WE LOSE HAS TO BE REPLACED, and it is, in two places. GITHUB_TOKEN's silence
+# was also what stopped this workflow looping, so both this file and ci.yml now skip a push
+# whose head commit is the `chore(release):` commit - see the guard below and the `if:` on
+# ci.yml's root job. The changelog refresh keeps pushing under GITHUB_TOKEN, so that path is
+# still suppressed the way it always was.
 #
 # CHANGELOG.md is written on EVERY push, not only when the version moves. Written only on a
 # release, the file sat on main with an `## Unreleased` heading listing a subset of what main
@@ -69,11 +107,29 @@ concurrency:
 
 jobs:
   bump:
+    # SKIPPED ON THE COMMIT IT MADE ITSELF. The release commit reaches `main` under an App
+    # token, and such a push DOES start workflow runs - so without this the release commit
+    # re-enters here. It terminates on its own (the tag it just made is the newest, so no
+    # version moves) but it costs a run, and a loop that happens to be short is still a loop.
+    #
+    # `head_commit` exists on `push` and on nothing else, so `workflow_dispatch` is unaffected
+    # and reads the empty string. The subject is the one written below, and `cargo xtask
+    # commit-msg` is what keeps that prefix from drifting.
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     runs-on: rust-mcp
     timeout-minutes: 60
+    # The environment is what keeps the App's private key out of every other job: nothing else
+    # in this repository declares it, and a pull request from a fork cannot reach it at all.
+    #
+    # ITS BRANCH POLICY ADMITS `dev` AS WELL AS `main`, which is weaker than it could be and is
+    # written down rather than left to be discovered: one job serves both roles, and an
+    # environment gate is job-level, so a `main`-only policy would refuse the `dev` changelog
+    # refresh outright. The narrowing that would give `main` only is splitting the release path
+    # into its own job - worth doing, and not needed to make this correct, because the ref guard
+    # below and the App's single `Contents: write` permission bound it either way.
+    environment: release
     permissions:
-      contents: write   # commit the changelog, push the tag
-      actions: write    # ask release.yml to run; the tag push cannot (see the note above)
+      contents: write   # commit the changelog on the trunk under GITHUB_TOKEN
     steps:
       # A `workflow_dispatch` on any branch would otherwise reach the pushes below, putting
       # unreviewed commits on a protected branch - which on `main` then tags and publishes. The
@@ -102,6 +158,10 @@ jobs:
         with:
           # git-cliff reads history; a shallow clone gives it one commit and a wrong answer.
           fetch-depth: 0
+          # DELIBERATELY THE DEFAULT TOKEN, not the App's. The credential this leaves in the
+          # clone is the one the changelog refresh pushes with, and GITHUB_TOKEN's inability to
+          # start a workflow run is exactly what keeps that path from looping. The two pushes
+          # that need the bypass name their remote explicitly instead - see `Commit and tag`.
           persist-credentials: true
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -217,6 +277,19 @@ jobs:
           git push origin "HEAD:${BRANCH}" \
             || echo "::warning::${BRANCH} moved; the next push rewrites it"
 
+      # Only on the release path, so a `dev` run mints nothing. `client-id` rather than the
+      # deprecated `app-id`, and the token is narrowed a second time here: the App holds
+      # `Contents: write` and this asks for no more, so a permission added to the App later
+      # does not silently widen what this job holds. The action revokes it when the job ends.
+      - name: Mint the release App's token
+        id: app-token
+        if: steps.next.outputs.release == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
       # The manifest version must match the tag, or a built binary reports one version
       # while the release says another.
       - name: Set the workspace version
@@ -255,8 +328,20 @@ jobs:
           # guard's output, because this step only ever runs on `main` and the branch it pushes
           # BACK to is the other one - deriving it from `steps.ref` would name `main` twice.
           TRUNK: dev
+          # The App's installation token, and the ONLY step that has it. Written to a remote URL
+          # rather than into the clone's config, so the two pushes that need the ruleset bypass
+          # are the only ones that use it and the trunk push below stays on GITHUB_TOKEN.
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -eu
+          # Refuse rather than fall back. Without the token the pushes below would go out under
+          # GITHUB_TOKEN, be refused by the `main` ruleset, and take the tag with them - which
+          # is a half-made release rather than a failure somebody can read.
+          if [ -z "${APP_TOKEN:-}" ]; then
+            echo "::error::the release App minted no token; nothing was pushed"
+            exit 1
+          fi
+          release_remote="https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add CHANGELOG.md Cargo.toml Cargo.lock
@@ -264,8 +349,14 @@ jobs:
           # the next changelog as an entry about itself.
           git commit -m "chore(release): ${VERSION}"
           git tag -a "${VERSION}" -m "${VERSION}"
-          git push origin HEAD:main
-          git push origin "${VERSION}"
+          # THE TWO PUSHES THE BYPASS EXISTS FOR, and the order matters: the commit first, or
+          # the tag names an object `main` does not contain. `--no-write-fetch-head` is not
+          # needed here; what is needed is that neither URL is echoed - `set -x` anywhere in
+          # this step would put the token in the log.
+          git push "$release_remote" HEAD:main
+          # This one starts release.yml and docs.yml, because it is made with an App token. See
+          # the header: it used to start nothing and both were dispatched by hand below.
+          git push "$release_remote" "${VERSION}"
 
           # AND BACK ONTO THE TRUNK, because the release commit is the one thing that lands on
           # `main` without going through `dev`. Left alone, `dev`'s `Cargo.toml` stays a version
@@ -281,51 +372,22 @@ jobs:
             echo "::warning::Fix with: git switch ${TRUNK} && git merge --ff-only main && git push"
           }
 
-      # The tag is pushed; nothing has started. See the note at the top of this file: a push
-      # made with GITHUB_TOKEN does not start a workflow run, so release.yml has to be asked.
-      # Its own `permissions` and its tag-shape guards are unchanged by being dispatched - the
-      # ref is the tag, so `github.ref` is `refs/tags/vX.Y.Z` and every guard in it still
-      # holds.
+      # THE DISPATCH STEP THAT USED TO BE HERE IS GONE, and what it was for is worth keeping:
+      # the tag push above used to start nothing, because a push made with GITHUB_TOKEN cannot
+      # trigger a workflow, so this step asked release.yml AND docs.yml to run on the tag's own
+      # ref. It is unnecessary now that those two pushes go out under an App installation token,
+      # which GitHub documents as the way to trigger events that require a token - and it is not
+      # merely unnecessary but WRONG to keep, because the tag push now starts both workflows and
+      # a dispatch would start a second copy of each.
       #
-      # Retried, because the ref was created seconds ago and the API can 404 on it briefly.
-      # BOTH workflows the tag is supposed to start, for the reason in this file's header: a
-      # push made with GITHUB_TOKEN starts nothing, so `git push origin "$VERSION"` above lands
-      # the tag and no `on: push: tags` trigger anywhere fires.
+      # docs.yml is the half that was once missed entirely, and the failure mode is the reason
+      # this paragraph survives the step: it declares `tags: ["v*"]` and its publish step was
+      # correct, but it had never once run on a tag - five releases existed and `versions.json`
+      # on gh-pages held a single entry, `main`, so the version dropdown had nothing to select
+      # and `extra.version.default: latest` in mkdocs.yml pointed at an alias that did not
+      # exist. The docs looked permanently stuck on the development copy because they were.
       #
-      # docs.yml was the half that got missed. It declares `tags: ["v*"]` and its publish step
-      # is correct - on a tag it deploys `<version>` and moves the `latest` alias - but it had
-      # never once run on a tag: five releases existed and `versions.json` on gh-pages held a
-      # single entry, `main`, so the version dropdown had nothing to select and `extra.version.
-      # default: latest` in mkdocs.yml pointed at an alias that did not exist. The docs looked
-      # permanently stuck on the development copy because they were.
-      #
-      # One loop over both, so a third workflow that needs the tag is one word to add and
-      # cannot be half-wired the way this was.
-      - name: Start the release and publish its docs
-        if: steps.next.outputs.release == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.next.outputs.version }}
-        run: |
-          set -eu
-          failed=""
-          for wf in release.yml docs.yml; do
-            started=""
-            for attempt in 1 2 3; do
-              if gh workflow run "$wf" --ref "$VERSION"; then
-                echo "${wf} dispatched for ${VERSION}"
-                started=yes
-                break
-              fi
-              echo "attempt ${attempt}: ${VERSION} not visible to the API yet for ${wf}; retrying"
-              sleep 10
-            done
-            # Recorded and carried on rather than exiting here: if docs fail to start, the
-            # release still has to be reported, and one `::error::` naming both is more use than
-            # the first failure hiding the second.
-            if [ -z "$started" ]; then failed="${failed} ${wf}"; fi
-          done
-          if [ -n "$failed" ]; then
-            echo "::error::could not start${failed} for ${VERSION}; dispatch by hand"
-            exit 1
-          fi
+      # So the thing to check after the first release on this mechanism is that BOTH ran: a tag
+      # that starts one workflow and not the other is the same bug in a new place, and there is
+      # no gate for it - `on: push: tags` is the mechanism now, and it is declared in each of
+      # those two files rather than here.
