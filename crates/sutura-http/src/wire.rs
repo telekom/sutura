@@ -662,4 +662,32 @@ mod tests {
         assert!(rendered.contains(r#""filterable":true"#), "{rendered}");
         assert!(rendered.contains("north"), "{rendered}");
     }
+
+    #[test]
+    fn the_injection_corpus_cells_stay_single_opaque_json_strings_on_http() {
+        // The structured half `#128` names as NOT broken: `serde` owns the field boundary, so here a
+        // cell cannot cross one the way it can a text delimiter. Nothing escapes a cell on this
+        // surface and nothing has to - the encoder does. The corpus entry that must hold is a round
+        // trip: each hostile cell survives as exactly itself, one JSON string, and the document
+        // still parses. The same corpus the text half of the other surface refuses lives here, to
+        // prove the two surfaces really differ rather than one being covered by the other's fix.
+        for cell in sutura_app::untrusted::CELLS {
+            let rows = sutura_domain::warehouse::RowSet::new(
+                vec![String::from("region")],
+                vec![vec![sutura_domain::warehouse::Value::Text(String::from(*cell))]],
+            )
+            .expect("a one-cell result is a result set");
+            let outcome = Outcome::from(&ToolOutcome::Answer {
+                provenance: crate::testing::bundle().provenance(crate::testing::ran_shared()),
+                rows,
+            });
+            let rendered = serde_json::to_string(outcome.body()).expect("an answer body serializes");
+            let value: serde_json::Value = serde_json::from_str(&rendered).expect("it stays one JSON document");
+            let seen = value
+                .pointer("/rows/0/0")
+                .and_then(serde_json::Value::as_str)
+                .expect("the cell survives as one string field");
+            assert_eq!(seen, *cell, "the cell did not survive the field boundary: {cell:?}");
+        }
+    }
 }

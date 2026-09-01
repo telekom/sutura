@@ -103,7 +103,7 @@ use sutura_app::surface::Surface;
 /// [`NotServed::Handshake`] if the client never completes `initialize`, and
 /// [`NotServed::Interrupted`] if the task driving the session did not finish - a panic, or a runtime
 /// shutting down underneath it.
-pub async fn serve_stdio<S>(service: S) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: S, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
 where
     S: Surface,
 {
@@ -113,7 +113,7 @@ where
     // so that this line is where the decision is visible, rather than a default nobody reads.
     let permitted = sutura_app::Permitted::every_capability();
     let running = rmcp::serve_server(
-        AgentSurface::new(std::sync::Arc::new(service), permitted),
+        AgentSurface::new(std::sync::Arc::new(service), permitted, prose),
         rmcp::transport::stdio(),
     )
     .await

@@ -108,10 +108,13 @@ pub struct AgentSurface<S> {
     /// A field and not an `Option`, so "this deployment forgot to say" is not a state that exists -
     /// the same reason `sutura_app::surface::LocalService` takes its audit sink as an argument.
     permitted: Permitted,
+    /// How catalog descriptions are treated, so the tool honours `prompt.catalog_prose` the same
+    /// way the prompt does - an operator who omits the prose there must not ship it through here.
+    prose: sutura_app::prompt::CatalogProse,
 }
 
 impl<S> AgentSurface<S> {
-    /// Wraps a service, and states what the peer may do.
+    /// Wraps a service, and states what the peer may do and how catalog prose is treated.
     ///
     /// Takes the `Arc` rather than making one, so a composition root serving two transports shares
     /// one bundle and one data system rather than opening a second of each.
@@ -121,9 +124,18 @@ impl<S> AgentSurface<S> {
     /// `Permitted::every_capability` is the right answer over standard input and output and would be
     /// the wrong answer the moment this surface is reachable over a network, and only a composition
     /// root knows which it is building. See the module documentation for what the value then gates.
+    ///
+    /// **`prose` is required for the same reason, and it is a review-only value until a composition
+    /// root links this surface** - `serve_stdio` is the only caller today and it passes what the
+    /// operator configured. A `CatalogProse` with no default keeps `quoted` from being a posture
+    /// chosen here for a deployment that meant something else.
     #[must_use]
-    pub const fn new(service: Arc<S>, permitted: Permitted) -> Self {
-        Self { service, permitted }
+    pub const fn new(service: Arc<S>, permitted: Permitted, prose: sutura_app::prompt::CatalogProse) -> Self {
+        Self {
+            service,
+            permitted,
+            prose,
+        }
     }
 }
 
@@ -187,7 +199,7 @@ where
                 // has no fields, and what it proves is that the caller sent nothing this tool does not
                 // declare.
                 let DescribeCatalogArgs {} = catalog(request)?;
-                describe(&self.service)
+                describe(&self.service, self.prose)
             }
             Capability::AskMetric => {
                 let query = question(request)?;
@@ -281,12 +293,12 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
 /// Whether reading the catalog is itself worth a record is a real question and the answer would be a
 /// third `RecordedOutcome` variant, which is a change to what a record means rather than a field added
 /// to one.
-fn describe<S>(service: &Arc<S>) -> CallToolResult
+fn describe<S>(service: &Arc<S>, prose: sutura_app::prompt::CatalogProse) -> CallToolResult
 where
     S: Surface,
 {
     let content = CatalogContent::from(service.definitions());
-    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text())]);
+    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text(prose))]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
     // to say so.
