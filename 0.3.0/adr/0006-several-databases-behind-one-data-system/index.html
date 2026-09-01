@@ -1,0 +1,3483 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Two ways to answer one question over several DuckDB databases, both declined and why - the wrong number a federation layer returned at these pins, and the per-subject impersonation that attaching several databases to one connection forecloses - with the measurements, the Arrow gap, the identity table, and a pointer to the record that decides what is built instead.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.3.0/adr/0006-several-databases-behind-one-data-system/">
+      
+      
+        <link rel="prev" href="../0005-a-refusal-carries-a-status/">
+      
+      
+        <link rel="next" href="../0007-federating-across-different-data-systems/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Several databases behind one data system, declined - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#several-databases-behind-one-data-system-declined" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Several databases behind one data system, declined
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-first-decline-a-federation-layer-returned-a-wrong-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The first decline: a federation layer returned a wrong number
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was measured
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What was measured">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-resolver-does-with-it-and-what-the-compiler-then-says" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the resolver does with it, and what the compiler then says
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-pushed-down-half-executes-and-what-it-does-not-prune" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the pushed-down half executes, and what it does not prune
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#handing-the-drivers-batches-to-the-engine-does-not-compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handing the driver's batches to the engine does not compile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-numbers-on-five-million-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The numbers, on five million rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-attaching-does-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What attaching does, verified
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-second-decline-attaching-forecloses-the-property-that-is-the-product" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The second decline: attaching forecloses the property that is the product
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-third-decline-it-is-not-a-good-test-fixture-either" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The third decline: it is not a good test fixture either
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-declined-precisely" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is declined, precisely
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-one-source-assumption-lives-and-what-would-replace-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the one-source assumption lives, and what would replace it
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where the one-source assumption lives, and what would replace it">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-shape-refused-in-advance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shape refused in advance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-tool-surface-there-is-nothing-to-widen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The tool surface: there is nothing to widen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-explicitly-not-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is explicitly not decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-first-decline-a-federation-layer-returned-a-wrong-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The first decline: a federation layer returned a wrong number
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was measured
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What was measured">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-resolver-does-with-it-and-what-the-compiler-then-says" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the resolver does with it, and what the compiler then says
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-pushed-down-half-executes-and-what-it-does-not-prune" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the pushed-down half executes, and what it does not prune
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#handing-the-drivers-batches-to-the-engine-does-not-compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handing the driver's batches to the engine does not compile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-numbers-on-five-million-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The numbers, on five million rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-attaching-does-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What attaching does, verified
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-second-decline-attaching-forecloses-the-property-that-is-the-product" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The second decline: attaching forecloses the property that is the product
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-third-decline-it-is-not-a-good-test-fixture-either" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The third decline: it is not a good test fixture either
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-declined-precisely" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is declined, precisely
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-one-source-assumption-lives-and-what-would-replace-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the one-source assumption lives, and what would replace it
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where the one-source assumption lives, and what would replace it">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-shape-refused-in-advance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shape refused in advance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-tool-surface-there-is-nothing-to-widen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The tool surface: there is nothing to widen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-explicitly-not-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is explicitly not decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="several-databases-behind-one-data-system-declined">Several databases behind one data system, declined<a class="headerlink" href="#several-databases-behind-one-data-system-declined" title="Permanent link">&para;</a></h1>
+<p>Status: accepted, and it decides two <strong>declines</strong>. Nothing here is built and nothing here asks to
+be built. It supersedes nothing and amends nothing:
+<a href="../0003-datafusion-for-local-execution/">DataFusion for local execution</a> said federation is
+explicitly later, and this record is what <em>later than what</em> turned out to mean once both cheap routes
+were run rather than reasoned about.</p>
+<p>The goal it was asked about is one question spanning several data sources, initially several DuckDB
+databases. Two routes promised to deliver it cheaply. <strong>Both are declined</strong>, for different reasons
+and with different evidence, and what is built instead is decided in ADR 0007,
+<em>Federating across different data systems</em>: every data source is first class behind the <code>Warehouse</code>
+port, reached by the semantic compiler rendering that source's dialect, with standard credentialed
+access; one source is a whole-query pushdown, several sources are per-source legs that DataFusion
+combines. <strong>There is no DuckDB special case</strong>, and that is the sentence this record exists to
+support with numbers.</p>
+<p>A record of two declines is worth as much as a record of a decision, and for the same reason: the
+next person to reach for either route needs the evidence rather than the verdict. So the evidence is
+kept whole below, including the parts that were the argument <em>for</em> a route before they became the
+argument against it.</p>
+<p><strong>Which claims were run, and which were reasoned.</strong> Every measurement was produced by a throwaway
+spike - crates with their own <code>[workspace]</code> table, outside this repository and not merged into it -
+and re-run independently while this record was written. Where a claim was <em>not</em> executed it says so
+in the sentence that makes it. That distinction is the whole credibility of this document, so it is
+kept per claim rather than declared once.</p>
+<p><strong>And a third category, because "run" is not "reproducible" and this record used to blur them.</strong> The
+spike is not in this repository and cannot be reached from it, so for a reader "run" means <em>executed
+twice by the author</em> rather than <em>checkable from here</em>. A record whose credibility rests on the
+run/reasoned distinction owes the reader the version of that distinction which holds for the reader:</p>
+<ul>
+<li><strong>Reproducible from this record alone.</strong> Every version resolution, from <code>cargo generate-lockfile</code>
+  over the requirements in the table below. Both compiler errors, quoted verbatim with the two
+  versions in each graph named beside them. Every DuckDB transcript, because the statements are
+  quoted and the library is the pinned <code>v1.5.5 (Variegata) d8cdaa33fd</code> the dev shell provides. The
+  disallowed licence, because it is a registry field and <code>deny.toml</code> is in this repository.</li>
+<li><strong>Run, and NOT reproducible from this record.</strong> The four timings below, and the transposed
+  aggregate. For the second - the finding that outranks everything else here - the exact ingredients
+  are listed where it is stated, so it can be rebuilt from nothing but this page. For the timings
+  there is no such recipe, and the reading beside them is narrowed to what survives that.</li>
+</ul>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>The goal contained an ambiguity, and both declined routes lived inside it. <strong>A data system here is a
+connection and an identity, not a file.</strong> Two DuckDB database files opened by one process, under one
+set of file-system permissions, in one transaction, are one data system that stores its tables in two
+places. Two data systems are two logins, two policy engines and two answers to <em>who is asking</em>, which
+is the reason
+<a href="../../architecture/#the-engine-and-the-data-systems-behind-a-port">a plan resolves to exactly one of them</a>.</p>
+<p>Reading the goal the first way makes it cheap and makes it the wrong thing. Reading it the second way
+makes it federation. Three routes were available:</p>
+<ol>
+<li><strong>Below the port.</strong> One adapter, one connection, several databases attached to it. Declined here.</li>
+<li><strong>At the port.</strong> A source is a source: one adapter and one credential each, legs rendered by our
+   own generator, something above combining them. This is what ADR 0007 decides and this record does
+   not duplicate.</li>
+<li><strong>Above the port, by a federation layer.</strong> A crate finds the largest subplan each source can run,
+   pushes it there, and combines the results. Declined here.</li>
+</ol>
+<h2 id="the-first-decline-a-federation-layer-returned-a-wrong-number">The first decline: a federation layer returned a wrong number<a class="headerlink" href="#the-first-decline-a-federation-layer-returned-a-wrong-number" title="Permanent link">&para;</a></h2>
+<p>This goes first because it outranks every other argument in this document, and because it would not
+have been found by reading manifests.</p>
+<p>At DataFusion 54, with a federated DuckDB adapter written exactly as the crate's own example writes
+one, a <strong>single-source</strong> aggregate over one database came back with two columns transposed. Run, not
+reasoned - the statement the layer generated and the rows it returned, verbatim:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>[sales.duckdb] SELECT sum("orders"."amount") AS "total", "orders"."rep_id" FROM "orders"
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>               WHERE (...) GROUP BY "orders"."rep_id" ORDER BY "orders"."rep_id" ASC NULLS LAST
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>+--------+-------+          what the same question answers directly:
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>| rep_id | total |          rep_id 10 -&gt; 150.00
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>+--------+-------+          rep_id 11 -&gt; 275.00
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>| 150    | 10.00 |
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>| 275    | 11.00 |
+</span></code></pre></div>
+<p>The unparser emits the aggregate column before the group column; the plan's schema has the group
+column first; and the layer's cast step casts <strong>by position</strong>. Its own doc comment says so - <em>"It
+assumes the record batch columns are correctly ordered."</em> Decimal and Int32 cast into each other
+cleanly, so nothing raised an error. Reconciling by name inside the adapter repairs it, verified in
+the same spike by a switch that does exactly that; <strong>nothing in the trait requires an adapter to do
+it</strong>, and the crate's own example does not.</p>
+<p><strong>What it takes to see it again, in full, so the finding does not rest on a spike nobody else can
+open.</strong> The recipe rather than the code, because the code is six declarations and a <code>main</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Ingredient</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>datafusion</code></td>
+<td><code>54.1.0</code> - the major the federation crate requires, not the <code>55.0.0</code> this workspace pins</td>
+</tr>
+<tr>
+<td><code>datafusion-federation</code></td>
+<td><code>0.5.5</code>, default features on, plus its SQL sub-crate</td>
+</tr>
+<tr>
+<td><code>duckdb</code></td>
+<td><code>1.10505.0</code>, which brings <code>arrow 58.4.0</code></td>
+</tr>
+<tr>
+<td>The adapter</td>
+<td><code>SQLExecutor</code> implemented as the crate's own example implements it: execute the string, hand the driver's batches straight back, and <strong>do not</strong> reconcile the batch schema against the plan's by name</td>
+</tr>
+<tr>
+<td>The table</td>
+<td>one DuckDB file, one table, one integer group column and one exact-decimal measure column, so each casts into the other without raising</td>
+</tr>
+<tr>
+<td>The question</td>
+<td>one aggregate grouped by that integer column</td>
+</tr>
+</tbody>
+</table>
+<p>The two column types are the load-bearing part and they are not exotic: an integer group key beside
+an exact decimal measure is the ordinary shape of every metric in this repository's own corpus. Make
+the group key a string instead and the defect stops being a transposition and becomes a null measure
+column, which is the second transcript below.</p>
+<p>With both tables in one database file the whole query fuses into one pushed statement, and then the
+shift is total:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>+--------+--------+-------+
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>| region | orders | total |
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>+--------+--------+-------+
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>| 4      | 425    |       |
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>| 1      | 75     |       |
+</span></code></pre></div>
+<p>The group column now holds counts, the count column holds sums, and the measure is empty, because a
+region string cast to a decimal is null.</p>
+<p>For a system whose whole product is an answer certified under a definition digest and carried with
+provenance, <strong>a wrong number is worse than a refusal</strong>, and this one arrives with the digest
+attached. That is the argument. What follows is why the route would have been expensive even without
+it.</p>
+<h2 id="what-was-measured">What was measured<a class="headerlink" href="#what-was-measured" title="Permanent link">&para;</a></h2>
+<p>The pins are <code>Cargo.toml</code> and <code>Cargo.lock</code>; the resolutions are <code>cargo generate-lockfile</code> on
+throwaway crates; the DuckDB transcripts are the <code>duckdb</code> the dev shell provides, which is the
+version the adapter links.</p>
+<table>
+<thead>
+<tr>
+<th>Fact</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DataFusion, pinned</td>
+<td><code>55.0.0</code>, <code>default-features = false</code>, features <code>parquet</code> and <code>datetime_expressions</code></td>
+</tr>
+<tr>
+<td>DataFusion, latest published</td>
+<td><code>55.0.0</code></td>
+</tr>
+<tr>
+<td>Arrow, in the lock</td>
+<td><code>59.2.0</code> under DataFusion <strong>and</strong> <code>58.4.0</code> under duckdb. Two majors, already</td>
+</tr>
+<tr>
+<td>duckdb crate, pinned</td>
+<td><code>1.10505.0</code>, which requires <code>arrow ^58</code>, not optional</td>
+</tr>
+<tr>
+<td>DuckDB library</td>
+<td><code>v1.5.5 (Variegata) d8cdaa33fd</code></td>
+</tr>
+<tr>
+<td><code>sqlparser</code> in the lock</td>
+<td>absent. The dialect layer is <code>polyglot-sql 0.9.2</code></td>
+</tr>
+<tr>
+<td><code>datafusion-federation</code>, latest published</td>
+<td><code>0.5.5</code>, requiring <code>datafusion ^54</code></td>
+</tr>
+<tr>
+<td><code>datafusion-federation</code>, repository main</td>
+<td>the same requirement, <code>54</code></td>
+</tr>
+<tr>
+<td><code>datafusion-table-providers</code>, latest published</td>
+<td><code>0.13.1</code>, requiring <code>datafusion ^54.0</code> and <code>arrow ^58.0</code></td>
+</tr>
+<tr>
+<td>Its DuckDB provider</td>
+<td>requires <code>duckdb =1.10505.0</code> - our exact pin - plus <code>sea-query</code>, <code>snafu</code>, <code>secrecy</code>, <code>r2d2</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-the-resolver-does-with-it-and-what-the-compiler-then-says">What the resolver does with it, and what the compiler then says<a class="headerlink" href="#what-the-resolver-does-with-it-and-what-the-compiler-then-says" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Probe</th>
+<th>Packages</th>
+<th>What arrives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The pinned DataFusion and its two features, alone</td>
+<td>239</td>
+<td>no <code>sqlparser</code>, no <code>datafusion-sql</code>, no <code>bzip2</code></td>
+</tr>
+<tr>
+<td>The same, plus <code>datafusion-federation = "0.5"</code></td>
+<td>334</td>
+<td><code>datafusion 54.1.0</code> <strong>and</strong> <code>55.0.0</code>; <code>arrow 58.4.0</code> <strong>and</strong> <code>59.2.0</code>; <code>datafusion-sql 54.1.0</code>; <code>sqlparser 0.62.0</code>; <code>bzip2 0.6.1</code></td>
+</tr>
+<tr>
+<td>DataFusion held at <code>54.1.0</code>, federation with <code>default-features = false</code></td>
+<td>286</td>
+<td>one DataFusion, and still <code>datafusion-sql 54.1.0</code>, <code>sqlparser 0.62.0</code>, <code>bzip2 0.6.1</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Two DataFusion majors resolve rather than conflict, and then do not compile.</strong> Cargo is content:
+they are different semantic majors, so it links both. The compiler is not, and the message is the
+finding - built, not reasoned:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>error[E0308]: mismatched types
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>   | let _ctx = SessionContext::new_with_state(state);
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>   |            expected `SessionState`, found a different `SessionState`
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>note: there are multiple different versions of crate `datafusion` in the dependency graph
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>   | datafusion-55.0.0/src/execution/session_state.rs  this is the expected type
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>   | datafusion-54.1.0/src/execution/session_state.rs  this is the found type
+</span></code></pre></div>
+<p><strong>The SQL parser comes back, and the third row is why holding DataFusion back does not avoid it.</strong>
+Federation depends on <code>datafusion</code> with default features, and features unify across a build graph,
+so the <code>sql</code> feature is on whatever this workspace asks for. <code>Cargo.toml</code> turns it off deliberately,
+and its comment is the strongest sentence in that file: not calling a parser is a convention, not
+having one is a property. Adopting federation compiles <code>datafusion-sql</code> and a second SQL parser -
+<code>sqlparser 0.62.0</code>, beside <code>polyglot-sql</code> - into the shipped binary.</p>
+<p><strong>A licence the allowlist does not carry comes back with it.</strong> The default features include
+<code>compression</code>, which brings <code>bzip2 0.6.1</code> and through it <code>libbz2-rs-sys</code>, whose registry licence
+field is <code>bzip2-1.0.6</code>. <code>deny.toml</code> allows eight licences and that is not one of them, and
+<code>unused-allowed-license = "deny"</code> means the list is exactly the graph rather than a wish list. Not
+run: <code>cargo deny</code> over the probe. What was checked is the licence string and the allowlist.</p>
+<h3 id="what-the-pushed-down-half-executes-and-what-it-does-not-prune">What the pushed-down half executes, and what it does not prune<a class="headerlink" href="#what-the-pushed-down-half-executes-and-what-it-does-not-prune" title="Permanent link">&para;</a></h3>
+<p><code>SQLExecutor</code>'s executing method takes one string:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">fn</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="n">query</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nc">SchemaRef</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="n">filters</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">PhysicalExpr</span><span class="o">&gt;</span><span class="p">],</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">SendableRecordBatchStream</span><span class="o">&gt;</span><span class="p">;</span>
+</span></code></pre></div>
+<p>There is no parameter list, and DataFusion's own unparser produces the string. So the statement that
+executes is rendered by DataFusion rather than by <code>sutura-sql</code> and no golden covers it, and every
+value from the question is inside that string as text, because there is nowhere else for it to be.
+The second of those is a row in the invariants table and it is not a row that bends. The first is the
+worry ADR 0003 recorded from the other side: that unparser has known dialect defects, which is why
+rendering for a remote data system stayed with the dialect layer. It is also the line ADR 0007 draws
+between a combiner and a generator: DataFusion may combine, and never generates.</p>
+<p>Observed in the same run, and worth recording because it is the opposite of what a federation layer
+is assumed to buy: <strong>it did not prune the projection below its own boundary.</strong> The cross-source leg
+shipped <code>SELECT "orders"."order_id", "orders"."rep_id", "orders"."day", "orders"."amount"</code> when only
+two of those four columns were needed above it.</p>
+<h3 id="handing-the-drivers-batches-to-the-engine-does-not-compile">Handing the driver's batches to the engine does not compile<a class="headerlink" href="#handing-the-drivers-batches-to-the-engine-does-not-compile" title="Permanent link">&para;</a></h3>
+<p>The obvious shape for a source-per-provider route, and at these pins a type error. Built, not
+reasoned:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>error[E0308]: mismatched types
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>   | ctx.register_batch("t", first)?;
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>   |     expected `datafusion::arrow::array::RecordBatch`, found `arrow::array::RecordBatch`
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>note: there are multiple different versions of crate `arrow_array` in the dependency graph
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>   | arrow-array-59.2.0/src/record_batch.rs  this is the expected type
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>   | arrow-array-58.4.0/src/record_batch.rs  this is the found type
+</span></code></pre></div>
+<p>Two bridges exist and both cost something. Arrow IPC is safe and copies every buffer on the way out
+and again on the way in. The Arrow C data interface is version-stable across majors by design, and
+<strong>at these pins there is nothing to call it with</strong>: the pinned duckdb crate has no
+<code>ArrowArrayStream</code> surface at all - checked, zero occurrences in its source - only a <code>stream_arrow</code>
+returning batches of the older Arrow. Obtaining a C stream therefore means raw FFI through
+<code>libduckdb-sys</code>, and <code>unsafe_code = "forbid"</code> means first-party code cannot write it. Precise about
+the Arrow side: its reader's <code>try_new</code> is safe and only <code>from_raw</code> is <code>unsafe</code>, so the ban bites on
+getting the stream out of the driver rather than on Arrow's own API.</p>
+<p><strong>This constrains how a leg's rows come back, not whether the route is right.</strong> ADR 0007's shape
+sends each leg through <code>sutura-sql</code> and its own adapter, so what crosses the port is what the port
+already carries; this gap is about putting the driver's own Arrow into the engine's session, which is
+one implementation of that and not the only one.</p>
+<h3 id="the-numbers-on-five-million-rows">The numbers, on five million rows<a class="headerlink" href="#the-numbers-on-five-million-rows" title="Permanent link">&para;</a></h3>
+<p>Same question, same rows, all four legs agreeing on the answer. Warm runs.</p>
+<p><strong>Read the build column before the numbers, because it decides which comparisons this table can
+carry.</strong> The first row is DuckDB's own release C++ executing inside the library; the other three are
+first-party Rust compiled <strong>without optimisation</strong>. That is not a footnote, it is the reason the time
+column is not a finding: a debug Rust leg against a release C++ leg measures the compiler profile at
+least as much as it measures the route.</p>
+<table>
+<thead>
+<tr>
+<th>Leg</th>
+<th>Built as</th>
+<th>Time</th>
+<th>Peak resident</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Several databases attached to one DuckDB connection</td>
+<td>release C++, inside the library</td>
+<td>0.01s</td>
+<td>65 MiB</td>
+</tr>
+<tr>
+<td>A provider per source, each pushing its own filters</td>
+<td>debug Rust</td>
+<td>0.10s</td>
+<td>123 MiB</td>
+</tr>
+<tr>
+<td>The federation layer, at DataFusion 54</td>
+<td>debug Rust</td>
+<td>0.09s</td>
+<td>119 MiB</td>
+</tr>
+<tr>
+<td>A provider per source, pulling whole tables</td>
+<td>debug Rust</td>
+<td>0.46s</td>
+<td>767 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>There are two readings here and only one of them is a measurement.</p>
+<p><strong>What this table does establish</strong> is the comparison among the three Rust legs, which were built
+identically and are therefore comparable to each other. <strong>Federation buys nothing over a hand-written
+pushdown</strong>: the two middle rows are within noise of one another on both columns. And <strong>pulling whole
+tables is the one bad row</strong> - six times the memory and five times the time of pushing the filters
+down - bad in the way that matters, because it is the row that pulls rows into this process.</p>
+<p><strong>What it does NOT establish is attaching against the rest.</strong> Nothing here supports "an order of
+magnitude faster", and an earlier version of this record said exactly that while ADR 0007 quoted it
+back as a finding. <strong>Withdrawn rather than qualified.</strong> The honest claim is that <strong>attaching buffers
+the least</strong> - 65 MiB against 119 to 123 MiB - and peak resident set is the column where the profile
+mismatch does least damage, because what dominates it is the data a route holds rather than the
+instructions it took getting there. Even that is an indication and not a measurement, since an
+unoptimised build allocates more of its own, so it is stated as <strong>a floor worth knowing</strong> and never
+as a ratio. Its time is not comparable to the other three at all, and no number derived from that
+cell may be quoted anywhere.</p>
+<p><strong>Rerunning the three in release is the cheap way to make the time column mean something, and nobody
+has.</strong> Until somebody does, a claim that attaching is faster is unsupported by this record - which is
+the state a reader should be left in rather than a ratio to repeat.</p>
+<p><strong>And a hand-written pushdown fails silently.</strong> The same provider, against a column typed
+<code>TIMESTAMP</code> instead of <code>DATE</code>, emitted <code>SELECT * FROM orders</code> for five million rows: 0.54s and 896
+MiB, the right answer, no error, no warning. Its renderer returns "no SQL" for a literal type it does
+not cover, and "no SQL" means the filter is simply not pushed. Reproduced. That is a hazard for
+anything that renders per source, ADR 0007's track included, and it is why "the filter was not
+pushed" has to be observable rather than a performance mystery.</p>
+<h3 id="what-attaching-does-verified">What attaching does, verified<a class="headerlink" href="#what-attaching-does-verified" title="Permanent link">&para;</a></h3>
+<p>Recorded in full, because a decline that did not establish the thing works is not a decline, it is a
+guess. Two database files, each attached read-only, DuckDB 1.5.5:</p>
+<ul>
+<li>A join across them returns the right rows, and its plan shows both filters and both projections
+  pushed into the two scans.</li>
+<li>A write through a read-only attachment is refused:
+  <code>Invalid Input Error: Cannot execute statement of type "INSERT" on database "src_a" which is
+  attached in read-only mode!</code></li>
+<li>A prepared statement with bind parameters spans them.</li>
+<li>Databases can be attached with no file at all, in memory, which is what made it attractive as a
+  fixture: <code>ATTACH ':memory:' AS mem_a</code> alongside <code>mem_b</code> gives two catalogs in one process with no
+  path on disk.</li>
+<li><strong>An unqualified table name does not resolve.</strong>
+  <code>Catalog Error: Table with name regions does not exist! Did you mean "src_b.regions"?</code></li>
+</ul>
+<p>That last one matters, because a statement this repository generates says <code>FROM "orders"</code> and nothing
+else: a table in a plan is one identifier and the generator force-quotes it. Two repairs exist and
+they differ in the way that would have decided between them: <code>SET search_path</code> works, and with the
+same table in two attached databases it answers from the first one <strong>silently</strong> - reproduced, two
+databases each holding <code>orders</code>, and the aggregate is the first one's rows with no diagnostic
+anywhere. One view per model in the session's own catalog also works, and a second <code>CREATE VIEW</code> of
+the same name fails loudly: <code>Catalog Error: View with name "orders" already exists!</code></p>
+<p>And the finding that made the route look free: <strong>the golden statement runs unchanged.</strong> Taken verbatim
+from <code>crates/sutura-cli/tests/snapshots/subscription-months-by-region-and-term__statement.snap</code>, its
+<code>?</code> placeholders and its <code>LIMIT 10001</code> included, executed over views on two separate database files:
+the right three rows. Not one byte of generated SQL differs from the single-database case.</p>
+<p>So the route works, it is cheap, and it changes no generated SQL. It is still declined, and the next
+two sections are why.</p>
+<h2 id="the-second-decline-attaching-forecloses-the-property-that-is-the-product">The second decline: attaching forecloses the property that is the product<a class="headerlink" href="#the-second-decline-attaching-forecloses-the-property-that-is-the-product" title="Permanent link">&para;</a></h2>
+<p>AGENTS.md's first paragraph says end-to-end impersonation is the point of this system. That has since
+hardened from an aspiration into a requirement, and the requirement is <strong>per source rather than per
+dataset</strong>:</p>
+<blockquote>
+<p>Every source declares how it establishes the identity a query runs as, as a closed two-variant
+<code>SourceIdentity</code>. <code>ImpersonationAtSource</code> - the query reaches the data as the asking subject - is the
+strong posture. <code>SharedServiceUser</code> - one identity for every caller - is the weak one, and it is
+permitted in <strong>both</strong> deployment modes: in single-user operation it is simply correct, because the
+one configured credential <em>is</em> that one user's, and in multi-user operation it is reachable only
+where an operator <strong>acknowledged that specific source</strong>, through a required per-source key that
+<code>Settings::refusals</code> checks at boot, with the operator's stated reason printed at startup beside
+the posture.</p>
+</blockquote>
+<p><strong>This record used to state it as "permitted only in a single-user role that reads everything", and
+that was wrong rather than merely narrow.</strong> ADR 0008 and
+<a href="../0011-pluggable-by-declaration/">Pluggable by declaration</a> own the posture, and both permit an
+acknowledged <code>SharedServiceUser</code> source in multi-user operation. The sentence is corrected here
+rather than qualified, because two records disagreeing about what a deployment may do is worse than
+either version of the rule. What survives from the old sentence is the part that was doing the work:
+the weak posture must be arrived at <strong>on purpose</strong>, and it must be visible in the answer rather than
+inferred from a deployment diagram.</p>
+<p><strong>Nothing about data sensitivity is declared here.</strong> This record previously argued the decline from
+"the critical datasets are read under the asking user's own credentials in every case", which is a
+per-dataset classification that <a href="../0009-the-plan-from-one-source-to-many/">the plan</a> withdrew: what a
+person may see lives in the data catalog and in that person's own permissions at the source, and a
+classification authored here would be a second opinion about somebody else's authorization. So the
+governing sentence is now an <strong>operator obligation</strong> and not a check - critical data goes on a source
+declared <code>ImpersonationAtSource</code> - and what sutura mechanises is that <code>SharedServiceUser</code> is
+unreachable by accident and unreachable in silence.</p>
+<p>None of that changes the cost this section prices, and that is why the correction is safe to make
+here: <strong>a route where no leg can EVER run as the caller fails the requirement at every resolution</strong>,
+per dataset, per source or per deployment. ADR 0008 is the record of the requirement and this section
+states only what the route in front of it costs.</p>
+<p>Against that, the three routes are not equivalent, and the difference is structural rather than a
+matter of effort:</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Can a leg ever run as the subject who asked?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Attaching several databases to one connection</td>
+<td><strong>No, structurally.</strong> One process, one connection, one operating-system identity for every attached file. <code>ATTACH</code> takes no credential, and a networked scanner's credential would be a connection-global secret rather than a per-request one</td>
+</tr>
+<tr>
+<td>A federation layer</td>
+<td><strong>No.</strong> <code>SQLExecutor::execute</code> receives a string, a schema and physical filters, and no session. Worse for this purpose: the layer's fusion key is the adapter's <code>compute_context</code>, so identity would have to be <em>inside</em> that string or two subjects' sub-plans could fuse into one - observed fusing in the spike when two sources shared a context</td>
+</tr>
+<tr>
+<td>A source per adapter</td>
+<td><strong>Yes.</strong> A whole plan - never a fragment - crosses the port to one adapter that owns one connection, which is where a per-request credential belongs. ADR 0007 decides which plan shapes those are and the property that matters here holds for all of them: one plan, one source, one credential. Within the engine the same holds by a second route: <code>TableProvider::scan</code> receives <code>state: &amp;dyn Session</code>, so per-request extensions are reachable. One hazard to design around rather than discover: <code>ExtensionOptions</code> requires an <code>entries</code> method that renders its values, which is exactly the shape <code>Secret</code> exists to prevent</td>
+</tr>
+</tbody>
+</table>
+<p><strong>So the cheapest route forecloses the headline property, and the weak posture is the only one it
+could ever declare.</strong> That was survivable while the goal was one person on a laptop, and it stays
+correct for a single-user deployment - which is the mode <code>examples/single-player</code> is, and a first-class
+one rather than a degraded one. It is not survivable as an architecture, and the reason is narrower
+than the sentence this paragraph used to carry: not that some datasets are classified critical, since
+nothing here classifies data, but that <strong>a source served under one identity for every caller is a
+posture an operator has to be able to choose per source</strong> - and attaching removes the choice. Every
+attached database inherits the one process identity, so a deployment that wanted one source
+<code>ImpersonationAtSource</code> and one <code>SharedServiceUser</code> has no way to say so, and no way to record which
+posture produced an answer. A connection with one operating-system identity cannot be told who is
+asking, so it cannot be the strong posture for anything.</p>
+<p>There is a second, sharper version of the same point, and it is the one that decides the case rather
+than merely weakening it. <strong>The cheapest next step from attaching two local databases is attaching a
+Postgres</strong>: one extension, no new Rust, the same code path. That step is the composing adapter with a
+synthetic source name that this record refuses in advance below. Under it a catalog declares one
+source, the plan names one source, the plan-stage set has one member and passes, and <em>a plan cannot
+silently span two sources</em> reads green over a two-identity question. Attaching two local files is
+harmless. Attaching a Postgres is the refused shape, and the distance between them is one line of
+configuration.</p>
+<p>For completeness, since it was the blocker while the route was still a candidate: <strong>a DuckDB
+connection is <code>Send</code> and not <code>Sync</code></strong> - it holds a <code>RefCell</code>, and a compiler error says so - while the
+service requires its warehouse to be <code>Send + Sync + 'static</code>. A shared connection was therefore never
+the served shape without a mutex that queues every concurrent question or a pool that re-attaches per
+connection. It is a note rather than an argument now: the route is declined on identity, not on a
+trait bound. The bound does not go away, though. Every connection-holding adapter meets it, so it is
+inherited by the network adapters ADR 0007 plans rather than retired with this decline.</p>
+<h2 id="the-third-decline-it-is-not-a-good-test-fixture-either">The third decline: it is not a good test fixture either<a class="headerlink" href="#the-third-decline-it-is-not-a-good-test-fixture-either" title="Permanent link">&para;</a></h2>
+<p>Attaching two in-memory databases is a genuinely attractive fixture: no container, no daemon, no
+temporary directory, and 0.01s. It is still the wrong one, and the reason is the same reason the
+architecture declines it.</p>
+<p><strong>A fast-tier test that attaches two databases to one connection exercises a shape this system does
+not ship.</strong> Two DuckDB connections - one per source, one adapter each - is precisely the production
+shape of ADR 0007's several-source track, in the dialect that already has goldens. A test whose setup
+differs structurally from production is the kind of coverage that reads green while proving something
+else, and this repository has already paid for one of those: an engine that named itself after the
+catalog's declared source made a source comparison vacuously true, and the test that now covers it
+records that the call previously succeeded because the file was there and nothing else failed either.</p>
+<p>Two things make the choice easier than a purity argument would:</p>
+<p><strong>The production-shaped fixture needs no new adapter code, and the attached one does.</strong>
+<code>DuckDbWarehouse::open</code>, <code>::in_memory</code> and <code>::attach_csv</code> already exist, so two connections over two
+in-memory databases with a CSV view each is a fixture written entirely in a test. Attaching needs a
+new <code>attach_database</code> affordance, a view registration per model that uses <code>CREATE VIEW</code> rather than
+the existing affordance's <code>CREATE OR REPLACE VIEW</code>, and a collision refusal behind it - new
+production code, kept narrow, for a shape nothing ships.</p>
+<p><strong>And neither is needed yet.</strong> The two-source refusal is already provoked by fixtures built in Rust
+with no data system at all, in <code>crates/sutura-app/tests/support/oracle.rs</code> and
+<code>crates/sutura-http/src/testing.rs</code>, and that file mentions DuckDB zero times. A DuckDB-backed
+multi-source fixture becomes useful the moment there is a combiner to test, which is ADR 0007's work,
+and at that moment the right one is two connections. Building the attached one now would be work that
+gets thrown away, which is the same conclusion from the other end.</p>
+<h2 id="what-is-declined-precisely">What is declined, precisely<a class="headerlink" href="#what-is-declined-precisely" title="Permanent link">&para;</a></h2>
+<p><strong><code>datafusion-federation</code> is declined at these pins.</strong> First because it returned a transposed
+aggregate with no error, under a cast step documented to trust column order and an unparser that does
+not preserve it. Then because it does not support the DataFusion this workspace runs, and the two ways
+to make it fit are to hold the engine at a major a contrib crate chooses for us or to link two
+engines, which does not compile. And then because it brings a second SQL parser and a disallowed
+licence into the binary, executes a statement rendered by somebody else with the question's values
+inlined in it, and did not even prune the projection below its boundary.</p>
+<p><strong>Attaching several databases to one connection is declined as an architecture</strong>, including for
+DuckDB, including in single-user operation, and including as a test fixture. It forecloses per-subject
+impersonation structurally; its cheapest continuation is a shape that makes a two-identity question
+read green; and as a fixture it is more new production code than the production-shaped alternative for
+less relevant coverage.</p>
+<p><strong>What is built instead is not decided here.</strong> ADR 0007, <em>Federating across different data systems</em>,
+decides it: every data source first class behind the <code>Warehouse</code> port, the semantic compiler rendering
+that source's dialect through <code>polyglot-sql</code> with bind parameters and forced quoting intact, standard
+credentialed access per source, one source pushed down whole and several sources combined by
+DataFusion above the legs. No DuckDB special case, and no exception for the local file that started
+this.</p>
+<p><strong>None of the six single-source assumptions is relaxed by this record.</strong> It declines routes; it moves
+no check. What each track of ADR 0007 forces, and in what order, is that record's business.</p>
+<h2 id="where-the-one-source-assumption-lives-and-what-would-replace-it">Where the one-source assumption lives, and what would replace it<a class="headerlink" href="#where-the-one-source-assumption-lives-and-what-would-replace-it" title="Permanent link">&para;</a></h2>
+<p>Kept because it is what any future federation work has to move, and because it was surveyed for this
+record rather than for that one.</p>
+<p>A survey of the tree found <strong>six</strong> independent single-source assumptions, and the refusal everybody
+names is neither the first nor the most important. In the order a question meets them: the startup
+refusal in both composition roots, which rejects a catalog naming more than one source; the
+compile-time engine-source constant the declared source must equal; the service holding exactly one
+warehouse; the plan stage's source set (one is a mono plan, exactly two are split into legs, three or more refuse as <code>PlanSpansTooManySources</code>); the plan having one
+source field while a join carries only a table name; and <code>answer</code> refusing when the plan's source is
+not the warehouse's.</p>
+<p><strong>In either shipped binary the plan-stage refusal is unreachable.</strong> The startup refusal fires first,
+before a socket is opened, so a deployment cannot load a two-source catalog at all. Deleting the
+plan-stage check would have no observable effect on a deployment - worth knowing precisely so that
+nobody reads it as permission.</p>
+<p><strong>Removing it would produce a wrong answer rather than an error.</strong> The plan stage collects the joined
+model's source into its set and then throws it away: the plan is stamped with the metric's own model's
+source alone. So <code>answer</code>'s guard compares one name against the same name and passes, and the engine
+resolves the joined table in a flat, unqualified namespace out of the one data directory. If the file
+is there, the engine joins it and returns rows under the metric's certified name and the bundle's
+digest, with the second source having decided nothing at all. Same failure class as the federation
+defect above, arrived at from inside our own code.</p>
+<p><strong>The startup refusal, the one that actually holds today, has no test.</strong> Its wrong-name branch is
+covered; its more-than-one branch is not. By this repository's own standard that is a mechanism nobody
+has watched fail, and it is worth a test whichever route eventually lands.</p>
+<p>And what replaces the rule when it does move: the plan stage's set stops holding source names and
+starts holding the identity each source resolves to, refusing unless exactly one is in it. Two sources
+that resolve to one subject are then allowed and two subjects are refused, which is the property that
+was always meant. <strong>That check cannot be written today, and the reason has narrowed since this was
+written:</strong> the types now exist - <code>sutura_domain::identity</code> holds the principal chain, the request context and the
+<code>CredentialBroker</code> port, and <code>Warehouse::execute</code> takes a credential minted for the source it reads.
+What is still missing is a second identity for two sources to resolve to: no adapter in this build can
+carry a per-subject credential, so every leg presents the identity this deployment holds for that
+source and a set keyed on identity would hold one element for a reason that has nothing to do with the
+asker.</p>
+<h3 id="the-shape-refused-in-advance">The shape refused in advance<a class="headerlink" href="#the-shape-refused-in-advance" title="Permanent link">&para;</a></h3>
+<p>Named so it cannot arrive unnoticed, and cited by ADR 0007 as the hazard at the end of the attach
+route: <strong>an adapter that composes two others, implements the port itself, and reports a synthetic
+source name.</strong> It passes the startup check, it passes the plan stage, and it executes a two-identity
+question. Nothing mechanical forbids it. What this record does is refuse it in advance and say why: it
+produces precisely the state the one-source rule exists to prevent, while every check reads green.</p>
+<p>What does hold, mechanically, is narrower and worth stating beside it. <strong>A plan cannot represent two
+sources:</strong> the plan holds one source name, and a join and a column hold none, so a table in a plan
+carries no source at all. Making a two-source plan representable means changing a domain type whose
+serialized form is pinned by snapshots, so the first commit of any such attempt moves the 21
+<code>plan@markdown</code> goldens.</p>
+<p><strong>And a correction this record owes, because it claimed a stronger mechanism than exists.</strong> An earlier
+version of this paragraph said the definition digest is taken over that same serialized form, so such
+a change "moves goldens and moves the digest". <strong>The second half is false.</strong> <code>DefinitionDigest::of</code>
+takes the <code>Definitions</code> and the <code>Knowledge</code> and nothing else, so the digest covers what a catalog
+authored and not what the compiler decided; <code>QueryPlan</code> is not in it, and no change to <code>QueryPlan</code>
+moves a digest. The two are pinned by different snapshots on purpose - the plan by <code>plan@markdown</code>,
+the digest by <code>catalog_digest@markdown</code> - and conflating them made a plan-shape change sound like a
+provenance change. What is true and is the point that survives: the digest covers every model's
+<code>source</code>, so a catalog that <strong>moves a model to a second system</strong> already produces a different digest,
+which is a fact about the catalog rather than about the plan type.</p>
+<h2 id="the-tool-surface-there-is-nothing-to-widen">The tool surface: there is nothing to widen<a class="headerlink" href="#the-tool-surface-there-is-nothing-to-widen" title="Permanent link">&para;</a></h2>
+<p>A federated question is the same question. The caller names a metric; the metric names a model; the
+model names a source; a dimension's relationship names a target model which names a source. <strong>Every
+source is derived from the pinned bundle, and the caller has no field that could name, add, remove or
+hint at one.</strong> So AGENTS.md's row for a new or widened tool input does not apply, now or when real
+federation lands. Provenance does not change either: the digest already covers every model's source,
+so a catalog that moved a model to a second system already produces a different digest.</p>
+<p>One limit, stated so nobody over-claims in the other direction: the mechanism that row cites - dumped
+tool schemas and a byte-compare - is not built. <code>schemars</code> is not a dependency, and AGENTS.md's own
+canonical-sources table marks it planned. What is built and does hold is <code>deny_unknown_fields</code> on both
+the domain query type and the wire body, with a test that provokes it.</p>
+<h2 id="what-does-not-change">What does not change<a class="headerlink" href="#what-does-not-change" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Guarantee</th>
+<th>Still held by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A plan resolves to exactly one data system</td>
+<td>The plan stage's source set, unchanged and untouched by this record</td>
+</tr>
+<tr>
+<td>No value from a question reaches the statement as text</td>
+<td>Unchanged, and it is the specific thing the declined federation route could not offer: <code>SQLExecutor::execute</code> takes a string and no parameter list, while a <code>GeneratedQuery</code> keeps statement and parameters in separate fields</td>
+</tr>
+<tr>
+<td>The executed SQL is owned by <code>sutura-sql</code></td>
+<td>Unchanged, and it is the line ADR 0007 makes load-bearing: DataFusion may combine legs and never generates one</td>
+</tr>
+<tr>
+<td>We never translate SQL, and the one thing we parse is parsed at load</td>
+<td>Unchanged, and nothing here parses anything. Precise about the declined route: its unparser is a generator rather than a transpiler, so what it would have broken is the ownership of the executed statement, not the transpile ban</td>
+</tr>
+<tr>
+<td>A result that hit the row cap is refused, not truncated</td>
+<td>Unchanged. Both declined routes would have raised the question of how an intermediate result is bounded; neither is adopted, so neither does. Where that question is answered is <a href="../0009-the-plan-from-one-source-to-many/">the plan</a>, and the answer is a working set in bytes rather than a row count per leg</td>
+</tr>
+<tr>
+<td>No result cache</td>
+<td>Unchanged. Both declined routes buffer inside this process and the measurements above are how much. <strong>Not a cache</strong>, because nothing is keyed and nothing is reused across questions, and the honest way to say it is that reuse across questions is what would make it one, at which point AGENTS.md's rule applies and it is keyed on subject first or not at all</td>
+</tr>
+<tr>
+<td>Adding a data system is a registration, not a test edit</td>
+<td>Unchanged, and narrower than it reads: the test matrix's axis is <em>which adapter</em>, one warehouse per cell, one source name shared by all of them. A second SOURCE is a signature change on the harness, which is one of the costs ADR 0007 carries</td>
+</tr>
+<tr>
+<td>The domain acquires no framework dependency</td>
+<td>Unchanged. This record adds no dependency at all</td>
+</tr>
+<tr>
+<td>Refusal is a result, not an error</td>
+<td>Unchanged. Nothing here adds a refusal or a failure mode</td>
+</tr>
+<tr>
+<td>Every query runs as the calling principal</td>
+<td>Not held anywhere today, and this record's contribution is to say which routes could <em>ever</em> hold it. Attaching cannot, a federation layer cannot, a source per adapter can</td>
+</tr>
+</tbody>
+</table>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>The roadmap's stated approach is declined and so is the cheap alternative.</strong> What remains is the
+  more expensive shape, and the value of this record is that the expense is now a known quantity
+  rather than a suspicion: a wrong number from one route, a foreclosed product property from the
+  other.</li>
+<li><strong>The measurements survive the decline and are the baseline for the route that is built - the memory
+  column of them.</strong> 65 MiB for attaching is the floor any per-source shape is measured against; 123
+  MiB is what a rendered-per-source leg buffered on the same question; <strong>767 MiB is what pulling whole
+  tables costs, and it is the number to quote whenever pushdown per leg is described as an optimisation
+  rather than a requirement.</strong> The times are carried in the table for completeness and are not a
+  baseline: three of the four legs are unoptimised builds and the fourth is not, so the only valid time
+  comparison is among the three, where a rendered pushdown and the federation layer are within noise
+  and pulling whole tables is five times either.</li>
+<li><strong>A silent-degradation hazard transfers to the route that is built.</strong> A renderer that returns no SQL
+  for an uncovered literal type does not fail; it stops pushing. Measured at 0.54s and 896 MiB with a
+  correct answer and no diagnostic. Anything rendering per source needs that to be observable.</li>
+<li><strong>The Arrow major gap is a live constraint on one implementation of the built route.</strong> Putting the
+  driver's own batches into the engine's session does not compile at these pins, and the two bridges
+  are a copy per buffer or raw FFI that <code>unsafe_code = "forbid"</code> bans. It does not constrain sending a
+  whole rendered leg to an adapter, which is what the port already carries.</li>
+<li><strong>Two costs are inherited rather than retired.</strong> Which artifact links a native driver - nixpkgs has
+  no musl <code>libduckdb</code>, and the cross-built artifacts link the engine alone for that reason - and how a
+  serving surface holds a connection that is <code>Send</code> and not <code>Sync</code>. Both belong to any
+  connection-holding adapter, so ADR 0007 carries them; declining the attach route did not remove
+  either.</li>
+<li><strong>The multi-source fixture is two connections, not two attachments</strong>, and it needs no new adapter
+  code. Until there is a combiner to exercise, the existing Rust-built two-source fixtures are
+  sufficient and they touch no data system at all.</li>
+<li><strong>A multi-source corpus belongs in <code>examples/multi-player</code>, not in the single-player one.</strong> Moving a
+  model in the existing corpus to a second source was costed and is not viable as an incremental step:
+  the definitions and digest snapshots move, every question joining the moved model flips from planned
+  to refused, and the SQL golden count drops, which moves a sentence in AGENTS.md that a gate counts.</li>
+<li><strong>The engine stays behind the port for now.</strong> AGENTS.md says it belongs above the port once
+  federation lands, and that stays a design target whose terms ADR 0007 sets. What "above the port"
+  means concretely: the port stops carrying a whole plan and a finished aggregate and starts carrying
+  a fragment and intermediate rows, which gives up the property that push-down is complete today, and
+  the part that is not pushed down becomes ours to filter. The measured 767 MiB row is what that looks
+  like when it goes wrong.</li>
+<li><strong>A join that is not pushed buffers a side whole, by design.</strong> The engine's hash join reported
+  <code>mode=Partitioned</code> in the spike's plans, and the alternative it chooses elsewhere collects one side
+  entirely. That is not a defect; it is precisely AGENTS.md's row about anything that stores or
+  forwards rows, which has no mechanism and is a human review question. Flagged rather than resolved,
+  and it belongs to whoever builds a combiner.</li>
+</ul>
+<h2 id="what-is-explicitly-not-decided">What is explicitly not decided<a class="headerlink" href="#what-is-explicitly-not-decided" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>What is built instead.</strong> ADR 0007 decides the shape and the order; nothing in this record should be
+  read as scheduling it.</li>
+<li><strong>The impersonation requirement itself</strong> and its roles. ADR 0008 is that record, and ADR 0009 settles
+  the part it got wrong: nothing here classifies data, because the catalog and the asking person's
+  permissions at the source do. This one only says which routes can and cannot satisfy it.</li>
+<li><strong>Which upstream release closes the Arrow gap, and which closes the version skew. They are two
+  different events and this record used to name a third that is neither.</strong> An earlier version said the
+  thing to watch was "whether DataFusion 56 moves to Arrow 59" - which the table above already
+  contradicts: the pinned <code>datafusion 55.0.0</code> is <strong>already</strong> on <code>arrow 59.2.0</code>, and a DataFusion 56
+  would move nothing here. Corrected, from <code>Cargo.lock</code> rather than from memory:<ul>
+<li><strong>The Arrow gap is the <code>duckdb</code> crate.</strong> It is pinned at <code>1.10505.0</code>, it requires <code>arrow ^58</code>
+  non-optionally, and that is where <code>arrow 58.4.0</code> in the lock comes from. So what removes the
+  bridge problem is <strong>the <code>duckdb</code> crate reaching Arrow 59</strong> - or, symmetrically, this workspace
+  holding the engine at 58, which is a downgrade of the thing that executes every query and is not
+  a trade anybody has argued for. That gap constrains one implementation of the built route and
+  nothing about whether the route is right.</li>
+<li><strong>The version skew is <code>datafusion-federation</code>.</strong> It requires <code>datafusion ^54</code> on the registry and
+  on its repository main alike, while this workspace pins <code>55.0.0</code>. What removes that is the crate
+  following DataFusion forward, and it is independent of the Arrow question.
+  Nothing here predicts either, and <strong>the wrong-number finding would still stand after both</strong>: the
+  transposed aggregate is a cast-by-position defect in the layer, not a version mismatch, and it is
+  what the decline actually rests on.</li>
+</ul>
+</li>
+<li><strong>Whether the column-order defect is reported upstream.</strong> The repair is to reconcile by name, and the
+  ingredients for rebuilding it are in the recipe above, so a report is a matter of somebody spending
+  the afternoon rather than of anything being unknown. Stated as narrowly as this record can honestly
+  put it: <strong>at these pins, with an adapter written the way the crate's own example writes one, the
+  layer returned a transposed aggregate.</strong> Whether that becomes an issue, a pull request, or neither is
+  a choice about how this project spends its time, and no claim here depends on the answer.</li>
+<li><strong>Whether the engine ever reads DuckDB storage directly.</strong> At these pins it cannot, and the two
+  bridges are above. The C data interface route additionally has nothing to call it with today, which
+  makes it a driver question rather than a design one.</li>
+<li><strong>Whether to fork or vendor the federation crate.</strong> Not attempted. It would mean owning an optimizer
+  rule in the query path, and after the fork both the unparser's dialect defects and the column-order
+  repair would be ours.</li>
+<li><strong>Whether per-model file locations are worth having for the engine.</strong> It is one source with several
+  paths rather than several sources, so it forecloses nothing and decides nothing here; it is a
+  configuration question for whoever wants it.</li>
+<li><strong>Anything that stores or forwards rows.</strong> AGENTS.md says nothing mechanical governs it and that it
+  is a human review question rather than an agent's to certify.</li>
+</ul>
+<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
+<p><strong>Adopt the federation crate and hold DataFusion at the previous major.</strong> The honest version of "just
+use it", and the only one where a single engine links. Rejected first on the transposed aggregate,
+which is a wrong number rather than a cost. Then on the rest, all measured: the engine that executes
+every query would sit on the version a contrib crate happens to target; the graph grows by 47
+packages; and the SQL parser and the disallowed licence arrive anyway, because feature unification does
+not care that we asked for neither.</p>
+<p><strong>Adopt it alongside the pinned DataFusion.</strong> Resolves, then fails to compile, with two <code>SessionState</code>
+types in one graph. The error text is above.</p>
+<p><strong>Fork it onto the pinned DataFusion.</strong> The only route that keeps both the current engine and the
+crate's optimizer rule. Rejected: it puts a fork of a query-path optimizer under our maintenance, and
+after the fork the column-order repair and the unparser's dialect defects are both ours.</p>
+<p><strong>Use the contrib DuckDB table provider.</strong> Attractive on one detail - it pins the same duckdb version
+this workspace does - and rejected on the rest: the previous DataFusion major, the previous Arrow
+major, and a normal dependency list that adds a third SQL builder, a second error library and a second
+secret type to a workspace with considered opinions about all three.</p>
+<p><strong>Attach several databases to one connection and serve it.</strong> The lightest measured route, working, with
+no change to any generated statement. Rejected on impersonation: one connection is one
+operating-system identity and <code>ATTACH</code> takes no credential, so every attached database has the same
+posture and it is the weak one - the deployment cannot declare a posture per source, cannot be told who
+is asking, and cannot record which posture produced an answer. Its cheapest continuation is the
+composing adapter with a synthetic source name, which is refused in advance above.</p>
+<p><strong>Attach several databases only in the fast test tier.</strong> Tempting, and rejected on the shape rather
+than on the cost: the fixture would exercise something this system does not ship, while two
+connections are the production shape, need no new adapter code, and cost almost nothing more. The
+existing Rust-built fixtures already cover the two-source refusal in the meantime.</p>
+<p><strong><code>SET search_path</code> instead of one view per model.</strong> The sub-decision inside the attach route, recorded
+because it is the kind of thing that gets reached for again: with the same table in two attached
+databases it answers from the first and says nothing, where a second <code>CREATE VIEW</code> fails loudly. A
+silent choice of source under a certified metric name is the class of failure this repository refuses
+at the cost of a whole invariant elsewhere.</p>
+<p><strong>Export each database to Parquet and answer over the exports.</strong> Works today with no code at all, and
+worth naming because it is the baseline every option here has to beat. It fails on freshness and it
+doubles the storage, and a copy is read under whoever made it - the same objection ADR 0003 raised
+against an acceleration layer, arriving by hand. It also fails the impersonation requirement for the
+same reason attaching does.</p>
+<p><strong>Relax the plan-stage refusal and let the engine sort it out.</strong> The change the goal's framing invites.
+With both guards gone the plan carries only the metric's own model's source, the engine resolves the
+joined table in a flat namespace out of one directory, and a question reaching across two nominal
+sources is <em>answered</em> under the metric's certified name and the bundle's digest. Not a refusal, not an
+error - a number. The same failure mode as the federation defect, arrived at from inside our own code,
+which is why both are in this record.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

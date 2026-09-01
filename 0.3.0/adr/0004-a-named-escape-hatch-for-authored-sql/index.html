@@ -1,0 +1,3026 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Why a metric may carry a SQL expression somebody wrote, why it is a separate named shape rather than a field on the measure, why the fragment is parsed and generated rather than transpiled, why node kinds are a denylist and function names are an allowlist, and which constructs are refused at load and why each one is on the list.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.3.0/adr/0004-a-named-escape-hatch-for-authored-sql/">
+      
+      
+        <link rel="prev" href="../0003-datafusion-for-local-execution/">
+      
+      
+        <link rel="next" href="../0005-a-refusal-carries-a-status/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>A named escape hatch for authored SQL - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#a-named-escape-hatch-for-authored-sql" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              A named escape hatch for authored SQL
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-built-and-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built, and what is not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parse-and-generate-at-load-per-dialect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parse and generate, at load, per dialect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-fragment-is-bounded-in-depth-as-well-as-in-length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The fragment is bounded in depth as well as in length
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#column-references-are-checked-and-qualified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Column references are checked, and qualified
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-denylist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The denylist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#node-kinds-are-a-denylist-function-names-are-an-allowlist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node kinds are a denylist. Function names are an allowlist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-more-holes-in-the-comment-refusal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two more holes in the comment refusal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-holes-the-four-shape-guards-do-not-close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two holes the four shape guards do not close
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-built-and-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built, and what is not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parse-and-generate-at-load-per-dialect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parse and generate, at load, per dialect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-fragment-is-bounded-in-depth-as-well-as-in-length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The fragment is bounded in depth as well as in length
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#column-references-are-checked-and-qualified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Column references are checked, and qualified
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-denylist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The denylist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#node-kinds-are-a-denylist-function-names-are-an-allowlist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node kinds are a denylist. Function names are an allowlist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-more-holes-in-the-comment-refusal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two more holes in the comment refusal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-holes-the-four-shape-guards-do-not-close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two holes the four shape guards do not close
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="a-named-escape-hatch-for-authored-sql">A named escape hatch for authored SQL<a class="headerlink" href="#a-named-escape-hatch-for-authored-sql" title="Permanent link">&para;</a></h1>
+<p>Status: accepted, and <strong>built but not wired.</strong> It amends
+<a href="../0002-a-closed-vocabulary-for-measures/">the closed vocabulary decision</a>, whose <em>Alternatives
+considered</em> rejected exactly this, and it does not supersede it: the closed vocabulary stays closed,
+and this record is about what sits <strong>beside</strong> it and how it is kept visible.</p>
+<h2 id="what-is-built-and-what-is-not">What is built, and what is not<a class="headerlink" href="#what-is-built-and-what-is-not" title="Permanent link">&para;</a></h2>
+<p>Read this before the rest, because the rest is written in the present tense about a path that has no
+caller.</p>
+<p><code>sutura_domain::expression</code> and <code>sutura_sql::expression</code> are complete and tested. <strong>Nothing reaches
+them.</strong> <code>catalog::Metric</code> holds a <code>Measure</code> and not a <code>Computation</code>; a metric document has no
+<code>authored_sql</code> key; <code>sutura_sql::expression::compile</code> has no production caller. So no catalog can
+express an authored metric, and every guard below is exercised by its own tests and by nothing that
+reads a file. <code>AGENTS.md</code>'s <em>Built And Not Wired</em> section says the same thing from the other side, and
+the three rows that used to state this as enforced were deleted from its Invariants table.</p>
+<p>Two things are in the way, and only the first is wiring.</p>
+<p><strong>A refusal in the composition root cannot be made structural today.</strong> The <em>Consequences</em> below say a
+build that renders no SQL must refuse a catalog that carries authored SQL. The strong form of that -
+make it unrepresentable, by having the authored variant carry a value only <code>compile</code> can produce - is
+not available:</p>
+<ul>
+<li>The witness cannot live in <code>sutura-domain</code>. It would have to be keyed by dialect, and the domain
+  deliberately does not own the list of data systems this build renders for - <code>DialectTag</code>'s own
+  documentation gives the reason, and it is the same reason <code>Measure</code> does not restate the aggregates.
+  A domain-side witness would also have a public constructor, which every crate that depends on the
+  domain can call, so it would witness nothing.</li>
+<li>The witness cannot live in <code>sutura-sql</code> and still be held by a servable bundle, because the bundle
+  is a domain type and <code>sutura-serve</code> may not reach <code>sutura-sql</code>. <code>ALLOWED_IN_DOMAIN</code> is an allowlist
+  over the domain's whole transitive tree and <code>polyglot-sql</code> is not on it, so the edge fails
+  <code>cargo xtask check-boundaries</code> outright; and that gate's own record says it walks the
+  whole-workspace resolve graph including edges feature unification turns on, so a Cargo feature does
+  not buy an exception either.</li>
+<li>The strongest remaining form is a hidden constructor in the domain plus a gate asserting it is
+  called from exactly one file. That is a mechanism, and it is deliberately not taken: it is the same
+  class as a <code>disallowed-methods</code> entry - a text rule about a call site, which this repository has
+  already had read as enforcement while resolving to nothing - and it would not change the refusal in
+  the composition root from a runtime one, because the loader would still have to be handed a
+  compiler and still have to refuse when it was not.</li>
+</ul>
+<p>What remains available is a refusal inside the one function that loads a catalog, which no caller can
+skip because there is no other path - a placement, not a type. That is a weaker guarantee than the
+rest of this record relies on, and it is stated here rather than implied.</p>
+<p><strong>No shipped binary could execute an authored expression even with the load path wired.</strong>
+<code>sutura-exec-datafusion</code> is the engine, builds a logical plan over Arrow and compiles no <code>sql</code>
+feature, so <code>Computation::measure()</code> returning <code>None</code> is a refusal there and not an execution path.
+<code>sutura-exec-duckdb</code> renders through <code>sutura-sql</code> and pushes down, and it is a dev-dependency that no
+binary links. So wiring the load alone would move the refusal from load time to query time. Which
+composition root gets an execution path for authored SQL is a decision this record does not make.</p>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>Two things pushed against the closed vocabulary from opposite directions, and neither is a metric
+that a wider <code>Measure</code> would fix.</p>
+<p><strong>Some metrics need constructs a closed vocabulary cannot hold.</strong> A window function, a percentile, an
+expression over two columns - <code>SUM(price * quantity)</code> - a <code>sumIf</code> over one dialect's own aggregate.
+Adding a <code>Term</code> per construct is the mistake
+<a href="../0002-a-closed-vocabulary-for-measures/#two-levels-not-three-siblings">0002</a> already recorded once
+in a smaller form: at some point the vocabulary stops being a vocabulary and becomes a badly-typed
+expression language with a bespoke parser.</p>
+<p><strong>Some providers already carry SQL per metric.</strong> A wren cube holds
+<code>SUM(CASE WHEN status = 'active' THEN mrr_eur END)</code> in the file. There is nothing to map that onto,
+so a provider whose catalog is written that way arrives as "unsupported" for its entire metric set -
+not as a degraded import, as no import. And this is the point where "not all providers have all
+capabilities" stops being an abstract statement: a wren-style directory has authored SQL because a
+person wrote the file, and a metadata service that stores no executable SQL per metric, or an RDF
+vocabulary that never will, has none and is <em>complete</em> rather than degraded.</p>
+<p>0002's rejection of free-text SQL gave two reasons. The first - "a parse failure becomes a runtime
+refusal instead of a review comment" - is answerable by parsing at load, which 0002 itself concedes
+is better. The second - "a catalog that loads on one version and fails to parse on the next fails
+readiness for every metric in it" - is real and is not answered. It is accepted as a cost here, and
+it is bounded: it applies only to metrics that use the hatch, and the failure is a loud load failure
+naming the metric, the dialect and the position, which is the failure mode this repository prefers.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<p><strong>A separate, explicitly-named shape beside the measure - never a field on it.</strong></p>
+<p><code>Computation</code> has two variants and a metric says which in a word:</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>On disk</th>
+<th>Who produces it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Computation::Measure</code></td>
+<td><code>measure:</code></td>
+<td>Every provider. The ordinary case, and the default path</td>
+</tr>
+<tr>
+<td><code>Computation::AuthoredSql</code></td>
+<td><code>authored_sql:</code></td>
+<td>Only a provider whose catalog carries SQL per metric</td>
+</tr>
+</tbody>
+</table>
+<p>The shape matters as much as the capability. There is no <code>expression:</code> key on a measure, no
+<code>Option&lt;String&gt;</code> beside one, and no arrangement in which "this metric is free-text SQL" is invisible
+in a diff or absent from an operator's listing. <code>Computation::kind()</code> returns the word, so "which
+metrics use the hatch" is one accessor over the pinned definitions rather than a grep over files.
+Writing both keys is refused rather than resolved by precedence, for the reason a two-termed term is:
+a document that writes both means one of them, and choosing would certify a number nobody asked for.</p>
+<p><code>AuthoredSql</code> is a <strong>map from a dialect word to a fragment</strong>, with <code>portable</code> reserved for "every
+target". Resolution is exact dialect, then <code>portable</code>, then <strong>refuse</strong>. That third step is a
+deliberate departure from wren's own OSI importer, which falls back to the first non-empty variant:
+that hands a Postgres query a Snowflake expression because it happened to be listed first, which is a
+number computed by a definition nobody chose, under a certified name. A dialect word that is not one
+this build renders for is also a load failure, not a variant silently never chosen - otherwise a
+<code>postgresql:</code> beside a <code>portable:</code> means Postgres quietly gets the portable text and nobody learns
+that the variant written for it was never read.</p>
+<p>The domain holds the fragment as <strong>text</strong> and no more. It checks that a fragment is present, bounded,
+and free of the characters that make the text a reviewer reads differ from the text that compiles,
+and it owns none of the SQL judgement, because it has no parser and <code>cargo xtask check-boundaries</code>
+keeps it that way.</p>
+<p>Two of those checks are worth naming, because both were found by attacking the text rather than by
+reasoning about it.</p>
+<p><strong><code>char::is_control</code> is not the check its own reason asked for.</strong> The refusal's stated purpose is to
+stop "an attempt to hide part of a fragment from a reviewer's terminal", and the characters that do
+that are general category <code>Cf</code>, not <code>Cc</code> - so <code>is_control</code> is false for every one of them and they
+passed. <code>SUM(CASE WHEN status = '&lt;U+202E&gt;evitca&lt;U+202C&gt;' THEN mrr_eur END)</code> renders in a terminal, in
+a diff and in a pull request as <code>status = 'active'</code> while comparing against something else, so the
+branch never fires and the metric certifies zero under a name a reviewer approved. That is Trojan
+Source (CVE-2021-42574) pointed at a metric definition, and the definition digest covers the text
+faithfully while the text is not what the reviewer read. <code>InvalidFragment::InvisibleCharacter</code> is a
+second refusal beside the first, over an enumerated set of ranges rather than the <code>Cf</code> category: a
+category test would move with the Unicode table under a dependency bump, which for a load-bearing
+refusal is a set that changes with no diff.</p>
+<p><strong>A dialect word is not trimmed.</strong> <code>DialectTag::parse</code> used to trim, which made <code>duckdb</code> and
+<code>duckdb</code> the same tag - and <code>BTreeMap</code>'s deserialize keeps the LAST value for a repeated key, so
+<code>{"duckdb": A, " duckdb ": B}</code> silently discarded <code>A</code> and certified <code>B</code>, with the digest taken over
+the survivor. That is the outcome <code>Computation::assemble</code> refuses when a metric writes <code>measure</code>
+beside <code>authored_sql</code>, arrived at without anybody writing two keys on purpose. Surrounding whitespace
+is now an <code>IllegalCharacter</code> load failure. <code>SqlFragment</code> still trims, deliberately: two fragments
+that differ only by surrounding whitespace are the same fragment, where two map keys are two keys.</p>
+<h3 id="parse-and-generate-at-load-per-dialect">Parse and generate, at load, per dialect<a class="headerlink" href="#parse-and-generate-at-load-per-dialect" title="Permanent link">&para;</a></h3>
+<p><code>sutura_sql::expression::compile</code> does the work, at catalog-compile time, for <strong>every</strong> dialect the
+build renders for at once. What it stores is the rendered string per target; what reaches a statement
+at query time is that string, verbatim, and nothing is parsed on the query path.</p>
+<p><code>Dialect::parse</code> then <code>Generator::generate</code>, never <code>Dialect::transpile</code>. The reason is stronger than
+"we banned translation":</p>
+<ul>
+<li><code>TranspileOptions::default()</code> sets <code>unsupported_level: Warn</code>. An unsupported construct returns
+  <code>Ok(sql)</code> and pushes a diagnostic into <code>unsupported_messages</code>, which <code>Dialect::transpile</code> then
+  <strong>discards</strong>. The default failure mode of the convenient call is silent wrong output.</li>
+<li>Setting the level to <code>Raise</code> is not a usable net either. Measured: it errors on every non-count
+  aggregate targeting <code>ClickHouse</code> - <code>SUM</code>, <code>AVG</code>, <code>MIN</code>, <code>MAX</code> all <code>Err</code> - while staying silent on
+  all four of the breakages below.</li>
+<li>Parse-and-generate is also <em>more faithful</em> for the aggregation subset, and needs no feature this
+  build does not already compile. Measured byte-identical across all sixteen (read, write) pairs over
+  <code>DuckDB</code>, Postgres, <code>ClickHouse</code> and <code>BigQuery</code> for the conditional sum, the guarded ratio,
+  <code>COUNT(DISTINCT k)</code>, <code>AVG</code>, <code>COALESCE</code>, a bare <code>CASE</code>, <code>MIN</code>/<code>MAX</code> and
+  <code>ARRAY_AGG(DISTINCT .. ORDER BY ..)</code>, with <code>CAST(.. AS DOUBLE)</code> retargeting per dialect.</li>
+</ul>
+<p>The fragment is parsed as <code>SELECT {fragment}</code> rather than through the dialect layer's fragment API,
+and that is not a stylistic preference. <code>Parser::new(dialect.tokenize(x))</code> followed by
+<code>parse_expressions()</code> <strong>panics</strong> on an empty token list, which is what <code>""</code>, whitespace-only and
+comment-only input all tokenize to, in all four dialects. Under <code>panic = "abort"</code> a blank line in a
+catalog file would end the process. <code>clippy.toml</code> now bans both methods, and the ban was confirmed to
+resolve by writing the call and watching clippy reject it - an unresolvable path in
+<code>disallowed-methods</code> is silently ignored, so an unverified entry would read as enforcement and do
+nothing.</p>
+<h3 id="the-fragment-is-bounded-in-depth-as-well-as-in-length">The fragment is bounded in depth as well as in length<a class="headerlink" href="#the-fragment-is-bounded-in-depth-as-well-as-in-length" title="Permanent link">&para;</a></h3>
+<p><code>MAX_FRAGMENT_LEN</code> bounds the text at 1024 characters and the parser's own <code>ComplexityGuardOptions</code>
+bound nesting at 512 levels, which between them let a catalog file hold a tree 507 levels deep. Two
+walks over that tree are <strong>ours</strong> and neither was guarded: <code>projection.clone()</code> at the end of <code>parse</code>,
+because <code>Expression</code>'s derived <code>Clone</code> recurses once per node, and <code>serde_json::to_value</code> inside
+<code>carries</code>, which recurses once per node before <code>has_field</code> recurses again over the <code>Value</code>. The
+dialect layer guards its own - the parser enforces its complexity limits, the generator wraps
+generation in <code>stacker::maybe_grow</code>, and its <code>Drop</code> is iterative - so those two were the whole
+exposure.</p>
+<p>A stack overflow is <strong>not a panic.</strong> <code>panic = "abort"</code> is beside the point: there is no unwinding to
+catch, and the process dies. Measured, in a debug build on a 2 MiB stack - which is what a tokio
+worker thread and a spawned std thread both have - four ordinary fragments each under the length
+bound aborted the process: 500 <code>+ 1</code> terms, a 500-deep list literal, 250 <code>NOT</code>s and 505 parentheses.
+In a release build the same abort needs only 128 KiB, which is musl's default main-thread stack.</p>
+<p><code>parse</code> therefore bounds the depth at <code>MAX_DEPTH = 32</code>, immediately after the statement comes out of
+the parser and <strong>before anything clones or serializes it</strong> - a guard in <code>check</code> would be too late,
+because the clone is inside <code>parse</code>. <code>ExpressionWalk::tree_depth</code> is iterative, so asking the
+question costs no stack at all. The number is the small half of the decision: counting the wrapper's
+<code>SELECT</code> as a level, the conditional sum this hatch exists for nests four and the deepest fragment any
+test in this repository needs is five, while 30 parentheses is a tree of depth 32 that compiles and 31
+is 33 and does not.</p>
+<p><strong>The authoring dialect is <code>DuckDB</code> and may not be <code>ClickHouse</code>.</strong> Measured: ClickHouse's parser
+accepts <code>SUM(x))</code> and <code>x) FROM secret --</code>, silently dropping the tail. That is injection-shaped input
+passing validation. DuckDB rejects both, and rejects <code>SUM(x) garbage garbage</code>, <code>SUM(x), COUNT(y)</code>,
+<code>SUM(x) AS foo</code>, <code>SUM(x) FROM t</code> and <code>1; DROP TABLE t</code> through the four shape guards.</p>
+<h3 id="column-references-are-checked-and-qualified">Column references are checked, and qualified<a class="headerlink" href="#column-references-are-checked-and-qualified" title="Permanent link">&para;</a></h3>
+<p>An unknown column <strong>fails the load</strong>. Wren has both behaviours: its cube path does not check column
+references and its own documentation tells the agent to expect a runtime error from the warehouse,
+while its model path does check them, through a schema-driven AST rewrite. The model path is right. A
+metric whose fragment names a column that does not exist is broken whether or not anybody asks about
+it, and the difference between finding out at load and finding out at query time is the difference
+between a refusal an operator can fix and a stack trace an agent shows a user.</p>
+<p>A qualifier written by hand is refused, and the compile qualifies every column itself with the
+metric's model table - the same rule the plan already follows, for the same reason: an unqualified
+column in a statement that later grows a join binds to whichever table happens to have it, and that
+is a wrong number rather than an error.</p>
+<p><strong>And the compile asserts that it did, rather than trusting the rewrite.</strong> The rewrite runs inside
+<code>traversal::transform_map</code>, whose child coverage is NARROWER than the traversal API's: it dispatches
+on a hardcoded list of node kinds and returns a kind it has no arm for untouched, children and all -
+its own comment says so, and <code>WithinGroup</code>'s adds that it does not descend into <code>this</code>. The
+unknown-column check is a <code>dfs</code> walk, which has the wider coverage. So the check saw columns the
+rewrite never reached, and eight measured fragments passed every guard and emitted a bare column:
+<code>MAX(x COLLATE ..)</code>, <code>SUM(x) SIMILAR TO ..</code>, <code>SUM(x) WITHIN GROUP (..)</code>, <code>ARRAY_AGG</code>/<code>LIST</code>/
+<code>GROUP_CONCAT</code> with an <code>ORDER BY</code>, and both placements of <code>IGNORE NULLS</code>.</p>
+<p>The cost of that is not a load failure. Measured in DuckDB 1.5.5 for the <code>COLLATE</code> case against a
+joined dimension carrying the same column name: <code>Binder Error: Ambiguous reference to column name
+"region"</code> - at query time, for a metric whose load SUCCEEDED, so the questions that join nothing are
+answered and the ones that join fail. That is exactly what load-time checking exists to prevent, and
+on an engine that resolves by precedence rather than erroring it is silently the wrong number.</p>
+<p>So after <code>qualify</code>, any <code>Expression::Column</code> with no table is <code>ExpressionError::NotQualified</code>.
+Asserting the postcondition rather than widening the rewrite is the choice: the walk belongs to the
+dialect layer, so a version of it that gains an arm makes more fragments compile and none escapes the
+check either way.</p>
+<h3 id="the-denylist">The denylist<a class="headerlink" href="#the-denylist" title="Permanent link">&para;</a></h3>
+<p>Four constructs are refused at catalog-validation time. <strong>Nothing upstream errors on any of them</strong>,
+which is the whole reason the list exists.</p>
+<table>
+<thead>
+<tr>
+<th>Refused</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FILTER (WHERE ..)</code></td>
+<td><code>aggregate_filter_supported</code> is set <code>false</code> by six dialects and is <strong>never read anywhere in the dialect layer</strong>. FILTER is emitted unconditionally for every target, including the six that cannot run it</td>
+</tr>
+<tr>
+<td><code>COUNT(DISTINCT a, b)</code></td>
+<td>Gated by <code>multi_arg_distinct</code>. <code>DuckDB</code> to <code>DuckDB</code> rewrites it into <code>COUNT(DISTINCT CASE WHEN a IS NULL THEN NULL WHEN b IS NULL THEN NULL ELSE (a, b) END)</code> while <code>ClickHouse</code> leaves it alone, so identity is not identity and the same fragment counts different things per target</td>
+</tr>
+<tr>
+<td>Any date or time function</td>
+<td>Truncation is the generator's, from the question's <code>Grain</code>, so no metric needs one - and <code>generator.rs</code>'s <code>generate_date_trunc</code> special-cases only TSQL/Fabric and ClickHouse, so a fourth dialect's argument order is a live defect waiting for that dialect to be compiled. It is a <code>generate</code>-level defect, so avoiding <code>transpile</code> does not fix it</td>
+</tr>
+<tr>
+<td>A bare <code>/</code> between aggregates</td>
+<td><code>DuckDB</code> to Postgres inserts <code>CAST(.. AS DOUBLE PRECISION)</code>, <code>DuckDB</code> to <code>BigQuery</code> does not, and Postgres to anything is left alone. <strong>The transpiler changes the NUMBER depending on which dialect is declared as the source.</strong> An explicit <code>NULLIF</code> suppresses the rewrite, which is why the divisor must be one - and it makes the zero-denominator behaviour explicit, which is what <code>ZeroDenominator</code> records for the closed vocabulary</td>
+</tr>
+</tbody>
+</table>
+<p>Plus <code>x IS TRUE</code>, already recorded as not portable in
+<a href="../../architecture/">the architecture notes</a>, and a set of structural refusals that are about <em>reach</em>
+rather than portability: a subquery, a table reference, a star, a bind placeholder, a schema
+statement, a node the generator emits with no handling at all, and a fragment that aggregates
+nothing.</p>
+<h3 id="node-kinds-are-a-denylist-function-names-are-an-allowlist">Node kinds are a denylist. Function names are an allowlist<a class="headerlink" href="#node-kinds-are-a-denylist-function-names-are-an-allowlist" title="Permanent link">&para;</a></h3>
+<p>This reverses what <em>Alternatives considered</em> decided below, and the reversal is confined to names.</p>
+<p>A generic function call is the case where the dialect layer has no typed node, so it emits the name
+<strong>verbatim into every target with no lowering of any kind</strong>. The old check compared that name against
+the date-and-time list and let everything else through, on the stated grounds that a UDF was the
+author's claim to make. Measured against DuckDB 1.5.5, that was not a claim about portability but
+about reach: the rendering of <code>MAX(getenv('X'))</code> is
+<code>SELECT (MAX(GETENV('X'))) FROM fact_subscription</code>, and with <code>SUTURA_SECRET_PROBE</code> set in the process
+that statement <strong>answered the value of the environment variable.</strong> Every secret the sutura process
+holds - a service-account path, a warehouse password, a token - was readable that way, under a
+certified metric name, out of a catalog file. <code>Construct::TableReference::why</code> states the invariant it
+breaks: "a measure expression may read only the columns its own model declares". Also accepted at
+compile, from one afternoon over three manuals: Postgres <code>query_to_xml</code> (executes arbitrary SQL and
+returns its rows), <code>pg_read_file</code>, <code>pg_ls_dir</code>, <code>lo_import</code> (writes to disk), <code>nextval</code> and <code>setval</code>
+(mutate a sequence), <code>pg_sleep</code> and <code>dblink</code>; ClickHouse <code>dictGet</code>, <code>getSetting</code> and <code>sleep</code>; DuckDB
+<code>current_setting</code>.</p>
+<p><strong>A denylist over function names cannot bound that space.</strong> It is every function every target has,
+plus every user-defined one, plus every function a future version of any of them adds. So the
+direction is reversed for names: <code>Construct::UnknownFunction</code> refuses every name that is not on a
+short list, and the refusal <strong>names the list</strong>, generated from the list itself so the sentence an
+author reads cannot disagree with the check that refused them.</p>
+<p>The count argument below does not transfer, and that is the whole reason this is a reversal rather
+than a contradiction. It was made about node KINDS - "some six hundred", and enumerating the ones
+that are fine would recreate the closed vocabulary - and it still holds for them, which is why kinds
+are still a denylist backed by <code>traversal::is_query</code> and <code>traversal::is_ddl</code>. The set of <em>names a
+measure needs</em> is a different set: percentiles, a null guard, a rounding, a min/max pair, and the
+aggregates. It fits on one screen:</p>
+<p><code>ABS</code>, <code>ARRAY_AGG</code>, <code>AVG</code>, <code>CAST</code>, <code>COALESCE</code>, <code>COUNT</code>, <code>COUNTIF</code>, <code>COUNT_IF</code>, <code>GREATEST</code>,
+<code>GROUP_CONCAT</code>, <code>LEAST</code>, <code>LIST</code>, <code>MAX</code>, <code>MEDIAN</code>, <code>MIN</code>, <code>NULLIF</code>, <code>PERCENTILE_CONT</code>,
+<code>PERCENTILE_DISC</code>, <code>ROUND</code>, <code>STDDEV</code>, <code>STDDEV_POP</code>, <code>STDDEV_SAMP</code>, <code>STRING_AGG</code>, <code>SUM</code>, <code>SUMIF</code>,
+<code>SUM_IF</code>, <code>TRY_CAST</code>, <code>UNIQEXACT</code>, <code>VARIANCE</code>, <code>VAR_POP</code>, <code>VAR_SAMP</code>.</p>
+<p>Three things follow.</p>
+<p><strong>A variant needing one more name is a review-visible edit to that list</strong>, which is precisely the
+property the hatch exists to have: a metric using SQL is already a named, greppable shape, and now so
+is the vocabulary it may use. Matching is <code>eq_ignore_ascii_case</code>, so one entry covers a dialect's own
+casing - <code>SUMIF</code> is how <code>sumIf</code> is written - while a spelling differing by more than case, such as
+<code>stddevPop</code> beside <code>STDDEV_POP</code>, needs its own line.</p>
+<p><strong>The residual date fail-open this record used to state is closed.</strong> A date function spelled with a
+name not on the date list and with no typed node used to render verbatim; it is now refused as a name
+outside the allowlist. The date list survives because it gives such a name a refusal that says <em>date
+function</em> and points at the argument-order defect, which is a better sentence for an author than "not
+on the list".</p>
+<p><strong>Each name carries whether calling it aggregates</strong>, and that mark fixed a second defect in the other
+direction. <code>traversal::contains_aggregate</code> classifies by node kind, so it is true for <code>SUM(x)</code> and
+<code>sumIf(x, p)</code> and <strong>false</strong> for <code>uniqExact(k)</code> - a real ClickHouse aggregate the dialect layer has no
+node for. A per-dialect variant nobody could write any other way was therefore refused as
+<code>NotAggregated</code>. The mark is asked only for names that classifier has no node for, so the aggregate
+node kinds are still written down in exactly one place, which is upstream; a test parses
+<code>NAME(mrr_eur)</code> for every aggregate-marked name and asserts the two agree, with the one exception
+enumerated rather than implicit.</p>
+<h3 id="two-more-holes-in-the-comment-refusal">Two more holes in the comment refusal<a class="headerlink" href="#two-more-holes-in-the-comment-refusal" title="Permanent link">&para;</a></h3>
+<p>Both are the refusal not holding rather than the escaping failing - <code>*/</code> and <code>/*</code> are escaped on
+every path that re-emits a comment, tried and confirmed.</p>
+<p><strong>A comment was refused under one of the seven names the AST spells it.</strong> <code>carries</code> asked about
+<code>trailing_comments</code>; the AST also has <code>leading_comments</code>, <code>comments</code>, <code>pre_alias_comments</code>,
+<code>post_select_comments</code>, <code>operator_comments</code> and <code>left_comments</code>, and three of those six are re-emitted
+INTO the statement - measured, all three accepted: <code>SUM(x) /* c */ + 1</code> through <code>left_comments</code>,
+<code>SUM(x) + /* c */ 1</code> through <code>operator_comments</code>, and <code>CASE /* c */ WHEN ..</code> through <code>comments</code>, which
+moves it to the end of the <code>CASE</code>. Up to a thousand characters of catalog prose between our own
+generated tokens. The question is now asked by SUFFIX, so a field nobody has seen yet is covered -
+the same argument this file already makes for asking the serialization rather than the type.</p>
+<p><strong>An unterminated <code>/*</code> silently discarded the rest of the fragment.</strong>
+<code>SUM(mrr_eur) /* SUM(customer_key) is what runs</code> was accepted, with everything after the <code>/*</code>
+swallowed by the tokenizer and nothing left in the tree to record that it was there. That is the same
+family as the dropped clause below - the one this record calls the worse of the two - reached through
+the tokenizer rather than the parser, which is why the question is asked of the TEXT: by the time
+there is an AST, the evidence is gone.</p>
+<p>The first form of that question was a count of <code>/*</code> against a count of <code>*/</code>, and this record used to
+say it FAILED CLOSED. <strong>That was wrong: it failed OPEN, and the correction is the second finding
+rather than a rewording of the first.</strong> A <code>*/</code> inside a string literal balances a later unterminated
+<code>/*</code>, so the counts agreed and the fragment was accepted with its tail gone. Measured in this build:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>SUM(CASE WHEN status = '*/' THEN mrr_eur END) /* SUM(customer_key) is what runs
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  -&gt; ACCEPTED, rendered for every target as
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>     SUM(CASE WHEN "fact_subscription"."status" = '*/' THEN "fact_subscription"."mrr_eur" END)
+</span></code></pre></div>
+<p>Nothing else could have caught it, and not by luck: the trailing text is in no node, so the
+seven-name comment question cannot see it, and the whole statement and the projection render
+identically, so the dropped-clause guard cannot either. <code>'a*/b'</code> does the same with the delimiter
+buried mid-word.</p>
+<p>The question is now <strong>presence</strong> - any <code>/*</code>, any <code>*/</code>, any <code>--</code>, anywhere in the text - and presence
+is chosen over the two narrower fixes because it needs no agreement with anybody. A string-literal
+skip would have to end a literal exactly where the authoring dialect's tokenizer ends one, and DuckDB
+has dollar-quoting and escape-string forms, so <code>SUM(mrr_eur) || $$'$$ /* tail</code> is a literal holding a
+quote followed by an unterminated comment to the tokenizer and a literal that never closes to a
+one-state scanner: the delimiter is hidden again, by a construct the scanner has not been taught. That
+is the second tokenizer this module exists not to have. A comment delimiter the tokenizer can see must
+appear in the bytes, so refusing the three digraphs refuses every comment, terminated or not, wherever
+the tokenizer thinks it begins.</p>
+<p>The cost is the same class of false positive the count already had, one digraph wider: a string
+literal holding <code>/*</code>, <code>*/</code> or <code>--</code> is refused. Accepted for the reason it was accepted before - a
+measure has no reason to compare a column against a comment delimiter, and none of the three has any
+other meaning in SQL, <code>--</code> between two operands being a comment too.</p>
+<h3 id="two-holes-the-four-shape-guards-do-not-close">Two holes the four shape guards do not close<a class="headerlink" href="#two-holes-the-four-shape-guards-do-not-close" title="Permanent link">&para;</a></h3>
+<p>Both were found by testing rather than by reasoning, and both are recorded because the shape guards
+read like a boundary and are not one.</p>
+<p><strong>A scalar subquery in the projection.</strong> <code>SUM(x) + (SELECT secret FROM secret_table)</code> is one
+statement, one expression, no <code>FROM</code> and no alias - it passes all four guards - and it reads a table
+the plan never granted. Closed by refusing any query node and any table reference, using the dialect
+layer's own <code>is_query</code> and <code>is_ddl</code> classifiers as well as our lists.</p>
+<p><strong>A clause that taking the projection would discard.</strong> <code>SELECT 1 WHERE true</code> is legal in the
+authoring dialect with no <code>FROM</code> at all, so <code>SUM(x) WHERE secret = 1</code> parses as one statement with one
+projection and no <code>FROM</code>, and taking <code>expressions[0]</code> <strong>throws the <code>WHERE</code> away</strong>. The metric would
+then be certified as <code>SUM(x)</code>, silently, over a predicate its author wrote and nobody removed on
+purpose. Confirmed for <code>WHERE</code>, <code>GROUP BY</code>, <code>HAVING</code>, <code>QUALIFY</code>, <code>ORDER BY</code>, <code>LIMIT</code>, <code>WINDOW</code> and a
+leading <code>DISTINCT</code>: each parses, each is dropped. Closed by rendering the whole wrapper statement and
+the projection alone and requiring them to differ by exactly <code>SELECT</code> - a check on the <em>rendering</em>
+rather than on a list of <code>Select</code> fields, so it holds for a clause nobody thought of.</p>
+<p>A comment is refused too, and it is the mildest of the three: <code>SUM(x) -- note</code> is re-emitted as
+<code>SUM(x) /* note */</code> <strong>into</strong> the statement, putting catalog text between our own generated tokens.
+The generator does escape a closing <code>*/</code> into <code>* /</code> - measured, so it is not an injection - but a
+measure has no reason to carry prose that the document around it can hold instead.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>A catalog that uses the hatch cannot be loaded by a build that renders no SQL. <code>sutura_sql</code> is
+  where the compile lives, and the network binary does not link it. That is not a gap to paper over:
+  a build that cannot validate authored SQL must refuse a catalog that carries it, rather than serve
+  the metric unvalidated. The composition root is what must call the compile, and a <code>Computation</code>
+  that has not been through it is unvalidated. <strong>"By construction" is what this sentence used to say
+  and it is not available</strong> - see <a href="#what-is-built-and-what-is-not"><em>What is built, and what is not</em></a>
+  for why a witness type cannot be placed anywhere the bundle can hold it, and for the weaker
+  placement that is available instead. No such refusal is written today, because no catalog can
+  express an authored metric today.</li>
+<li>The engine adapter cannot execute an authored expression at all. It builds a logical plan over
+  Arrow and its <code>sql</code> feature is deliberately not compiled. So <code>Computation::measure()</code> returning
+  <code>None</code> has to be a refusal there, naming the metric - never a skipped metric and never a
+  substituted measure.</li>
+<li><strong>Portability is the author's claim, not ours.</strong> The compile proves the fragment is one expression
+  over declared columns, that it holds none of the refused constructs, and that each rendering parses
+  in its own target's dialect. It does <strong>not</strong> prove the target <em>has</em> the function: <code>MEDIAN(x)</code> and
+  <code>COUNT_IF(x)</code> are emitted verbatim into Postgres, where neither exists, and <code>PERCENTILE_CONT</code>
+  likewise into ClickHouse. No per-dialect function catalogue is compiled into this build. Per-dialect
+  variants are how an author discharges that claim precisely, and a dialect with no variant and no
+  <code>portable</code> fragment is refused rather than guessed at.</li>
+<li><strong>The re-parse in <code>render</code> proves well-formedness and nothing about meaning.</strong> It renders for the
+  target, parses the result back in that target, and DISCARDS what it parsed - so it cannot see a
+  construct whose meaning changed on the way out. Measured, this build:
+  <code>TRY_CAST(SUM(mrr_eur) AS DOUBLE)</code> renders as <code>TRY_CAST(.. AS DOUBLE)</code> for <code>DuckDB</code> and as
+  <code>CAST(.. AS DOUBLE PRECISION)</code> and <code>CAST(.. AS Nullable(Float64))</code> for Postgres and <code>ClickHouse</code>,
+  which turns null-on-failure into an error raised at query time; <code>SUM(mrr_eur)::VARCHAR</code> renders
+  three ways - <code>CAST(.. AS TEXT)</code>, <code>CAST(.. AS VARCHAR)</code> and <code>.. ::VARCHAR</code>; and a <code>json_extract</code>
+  becomes a differently-named function with a rewritten path expression. This is the same class as the
+  four denylisted defects and is not fixed here: comparing the two ASTs would need a semantic
+  equivalence the dialect layer does not offer. It is stated so that the guard is not read as more
+  than it is.</li>
+<li><strong><code>RenderedDoesNotParse</code> is weak for <code>ClickHouse</code> specifically.</strong> Its parser accepts <code>SUM(x))</code> and
+  <code>x) FROM secret --</code> by discarding the tail - which is why it may not be the authoring dialect - and
+  the same laxity means a malformed rendering targeted at it is less likely to come back as an error.
+  The guard is worth having for the two strict targets and is not evidence for the third.</li>
+<li>The residual fail-open on the date denylist is CLOSED, by the allowlist above: a date function with
+  an unlisted name and no typed node is now refused as a name outside the allowed set rather than
+  rendered verbatim.</li>
+<li>Definition digests do not move. <code>Computation</code> is externally tagged so that flattened into a metric
+  document a closed-vocabulary metric serializes as the <code>measure:</code> key it already had.</li>
+<li>The definition digest now covers a string somebody wrote. A catalog edit still cannot change what
+  executes - the digest moves and travels with the answer - but a reviewer reading a diff is now
+  sometimes reading SQL, which is a review burden the closed vocabulary did not impose.</li>
+</ul>
+<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
+<p><strong><code>expression:</code> as a field on <code>Measure</code>, as the reference modelling languages do.</strong> One key, no new
+type, and drop-in compatible with the documents people already have. Rejected because it makes the
+hatch invisible: a reviewer scanning a measure cannot tell which metrics are governed by a closed
+vocabulary and which are text, and <code>AGENTS.md</code>'s claim that the vocabulary holds no SQL expression
+would become false with nothing to replace it. The claim is worth keeping true of the closed part,
+and that requires the two to be different shapes.</p>
+<p><strong>One expression string with no dialect on it, as wren's cube path has.</strong> Simplest, and it is what
+the files being imported actually contain. Rejected because "it does not translate" then has no
+honest answer: either the fragment is silently wrong on some target, or the metric is unusable there
+and nothing says which. A map with a <code>portable</code> word and per-dialect overrides says it, and a provider
+that already stores per-dialect SQL maps onto it without loss.</p>
+<p><strong>An allowlist of AST node kinds instead of a denylist.</strong> Fail-closed, and it would have caught the
+subquery hole by construction. Rejected on the count: the scalar and aggregate space is some six
+hundred node kinds, and enumerating the ones that are fine would recreate the closed vocabulary this
+hatch exists to widen. The reach half is enumerable and small - there are only so many ways to name a
+relation - so reach is a denylist backed by the dialect layer's own <code>is_query</code> and <code>is_ddl</code>
+classifiers, and portability is a denylist of four measured defects. The residual risk of an
+unlisted-but-harmful node kind arriving in a future version of the dialect layer is accepted and
+stated.</p>
+<blockquote>
+<p><strong>Amended.</strong> This still stands for node KINDS and is why they are still a denylist. It was extended
+to called function NAMES, and that extension was wrong: a name is not a node kind, the space is
+unbounded rather than six hundred, and the proof is <code>MAX(getenv('X'))</code> returning a secret out of the
+process. Names are now an allowlist -
+<a href="#node-kinds-are-a-denylist-function-names-are-an-allowlist">see above</a> - and the count argument is
+the reason the two halves differ rather than the reason they agree.</p>
+</blockquote>
+<p><strong>Refuse the whole class and keep pushing these metrics to the pinned-statement path.</strong> No parser
+anywhere on the definition path. Rejected for the reason 0002 rejected it once already: that path
+needs an upstream renderer, which is the precondition the first-party path exists because it is
+absent - and it now also means refusing an entire class of metadata provider rather than one metric.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,3382 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Why a release is signed keylessly with Sigstore rather than with a key we hold, why both a cosign bundle and a GitHub attestation are published when either would verify, what the image SBOM covers and the exact question it cannot answer, and which of the four things a green verification does not establish.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.3.0/adr/0021-how-a-published-artefact-proves-where-it-came-from/">
+      
+      
+        <link rel="prev" href="../0020-a-credential-the-compiler-refuses-to-print/">
+      
+      
+        <link rel="next" href="../0022-untrusted-content-marking/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>How a published artefact proves where it came from - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#how-a-published-artefact-proves-where-it-came-from" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              How a published artefact proves where it came from
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-wrong-and-there-was-no-incident" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was wrong, and there was no incident
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keyless-and-this-is-the-part-that-is-a-decision-rather-than-a-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keyless, and this is the part that is a decision rather than a default
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#both-a-bundle-and-a-github-attestation-though-either-would-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Both a bundle and a GitHub attestation, though either would verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signed-by-digest-never-by-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signed by digest, never by name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#push-to-registry-is-off-deliberately" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        push-to-registry is off, deliberately
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sha256-sidecars-are-not-signed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The .sha256 sidecars are not signed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sequence-is-a-local-composite-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The sequence is a local composite action
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-sbom-and-the-question-it-does-not-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The SBOM, and the question it does not answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-costs-measured-where-it-can-be" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this costs, measured where it can be
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-considered-instead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was considered instead
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is claimed, and what is not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-the-crate-graph-moved-inside-the-binary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the crate graph moved inside the binary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment: the crate graph moved inside the binary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-not-a-document-generated-from-cargolock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not a document generated from Cargo.lock
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-now-claimed-and-what-still-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is now claimed, and what still is not
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-was-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was measured
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-measurement-that-was-wrong-and-what-it-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The measurement that was wrong, and what it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-the-check-lives-in-ciyml-as-well" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the check lives in ci.yml as well
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-the-attribution-document-and-the-licence-report-as-a-signed-asset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the attribution document, and the licence report as a signed asset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment: the attribution document, and the licence report as a signed asset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-attribution-document-is-and-where-it-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the attribution document is, and where it lives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-a-document-generated-from-cargolock-is-right-here-and-wrong-for-the-sbom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a document generated from Cargo.lock is right here and wrong for the SBOM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-licence-report-joins-the-signed-assets-and-it-had-to-move-workflows-to-do-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The licence report joins the signed assets, and it had to move workflows to do it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cost_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-now-claimed-and-what-still-is-not_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is now claimed, and what still is not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-wrong-and-there-was-no-incident" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was wrong, and there was no incident
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keyless-and-this-is-the-part-that-is-a-decision-rather-than-a-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keyless, and this is the part that is a decision rather than a default
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#both-a-bundle-and-a-github-attestation-though-either-would-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Both a bundle and a GitHub attestation, though either would verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signed-by-digest-never-by-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signed by digest, never by name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#push-to-registry-is-off-deliberately" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        push-to-registry is off, deliberately
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sha256-sidecars-are-not-signed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The .sha256 sidecars are not signed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sequence-is-a-local-composite-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The sequence is a local composite action
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-sbom-and-the-question-it-does-not-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The SBOM, and the question it does not answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-costs-measured-where-it-can-be" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this costs, measured where it can be
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-considered-instead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was considered instead
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is claimed, and what is not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-the-crate-graph-moved-inside-the-binary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the crate graph moved inside the binary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment: the crate graph moved inside the binary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-not-a-document-generated-from-cargolock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not a document generated from Cargo.lock
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-now-claimed-and-what-still-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is now claimed, and what still is not
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-was-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was measured
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-measurement-that-was-wrong-and-what-it-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The measurement that was wrong, and what it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-the-check-lives-in-ciyml-as-well" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the check lives in ci.yml as well
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-the-attribution-document-and-the-licence-report-as-a-signed-asset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the attribution document, and the licence report as a signed asset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment: the attribution document, and the licence report as a signed asset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-attribution-document-is-and-where-it-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the attribution document is, and where it lives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-a-document-generated-from-cargolock-is-right-here-and-wrong-for-the-sbom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a document generated from Cargo.lock is right here and wrong for the SBOM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-licence-report-joins-the-signed-assets-and-it-had-to-move-workflows-to-do-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The licence report joins the signed assets, and it had to move workflows to do it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cost_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-now-claimed-and-what-still-is-not_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is now claimed, and what still is not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="how-a-published-artefact-proves-where-it-came-from">How a published artefact proves where it came from<a class="headerlink" href="#how-a-published-artefact-proves-where-it-came-from" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted, and amended twice.</strong> Built. A tagged release publishes a Sigstore bundle per
+asset, a <code>cosign</code> signature on all six image references, a CycloneDX attestation on each of the four
+leaf images, and SLSA provenance for every asset and for the two manifest lists.
+<code>.github/actions/attest-and-sign</code> is the sequence; <code>docs/verifying-a-release.md</code> is what a consumer
+reads.</p>
+<p><strong>The second amendment closes the roadmap bullet's licence half</strong> and is at the bottom under
+<em>Amendment: the licence report ships as a signed, committed document</em>. <strong>The first amendment closes
+the crate-graph gap</strong> and is at the bottom under <em>Amendment: the crate graph moved inside the
+binary</em>. The paragraphs between them are kept as written rather than corrected in place - they are
+the arguments the amendments act on, and rewriting them would leave a reader unable to tell which
+half was decided when.</p>
+<p><strong>Nothing here signs source, gates a merge, or says an artefact is good.</strong> The scope is one
+question - <em>are these bytes the ones this pipeline emitted</em> - and the rest of this record is mostly
+about what that does not cover.</p>
+<h2 id="what-was-wrong-and-there-was-no-incident">What was wrong, and there was no incident<a class="headerlink" href="#what-was-wrong-and-there-was-no-incident" title="Permanent link">&para;</a></h2>
+<p>The release path was already careful about <em>what</em> it built. Four cross-compiled targets from a
+Nix-pinned toolchain, static linking asserted rather than described, two manifest lists whose
+platform entries are checked before anything records them as good, and every image digest read back
+out of what the registry said rather than out of local bookkeeping.</p>
+<p>What a consumer got was a tarball, a <code>.sha256</code> file <strong>served by the same page as the tarball</strong>, and
+a table of digests in the release notes. That is a corruption check, not a provenance check: an
+attacker who can rewrite the asset can rewrite the sidecar, and a reader comparing the two learns
+that the download completed. The digests in the notes are better - they came from the registry - and
+they are still text on a page that the same actor would be rewriting.</p>
+<p>So the defect is not a leak and not a bad artefact. It is that <strong>the strongest claim a consumer
+could check was one the publisher also controlled</strong>, and there was no way to distinguish "this is
+what the pipeline built" from "this is what the page currently serves".</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<p><strong>A release is signed keylessly through Sigstore, and every asset carries provenance.</strong></p>
+<p>Concretely, in <code>publish</code> - the one job that can write anything and the one job that compiles
+nothing:</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>every release asset except the <code>.sha256</code> sidecars</td>
+<td><code>cosign sign-blob --bundle</code>, one <code>.sigstore.json</code> per asset, attached</td>
+</tr>
+<tr>
+<td>all six image references, four leaves and two lists</td>
+<td><code>cosign sign</code>, <strong>by digest</strong></td>
+</tr>
+<tr>
+<td>each leaf image's CycloneDX SBOM</td>
+<td><code>cosign attest --type cyclonedx</code>, attached to the image</td>
+</tr>
+<tr>
+<td>every asset including the sidecars</td>
+<td><code>actions/attest-build-provenance</code>, one call via <code>subject-checksums</code></td>
+</tr>
+<tr>
+<td>the two manifest lists</td>
+<td><code>actions/attest-build-provenance</code>, one call each via <code>subject-digest</code></td>
+</tr>
+</tbody>
+</table>
+<p>The tools come from the locked nixpkgs as <code>apps.cosign</code> and <code>apps.syft</code>, for the reason <code>apps.deny</code>
+states at length: <code>nix run nixpkgs#cosign</code> resolves through the flake registry to whatever
+nixpkgs-unstable points at when the job runs, and this is the one job in the repository holding a
+write token. Both are apps rather than checks because a Nix build sandbox has no network, and
+<code>cosign</code> exists to reach Fulcio and Rekor.</p>
+<h3 id="keyless-and-this-is-the-part-that-is-a-decision-rather-than-a-default">Keyless, and this is the part that is a decision rather than a default<a class="headerlink" href="#keyless-and-this-is-the-part-that-is-a-decision-rather-than-a-default" title="Permanent link">&para;</a></h3>
+<p>There is <strong>no signing key</strong> in this repository, in its secrets, or on any machine. The job mints an
+OIDC token stating which repository, which workflow file and which ref is asking; Fulcio returns a
+certificate valid for minutes recording that identity; the signature goes into Rekor.</p>
+<p>A long-lived key was the alternative and it is worse in the way that matters. A key is a thing to
+store, rotate, and eventually lose, and while it exists it can sign <strong>anything</strong> - so what a
+verifier learns from a key signature is <em>"somebody held the key"</em>, which stays true for as long as
+nobody notices it leaked. What a verifier learns here is <em>"this workflow, at this ref, in this
+repository"</em>, and there is nothing to steal.</p>
+<p>The cost is real and is stated where it bites: <strong>the two identity flags are the check.</strong>
+<code>cosign verify-blob --bundle x.sigstore.json x</code> with no <code>--certificate-identity-regexp</code> and no
+<code>--certificate-oidc-issuer</code> verifies that <em>somebody</em> signed the file. Every command in
+<code>docs/verifying-a-release.md</code> carries both, and the release notes render them into the table rather
+than leaving a reader to know.</p>
+<h3 id="both-a-bundle-and-a-github-attestation-though-either-would-verify">Both a bundle and a GitHub attestation, though either would verify<a class="headerlink" href="#both-a-bundle-and-a-github-attestation-though-either-would-verify" title="Permanent link">&para;</a></h3>
+<p>This looks like redundancy and is not. They differ in <strong>what a verifier has to have</strong>.</p>
+<p><code>gh attestation verify</code> asks GitHub's API: it needs network reach to this forge and an
+authenticated <code>gh</code>, and it needs the attestation store to still hold the record. <code>cosign
+verify-blob</code> needs the file, its bundle, and Sigstore's trust root - so an artefact somebody
+mirrored into their own storage six months ago is verifiable from the bytes they mirrored, with no
+account anywhere.</p>
+<p><strong>A release asset exists for exactly that consumer</strong>, so it gets the signature that survives being
+copied off this page. The forge-side attestation is the cheaper one to check and covers everything
+including the sidecars, because <code>subject-checksums</code> takes a whole <code>sha256sum</code> file in one call.</p>
+<h3 id="signed-by-digest-never-by-name">Signed by digest, never by name<a class="headerlink" href="#signed-by-digest-never-by-name" title="Permanent link">&para;</a></h3>
+<p>Every image signature is against <code>${IMAGE}@sha256:...</code>. Signing <code>${IMAGE}:${tag}</code> resolves the tag
+at signing time, and the same job moves <code>:latest</code> two steps earlier - so a signature made against a
+name is a signature against whatever that name meant at that instant. The digests come out of
+<code>image-digests.txt</code>, which the push step wrote from what the registry <em>said</em>.</p>
+<p>The two lists are signed <strong>without</strong> <code>--recursive</code>, because their four children are signed here by
+their own digests; <code>--recursive</code> would sign each leaf a second time under the list's certificate and
+leave two signatures per leaf differing in nothing a verifier reads.</p>
+<h3 id="push-to-registry-is-off-deliberately"><code>push-to-registry</code> is off, deliberately<a class="headerlink" href="#push-to-registry-is-off-deliberately" title="Permanent link">&para;</a></h3>
+<p><code>actions/attest-build-provenance</code> can write its attestation into the registry as an OCI referrer,
+for a verifier that reads the registry and not the forge. That verifier is already served: <code>cosign
+sign</code> covers all six references and <code>cosign attest</code> covers all four leaves, and
+<code>gh attestation verify oci://...</code> resolves the digest from the registry and fetches the attestation
+from GitHub - so nothing is unreachable without it. It would also need registry credentials held
+across a step the workflow does not control, which is the shape the login/logout bracketing in that
+job exists to avoid.</p>
+<h3 id="the-sha256-sidecars-are-not-signed">The <code>.sha256</code> sidecars are not signed<a class="headerlink" href="#the-sha256-sidecars-are-not-signed" title="Permanent link">&para;</a></h3>
+<p>A bundle over <code>sutura-&lt;target&gt;.tar.gz</code> already commits to that file's digest, so a signature over a
+file whose entire content <strong>is</strong> that digest proves nothing new and costs a certificate and a
+transparency-log entry per release. They keep provenance, which is free, and they stay published
+because a consumer's script may read them. <code>docs/verifying-a-release.md</code> says which of the two to
+take and why.</p>
+<h3 id="the-sequence-is-a-local-composite-action">The sequence is a local composite action<a class="headerlink" href="#the-sequence-is-a-local-composite-action" title="Permanent link">&para;</a></h3>
+<p><code>.github/actions/attest-and-sign</code>, and it is a split with two reasons rather than a preference.
+<code>release.yml</code> is hand-written configuration under the 1000-line cap <code>cargo xtask max-lines</code>
+enforces, and inlining this reached 1084 - so the split was forced, and the question was only where
+to cut. The signing sequence is the right cut because it is <strong>the part of the release path that
+grows</strong>: every artefact kind added later is another thing to sign, and the loops take it without a
+new step. <code>.github/actions/reclaim-disk</code> is the precedent, and its argument for being local rather
+than third-party applies unchanged.</p>
+<p><strong>What that action cannot do is know what should have been published.</strong> It signs what it is handed,
+so an artefact that never reaches <code>dist/</code> is not signed and nothing in it notices. The step that
+keeps that from becoming a quietly unsigned release is <code>Check that all four builds arrived</code>, which
+already existed for the analogous failure and which this change extends with the SBOMs.</p>
+<h2 id="the-sbom-and-the-question-it-does-not-answer">The SBOM, and the question it does not answer<a class="headerlink" href="#the-sbom-and-the-question-it-does-not-answer" title="Permanent link">&para;</a></h2>
+<p>Each leaf image gets a <code>syft</code> scan rendered as CycloneDX and SPDX from one pass, so the two cannot
+disagree. It reads the image <strong>tarball</strong> rather than the daemon or the registry, so what it
+inventories is exactly the bytes <code>publish</code> pushes rather than an image resolved through a tag that
+could have moved between two steps. It runs in <code>build</code>, because that job is where compute belongs
+and the token-holding job inspects nothing.</p>
+<p><strong>What it covers:</strong> the files in the image. That is the binary, the CA certificate bundle and
+tzdata, and nothing else - there is no shell and no package manager in there.</p>
+<p><strong>What it does not cover: the crate graph.</strong> <code>syft</code> reads a Rust dependency list out of a
+<code>Cargo.lock</code> on disk or out of a <code>cargo auditable</code> section in the executable, and the shipped image
+has neither - nothing ships a lock file and the release profile embeds nothing. So this document is
+an accurate answer to <em>"what files are in the image"</em> and it is <strong>not</strong> an answer to <em>"which crates
+is this built from"</em>.</p>
+<p>That gap is stated in four places on purpose - the workflow step, the release notes table, the
+verification page and here - because an SBOM naming no crates is a well-formed document that
+publishes, attaches and verifies exactly like a real one, and a reader who assumes otherwise has
+been misled by a green check. The step therefore also <strong>asserts</strong> that the document names at least
+two things, on the same reasoning as the static-linking and manifest-list assertions either side of
+it: a scan that inventoried nothing must fail rather than ship.</p>
+<p>Closing the gap is a separate change, and it is a build change rather than a reporting one: the
+crate graph belongs in the artefact rather than beside it, which means <code>cargo auditable</code> on the four
+cross builds and a CycloneDX document scoped to the shipped package rather than to the workspace.
+<strong>Scoped, because the workspace graph is not the binary's graph and saying so would be the exact
+overstatement this section is about</strong> - <code>sutura-cli</code> links the engine only, while <code>libduckdb-sys</code>
+and the BigQuery wire put <code>ureq</code>, rustls and <code>ring</code> in the resolve graph for a binary that links
+none of them. <code>deny.toml</code> has carried that argument for longer than this record has existed.</p>
+<h2 id="what-this-costs-measured-where-it-can-be">What this costs, measured where it can be<a class="headerlink" href="#what-this-costs-measured-where-it-can-be" title="Permanent link">&para;</a></h2>
+<p><strong>No new packages, anywhere.</strong> <code>cosign</code> and <code>syft</code> are nixpkgs derivations reached through <code>nix
+run</code>; nothing enters <code>Cargo.lock</code>, nothing enters the shipped binary, and no image layer changes. The
+artefact bytes this change publishes are byte-identical to what the previous release path would have
+published.</p>
+<p><strong>One third-party action, GitHub's own, pinned by commit</strong> - <code>actions/attest-build-provenance</code> at
+<code>v4.2.2</code>, resolved to its commit like every other action in these workflows. Checked 2026-08-31;
+re-resolve rather than trusting this line, per this repository's own rule that a version in a record
+is stale before anybody builds from it.</p>
+<p><strong>Two more write grants on <code>publish</code></strong>, and the paragraph in <code>release.yml</code>'s header was rewritten
+rather than left to be inferred: <code>id-token: write</code> mints the OIDC token Fulcio signs against and
+<code>attestations: write</code> stores the provenance. Neither can read secrets and neither can push code, and
+the property that made the three-job split worth having is unchanged - <strong>this job still never
+executes anything the build jobs produced.</strong> <code>cosign</code> and the attestation action hash bytes and sign
+digests; <code>docker load</code> and <code>docker push</code> move layers without running an entrypoint; the smoke tests
+stayed in <code>build</code>.</p>
+<p><strong>Wall clock.</strong> One <code>cosign sign-blob</code> per asset means one Fulcio certificate and one Rekor entry
+each, and <code>nix run</code> is invoked per call - so the signing steps are dominated by round trips rather
+than by compute. Not measured yet: this record is written before the first tagged release runs it,
+and the honest thing to say is that the number will be in a release log rather than here. Excluding
+the <code>.sha256</code> sidecars roughly halves it, which is a second reason for that exclusion and not the
+first.</p>
+<h2 id="what-was-considered-instead">What was considered instead<a class="headerlink" href="#what-was-considered-instead" title="Permanent link">&para;</a></h2>
+<p><strong><code>slsa-framework/slsa-github-generator</code>.</strong> The canonical SLSA generator, and it produces a level-3
+provenance where <code>actions/attest-build-provenance</code> produces level 2 - the difference being whether
+the provenance is generated in an isolated reusable workflow the calling repository cannot influence.
+Declined for now on cost against threat: it is a third-party reusable workflow with its own release
+cadence in the one job that can write, it wants the build restructured to hand it subjects, and the
+attacker it defends against - one who can modify this workflow file - can also modify the source. The
+same argument the cache-poisoning suppression in that file already makes. <strong>Revisit if this repository
+ever publishes to a registry consumers cannot re-derive from source.</strong></p>
+<p><strong>A KMS-held key.</strong> Rejected above, in <em>Keyless</em>. A key would also make the signature verifiable
+without Sigstore's trust root, which is the one genuine advantage and does not outweigh having a
+thing that can sign anything, forever.</p>
+<p><strong>Deep licence and dependency scanning as part of this change.</strong> A curated licence review and an
+attribution document are a real obligation and a real gap - and they are a JVM container that needs
+network, curated upstream data, and minutes rather than seconds. Putting them here would have made
+one change out of two and made neither reviewable. Separate.</p>
+<p><strong>Signing at build time rather than at publish time.</strong> Would put <code>id-token: write</code> on the four
+matrix jobs that compile, which is exactly the token boundary the three-job split bought. The
+signature is over bytes and does not care which job produced them.</p>
+<h2 id="what-is-claimed-and-what-is-not">What is claimed, and what is not<a class="headerlink" href="#what-is-claimed-and-what-is-not" title="Permanent link">&para;</a></h2>
+<p>Claimed, and checkable:</p>
+<ul>
+<li>Every published asset can be traced to this repository's release workflow at a named ref, from the
+  bytes alone plus Sigstore's trust root.</li>
+<li>Every image reference carries a signature over its <strong>digest</strong>.</li>
+<li>Each leaf image carries an inventory of its own filesystem, in two formats, generated from one
+  scan.</li>
+<li>The counts are asserted rather than assumed - six signatures, four attestations, one bundle per
+  asset. <strong>What they catch is a PARTIAL set</strong>, three leaves where four were built, which is silent:
+  the loop signs what it finds and reports success. An empty set is caught a layer earlier by
+  something else - <code>grep</code> with no match exits non-zero under <code>set -eu</code> - so the counts are for the
+  case where the file is present, well formed, and short. An earlier version of this line credited
+  them with the empty case, which <code>set -e</code> already had.</li>
+</ul>
+<p>Not claimed:</p>
+<ul>
+<li><strong>Not that the build is reproducible by a third party.</strong> The provenance says which workflow ran.
+  The build is Nix-pinned, which is what makes a rebuild worth attempting; nothing here is evidence
+  that anybody has.</li>
+<li><strong>Not that the dependency set is free of advisories.</strong> That is <code>cargo-deny</code> in CI, and its verdict
+  is a run rather than an artefact.</li>
+<li><strong>Not that licence obligations are discharged.</strong> <code>deny.toml</code> is an allowlist of SPDX identifiers,
+  which is a policy check. There is no attribution document, and <code>NOTICE</code> still says nothing about
+  third-party crates.</li>
+<li><strong>Not that the SBOM is a dependency inventory.</strong> See above; it is a filesystem inventory, and the
+  distinction is the most load-bearing sentence on this page.</li>
+<li><strong>Not that a transparency log is honest.</strong> <code>cosign</code> checks an inclusion proof against Rekor. Rekor's
+  guarantees are Rekor's.</li>
+</ul>
+<h2 id="amendment-the-crate-graph-moved-inside-the-binary">Amendment: the crate graph moved inside the binary<a class="headerlink" href="#amendment-the-crate-graph-moved-inside-the-binary" title="Permanent link">&para;</a></h2>
+<p><strong>The four shipped binaries are built with <code>cargo auditable</code>, so the crate list the SBOM reports is
+read out of the artefact rather than assembled beside it.</strong> <code>nix/auditable.nix</code> is the mechanism;
+<code>syft</code>'s <code>cargo-auditable-binary-cataloger</code> is what reads it back. The section <em>The SBOM, and the
+question it does not answer</em> above is superseded on its central claim and kept for its argument.</p>
+<h3 id="why-not-a-document-generated-from-cargolock">Why not a document generated from <code>Cargo.lock</code><a class="headerlink" href="#why-not-a-document-generated-from-cargolock" title="Permanent link">&para;</a></h3>
+<p>That was the obvious option and it is wrong twice.</p>
+<p><strong>It is a checked claim rather than a construction.</strong> A CycloneDX file generated beside a binary can
+drift from it - a rebuild, a re-tag, a file swapped in a mirror - and neither the binary nor the
+document says so. A section <em>inside</em> the executable cannot drift from the executable. This
+repository's own rule is <em>prefer unrepresentable to checked</em>, and <code>Secret</code> and <code>TimeRange</code> are that
+rule applied to values; this is the same move applied to provenance.</p>
+<p><strong>And it would be the wrong list.</strong> <code>Cargo.lock</code> records what cargo RESOLVED, not what the linker
+KEPT. <code>sutura-cli</code> links the engine only, while <code>libduckdb-sys</code> and the BigQuery <code>wire</code> feature put
+<code>ureq</code>, rustls and <code>ring</code> into the resolve graph for a binary that links none of them - an argument
+<code>deny.toml</code> has carried at length for longer than this record has existed. A workspace-wide document
+names all three, and errs in the direction that matters: it overstates what ships. Scoping it to
+<code>--package sutura-cli</code> narrows that and does not fix it, because a feature-gated dependency is still
+in the resolve.</p>
+<h3 id="what-it-cost">What it cost<a class="headerlink" href="#what-it-cost" title="Permanent link">&para;</a></h3>
+<p><strong>Nothing in <code>Cargo.lock</code> and nothing at run time.</strong> <code>cargo-auditable</code> is a build-time tool from the
+locked nixpkgs, on <code>nativeBuildInputs</code> of the final build only. The section it adds is a compressed
+crate list - kilobytes.</p>
+<p><strong>The dependency closure is still shared.</strong> The tool is deliberately NOT added to the args that feed
+<code>crane.buildDepsOnly</code>, because that derivation has to stay byte-identical to the one every check
+reuses. It does not need to be: <code>cargo auditable</code> works by setting <code>RUSTC_WORKSPACE_WRAPPER</code>, which
+by construction applies to workspace members and not to registry dependencies.</p>
+<p><strong>One correctness trap, found by reading crane rather than by a failed build.</strong> crane's default build
+command is <code>cargoWithProfile build</code>, a shell helper that inserts the profile flag after the FIRST word
+of the command. <code>cargoWithProfile auditable build</code> emits <code>cargo auditable --release build</code>, which is
+not a command. So the profile flag is computed in Nix, where the profile is already a parameter.</p>
+<p><strong>Every shipped binary's digest changes</strong>, and so does every image digest. That is a new release
+either way, and the builds stay reproducible: the embedded data is a function of the lock file.</p>
+<h3 id="what-is-now-claimed-and-what-still-is-not">What is now claimed, and what still is not<a class="headerlink" href="#what-is-now-claimed-and-what-still-is-not" title="Permanent link">&para;</a></h3>
+<p>Claimed: the SBOM attached to each leaf image, and to the release, names the crates the compiler
+actually put into that binary, and the release job <strong>asserts</strong> it rather than trusting it - at least
+100 named entries and <code>datafusion</code> present by name. That assertion exists because the failure is
+silent in a specific way: if the section stops being produced, the scan still succeeds and still
+writes valid CycloneDX inventorying three files, and nothing downstream can tell that apart from a
+correct run. The floor is a floor and not a fixed count, because pinning the count would make a
+dependency bump fail on a correct tree.</p>
+<p>Not claimed, and each is a real edge:</p>
+<ul>
+<li><strong>Not complete for non-Rust code.</strong> The list is what cargo compiled. C that a build script
+  compiled - the vendored allocator, for one - is linked into the executable and is not a crate.</li>
+<li><strong>Not a statement about the crates.</strong> It says which versions were compiled in, not whether any has
+  an advisory. That is <code>cargo-deny</code>, and its verdict is a CI run rather than a property of the
+  artefact. <code>cargo audit --bin</code> reads this section and answers that question against a file in hand.</li>
+<li><strong>Not complete for non-Rust code.</strong> Repeated because it is the one most likely to be forgotten
+  when this list is quoted: the vendored allocator's C is in the executable and in no crate list.</li>
+</ul>
+<h3 id="what-was-measured">What was measured<a class="headerlink" href="#what-was-measured" title="Permanent link">&para;</a></h3>
+<p>Measured on 2026-08-31 against <code>nix build .#sutura</code>, the native release binary:</p>
+<table>
+<thead>
+<tr>
+<th>Reader</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rust-audit-info</code></td>
+<td><strong>263 packages</strong>, <code>datafusion</code> among them</td>
+</tr>
+<tr>
+<td><code>syft</code>, CycloneDX</td>
+<td><strong>241 components</strong></td>
+</tr>
+<tr>
+<td><code>syft</code>, SPDX</td>
+<td><strong>242 ids</strong> - the 241 packages plus the document itself</td>
+</tr>
+</tbody>
+</table>
+<p>So the section is embedded and the reader the release path uses turns it into an inventory. Both
+halves are observed rather than argued.</p>
+<h3 id="the-measurement-that-was-wrong-and-what-it-cost">The measurement that was wrong, and what it cost<a class="headerlink" href="#the-measurement-that-was-wrong-and-what-it-cost" title="Permanent link">&para;</a></h3>
+<p><strong>This is the part worth reading, because the mistake was not in the code under test - it was in
+the check, and it produced a confident false conclusion that reached three files before anything
+caught it.</strong></p>
+<p>The first version of both assertions counted with <strong><code>grep -c '"name":'</code></strong>. <code>grep -c</code> counts
+matching <strong>lines</strong>, and syft and <code>rust-audit-info</code> both write JSON on <strong>one line</strong> - so it returns
+<code>1</code> for a document naming 241 packages and <code>1</code> for a document naming none. It cannot distinguish
+the two cases it exists to distinguish.</p>
+<p>What that produced was not a useless number but a misleading one. Locally it read as <em>"syft named
+one component where <code>rust-audit-info</code> read 263"</em>, and a whole explanation was built on it: that
+<code>go-rustaudit</code> locates the data by asking for a section named <code>.dep-v0</code> and that <code>cargo-auditable</code>
+spells it differently on Mach-O. That explanation is <strong>false</strong>. Counted properly, the same file has
+2259 occurrences of <code>"name":</code> and 241 components. syft reads Mach-O fine. The claim was written
+into a workflow comment, this record and a pull request body before the real count was taken.</p>
+<p>Three things follow, and they are the reason this section exists rather than a silent correction:</p>
+<ul>
+<li><strong>Count occurrences, never lines.</strong> <code>grep -o ... | wc -l</code>. Both assertions now do.</li>
+<li><strong>Count the thing that is the inventory, not a proxy for it.</strong> <code>"name":</code> also appears in tool
+  blocks, properties and metadata. CycloneDX gives every component a <code>"bom-ref"</code> and SPDX gives
+  every package an <code>"SPDXID"</code>; a two-line case on the format buys an exact number, and the earlier
+  comment claiming that avoiding the case was a virtue is what produced the fragile proxy.</li>
+<li><strong>A plausible mechanism is not evidence.</strong> The Mach-O story was coherent, checked against
+  <code>go-rustaudit</code>'s actual source, and wrong - because the number it was explaining was an artefact
+  of the measurement. Reading upstream source confirmed that the explanation <em>could</em> be true; it
+  could not confirm that it <em>was</em>.</li>
+</ul>
+<h3 id="why-the-check-lives-in-ciyml-as-well">Why the check lives in <code>ci.yml</code> as well<a class="headerlink" href="#why-the-check-lives-in-ciyml-as-well" title="Permanent link">&para;</a></h3>
+<p><code>ci.yml</code>'s <code>cross</code> job runs both readers over each of the four shipped binaries on every pull
+request. <strong>It earned its place immediately: it is what caught the broken assertion</strong>, on the pull
+request, before a release depended on it - and <code>release.yml</code>'s own version of that check would have
+failed every release with the counting bug in it.</p>
+<p>Two readers rather than one, because they answer different questions: <code>rust-audit-info</code> says <em>is the
+section there</em>, <code>syft</code> says <em>can the release path's reader turn it into an inventory</em>. The run where
+the first passes and the second fails is the interesting one, and without both it is
+indistinguishable from a build that stopped embedding. Both syft formats are checked, so a format
+rendered differently cannot pass here and fail at the tag.</p>
+<p><strong>The placement is the point.</strong> Checking only in <code>release.yml</code> means the same failure arrives as a
+red tag, after four cross builds and two manifest lists have been paid for, on a branch that has
+already merged.</p>
+<h2 id="amendment-the-attribution-document-and-the-licence-report-as-a-signed-asset">Amendment: the attribution document, and the licence report as a signed asset<a class="headerlink" href="#amendment-the-attribution-document-and-the-licence-report-as-a-signed-asset" title="Permanent link">&para;</a></h2>
+<p><strong>This record's <em>Not claimed</em> list said <em>"There is no attribution document, and <code>NOTICE</code> still says
+nothing about third-party crates."</em> There is one now, and the licence report is no longer a CI
+artifact that expires.</strong> Two decisions, and the reason they are one amendment is that the first
+decides the shape the second is signed in.</p>
+<h3 id="what-the-attribution-document-is-and-where-it-lives">What the attribution document is, and where it lives<a class="headerlink" href="#what-the-attribution-document-is-and-where-it-lives" title="Permanent link">&para;</a></h3>
+<p><code>ATTRIBUTION.md</code>, <strong>committed</strong>, generated by <code>just attribution</code> from <code>cargo metadata</code>, and gated by
+<code>cargo xtask check-attribution</code> against <code>Cargo.lock</code>. It carries one row per third-party crate: the
+name, the resolved version, and the SPDX expression that crate's own manifest declares.</p>
+<p>Committed rather than release-only, and the <em>Canonical Sources</em> rule in <code>AGENTS.md</code> is why: one
+owner, regenerated rather than hand-edited, and the regeneration checked. A release-only document is
+none of those - it has no owner a reviewer can open, and nothing can fail when it falls behind. The
+release still publishes it, as a copy, which is a different thing from generating it there.</p>
+<p><strong>Two gates, and the split is which input each one needs.</strong> <code>cargo xtask check-attribution</code> reads
+<code>Cargo.lock</code> and the document and invokes nothing, so it runs on every commit and inside the nix
+sandbox: it holds the crate SET exactly. <code>cargo xtask check-attribution-current</code> regenerates and
+byte-compares, so it holds the CONTENT - and it needs a resolvable registry, which is why it is a
+<code>just gates</code> and <code>ci.yml</code> step rather than a hygiene gate. <code>check-api-docs</code> is the precedent, and the
+reason has the same shape: an input the sandbox has not got.</p>
+<p><strong>The second gate is a REVIEW'S CORRECTION, and why the first alone was not enough is the part worth
+keeping.</strong> The offline gate can only see that a licence cell is non-empty, so changing any row's SPDX
+expression to arbitrary text passed it: the main content of a generated artefact was trusted rather
+than compared, which is the one thing the <em>Canonical Sources</em> rule forbids. It also closes a case the
+crate key cannot see at all - a git dependency moving to another revision, changing its declared
+licence while keeping its name and version.</p>
+<p><strong>Which packages belong in it is decided by workspace MEMBERSHIP and not by the presence of a
+<code>source</code> line, and that is a second review correction of a real omission.</strong> A <code>source</code> entry means
+"from a registry or a git remote"; it does not mean third-party. <code>mimalloc</code> and <code>libmimalloc-sys</code> are
+vendored under <code>vendor/</code> and declared as PATH dependencies, so they carry none - and <code>sutura-cli</code>
+LINKS the allocator on Linux. Filtering on <code>source</code> therefore left two shipped third-party crates out
+of the released asset, which is exactly the failure this record says the document exists to prevent,
+and the code passed its own tests while doing it. <code>VENDOR.md</code> and <code>REUSE.toml</code> remain those trees'
+provenance record; neither puts a row in the file a consumer downloads. The member list is read off
+the root manifest and each member's own <code>name</code>, because a member is a PATH and <code>dev</code> holds
+<code>sutura-dev</code>.</p>
+<h3 id="why-a-document-generated-from-cargolock-is-right-here-and-wrong-for-the-sbom">Why a document generated from <code>Cargo.lock</code> is right here and wrong for the SBOM<a class="headerlink" href="#why-a-document-generated-from-cargolock-is-right-here-and-wrong-for-the-sbom" title="Permanent link">&para;</a></h3>
+<p><strong>This amendment does the opposite of <em>Why not a document generated from <code>Cargo.lock</code></em> above, and
+that section is not superseded - the two artefacts fail in opposite directions.</strong></p>
+<p>An SBOM's job is to say what is <em>in</em> an artefact. A workspace-wide list overstates it, and an
+overstated inventory is a false statement about the thing in your hand; that is why the crate graph
+went inside the binary, where it cannot drift.</p>
+<p>An attribution document's job is to discharge an obligation. Naming a crate that did not ship
+discharges an obligation nobody had, which costs a reader one line. <strong>Omitting one that did ship is
+the failure the document exists to prevent.</strong> So the safe error points the other way, and the wide
+list is the right list: every crate the workspace resolves at all features, which is more than any
+single binary links.</p>
+<p>Both facts are published, and a reader is told which answers which: the per-binary list is the
+<code>cargo auditable</code> section, read back by <code>syft</code>; <code>ATTRIBUTION.md</code> is the obligation.</p>
+<h3 id="the-licence-report-joins-the-signed-assets-and-it-had-to-move-workflows-to-do-it">The licence report joins the signed assets, and it had to move workflows to do it<a class="headerlink" href="#the-licence-report-joins-the-signed-assets-and-it-had-to-move-workflows-to-do-it" title="Permanent link">&para;</a></h3>
+<p><code>licence-review.yml</code> produced the report and kept it with <code>actions/upload-artifact</code> - <strong>a CI
+artifact that expires after ninety days, is not signed, and is not committed.</strong> The one output an
+auditor would ask for was the one output no consumer could obtain or verify.</p>
+<p><strong>Uploading it to the release afterwards is not available, and that is a property of this forge
+rather than a preference.</strong> This repository has GitHub's immutable releases enabled: once a release
+is published, its assets can never be added to, replaced or deleted - <code>release.yml</code>'s <code>Publish</code> step
+carries the <code>HTTP 422</code> that taught us. A report produced by a second workflow racing the first
+therefore cannot become an asset of it at all.</p>
+<p>So the tag path moved into <code>release.yml</code> as a <code>licence</code> job, <code>needs: [gates]</code>, which packs the
+reports into one deterministic tarball that lands in <code>dist/</code>. Everything after that is machinery
+that already existed: <code>.github/actions/attest-and-sign</code> signs every file in <code>dist/</code> and gives every
+one provenance, and its own header predicted this - <em>"Every artefact kind added later - a
+crate-graph SBOM, an attribution document - is another thing to sign, and the loops below take it
+without a new step."</em> It was a list entry rather than a new mechanism, exactly as the issue said.</p>
+<p><code>.github/actions/licence-review</code> is the ORT sequence, shared by both callers. <code>licence-review.yml</code>
+keeps the schedule, which is what it was actually good at - catching a world that changed under a
+lock nobody touched - and holds <code>contents: read</code> alone.</p>
+<h3 id="what-it-cost_1">What it cost<a class="headerlink" href="#what-it-cost_1" title="Permanent link">&para;</a></h3>
+<p><strong>A red licence review now fails a release.</strong> That is the trade and it is deliberate: the point of
+the change is that the licence statement ships <em>with</em> the artefact, so a release that skipped it on
+a red run would be a release with no statement, which is the state being left. It is <code>needs:
+[gates]</code> rather than <code>needs: [build]</code>, so it runs beside the four cross builds and costs the release
+only whatever ORT exceeds the slowest of them by.</p>
+<p><strong>Two steps left <code>release.yml</code> for composite actions</strong>, because that file is under the 1000-line cap
+<code>cargo xtask max-lines</code> enforces and the licence statement is what reached it. The SBOM step moved
+intact into <code>.github/actions/build-artefacts</code>, which already carries the per-target binary and image
+sequence for the same reason - <strong>and the two extractions happened twice, in parallel, on <code>main</code> and
+on <code>dev</code>.</strong> This branch keeps the <code>build-artefacts</code> one, because it holds all three steps rather than
+one and the release path calls it once per target instead of twice. <code>attest-and-sign</code>'s header had
+said the cap would be reached by the next artefact kind and that the split would then be made under
+pressure rather than for a reason, so the reason is recorded here instead.</p>
+<p><strong>And that split had already opened a hole in a gate, which this closes.</strong>
+<code>cargo xtask check-workflows</code> reads <code>.github/workflows</code> and verifies that every <code>nix run .#name</code> is
+a flake output that exists. It did not read <code>.github/actions</code>, so <code>attest-and-sign</code>'s
+<code>nix run .#cosign</code> - the reference that publishes a release - was the one reference nothing checked.
+The scan now walks both, and the test asserts <em>where</em> a reference came from rather than the verdict,
+because a gate that walks one directory and a gate that walks two agree on a correct tree.</p>
+<p><strong>And a second hole of the same shape, found while writing the first fix.</strong> Nothing linted the SHELL
+inside a composite action either. <code>actionlint</code> is the tool that would normally carry it - it shells
+each workflow's <code>run:</code> block out to <code>shellcheck</code> itself - and it <strong>cannot read a composite action at
+all</strong>: measured against the pinned 1.7.12, handed <code>.github/actions/attest-and-sign/action.yml</code> it
+reports <code>"jobs" section is missing in workflow</code> and <code>unexpected key "runs" for "workflow" section</code>,
+because it parses the file as a workflow. <code>ci.yml</code>'s own <code>shellcheck</code> pass globs <code>*.sh</code>, and a
+<code>run:</code> block is not one. So the release path's <code>cosign</code> invocations were shell nothing had ever read.</p>
+<p><code>cargo xtask action-shell</code> extracts each block into a real file carrying a pointer back to its
+source line, and <code>just lint-actions</code> plus <code>ci.yml</code>'s workflow-analysis step pair it with the pinned
+<code>shellcheck</code>. <strong>Extraction rather than moving the shell into <code>.sh</code> files</strong>, which would have needed
+no new mechanism at all: a step is read as configuration, and somebody following <code>release.yml</code> into
+the action to see what <code>cosign</code> is invoked with should find the invocation rather than a path to it.
+The cost of that choice is a parser that can be wrong, which is why it is Rust with tests and why it
+<strong>fails closed</strong> - a composite action it read no shell out of is a non-zero exit, not a quiet
+zero-script run that reads as coverage. It found ten blocks across four actions on the first run,
+four of them <code>attest-and-sign</code>'s, and <code>shellcheck</code> is clean on all ten.</p>
+<p><strong>What that does NOT recover</strong> is everything <code>actionlint</code> would have said about the action itself -
+that an input exists, that an expression is well formed, that a <code>shell:</code> is declared. Closing that
+needs an <code>actionlint</code> that reads composite actions, and the measurement above is what makes it a
+version to watch rather than a hope.</p>
+<h3 id="what-is-now-claimed-and-what-still-is-not_1">What is now claimed, and what still is not<a class="headerlink" href="#what-is-now-claimed-and-what-still-is-not_1" title="Permanent link">&para;</a></h3>
+<p>Claimed, and checkable:</p>
+<ul>
+<li>A consumer can obtain both documents <strong>for a specific release</strong> and verify each with the commands
+  in <code>docs/verifying-a-release.md</code>, from the bytes and the bundle alone.</li>
+<li><code>ATTRIBUTION.md</code> names every third-party package in <code>Cargo.lock</code> - registry, git and vendored path
+  alike - at the resolved version, and names nothing else. That is <code>cargo xtask check-attribution</code>,
+  in <code>just validate</code>.</li>
+<li>And it is what its generator produces, byte for byte. That is <code>cargo xtask
+  check-attribution-current</code>, in <code>just gates</code> and in <code>ci.yml</code>.</li>
+<li>The release asserts it independently: at least 100 named rows, the floor the SBOM assertion
+  already uses and for the same reason - pinning the count would fail a correct tree after a bump.</li>
+</ul>
+<p>Not claimed, and each is real:</p>
+<ul>
+<li><strong>Not that the licence expressions are TRUE of each crate's source.</strong> They are what the manifests
+  declare, copied through - and now compared against a fresh generation rather than trusted.
+  Verifying them against the licence FILES in each crate's tree is a source scan, which
+  <code>.github/actions/licence-review</code>'s header declines and for reasons that have not changed.</li>
+<li><strong>Not the notice text of each dependency.</strong> An Apache-2.0 crate's own <code>NOTICE</code> file is in its
+  source tree, not in its metadata, so neither document renders one. <strong>This is the largest remaining
+  gap in the obligation</strong> and closing it needs the scanner that is deliberately absent.</li>
+<li><strong>Not that the document is the list a given binary links.</strong> Deliberately wider; see above.</li>
+<li><strong>Not that composite actions are fully linted.</strong> Their SHELL is, now. The action metadata around
+  it is not, and cannot be until <code>actionlint</code> reads these files. <strong>And what the extraction models is
+  the SUBSTITUTED text, which took two goes.</strong> A GitHub expression is replaced by a variable
+  expansion, so an unquoted interpolation reports SC2086 as the real thing would - a bare literal
+  cannot word-split, so the first version hid the very class it exists to catch, and a review found
+  it. The fix then had to learn quoting: <code>reclaim-disk</code> writes <code>minimum='${{ inputs.minimum-gb }}'</code>
+  and single quotes are the SAFE form there, so a <code>$</code>-prefixed token inside them reports SC2016 on
+  correct code and turned a clean run red. Both halves are measured against the pinned <code>shellcheck</code>
+  0.11.0 and pinned by tests.</li>
+<li><strong>Not verified end to end.</strong> <code>just validate</code> covers the generator, the gate and the document. The
+  release half is verified the way the rest of this path is - a tag, then <code>cosign verify-blob</code> and
+  <code>gh attestation verify</code> against the two new assets - and that has not been run for these two.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

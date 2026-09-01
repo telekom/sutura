@@ -1,0 +1,3237 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.3.0/api/sutura-app/">
+      
+      
+        <link rel="prev" href="../sutura-exec-postgres/">
+      
+      
+        <link rel="next" href="../sutura-config/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-app - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-app" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-app
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-serviceerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum ServiceError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum ServiceError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-answered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct Answered
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct Answered">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fn-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fn answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-serviceerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum ServiceError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum ServiceError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-answered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct Answered
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct Answered">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fn-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fn answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-app">sutura-app<a class="headerlink" href="#sutura-app" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-app</code>, rendered from rustdoc JSON.</p>
+<p>The service: what happens between a question arriving and an answer leaving.</p>
+<p>Generic over the ports and holding no framework types, so it can be exercised against a fake
+warehouse in a test and a real one in production without either of them knowing. The composition
+root decides which; this crate never names an adapter.</p>
+<p>Two entry points, and the order between them is the point:</p>
+<p><code>verify_and_validate</code> re-executes every metric that declares a certified number, against the
+<code>Warehouse</code> it is handed, and hands back the bundle as a <code>Validated</code> one only if every anchor
+reproduced its number. <code>answer</code> takes nothing else. So <strong>a bundle whose anchors were never
+checked cannot reach the query path</strong> - not by discipline, and not because a caller was asked to
+call the two in order: <code>Validated</code> has no other constructor, and the one it has takes a
+warehouse and calls it.</p>
+<p>That is the correction to what this crate used to claim. The proof used to be
+<code>sutura_domain::pinned::Validated::new(pinned, &amp;report)</code>, and <code>AnchorReport::new</code>,
+<code>AnchorReport::record</code> and <code>AnchorCheck::Matched</code> are all public - so any caller could enumerate
+the bundle's anchors, record <code>Matched</code> for each without opening a data system, and get a bundle
+the service would serve. The golden suite did exactly that. The wrapper attested to the caller's
+own assertion and read like proof, which is worse than no wrapper. <code>verify_anchors</code> survives
+because a report is worth rendering to an operator; what it cannot do any more is mint the proof.</p>
+<p><code>surface</code> is those same two entry points with the ports' generic parameters erased, for a
+transport whose request handler is a concrete function. It is a <em>driving</em> port and it lives here
+rather than in a transport crate, which is a correction: it used to be <code>sutura-http</code>'s, and a
+second transport would have had to depend on the first to reach it. Nothing in that module names
+a framework type, so this crate still holds none.</p>
+<h2 id="enum-serviceerror"><code>enum ServiceError</code><a class="headerlink" href="#enum-serviceerror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ServiceError</span><span class="o">&lt;</span><span class="n">E</span><span class="p">,</span><span class="w"> </span><span class="n">M</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Why the service could not produce an outcome.</p>
+<p>Neither variant is a refusal. A refusal is something the caller asked for and may not have; these
+are the data system being unreachable and our own bundle or generator being wrong, and offering
+either as a refusal would invite a caller to retry a different question forever.</p>
+<p>Generic in the warehouse error rather than boxing it, so the adapter that failed keeps its own
+typed error all the way out. A <code>Box&lt;dyn Error&gt;</code> here would be the same loss of information the
+boundary gate bans <code>anyhow</code> for, arrived at by a different route.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Compile</code></li>
+<li><code>Warehouse</code></li>
+<li><code>Federated</code> - The federated combiner could not assemble the two legs' rows.</li>
+<li><code>Broker</code> - The credential broker could not mint. Nothing about the question was wrong.</li>
+<li><code>Posture</code> - The broker's answer does not agree with the request it was made for.</li>
+<li><code>Credentials</code></li>
+</ul>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="struct-answered"><code>struct Answered</code><a class="headerlink" href="#struct-answered" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Answered</span>
+</span></code></pre></div>
+<p>One call's result: what the caller is told, and what it ran under.</p>
+<p><strong>Two values rather than one, and the second one never reaches the caller.</strong> The outcome is the
+answer or the refusal, and it goes back through the transport. The deadline is the <code>Expiry</code> the
+credentials this call executed with carried, and it goes to the audit sink - <code>docs/adr/0008</code> fixes
+the record's content as the chain, the outcome, the posture per leg <strong>and the expiry the
+credentials carried</strong>, and until this type existed there was no way for the last of those to reach
+<code>surface::LocalService</code>, which is what writes the record.</p>
+<p><strong>Why not on the outcome.</strong> <code>sutura_domain::pinned::Provenance</code> rides to the caller, so putting a
+credential's lifetime there would publish, on both wire surfaces, how long this deployment's
+credential for a data system is good for. That is the deployment's business rather than the
+asker's, and a widened wire shape is a worse place to learn it.</p>
+<p><code>None</code> means nothing was minted for this call: the question was declined by compilation or by the
+source lookup, both of which run before the broker is asked - which <code>answer</code>'s own suite pins.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">executed_until</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Expiry</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>How long the credential this call ran under was good for. <code>None</code> if none was minted.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_outcome</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ToolOutcome</span>
+</span></code></pre></div>
+<p>What the caller is told, owned, for a transport that is about to render it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">outcome</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ToolOutcome</span>
+</span></code></pre></div>
+<p>What the caller is told.</p>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code></p>
+<h2 id="fn-answer"><code>fn answer</code><a class="headerlink" href="#fn-answer" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">answer</span><span class="o">&lt;</span><span class="n">W</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="o">&gt;</span><span class="p">(</span><span class="n">definitions</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Validated</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">query</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">query</span><span class="p">::</span><span class="n">Query</span><span class="p">,</span><span class="w"> </span><span class="n">context</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">RequestContext</span><span class="p">,</span><span class="w"> </span><span class="n">broker</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">B</span><span class="p">,</span><span class="w"> </span><span class="n">warehouses</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">working_set_bytes</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Answering</span><span class="o">&lt;</span><span class="n">W</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Answers one question, or says why it will not.</p>
+<p>The source lookup is not a formality. A plan names exactly one data system, and running it against
+a different one would answer a question about other data under the same provenance. So the plan
+SELECTS its warehouse out of the registry, and a plan naming a source this process did not open is
+a refusal rather than an error: it is a governance outcome, and <code>SourceUnavailable</code> now says what
+its name says - nothing is configured under that name.</p>
+<p><strong>The registry is what made that refusal honest.</strong> Under one warehouse the check compared the
+plan's source against the single adapter's own, so "nobody configured this data system" and "this
+is the other one of the two we opened" were the same refusal.</p>
+<h1 id="nothing-here-executes-without-a-credential-somebody-minted">Nothing here executes without a credential somebody minted<a class="headerlink" href="#nothing-here-executes-without-a-credential-somebody-minted" title="Permanent link">&para;</a></h1>
+<p><code>context</code> says who is asking - established by the transport, never stated by the caller - and
+<code>broker</code> is what turns that into what each leg presents. The credential is minted <strong>once, for
+every source the plan reads</strong>, which is one source today and is the shape a federated answer
+needs: one asker and one deadline for N legs, rather than N mintings that could disagree.
+<code>docs/adr/0008</code> is the decision and <code>sutura_domain::identity::LegCredentials</code> is where the
+argument lives.</p>
+<p>The order is deliberate: mint <strong>before</strong> the pre-flight and before execution. A pre-flight asked
+as the wrong identity answers a different question, and a subject with no credential at that
+source is refused before this deployment has asked the data system anything on their behalf.</p>
+<h1 id="and-what-comes-back-is-checked-against-what-was-asked">And what comes back is checked against what was asked<a class="headerlink" href="#and-what-comes-back-is-checked-against-what-was-asked" title="Permanent link">&para;</a></h1>
+<p>A broker is an adapter outside the hexagon, so its answer is input. <code>Minted::agreeing_with</code> is the
+one guard: the grant's subject must be the subject this request arrived under, it must cover
+exactly the sources this plan reads, its deadline must not have passed, and a refusal must name a
+source that was actually asked about. Any disagreement is a <code>ServiceError::Credentials</code> - our own
+wiring, an internal failure on the wire - and never a refusal, because a refusal is a statement
+about the caller's access and none of these is one.</p>
+<p><strong>Three separate findings, one guard, and that is a decision rather than a shortcut.</strong> Each of the
+three could have been a check of its own next to the value it protects. Three checks are three
+places the fourth case gets forgotten, and they were all the same question. What makes the single
+guard un-skippable rather than merely conventional is on the domain side:
+<code>sutura_domain::identity::BoundToTheRequest</code> is the only type that hands out a <code>Presented</code>, and
+<code>agreeing_with</code> is the only thing that builds one.</p>
+<h2 id="fn-verify_anchors"><code>fn verify_anchors</code><a class="headerlink" href="#fn-verify_anchors" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">verify_anchors</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">warehouses</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">AnchorReport</span>
+</span></code></pre></div>
+<p>Re-executes every declared anchor and reports what each produced.</p>
+<p>Returns a report rather than a <code>Result</code>, because "this one metric no longer computes its number"
+and "the data system is down" are both outcomes worth recording per metric. Collapsing either into
+a single error would lose which metric, and the whole point is to name it.</p>
+<h2 id="fn-sources"><code>fn sources</code><a class="headerlink" href="#fn-sources" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">sources</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The data systems a bundle reads from.</p>
+<p>Exposed because a composition root has to decide which adapters to open before it can answer
+anything, and reading it off the bundle beats being told twice.</p>
+<h2 id="fn-source_of"><code>fn source_of</code><a class="headerlink" href="#fn-source_of" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source_of</span><span class="o">&lt;'</span><span class="na">bundle</span><span class="o">&gt;</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">bundle</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">MetricName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="na">bundle</span><span class="w"> </span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The data system one metric's own model sits on.</p>
+<p>Exposed for the composition root's anchor check: an anchor is asked with no dimensions, so it
+resolves to the metric's own model and therefore to that model's source - which is the source whose
+declared verification identity would have to run it.</p>
+<p><strong>Narrower than "every source this metric's plan could read", deliberately.</strong> A question WITH
+dimensions can reach a joined model, and the plan stage refuses one that spans two sources - so for
+a plan that compiles at all this is the only source there is. What it is not is a general answer for
+a federated plan, and it stops being the right function the moment one exists.</p>
+<h2 id="fn-grains_coarsest_first"><code>fn grains_coarsest_first</code><a class="headerlink" href="#fn-grains_coarsest_first" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grains_coarsest_first</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">MetricName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">Grain</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The grains a metric declares, coarsest first.</p>
+<p>A small helper the composition root uses to describe a metric, kept here so the ordering is the
+same one <code>verify_anchors</code> picks a grain by.</p>
+<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
+<h2 id="type_alias-answering"><code>type_alias Answering</code><a class="headerlink" href="#type_alias-answering" title="Permanent link">&para;</a></h2>
+<p>What answering produced, or why it could not.</p>
+<p>A named alias because the inline form is over the complexity threshold in <code>clippy.toml</code>, and
+naming it is the better half of that trade: the generic parameter is a warehouse, not a result.</p>
+<h2 id="module-surface">Module <code>surface</code><a class="headerlink" href="#module-surface" title="Permanent link">&para;</a></h2>
+<p>What a transport needs from this crate, with the ports' generic parameters erased.</p>
+<h1 id="why-this-trait-exists-at-all">Why this trait exists at all<a class="headerlink" href="#why-this-trait-exists-at-all" title="Permanent link">&para;</a></h1>
+<p><code>crate::answer</code> is generic over a <code>Warehouse</code>, and <code>Warehouse</code> has an associated error type.
+A transport's request handler is a concrete function - an <code>axum</code> handler registered in a route
+table by path, and named again by the macro that generates the interface description - so a
+handler cannot be generic over the warehouse without the whole router becoming generic in it,
+and the generated document becoming generic in it too.</p>
+<p><code>Surface</code> is the seam: this crate's two operations, with <code>W</code> gone - and with the audit sink's
+own parameter gone for the same reason, since <code>LocalService</code> is generic in that too.</p>
+<h1 id="why-it-is-here-and-not-in-the-transport-that-uses-it">Why it is HERE and not in the transport that uses it<a class="headerlink" href="#why-it-is-here-and-not-in-the-transport-that-uses-it" title="Permanent link">&para;</a></h1>
+<p><strong>It used to be in <code>sutura-http</code>, and a review was right that that is the wrong crate.</strong> The
+module comment there said a second transport - an MCP one - would consume the same trait, which
+is exactly the problem: it would have made one transport adapter depend on another, and the rule
+this repository is built on is that nothing depends on an adapter. A driving port declared inside
+an adapter is a port every other adapter has to reach through that one.</p>
+<p><strong>The tension with "a port arrives WITH its adapter", stated rather than dodged.</strong> That rule
+exists because a trait with no implementor is a guess at a signature, and <code>pub</code> hides the guess
+from <code>dead_code</code>. <code>LocalService</code> moved with the trait, so the rule still holds: the port and
+its only implementor are in one place, and neither is a guess. What the rule does not say is
+<em>which</em> crate that place has to be.</p>
+<p>And there is a sharper reason it is not the transport's. A <strong>driven</strong> port - <code>Warehouse</code>,
+<code>SemanticCatalog</code> - is dependency inversion: the interior declares what it needs, an adapter
+outside implements it, and the trait has to sit inside the hexagon or the direction reverses. A
+<strong>driving</strong> port inverts nothing. The caller is already outside and the implementation is already
+the application, so there is no adapter for it to arrive with: <code>LocalService</code> is not an adapter
+at all, it is this crate's own service with one generic parameter erased. It holds a
+<code>Validated</code> bundle and a warehouse, and every method forwards. Putting that in a transport
+crate made the application's interface the property of one of its callers.</p>
+<p><strong>Is the erasure an application concern or an HTTP one?</strong> The <em>trigger</em> is an HTTP fact: a
+handler is a concrete function. The <em>content</em> is not - <code>definitions</code> and <code>answer</code> are this
+crate's own two operations, and <code>LocalService::start</code> is <code>crate::verify_and_validate</code> with
+the catalog port consumed. Nothing in this file names a framework type, which is checkable
+rather than asserted: <code>cargo xtask check-boundaries</code> fails on a framework anywhere in a tree it
+governs, and this file added no dependency to this crate's manifest. A shape the application can
+offer for free, that its callers all need, belongs with the application.</p>
+<p><strong>Why not delete the trait instead, under YAGNI?</strong> That was the other option offered, and it does
+not survive being tried. Deleting a one-implementation trait leaves the concrete
+<code>LocalService&lt;W&gt;</code>, and then a transport either becomes generic in <code>W</code> - the router, its state and
+the generated document with it, which is what this trait exists to prevent - or erases <code>W</code> inside
+<code>LocalService</code>, which is the same trait under another name one crate lower. So the trait is not
+speculative generality; it is the only shape that keeps a handler concrete with one transport,
+let alone two. What WAS speculative is the sentence about MCP, and that sentence is what made the
+location wrong rather than the trait. Deleting the trait would have answered a different finding.</p>
+<h1 id="why-the-methods-are-synchronous">Why the methods are synchronous<a class="headerlink" href="#why-the-methods-are-synchronous" title="Permanent link">&para;</a></h1>
+<p>Because <code>Warehouse</code> is. The port takes <code>&amp;self</code> and returns a <code>Result</code>, and the engine behind
+it drives its own single-threaded runtime and blocks on it. Calling that from inside an <code>async</code>
+handler on a worker thread would panic - a runtime cannot be entered from within a runtime - so a
+transport moves the call onto a blocking pool. Making this trait <code>async</code> would hide that
+requirement behind a signature that looks like it had been dealt with.</p>
+<h1 id="where-the-typed-error-goes">Where the typed error goes<a class="headerlink" href="#where-the-typed-error-goes" title="Permanent link">&para;</a></h1>
+<p>Erasing the generic means the adapter's own error type cannot survive <em>as a named type</em>. It does
+survive as an error: each variant of <code>SurfaceFailure</code> keeps the cause it was built from as an
+owned <code>#[source]</code>, so <code>Error::source()</code> walks the whole chain and a caller that knows what
+adapter is behind the port can still <code>downcast_ref</code> to it.</p>
+<p><strong>The previous shape was prose.</strong> Both variants held a <code>String</code> message and a <code>Vec&lt;String&gt;</code> of
+causes, walked to text at construction - so <code>source()</code> returned <code>None</code>, downcasting was
+impossible, and the only thing a caller could do with the failure was print it. A vector of
+display strings is a presentation of an error, not an error API. Flattening to text is still what
+happens, but it happens at the <em>logging sink</em> - <code>cause_chain</code>, called by whoever writes the
+line - which is the one place where text is the point.</p>
+<p><code>Box&lt;dyn Error + Send + Sync&gt;</code> and not <code>Box&lt;dyn Error&gt;</code>: a transport that answers on a blocking
+pool sends the error back across a thread boundary. That is where the <code>W::Error: Send + Sync</code>
+bound on the implementations below comes from. It is a bound on <em>this</em> type and not on the port,
+so <code>sutura_domain::warehouse::Warehouse</code> is unchanged, and it is a <code>std</code> marker rather than a
+framework type - a requirement a transport states, satisfied here.</p>
+<h3 id="trait-surface"><code>trait Surface</code><a class="headerlink" href="#trait-surface" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">Surface</span>
+</span></code></pre></div>
+<p>The service, as a transport sees it.</p>
+<p><code>Send + Sync + 'static</code> because it is shared between connections and moved onto a blocking pool.
+A transport holds it behind an <code>Arc</code> in its request state.</p>
+<h3 id="enum-surfacefailure"><code>enum SurfaceFailure</code><a class="headerlink" href="#enum-surfacefailure" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SurfaceFailure</span>
+</span></code></pre></div>
+<p>Something went wrong that is not a refusal.</p>
+<p>Neither variant is something a caller can fix by asking differently, which is why neither is a
+refusal: one is our own bundle or generator being wrong, and the other is the data system not
+answering.</p>
+<p>The variants are exhaustive and stay exhaustive - a transport chooses its status code from the
+split - and each one carries the cause it was built from rather than a rendering of it.</p>
+<p><strong>No audit record is written for either, and that is the limit on "every call is recorded".</strong>
+<code>sutura_domain::audit</code> records an <em>outcome</em> - an answer or a refusal - and neither of these is
+one: a bundle that will not compile and a data system that did not answer are our own faults
+rather than answers to a question. A transport logs them, with the cause chain, which is what
+<code>cause_chain</code> is for. Widening the record to cover a failure means giving
+<code>sutura_domain::audit::RecordedOutcome</code> a third variant, and that is a change to what a record
+means rather than a field added to one.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Compile</code></li>
+<li><code>Warehouse</code></li>
+<li><code>Broker</code> - The credential broker did not answer, so nothing could be executed as the asking subject.</li>
+<li><code>Miswired</code> - Credentials came back that do not fit the request: a wiring defect on this side.</li>
+</ul>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-servicenotstarted"><code>enum ServiceNotStarted</code><a class="headerlink" href="#enum-servicenotstarted" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ServiceNotStarted</span>
+</span></code></pre></div>
+<p>Why a service could not be started.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Catalog</code> - The catalog adapter could not produce a bundle.</li>
+<li><code>NotValidated</code> - The bundle loaded and an anchor did not reproduce the number its author certified, or could not be run at all.</li>
+</ul>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-localservice"><code>struct LocalService</code><a class="headerlink" href="#struct-localservice" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LocalService</span><span class="o">&lt;</span><span class="n">W</span><span class="p">,</span><span class="w"> </span><span class="n">S</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The one implementation: a validated bundle, the data systems this process opened, and one audit
+sink, behind the ports.</p>
+<p>Holds the bundle as <code>Validated</code>, which has no constructor other than one that executes every
+anchor against a warehouse - so a <code>LocalService</code> that exists is one whose anchors held. That
+is not a check this type performs; it is a type it could not otherwise have been built from.</p>
+<p><strong>The sink is a constructor argument and not an <code>Option</code>.</strong> A service cannot be started without
+one, so "this deployment forgot to attach a sink" is not a state that exists - which is the
+difference between a record that is always written and a record that is usually written. What the
+sink then <em>does</em> with a record is the deployment's, and <code>sutura_domain::audit</code> states that limit
+where the port is declared.
+<strong>It holds a <code>Warehouses</code> and not one warehouse, which is what makes more than one source
+configurable.</strong> A plan names one data system, so the registry is a lookup rather than a fan-out:
+<code>crate::answer</code> selects the adapter the plan named and refuses <code>SourceUnavailable</code> when nothing
+is registered under that name. The limit is stated where the type is - every entry is the same
+adapter type <code>W</code>, so a deployment holds two file sources or two databases behind one adapter, and a
+heterogeneous set is an architecture decision rather than a change here.
+<strong>And it holds the credential broker, which is what makes a question executable at all.</strong> Every
+answer mints once, for every source its plan reads, and <code>sutura_domain::warehouse::Warehouse</code>
+has no signature that runs without the result - so a service with no broker is not a service
+that answers as the process, it is a service that does not compile.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">C</span><span class="p">,</span><span class="w"> </span><span class="n">warehouses</span><span class="p">:</span><span class="w"> </span><span class="nc">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">sink</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">,</span><span class="w"> </span><span class="n">broker</span><span class="p">:</span><span class="w"> </span><span class="nc">B</span><span class="p">,</span><span class="w"> </span><span class="n">working_set_bytes</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ServiceNotStarted</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Loads a catalog through its port, re-runs every anchor against <code>warehouse</code>, and returns a
+service only if all of them held.</p>
+<p>Every port is consumed here, which is what lets a transport be transport-only: it never
+reads a catalog directory, never opens a data system and never decides where a record goes.</p>
+<p><code>C::Error: Send + Sync</code> for the same reason <code>W::Error</code> is - the cause is kept, owned, and a
+startup failure is reported from wherever the composition root happens to be.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Surface</code></p>
+<h3 id="fn-cause_chain"><code>fn cause_chain</code><a class="headerlink" href="#fn-cause_chain" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cause_chain</span><span class="p">(</span><span class="n">error</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">dyn</span><span class="w"> </span><span class="n">core</span><span class="p">::</span><span class="n">error</span><span class="p">::</span><span class="n">Error</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">'</span><span class="nb">static</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every cause beneath <code>error</code>, outermost first.</p>
+<p><strong>A logging concern, and it lives here because this is where the erasure happens.</strong> <code>Display</code> on
+a <code>thiserror</code> enum prints the outermost message only, so a line that formatted the error would
+say "the data system did not answer" and drop the driver's own complaint - which is the half that
+names the table, the column or the file. This is called by whoever writes the line, not by
+whoever builds the error, which is the difference between an error that can be inspected and one
+that has already been turned into prose.</p>
+<h3 id="type_alias-erasedcause"><code>type_alias ErasedCause</code><a class="headerlink" href="#type_alias-erasedcause" title="Permanent link">&para;</a></h3>
+<p>A typed error, owned, with its type erased and its <code>#[source]</code> chain intact.</p>
+<p><code>Send + Sync</code> because a transport may answer on a blocking pool, so a failure crosses a thread
+boundary on the way back.</p>
+<h2 id="module-prompt">Module <code>prompt</code><a class="headerlink" href="#module-prompt" title="Permanent link">&para;</a></h2>
+<p>The agent-facing system prompt: derived from the tool surface, never written by hand.</p>
+<h1 id="why-this-exists-at-all">Why this exists at all<a class="headerlink" href="#why-this-exists-at-all" title="Permanent link">&para;</a></h1>
+<p>An agent that has not been told what this surface is will treat it as a database. It will look
+for a field to put SQL in, find none, put a metric name it remembers from somewhere else into
+<code>Query::metric</code>, get a refusal, read the refusal as a transport
+failure, and retry. Every one of those steps is a reasonable thing for a general-purpose agent to
+do, and every one of them is the behaviour this repository's types are arranged to prevent. The
+types stop the <em>damage</em>; they cannot stop the loop. A prompt can.</p>
+<h1 id="what-it-is-derived-from-and-what-that-buys">What it is derived from, and what that buys<a class="headerlink" href="#what-it-is-derived-from-and-what-that-buys" title="Permanent link">&para;</a></h1>
+<p>Three inputs, and the first two are not text somebody keeps in step by hand:</p>
+<ol>
+<li><strong>The tool list</strong> - <code>PromptInputs::tools</code>. The workflow is composed from the operations that
+   are actually exposed, so a deployment that does not expose the catalog listing gets a prompt
+   that does not tell an agent to call it. A prompt naming an operation that is not there is
+   worse than a shorter prompt: the agent spends its turns discovering the absence.</li>
+<li><strong>The pinned bundle</strong> - every metric, its grains, its dimensions and the values a filter may
+   use, read off the same <code>PinnedDefinitions</code> every answer is computed from. It cannot describe
+   a metric this deployment does not serve, because there is nowhere for such a metric to come
+   from.</li>
+<li><strong>The operator's own text</strong> - <code>PromptInputs::instructions</code>, appended as the last section.
+   Appended and never substituted: see the note on layering below.</li>
+</ol>
+<h1 id="what-it-deliberately-does-not-say">What it deliberately does NOT say<a class="headerlink" href="#what-it-deliberately-does-not-say" title="Permanent link">&para;</a></h1>
+<p><strong>Nothing about composing SQL.</strong> The reference implementation this is modelled on spends most of
+its length teaching an agent to write SQL against model names, to avoid raw database tables, and
+to dry-plan a complex statement before running it. None of that transfers, because
+<code>Query</code> has no field for SQL, a table, a filter expression or a
+list of row ids and <code>deny_unknown_fields</code> makes an attempt an error naming the field. Repeating
+the guidance here would teach an agent to attempt something the surface refuses by construction,
+which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
+one short section saying the field does not exist and that there is no way to widen it.</p>
+<p><strong>No column, no table, no model and no measure expression.</strong> This is the same content
+<code>GET /v1/catalog</code> already returns and deliberately not one field more: a metric's name, its
+prose, its grains, its dimensions and their permitted values. A caller needs those to ask a valid
+question; it needs no column name to do it, and a column name in an agent's context is a name it
+will eventually try to use. <code>tests</code> asserts that no model name, table name or column name from
+the bundle appears in the output.</p>
+<p><strong>Nothing about identity.</strong> There is none - the deployment token authenticates the deployment and
+not the caller - and a prompt that mentioned per-caller scoping would describe a control that does
+not exist. <code>AGENTS.md</code> and <code>SECURITY.md</code> record why.</p>
+<h1 id="tone">Tone<a class="headerlink" href="#tone" title="Permanent link">&para;</a></h1>
+<p>The defaults are deliberately strong, and that is borrowed rather than invented: the reference
+implementation measured soft phrasing - "for non-trivial questions", "when useful" - being read
+as "skip" almost every time. So the workflow says "every time" and the refusal section says "do
+not retry" rather than "consider whether to retry".</p>
+<h1 id="layering-and-why-an-operator-cannot-replace-the-derived-part">Layering, and why an operator cannot replace the derived part<a class="headerlink" href="#layering-and-why-an-operator-cannot-replace-the-derived-part" title="Permanent link">&para;</a></h1>
+<p><code>PromptInputs::instructions</code> is appended as the LAST section, under a heading that says it is
+the operator's. There is deliberately no way to substitute it for the derived text. The refusal
+guidance is the single most load-bearing paragraph in the whole document - an agent that treats a
+refusal as an outage retries until something works, which is precisely what the refusal exists to
+prevent - and a configuration key that could delete it would be a key whose worst setting is
+silent. Last place rather than first is also deliberate: a preamble ahead of the rules reads as
+the governing frame, and the governing frame is not the operator's to set.</p>
+<h1 id="catalog-prose-is-untrusted-content">Catalog prose is untrusted content<a class="headerlink" href="#catalog-prose-is-untrusted-content" title="Permanent link">&para;</a></h1>
+<p>A metric's description is written by whoever authored the catalog, and this repository's threat
+model treats catalog content as untrusted - see <code>SECURITY.md</code>, and the symlink-bounded walk in
+<code>sutura-catalog-local</code> for the precedent. A description containing a sentence aimed at the agent
+rather than at a human is prompt injection through the catalog.</p>
+<p>Three things are done about it, and the first is the honest limit:</p>
+<ul>
+<li><strong>A delimiter cannot separate instruction from data, because the content can contain the
+  delimiter.</strong> <code>docs/concepts.md</code> already says so. So the mitigation here is not a fence: it is a
+  per-line prefix that WE apply. <code>quote</code> puts <code>&gt;</code> at the start of every line of prose, so no
+  line of catalog text can reach the output at column zero. It cannot emit a heading, close a
+  block, or start what looks like a new section of this document.</li>
+<li><strong>The trust boundary is named in the text</strong>, immediately above the quoted block, in terms an
+  agent can act on: the block is data, a sentence inside it that reads as an instruction is
+  content and not an instruction, and encountering one is something to report rather than obey.</li>
+<li><strong>An operator who does not trust their catalog authors can drop the prose entirely</strong> -
+  <code>CatalogProse::Omitted</code>. The section then says the descriptions exist and are not included,
+  which is a fact an agent can act on, rather than silently rendering a catalog with no meaning
+  attached to any metric.</li>
+</ul>
+<p>What none of that solves is prose that <em>persuades</em> without escaping. No mechanism here can catch
+it. What bounds it is that a catalog is reviewed, authored content whose digest moves when a
+description changes, and that this text is generated by an operator command rather than pasted
+from a caller.</p>
+<h3 id="enum-tool"><code>enum Tool</code><a class="headerlink" href="#enum-tool" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Tool</span>
+</span></code></pre></div>
+<p>One operation a transport exposes.</p>
+<p>Two variants, because <a href="crate::surface::Surface"><code>Surface</code></a> has two methods and this enum is the
+prompt's name for each. It is a list rather than a constant because the point is that a caller
+passes the subset it actually mounts: <code>Tool::ALL</code> is what a transport serving the whole surface
+passes, and a deployment that mounts only one passes only that one.</p>
+<p><strong>Two entries make this cheap insurance rather than a large win, and it is worth saying so.</strong> The
+property it buys is narrow: the rendered workflow cannot instruct an agent to call an operation
+that is not there. With two operations that is one branch. It is here because the branch costs a
+match arm and the alternative - a hand-written workflow that is right until the day a deployment
+stops mounting the listing - costs a debugging session.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Catalog</code> - Reading what this deployment defines. <code>GET /v1/catalog</code>, <code>sutura catalog</code>, and whatever an MCP transport would call it. <a href="crate::surface::Surface::definitions"><code>Surface::definitions</code></a>.</li>
+<li><code>Query</code> - Asking one certified question. <a href="crate::surface::Surface::answer"><code>Surface::answer</code></a>.</li>
+</ul>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The one name this operation answers to.</p>
+<p>One word, chosen so that it is simultaneously the CLI subcommand, the path segment under the
+version prefix, and what an MCP tool would be called. Three spellings that cannot disagree
+beats a table mapping between them.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">summary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>What it does, in one line, for the operations list.</p>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h3 id="enum-catalogprose"><code>enum CatalogProse</code><a class="headerlink" href="#enum-catalogprose" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CatalogProse</span>
+</span></code></pre></div>
+<p>Whether the catalog's own prose reaches the agent, and how.</p>
+<p>A separate type from the configuration spelling of the same decision, which lives in
+<code>sutura_config::prompt::CatalogProse</code>. The split is the one <code>telemetry.filter</code> already uses: the
+configuration crate parses the word an operator wrote, and the crate that does the work owns the
+type that does it. It also keeps this crate's dependency table at <code>sutura-domain</code>,
+<code>sutura-semantic</code> and <code>thiserror</code>, which is what <code>AGENTS.md</code> cites as holding up the rule that a
+driving port is not owned by one of its callers.</p>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Quoted</code> - Included, with <code>&gt;</code> at the start of every line and the trust boundary named above it.</li>
+<li><code>Omitted</code> - Left out. The section says the descriptions exist and were not included, which is a fact an agent can act on; silence would leave it guessing at what a metric means.</li>
+</ul>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_quoted</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-promptinputs"><code>struct PromptInputs</code><a class="headerlink" href="#struct-promptinputs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PromptInputs</span><span class="o">&lt;'</span><span class="na">a</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Everything the prompt is derived from that is not the bundle.</p>
+<p>A value rather than four arguments, so a caller that gains a fifth input does not silently get
+the wrong one in the third position.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">instructions</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="na">a</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">tools</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="p">[</span><span class="n">Tool</span><span class="p">],</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">instructions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="na">a</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The operations exposed, how catalog prose is treated, and the operator's own text.</p>
+<p><code>instructions</code> is already-read text rather than a path, deliberately: this crate performs no
+I/O and the composition root is where a configured file that cannot be read has to become a
+loud failure. A configured-and-missing file silently omitted would be exactly the failure
+<code>AGENTS.md</code> warns about in another place - a control that reads as being in place.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">prose</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">CatalogProse</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tools</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="p">[</span><span class="n">Tool</span><span class="p">]</span>
+</span></code></pre></div>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
+<h3 id="fn-guidance"><code>fn guidance</code><a class="headerlink" href="#fn-guidance" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">guidance</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">query</span><span class="p">::</span><span class="n">RefusalReason</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="o">&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">)</span>
+</span></code></pre></div>
+<p>What a refusal means and what to do about it: <code>(meaning, remedy)</code>, in the order the prompt renders
+them.</p>
+<p><strong>The accessor a composition root prints from, and it publishes no new prose.</strong> <code>sutura-cli</code> used
+to hand a person the Rust <code>Debug</code> of a governance decision, which names the variant and says
+nothing about what to do; the wording it needed was already written twice - here for the
+agent-facing prompt, and on the HTTP surface for a client - so this is a third READER of the first
+table rather than a third table.</p>
+<p><code>&amp;'static str</code> because <code>GUIDES</code> owns the wording: nothing here composes a message and nothing
+here reads the refusal's own fields. A caller that wants those still has the <code>RefusalReason</code> it
+passed in.</p>
+<h3 id="fn-render"><code>fn render</code><a class="headerlink" href="#fn-render" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PromptInputs</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>The whole prompt, as markdown.</p>
+<p>Deterministic in its inputs: every collection walked here is a <code>BTreeMap</code> or a <code>BTreeSet</code>, and
+the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
+what lets the rendering be pinned by a snapshot rather than described.</p>
+<h2 id="module-untrusted">Module <code>untrusted</code><a class="headerlink" href="#module-untrusted" title="Permanent link">&para;</a></h2>
+<p>The shared prompt-injection corpus every surface walks.</p>
+<p><code>#128</code>'s two forgeries are the same defect twice: a value that enters a rendering
+from outside the transport spells a structural token the transport believes only it
+writes. A cell is a string from the data system and a description is prose from a
+catalog author - a <code>\t</code> cell crosses a column boundary, a <code>\n</code> cell crosses a row,
+and either can spell the provenance trailer, the exact channel <code>Provenance</code> exists
+to make trustworthy. On a text surface (the agent tool and the prompt) a value must
+therefore be escaped or quoted per line; on a structured surface (JSON) the encoder
+owns the boundary and a value must stay one opaque string.</p>
+<p>These are the inputs BOTH transports run, so a third transport inherits the tests
+rather than the mistake. Each entry is a deliberate escape attempt; each surface's
+test walks the list and asserts the property its own encoder provides, so the
+corpus does not carry an expected output - only the hostile input.</p>
+<p>The honest limit, and it is the whole of what this module does NOT claim:
+<code>docs/agent-prompt.md</code> says no mechanism catches prose that persuades without
+escaping. A value that never escapes can still instruct. What the quoting rejects
+is the escape, never the instruction.</p>
+<h3 id="constant-cells"><code>constant CELLS</code><a class="headerlink" href="#constant-cells" title="Permanent link">&para;</a></h3>
+<p>Row cells that try to take over the answer's text half.</p>
+<p>The text half is tab-joined columns and newline-joined rows with a provenance
+trailer, all of which the fix escapes. Each cell here would, unescaped, either
+fabricate structure or forge the identity claim.</p>
+<h3 id="constant-prose"><code>constant PROSE</code><a class="headerlink" href="#constant-prose" title="Permanent link">&para;</a></h3>
+<p>Catalog descriptions that try to reach the agent at column zero.</p>
+<p>The descriptions the tool and the prompt render are quoted per line (<code>&gt;</code>) or
+omitted. Each entry here, unquoted, would open a line an encoder did not write - a
+heading, a fence, a bare instruction, or a fake <code>definitions:</code> trailer.</p>
+<h2 id="module-warehouses">Module <code>warehouses</code><a class="headerlink" href="#module-warehouses" title="Permanent link">&para;</a></h2>
+<p>The data systems this process opened, keyed by the name a plan selects them with.</p>
+<h1 id="why-a-registry-rather-than-one-warehouse">Why a registry rather than one warehouse<a class="headerlink" href="#why-a-registry-rather-than-one-warehouse" title="Permanent link">&para;</a></h1>
+<p>A plan resolves to a single source for one answer - a question spanning two is federated and
+refused as <code>FederationNotExecutable</code> while no adapter executes a leg (three or more are refused at
+plan time) - but a
+<em>deployment</em> holds as many as its catalog names, and until now the service held exactly one. That
+made two facts indistinguishable: "this question is for a data system nobody configured" and "this
+question is for the other one of the two we opened". The first is a refusal an operator has to fix
+and the second is an ordinary question.</p>
+<p>So the lookup moves out of the adapter and into a registry keyed by <code>SourceName</code>, and two things
+follow from that rather than being added:</p>
+<ul>
+<li><code>answer</code> selects the warehouse the <em>plan</em> named instead of comparing the plan against the one
+  adapter it was handed, so <code>RefusalReason::SourceUnavailable</code> now means what its name says: no
+  data system is configured under that name.</li>
+<li>the anchor pass runs each metric's anchor against the warehouse for <em>that metric's</em> source, so a
+  bundle spanning two configured sources verifies rather than reporting every anchor on the second
+  one as a source mismatch.</li>
+</ul>
+<h1 id="the-limit-and-it-is-the-reason-step-ten-exists">The limit, and it is the reason step ten exists<a class="headerlink" href="#the-limit-and-it-is-the-reason-step-ten-exists" title="Permanent link">&para;</a></h1>
+<p><strong>Every entry is the same adapter type.</strong> <code>Warehouses&lt;W&gt;</code> is generic in one <code>W</code>, so a deployment
+can hold two file sources over two directories, or two databases behind one adapter - and cannot
+hold a file engine and a <code>BigQuery</code> adapter at once. Federating across <em>different</em> data systems
+needs a closed enum over the registered adapter types or dynamic dispatch, and which of those is a
+decision with a record rather than a change to this file: <code>Warehouse</code> carries a required associated
+constant, so it is not object-safe, and that was decided where the constant is declared.</p>
+<p>What this shape does buy today is the whole of what the boot checks need: more than one source
+configured, each declaring its own posture, and an answer that says which posture produced it.</p>
+<h3 id="struct-warehouses"><code>struct Warehouses</code><a class="headerlink" href="#struct-warehouses" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The data systems this process opened.</p>
+<p>Keyed by each adapter's own <code>Warehouse::source</code> rather than by a name the caller passes
+alongside it, so the key and the adapter cannot disagree about which source this is - the same
+reason <code>PinnedDefinitions::pin</code> computes its digest from the definitions it stores.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">and</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">another</span><span class="p">:</span><span class="w"> </span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">SourceAlreadyOpen</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>A second data system, or a refusal naming the source that was already open.</p>
+<p>Consumes and returns, so a registry is built in one expression and there is no half-built state
+for something else to read.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many data systems are open. At least one, because <code>Self::of</code> is the only way in.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">each</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every open data system, in source order.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">executed_on</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">ExecutedAs</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The execution record for an answer that ran on <code>source</code> and nowhere else.</p>
+<p>The one place a mono-source answer's provenance comes from, so the posture in an answer is the
+posture the adapter that executed it was holding. <code>None</code> when nothing is open for that source,
+which is the case the caller has already turned into a refusal by the time it asks.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">W</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The data system a plan naming <code>source</code> runs on, if this process opened one.</p>
+<p><code>Option</code> rather than a refusal, because who turns an absence into a refusal depends on what is
+asking: the query path answers <code>RefusalReason::SourceUnavailable</code>, and the anchor pass records
+<code>NotExecutedReason::SourceNotConfigured</code> against the metric. Deciding here would make one of
+those two the other's wording.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">one</span><span class="p">:</span><span class="w"> </span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>One data system. The canonical constructor, and the only way a registry comes into existence.</p>
+<p>Infallible, because one adapter cannot collide with itself. Every deployment that answers
+anything has at least one, so there is deliberately no empty form: a registry with nothing in
+it would refuse every question with <code>SourceUnavailable</code>, which is a running service that
+cannot work - and the composition root refuses that before a listener is bound instead.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">postures</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The posture each open data system was handed, as a startup log reads it.</p>
+<p>Read off the adapters rather than off a settings tree, for the reason
+<code>sutura_domain::warehouse::Warehouse::posture</code> gives: a summary derived from configuration
+reports what was configured rather than what was built.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="struct-sourcealreadyopen"><code>struct SourceAlreadyOpen</code><a class="headerlink" href="#struct-sourcealreadyopen" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SourceAlreadyOpen</span>
+</span></code></pre></div>
+<p>Two adapters were registered for one source.</p>
+<p>Its own type rather than a silent overwrite, because whichever adapter lost would then be the one
+nobody opened and nothing would say so. It is not the same failure as a duplicate <em>alias</em> in the
+settings tree - that one is refused before any adapter is built - it is a composition root that
+built two adapters naming one source.</p>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">at</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span>
+</span></code></pre></div>
+<p>Which source was registered twice.</p>
+<p>Named <code>at</code> rather than <code>source</code> for the reason <code>PostureNotDeliverable::at</code> gives: <code>thiserror</code>'s
+derive gives this type an <code>Error::source</code>, and <code>clippy::same_name_method</code> is denied.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h2 id="module-capability">Module <code>capability</code><a class="headerlink" href="#module-capability" title="Permanent link">&para;</a></h2>
+<p>What this surface can be asked to do, named once for every transport that offers it.</p>
+<h1 id="why-the-vocabulary-is-here-rather-than-in-a-transport">Why the vocabulary is here rather than in a transport<a class="headerlink" href="#why-the-vocabulary-is-here-rather-than-in-a-transport" title="Permanent link">&para;</a></h1>
+<p><code>crate::surface::Surface</code> has exactly two operations - read the pinned bundle, and answer one
+governed question - and those two <em>are</em> the tool set. A transport renames them for its own
+protocol: the agent surface calls them tools and the HTTP surface calls them routes. Neither owns
+the set.</p>
+<p>That is not a preference. <code>sutura-mcp</code> and <code>sutura-http</code> cannot see each other - <em>an adapter never
+calls another adapter</em> - so a set owned by one of them is a set the other has to reach through it,
+which is the same argument that moved the driving port itself out of <code>sutura-http</code>. One source in
+the crate that declares the port is the only shape in which two transports <strong>cannot</strong> disagree
+about what this deployment offers, and <code>docs/implementation-plan.md</code>'s
+<code>both_transports_describe_the_same_tools</code> is the property that needs it.</p>
+<p><strong>What is shared is the SET, the identifier and the scope. Not the prose.</strong> Each transport writes
+its own description, because they are written for different readers - a model deciding whether to
+call a tool, and a person reading an interface description - and <code>AGENTS.md</code> already draws that
+line for the two refusal vocabularies: <em>"Nothing compares the two sentences, and nothing should."</em></p>
+<h1 id="what-a-scope-gates-stated-before-anything-reads-one">What a scope gates, stated before anything reads one<a class="headerlink" href="#what-a-scope-gates-stated-before-anything-reads-one" title="Permanent link">&para;</a></h1>
+<p><strong>A scope decides which capabilities a caller may use. It decides nothing about which rows a
+question reaches.</strong> Every capability reads the same pinned bundle and every question executes
+under the same identity, because no source executes as the asking subject: <code>docs/adr/0014</code>'s leg 1
+establishes <em>who is asking</em> and leg 2 does not exist. So a deployment that grants one caller
+<code>sutura:catalog.read</code> and not <code>sutura:metrics.ask</code> has narrowed what that caller may <em>do</em>, and has
+not narrowed what any answer would contain.</p>
+<p>And within that: <strong>filtering advertisement is presentation, and the control is at invocation.</strong> A
+caller that names a capability it was not granted is refused whether or not it was ever told the
+capability exists. Both halves are built - see the <em>Invariants</em> row <code>AGENTS.md</code> gained with this
+module - and if they ever disagree it is the refusal that is the control.</p>
+<h1 id="a-scope-names-a-capability-and-never-a-metric">A scope names a capability and never a metric<a class="headerlink" href="#a-scope-names-a-capability-and-never-a-metric" title="Permanent link">&para;</a></h1>
+<p><code>docs/adr/0014</code>'s <em>What is not decided</em> left this open with a leaning: <em>"A scope naming a metric
+couples the authorization server to the catalog, and a scope naming a capability does not. The
+second is almost certainly right and it is not yet argued."</em> This module takes the second, and the
+argument is that a catalog edit must not be able to change what a token means. A scope naming
+<code>revenue</code> would put the authorization server's vocabulary under the catalog's version, so adding a
+metric would silently grant it to every token holding a wildcard and renaming one would revoke a
+grant nobody edited - an authorization change made by a definition author, in a repository the
+authorization server does not read. The scopes here are two fixed strings no catalog can move.</p>
+<p><code>Capability::scope</code> is therefore part of the deployed contract rather than an implementation
+detail: an authorization server is configured with those literals by hand. A test pins them by
+value for that reason.</p>
+<h3 id="enum-capability"><code>enum Capability</code><a class="headerlink" href="#enum-capability" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Capability</span>
+</span></code></pre></div>
+<p>One thing this surface can be asked to do.</p>
+<p>Closed, and closed on purpose: a third capability is a third exhaustive match to satisfy - the
+walk in <code>Capability::next</code>, the scope in <code>Capability::scope</code> and the identifier in
+<code>Capability::id</code> - plus whatever each transport's own match needs. There is no wildcard arm in
+any of them, so a variant added here does not compile until every one of those has been answered.</p>
+<p><strong>Declaration order is <code>Ord</code>, and it runs from the least to the most a caller can get out of this
+deployment</strong>: describing what is measured comes before asking for a number. A
+<code>BTreeSet&lt;Capability&gt;</code> therefore iterates in that order, which is what makes a rendered tool list
+deterministic.</p>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>DescribeCatalog</code> - Read the pinned bundle: which metrics exist, at which grains, with which dimensions and which filter values.</li>
+<li><code>AskMetric</code> - Answer one governed question about one certified metric.</li>
+</ul>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every capability this surface has, in declaration order.</p>
+<p>Built from <code>FIRST</code> and <code>Capability::next</code> rather than written out as an array, so there is
+no second list to keep in step with the enum.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The stable identifier both transports name this capability by.</p>
+<p>The agent surface uses it as the tool name; the HTTP surface uses it as the operation
+identifier in the generated interface description. <strong>It is part of the deployed contract</strong>, so
+it is a fixed literal here rather than derived from the variant name: a <code>Debug</code> rendering would
+rename a client's tool the day somebody renamed a variant.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scope</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The scope that licenses this capability.</p>
+<p>A fixed literal, stated independently of <code>Capability::id</code> rather than derived from it. That
+is the whole point: deriving one from the other would mean renaming a tool silently renamed a
+scope, and every authorization server configured with the old one would stop granting anything
+- an authorization change made by a rename.</p>
+<p>Prefixed, so a token minted for another resource server that happens to carry <code>catalog.read</code>
+does not read as a grant here. The audience check is what actually keeps such a token out -
+<code>docs/adr/0014</code> Decision 2 - and this is defence in depth rather than the control.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h3 id="struct-permitted"><code>struct Permitted</code><a class="headerlink" href="#struct-permitted" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Permitted</span>
+</span></code></pre></div>
+<p>What one caller may do on this surface.</p>
+<p><strong>Two named constructors and no third way in</strong>, because the two cases are the two honest answers to
+<em>who is asking</em> and a reader has to name which one a deployment is in:</p>
+<ul>
+<li><code>Permitted::every_capability</code> - nothing established a caller identity, so there is no verified
+  claim to narrow by. A single-player deployment, and the agent surface over standard input and
+  output.</li>
+<li><code>Permitted::granted_by</code> - a verified token's scopes decide, and <strong>only</strong> they do.</li>
+</ul>
+<h1 id="it-fails-closed-and-the-consequence-is-named-rather-than-softened">It fails closed, and the consequence is named rather than softened<a class="headerlink" href="#it-fails-closed-and-the-consequence-is-named-rather-than-softened" title="Permanent link">&para;</a></h1>
+<p>A verified caller whose token names no capability scope is permitted <strong>nothing</strong>: it sees no tools
+and every call is refused. That follows from <code>AGENTS.md</code>'s <em>fail closed on the query path</em> and from
+<code>docs/implementation-plan.md</code>'s own <em>"a caller without a scope cannot see the tool it lacks"</em>, and
+it means a deployment that switches <code>security.inbound</code> on without authoring scopes at its
+authorization server has switched every caller off.</p>
+<p><strong>What keeps that discoverable rather than mysterious is the refusal</strong>: the HTTP surface answers
+<code>403</code> with <code>code: insufficient_scope</code> and a sentence naming the exact scope string to grant, so an
+operator reads the fix out of the response rather than out of this comment.</p>
+<h1 id="why-this-takes-strings-rather-than-a-parsed-scope-type">Why this takes strings rather than a parsed scope type<a class="headerlink" href="#why-this-takes-strings-rather-than-a-parsed-scope-type" title="Permanent link">&para;</a></h1>
+<p><code>sutura_http::inbound::Scopes</code> is where a scope claim is parsed and bounded, and it stays there.
+Moving it would be taking a decision <code>docs/adr/0014</code>'s closing section explicitly reserves - <em>"how
+[the agent surface] is reached at all, and then which crate the validator moves to ... is an
+architecture decision, not a refactor"</em> - and nothing here needs the parse: this compares against
+two fixed literals, and a string that could not be a scope simply matches neither.</p>
+<h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">advertised</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">'</span><span class="nb">_</span>
+</span></code></pre></div>
+<p>What to advertise, in declaration order.</p>
+<p>Presentation. A capability absent from here is one <code>Permitted::includes</code> also refuses, which
+is what keeps the two from being able to disagree: both read the same set.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many capabilities are permitted. For a startup or per-request log line.</p>
+<p>The count and not the names, for the same reason <code>sutura_http::inbound::Scopes</code> puts a count on
+a log line: the names are a caller's authorization detail and they multiply a log's
+cardinality.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every_capability</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Every capability this surface has.</p>
+<p><strong>What a deployment that establishes no caller identity permits, and the name says so.</strong> It is
+not a bypass and not a default: it is the correct answer when there is no verified claim to
+narrow by, and a filter over an unverified claim is the thing <code>docs/implementation-plan.md</code>
+calls <em>worse than no filter - it looks like a control</em>.</p>
+<p>Two callers today: <code>sutura_http</code>'s capability layer, for a deployment with no
+<code>security.inbound</code> block, and <code>sutura_mcp::serve_stdio</code>, where the process boundary is the
+boundary and there is no header a token could arrive in.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granted_by</span><span class="o">&lt;'</span><span class="na">scope</span><span class="o">&gt;</span><span class="p">(</span><span class="n">scopes</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">IntoIterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Exactly the capabilities these scopes name.</p>
+<p><strong>The one comparison, so there is not one per transport.</strong> A scope this surface does not know
+is ignored rather than refused: a token is minted by an authorization server that may serve
+other resources too, and refusing a caller for holding an unrelated grant would be refusing
+them for somebody else's configuration.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">includes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether this caller may use one capability.</p>
+<p><strong>This is the control.</strong> <code>Permitted::advertised</code> decides what a caller is shown; this decides
+what it may do, and a transport calls it on every invocation whether or not it filtered the
+advertisement.</p>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
