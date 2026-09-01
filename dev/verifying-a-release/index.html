@@ -924,6 +924,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-the-licence-report-covers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the licence report covers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-none-of-this-establishes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2346,6 +2357,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-the-licence-report-covers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the licence report covers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-none-of-this-establishes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2455,6 +2477,12 @@ own embedded dependency list rather than out of a manifest.</p>
 </tr>
 <tr>
 <td>the sixteen SBOMs</td>
+<td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
+<td>yes</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td><code>THIRD_PARTY_NOTICES</code>, the licence/attribution document</td>
 <td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
 <td>yes</td>
 <td>n/a</td>
@@ -2592,6 +2620,28 @@ apart from a correct run.</p>
 Whether any of them has an advisory against it is <code>cargo-deny</code> against the RustSec database, which
 runs in CI on every dependency change and weekly regardless - a run, not a property of the artefact.
 <code>cargo audit --bin</code> will read this section and answer that question against the file you have.</p>
+<h2 id="what-the-licence-report-covers">What the licence report covers<a class="headerlink" href="#what-the-licence-report-covers" title="Permanent link">&para;</a></h2>
+<p>Every release carries <code>THIRD_PARTY_NOTICES</code> - the attribution document and the signed licence
+report, in one artefact. It is verified like any other asset:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--bundle<span class="w"> </span>THIRD_PARTY_NOTICES.sigstore.json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>THIRD_PARTY_NOTICES
+</span></code></pre></div>
+<p>It is generated from <code>Cargo.lock</code> at the released commit and gated - <code>cargo xtask check-attribution</code>
+regenerates it and fails when it drifts from the lock - so the copy on the release page is the
+document this release's dependency set produced, not a snapshot somebody typed. <code>docs/adr/0021</code>'s
+second amendment is the decision; the header of the document itself says what it is and is not.</p>
+<p><strong>What it covers: every crate the workspace's <code>Cargo.lock</code> resolves, with its version.</strong> That is
+deliberately the whole resolved set rather than one binary's linked set, because attribution is the
+opposite direction from an inventory: failing to name a crate a release could carry is the failure
+an auditor disproves, and naming more than a specific binary links is safe where naming less is not.
+The per-binary precision lives in the SBOMs above.</p>
+<p><strong>What it is not:</strong> a statement about a crate. It lists names and versions; whether a version has an
+advisory is <code>cargo-deny</code> (a CI run), and whether a licence is acceptable is <code>deny.toml</code>'s allowlist
+and the scheduled ORT review. The document is the raw material an auditor traces obligations from,
+not a verdict on them.</p>
 <h2 id="what-none-of-this-establishes">What none of this establishes<a class="headerlink" href="#what-none-of-this-establishes" title="Permanent link">&para;</a></h2>
 <p>Stated plainly, because a page full of green checkmarks invites the larger reading:</p>
 <ul>
@@ -2602,7 +2652,9 @@ runs in CI on every dependency change and weekly regardless - a run, not a prope
   database, run in CI on every dependency change and weekly regardless, and its verdict is a CI run
   rather than an artefact you can check offline.</li>
 <li><strong>Not that the licence obligations of the dependency set are discharged.</strong> <code>deny.toml</code> holds an
-  exact allowlist of SPDX identifiers, which is a policy check and not an attribution document.</li>
+  exact allowlist of SPDX identifiers, which is a policy check; <code>THIRD_PARTY_NOTICES</code> is the
+  attribution document that names the set, and neither is a verdict on whether the obligations of a
+  named licence have been met - that remains the review's.</li>
 <li><strong>Not that the crate list covers everything in the binary.</strong> It is what <code>cargo</code> compiled in. C
   that a build script compiled - the allocator, for one - is linked into the executable and is not
   a crate, so it appears in the image inventory as a file and not in the crate list as a package.</li>
