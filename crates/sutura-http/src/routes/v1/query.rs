@@ -154,9 +154,12 @@ const TAG: &str = "query";
             status = 413,
             description = "TWO THINGS, and `code` is what tells them apart. `too_large`: the \
                            REQUEST body is larger than this service will read - that body is the \
-                           failure shape. `result_too_large`: the ANSWER exceeded the row cap and \
-                           was NOT truncated to fit - that body is `outcome: refusal`, and the \
-                           detail names the cap and what to narrow.",
+                           failure shape. `result_too_large`: the ANSWER was too much data and was \
+                           NOT truncated to fit - that body is `outcome: refusal`, and its detail \
+                           says which bound fired and what to narrow. It names the row cap where \
+                           the deployment's cap is what fired, and no number at all where the data \
+                           system's own volume bound is, because nothing told this deployment that \
+                           number.",
             body = OutcomeBody
         ),
         (

@@ -14,8 +14,8 @@
 //! [`crate::wire::OutcomeBody::Refusal`] with its `outcome` discriminator, and a failure keeps
 //! [`ProblemBody`]. `outcome` is the one-field test for which arrived, which matters most exactly
 //! where a status is shared - `503` is `unavailable` or `at_capacity` from here, and
-//! `source_unavailable` from there; `413` is a request body over the limit from here, and an answer
-//! over the row cap from there.
+//! `source_unavailable` from there; `413` is a request body over the limit from here, and too much
+//! data - the row cap or the data system's own volume bound - from there.
 //!
 //! **A refusal is not routed through [`Failure`], and must not be.** `Failure` is what an `Err`
 //! becomes, and `ToolOutcome::Refusal` is a domain *result*: a `Failure::Refused` variant would put a

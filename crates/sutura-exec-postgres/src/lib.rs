@@ -763,6 +763,12 @@ impl Warehouse for PostgresWarehouse {
         let query = generate(plan.plan(), Dialect::Postgres).map_err(|cause| PostgresError::Render { cause })?;
         self.run(&query).map(AnchorRows::of)
     }
+
+    // `result_did_not_fit` is deliberately NOT overridden, and the reason is a property of this
+    // adapter rather than a gap, the same as `sutura-exec-duckdb`: the driver is a library in this
+    // process, `run` reads the whole result set through one stream, and there is no reply, no page,
+    // no page token and no reply-size cap anywhere on that path. So `false` is the honest answer and
+    // taking the default is how this adapter says it has no such bound.
 }
 
 #[cfg(test)]
