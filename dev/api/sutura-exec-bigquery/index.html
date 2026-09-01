@@ -2525,11 +2525,15 @@ complete - so an incomplete job has no value to fill it with, and the transport 
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">JobTransport</span>
 </span></code></pre></div>
 <p>A <code>BigQuery</code> endpoint, as narrow as this adapter's needs.</p>
-<p>Two methods, because the port above it has two questions with different costs: running a job reads
-data and is billed, and validating one does neither. The endpoint really does distinguish them -
-its request body carries a dry-run flag, and a dry run uses no slots and is not charged - which is
-what makes <code>Warehouse::dry_run</code> able to answer <code>PreFlight::Accepted</code> honestly here rather than
-inheriting the port's <code>NotAsked</code> default.</p>
+<p>Two methods PUT A QUESTION TO THE ENDPOINT, because the port above it has two questions with
+different costs: running a job reads data and is billed, and validating one does neither. The
+endpoint really does distinguish them - its request body carries a dry-run flag, and a dry run
+uses no slots and is not charged - which is what makes <code>Warehouse::dry_run</code> able to answer
+<code>PreFlight::Accepted</code> honestly here rather than inheriting the port's <code>NotAsked</code> default.</p>
+<p><strong>Two more members are not that, and the count is spelled out because it has been wrong twice.</strong>
+<code>result_did_not_fit</code> asks the implementor about a failure it already has and sends nothing; and
+<code>apply</code>, behind the <code>fixtures</code> feature, is the third statement-issuing method - present only in a
+build that loads fixtures, so no deployment can reach it.</p>
 <h2 id="module-wire">Module <code>wire</code><a class="headerlink" href="#module-wire" title="Permanent link">&para;</a></h2>
 <p>The WIRE: one <code>JobTransport</code> that speaks to a <code>BigQuery</code> endpoint over HTTP.</p>
 <p><strong>This is the seam <code>docs/adr/0017</code> left open, filled in by the decision <code>docs/adr/0018</code> records.</strong>
@@ -2577,16 +2581,22 @@ golden matrix still gains no entry - one live statement is not a registered data
   in <code>QueryDeadline::within_request_timeout</code>, so a composition root gets a deadline that already
   fits inside the request timeout instead of a number it has to divide correctly.</li>
 <li><strong>One page or a refusal.</strong> <code>jobs.query</code> answers one page, and completeness is stated as
-  <code>totalRows</code> beside the rows rather than by the rows alone. A <code>pageToken</code>, an incomplete job or a
-  delivered count short of the reported total is refused here - see <code>WireError::MoreThanOnePage</code>
-  and <code>WireError::NotComplete</code> - because to <code>answer()</code> a first page would read as <em>under the
-  cap, not truncated</em>, which is the exact row the row-cap invariant exists to hold. <strong>The cost, and
-  it is a real one:</strong> a wide result reaches a caller as <code>BigQueryError::Endpoint</code>, which the
-  transports answer as a <code>503</code> - a status that invites a retry that will produce the same page.
-  <code>ResultTooLarge</code> is what it means, and the port cannot say it: <code>Warehouse::working_set_exhausted</code>
-  is a predicate returning a ceiling in bytes precisely so an adapter cannot mint an arbitrary
-  <code>RefusalReason</code>. Widening that port is an architecture decision, so this is flagged rather than
-  taken, and AGENTS.md's row says so out loud.</li>
+  <code>totalRows</code> beside the rows rather than by the rows alone. The wire refuses a <code>pageToken</code>
+  (<code>WireError::MoreThanOnePage</code>) and a job that did not finish (<code>WireError::NotComplete</code>); the
+  delivered count that is not the reported total is refused one port further out, in the adapter's
+  <code>BigQueryWarehouse::rows</code> as <code>BigQueryError::Incomplete</code> - <code>complete</code> here compares nothing, it
+  hands the rows and the total to the adapter - because to <code>answer()</code> a first page would read as
+  <em>under the cap, not truncated</em>, which is the exact row the row-cap invariant exists to hold.
+  <strong>And a wide
+  result now leaves as a REFUSAL rather than as a <code>503</code>, which is a correction to what this header
+  used to say was the cost.</strong> It used to reach a caller as <code>BigQueryError::Endpoint</code>, which both
+  transports answer as the status a dead endpoint produces - inviting a retry that returns the same
+  page. <code>ResultTooLarge</code> is what it means, and the port can now say it: <code>result_did_not_fit</code> on
+  <code>crate::transport::JobTransport</code> answers it for <code>WireError::MoreThanOnePage</code>, the adapter
+  passes it up through <code>Warehouse::result_did_not_fit</code>, and a caller gets <code>413 result_too_large</code>
+  carrying <code>ResultBound::Volume</code> - a bound with no number, because the reply cap is the service's
+  and it reports neither that nor the size of the reply that hit it. <code>NotComplete</code> deliberately
+  answers <code>false</code>: a job that ran out of time may finish on a retry.</li>
 <li><strong>The service's own result cache is turned OFF.</strong> Not for cost: an anchor that reproduces from a
   cache has reproduced the cache, which is <code>differential.rs</code>'s own argument. And a cached answer
   under a <em>shared</em> identity is shared across every asker, so leaving it on would put the
@@ -2606,8 +2616,10 @@ golden matrix still gains no entry - one live statement is not a registered data
   endpoint documents that array as <em>"the first errors or warnings encountered"</em> and says entries
   <em>"do not necessarily mean that the job has completed or was unsuccessful"</em> - so refusing on it
   would decline successful queries that merely warned. What refuses is <code>jobComplete</code>, a
-  <code>pageToken</code>, an absent <code>totalRows</code>, and a delivered count that is not the reported total; the
-  reported <code>reason</code> is folded into whichever of those fires, because it is the best diagnostic
+  <code>pageToken</code>, an absent <code>totalRows</code>, and a delivered count that is not the reported total - the
+  last of those in the adapter (<code>BigQueryWarehouse::rows</code>, <code>BigQueryError::Incomplete</code>), not here;
+  the reported
+  <code>reason</code> is folded into whichever of those fires, because it is the best diagnostic
   available at that point. See <code>complete</code>, and the limit stated there.</li>
 <li><strong>Every foreign string that reaches an error is bounded and filtered.</strong> The endpoint's
   <code>reason</code> is kept and its free-text <code>message</code> is not, because a reason is a fixed vocabulary an

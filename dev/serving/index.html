@@ -3216,7 +3216,7 @@ depends on why:</p>
 <tr>
 <td><code>result_too_large</code></td>
 <td><code>413</code></td>
-<td>Narrow the period or group by fewer dimensions. Nothing was truncated to fit</td>
+<td>Narrow the period or group by fewer dimensions. Nothing was truncated to fit. <strong>One code for two bounds:</strong> more rows than this service's cap, or more data than the data system would return at once. The sentence says which, and names a number only for the first - the second bound belongs to the data system and is not reported to us</td>
 </tr>
 <tr>
 <td><code>resources_exhausted</code></td>
@@ -3258,7 +3258,7 @@ places.</p>
 as is the body shape, because only a refusal carries <code>outcome</code>:</p>
 <ul>
 <li><code>413</code> is <code>too_large</code> when the <strong>request body</strong> was over the limit, and <code>result_too_large</code> when the
-  <strong>answer</strong> was over the row cap.</li>
+  <strong>answer</strong> was too much data - over the row cap, or over what the data system would return at once.</li>
 <li><code>503</code> is <code>unavailable</code> or <code>at_capacity</code> from the failure side, and <code>source_unavailable</code> from the
   refusal side.</li>
 </ul>

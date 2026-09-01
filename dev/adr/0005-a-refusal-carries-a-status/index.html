@@ -2541,7 +2541,7 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <tr>
 <td><code>ResultTooLarge</code></td>
 <td><code>413</code></td>
-<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not</td>
+<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not. <strong>Amended after this record was accepted:</strong> the variant now carries a <code>ResultBound</code> and covers a second bound - a data system that will not hand the result back in one piece - at the same status and the same code, because <em>too much data</em> is one answer and one remedy to a caller. Only the sentence differs, from a nested exhaustive match, and the second bound's carries no number: the bound belongs to the data system and is not reported to us. The widening exists because that case used to arrive as <code>503</code>, which this record calls <em>the one refusal where retrying is reasonable</em> - and a retry returned the same reply</td>
 </tr>
 <tr>
 <td><code>SourceUnavailable</code></td>
