@@ -282,6 +282,7 @@ jobs:
       - name: The attribution document travels with the report
         run: |
           set -eu
+          mkdir -p dist
           if [ ! -s ATTRIBUTION.md ]; then
             echo "::error::ATTRIBUTION.md is missing from the checkout; 'just attribution' writes it"
             exit 1
