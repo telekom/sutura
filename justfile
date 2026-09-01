@@ -335,7 +335,8 @@ build-all:
 # `ring` and `ureq` absent from both.
 #
 # NOT in `just ci`, deliberately, and the same reason `one-binary` never was: these build the
-# release-profile artifacts, so they are minutes rather than seconds. CI runs them on the trunk.
+# release-profile artifacts, so they are minutes rather than seconds. The tag-triggered release
+# workflow runs them before publishing.
 shipped:
     #!/usr/bin/env bash
     set -euo pipefail

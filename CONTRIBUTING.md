@@ -205,7 +205,8 @@ invalidates every artifact in it.
 | commit | `cargo fmt --check`; clippy over the workspace, `--all-targets --all-features`, `-D warnings`; `hygiene`, the cheap structural gates in one hook; `cargo check` narrowed to the changed packages; `cargo nextest` and doctests; the **CRAP score** when the scored crate or its policy changed; a staged secret scan; shellcheck over every `.sh` we ship; workflow static analysis when a workflow changed |
 | commit-msg | the conventional-commit subject check |
 | push | a secret scan over the whole tree rather than the staged diff, `cargo-deny`, formatting on stable as CI checks it, and **clippy again - the push stage compiles** |
-| CI | the same gates, plus test causality, the cross-built release binaries and the image |
+| CI | the same gates, plus test causality and cross-built `ci`-profile link checks |
+| Release tag | the same gates, then the release-profile binaries, images and image smoke tests |
 
 `hygiene` is one hook because `xtask` owns the list: `check-boundaries`, `max-lines`,
 `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`, `line-endings`, `text-hygiene`,
