@@ -12,6 +12,14 @@
 default:
     @just --list --unsorted
 
+# The Pulumi stack the `infra-preview` / `infra-up` tasks operate on. Set SUTURA_PULUMI_STACK in
+# the machine env (or pass to the shell) to target a specific stack; defaults to `dev`.
+stack := env_var_or_default("SUTURA_PULUMI_STACK", "dev")
+
+# The GitHub environment whose secrets/vars `just infra-set` re-populates from the stack's outputs.
+# Defaults to `bq-test` (the acceptance environment); override with BQ_TEST_ENV.
+bq_test_env := env_var_or_default("BQ_TEST_ENV", "bq-test")
+
 # It exists because the alternative is a README section people skip, and the failure mode is
 # silent - an uninstalled hook does not complain, it just never runs. `prek install` is the
 # important line: without it every gate in this file is advisory.
@@ -210,6 +218,11 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
+    # The BYTE-COMPARE half of the attribution gate. Here rather than in `hygiene` because it runs
+    # `cargo metadata`, which needs a resolvable registry the nix sandbox has not got - the same
+    # reason `check-api-docs` is not a hygiene gate. `check-attribution` in the sweep only sees that
+    # a licence cell is non-empty, so without this the main content of a generated file is trusted.
+    cargo run -q -p xtask -- check-attribution-current
     bash nix/run-gate.sh crap
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
@@ -391,6 +404,32 @@ docs-list:
 api:
     nix run .#api-docs
 
+# Shellcheck the shell inside every local composite action. `actionlint` CANNOT READ a composite
+# action - measured against 1.7.12, it parses `action.yml` as a workflow and rejects it - and the
+# shellcheck pass in CI globs `*.sh`, which a `run:` block is not. So the release path's own signing
+# sequence was shell nothing had ever linted. `nix/lint-action-shell.sh` is the sequence, shared with
+# `nix/lint-workflows.sh` so a local run and CI cannot check different things.
+lint-actions:
+    bash nix/lint-action-shell.sh
+
+# Every static check that reads a workflow, an action or a shell script: zizmor, actionlint,
+# shellcheck over the tree, and the composite-action pass above. What `ci.yml` runs, reached the
+# cheap way - it used to be inline there and had no local caller at all.
+lint-workflows:
+    bash nix/lint-workflows.sh
+
+# Regenerate the committed attribution document from `cargo metadata`. `ATTRIBUTION.md` is the
+# statement a distributor hands on - every third-party crate this workspace resolves and the licence
+# it declares - and `cargo xtask check-attribution` is the gate that fails when it falls behind the
+# lock. Through a bare `cargo` rather than nix, because `cargo metadata` is the tool and it needs the
+# workspace's own resolver, not a pinned binary.
+attribution:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    cargo run -q -p xtask -- attribution
+
 # Is every file's licence answerable by a tool? `checks.reuse` is what CI runs and is the
 # authority; this reaches the same pin the cheap way, against the REAL tree rather than the
 # git-derived copy - so it also sees a file you have not staged yet, which the check cannot.
@@ -474,6 +513,70 @@ hooks *args:
 # Authenticate against Google Cloud, for the BigQuery work. Both logins, in a container.
 gcloud-login:
     pixi run --frozen -e gcloud gl
+
+# ------------------------------------------------------------------ test-infra ---
+# The Pulumi test infrastructure under `test-infra/`. `infra-` prefix keeps these out of
+# the way of the Rust surface's tasks; everything runs through pixi (the `infra` env
+# owns Python + pulumi + pulumi-gcp, the `gcloud` env owns the login), so there is no
+# venv and no requirements.txt to keep in step - pixi owns the interpreter and everything
+# in it, the same reasoning the `docs` env uses.
+
+# Authenticate against Google Cloud for the Pulumi provider. Maps to pixi's `gl` task,
+# which runs BOTH gcloud logins in one container into ~/.config/gcloud:
+#   * `gcloud auth login` - the CLI's OWN credentials (credentials.db);
+#   * `gcloud auth application-default login` - ADC, what client libraries (the Pulumi
+#     provider, Google SDKs) read from ~/.config/gcloud/application_default_credentials.json.
+# `< -e gcloud` is required because pixi declares `gl` in the `gcloud` FEATURE's tasks, not
+# in the default environment. Interactive (`-it`); not in any gate; nothing is written into
+# this repository. This is the same task as `gcloud-login` above.
+infra-gl:
+    pixi run --frozen -e gcloud gl
+
+# `pulumi preview` over the `test-infra/pulumi/google` stack, through the `infra` pixi env.
+# The pixi task carries its own `cwd` (see pixi.toml), so no `cd` is needed here and the task
+# is correct from any directory. Extra flags (e.g. `--stack dev`) flow through as appended args.
+#
+# The state backend is a PROJECT-LOCAL file (`PULUMI_BACKEND_URL=file://.../test-infra/pulumi/google`,
+# into which pulumi writes a gitignored `.pulumi/`)
+# and the stack-secrets passphrase comes from `PULUMI_CONFIG_PASSPHRASE` (set in the machine's
+# `~/.config/sutura/env.sh` locally; a secret in CI).
+# The stack is configured FROM THE ENVIRONMENT FIRST (config-from-env.sh maps SUTURA_GOOGLE_* onto
+# the SUTURA_PULUMI_STACK stack, refusing on anything missing), and the SAME stack name is passed to
+# pulumi - no reliance on an "active" selection, which a fresh shell does not have. The stack name
+# defaults to `dev` and is overridden by SUTURA_PULUMI_STACK (the machine env sets it to the
+# developer's own). Nothing here reaches pulumi cloud, and nothing is committed.
+infra-preview *flags:
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    # The infra run identity is the developer's gcloud ADC (their own elevated account), NOT the
+    # limited BigQuery SA key that env.sh points the acceptance legs at. GOOGLE_ADC overrides the
+    # default ADC path. just runs each line in a fresh shell, so the identity is set per command.
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra preview --stack "{{stack}}" {{flags}}
+
+# `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
+infra-up *flags:
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    # See infra-preview: run as the developer's gcloud ADC, not the limited BigQuery SA key.
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra up --stack "{{stack}}" {{flags}}
+
+# `pulumi destroy` - tear down the Google test infra this stack created, so a redeployment starts
+# clean. Same local-file backend and developer-ADC identity as infra-up, but NO config-from-env.sh:
+# destroying reads the existing state and needs none of the SUTURA_* values. GCP APIs stay ENABLED
+# (the Service resources set disable_on_destroy=False), deliberately - GCP refuses to disable some
+# APIs that still hold resources, and re-enabling is slower than leaving it. Run `just infra-preview`
+# and then `just infra-up` to re-create afterwards.
+infra-down:
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra destroy --stack "{{stack}}" --yes
+
+# Re-export the fresh `up` outputs into the {{bq_test_env}} GitHub environment's secrets/vars, so
+# CI's acceptance key + resource names follow the stack without hand-editing. Run after an
+# `infra-up` (especially one following an `infra-down`, which rotates every key). Reads the local
+# `.pulumi/` state (no GCP credential needed) and pushes via `gh`, which must be authenticated.
+infra-set:
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    STACK="{{stack}}" BQ_TEST_ENV="{{bq_test_env}}" PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/sync-bq-test-env.sh
 
 # The live BigQuery acceptance suite. It is outside `just validate` because nix checks have no
 # network. CI runs the same suite in its own `bq-test` environment job for pushes and same-repository

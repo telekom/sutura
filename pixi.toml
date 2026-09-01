@@ -86,6 +86,65 @@ docs-list = "mike list"
 # `-b <branch>`. Any extra argument reaches mike, since a pixi task appends what follows.
 mike = "mike"
 
+# -------------------------------------------------------------------- infra ---
+# The Pulumi Python runtime for the test infrastructure under `test-infra/`. Isolated,
+# the same shape as `docs`: no-default-feature, only `pixi run -e infra <cmd>` reaches it,
+# so the pulumi tree (its pypi deps included) never perturbs the default solve or a gate.
+#
+# Pinning is the major-ceiling style this file already uses for non-gate tooling: a different
+# pulumi-gcp within the major still provisions the same resources, and the exact number is
+# whatever the solve resolves on the day it is locked. Re-check the majors against the
+# changelogs before widening either ceiling.
+[feature.infra.dependencies]
+python = ">=3.13,<3.14"
+# `python -m pip` must work in this environment even though pixi owns the packages: pulumi's
+# python runtime probes the interpreter it was launched with via `pip list --format json` to
+# discover package requirements, and it FAILS when pip is absent. pip is a package manager, not
+# a resolver we build on, so pinning it here does not conflict with the one-resolver rule.
+pip = "*"
+
+[feature.infra.pypi-dependencies]
+# EXACT, and it MUST equal the nix-pinned pulumi CLI (`pkgs.pulumi`, exposed in the dev shell as
+# $PULUMI_VERSION and built by CI as `nix build .#pulumi`). The CLI and the SDK it drives have to
+# agree; nix is the authority for the version, so this pin is set to nix's value by hand and the
+# two are bumped together. The pypi `pulumi` package is the SDK; the CLI is the nix binary.
+pulumi = "==3.255.0"
+# >=9 : 7.x shipped no bigquery.RowAccessPolicy, so the two-principal isolation could only be
+# applied with a SEPARATE gcp CLI. 9.x exposes it as a first-class resource, keeping `up`
+# self-contained. `gcp.projects.Service` (also used for API bootstrap) exists in both.
+pulumi-gcp = ">=9,<10"
+
+[feature.infra.tasks]
+# `pulumi` is a command, not a task, so these are thin 1:1 aliases a justfile can call with
+# the environment already attached. `--stack`/flags flow through as appended arguments.
+#
+# `cwd:` is the whole point of writing the long form: pixi runs a task from the PROJECT root
+# and IGNORES the shell's working directory, so `cd test-infra/pulumi/google && pixi run -e
+# infra preview` still invoked pulumi from the workspace root and pulumi could not find
+# Pulumi.yaml ("searching upwards from )"). Naming the project dir here makes the task correct
+# regardless of where it is launched. The `pulumi` CLI itself is the NIX-pinned binary (devenv
+# on the dev shell, `nix run .#pulumi` / `nix build .#pulumi` in CI - the pypi `pulumi` package
+# is the Python SDK the runtime interprets, not a CLI, and conda-forge has no cross-platform
+# CLI), so `pulumi` on PATH is what this task resolves, and the cwd is the only part that has
+# to be right.
+#
+# NO CLOUD, NO SHARED BUCKET: the state backend and the encryption passphrase come from the
+# environment, never from pulumi cloud. `PULUMI_BACKEND_URL` is a `file://` URL set by the
+# justfile / workflow to the project-local `.pulumi/` directory, and `PULUMI_CONFIG_PASSPHRASE`
+# is a secret (CI) or machine env (local) - neither is committed here. `--local` as a CLI flag
+# does not exist on this pulumi version, which is why the backend is handled through the env.
+[feature.infra.tasks.preview]
+cmd = "pulumi preview"
+cwd = "test-infra/pulumi/google"
+
+[feature.infra.tasks.up]
+cmd = "pulumi up"
+cwd = "test-infra/pulumi/google"
+
+[feature.infra.tasks.destroy]
+cmd = "pulumi destroy"
+cwd = "test-infra/pulumi/google"
+
 # -------------------------------------------------------------------- gcloud ---
 # The Google Cloud CLI, for the BigQuery steps of the plan. Reached as a CONTAINER and declared as
 # a task rather than as a package, and that is a decision rather than an implementation detail.
@@ -167,6 +226,8 @@ docs = { features = ["docs"], no-default-feature = true }
 # `gcloud` holds a task and no packages, so it resolves on all four platforms above by having
 # nothing to resolve. What it needs at run time is docker, and no manifest can pin that.
 gcloud = { features = ["gcloud"], no-default-feature = true }
+# The Pulumi test infrastructure. Isolated so its pypi tree never perturbs a gate's solve.
+infra = { features = ["infra"], no-default-feature = true }
 
 [tasks]
 # Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched
