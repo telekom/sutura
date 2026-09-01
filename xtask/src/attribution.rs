@@ -25,29 +25,48 @@
 //! exactly the reason above, because regenerating means compiling. The trade here is that the
 //! generator's PROSE and its column order are not gated; the crate set is, exactly.
 //!
-//! # What the gate claims, and what it does not
+//! # Which packages belong in it, and why `source` is not the test
 //!
-//! Claimed, exactly: the document names every third-party package in `Cargo.lock`, at the version
-//! the lock resolves, and names nothing else - and every row carries a non-empty licence field.
+//! **A `source` entry in `Cargo.lock` means "from a registry or a git remote". It does not mean
+//! "third-party", and the first version of this module used it as if it did.** `mimalloc` and
+//! `libmimalloc-sys` are vendored under `vendor/` and declared as PATH dependencies, so they have
+//! no `source` - and `sutura-cli` LINKS `mimalloc` on Linux. Filtering on `source` therefore left
+//! two shipped third-party crates out of the released attribution asset, which is the exact
+//! failure `docs/adr/0021` says this document exists to prevent. A review caught it.
 //!
-//! Not claimed, and each is a real edge:
+//! So the test is **workspace membership**, read off the root `Cargo.toml`'s `members` list and
+//! each member's own `name`. A source-less package that is not a member is a vendored path
+//! dependency and belongs in the document. `VENDOR.md` and `REUSE.toml` remain the provenance
+//! record for those trees - they are useful and they put no rows in the asset a consumer downloads.
 //!
-//! * **Not that the licence expression is right.** It is what the crate's own manifest declares,
-//!   copied through. Checking it against the licence FILES in a crate's source is a source scan,
-//!   which `licence-review.yml`'s header declines at length and for reasons that have not changed.
+//! It reads files rather than asking cargo, because this half has to run offline; and it fails
+//! closed - an unreadable manifest or an empty members list is a non-zero exit, since a members
+//! set that came back empty would silently attribute all nineteen of our own crates.
+//!
+//! # What the two gates claim, and what they do not
+//!
+//! `check-attribution`, offline and in the hygiene sweep: the document names every third-party
+//! package in `Cargo.lock` at the resolved version, and nothing else.
+//!
+//! `check-attribution-current`, which needs `cargo metadata`: a fresh generation byte-compares with
+//! the committed file. **That is the half a review had to ask for**, because the offline gate can
+//! only check that a licence cell is non-empty - so replacing any row's SPDX expression with
+//! arbitrary text passed, and the main content of a generated artefact was trusted rather than
+//! compared. It also subsumes a subtler case the crate key cannot see: a git dependency moving to
+//! another revision, changing its declared licence while keeping its name and version.
+//!
+//! Not claimed, and each is real:
+//!
+//! * **Not that the licence expression is TRUE of the crate's source.** It is what the manifest
+//!   declares, copied through and now compared. Checking it against the licence FILES in a crate's
+//!   tree is a source scan, which `.github/actions/licence-review`'s header declines at length.
 //! * **Not that it is the list a given binary LINKS.** `Cargo.lock` records what cargo resolved.
-//!   `docs/adr/0021` makes that argument at length against generating an SBOM this way and is
-//!   right about it - and for an attribution document the direction of the error is the opposite
-//!   one: a document naming a crate that did not ship discharges an obligation nobody had, and a
-//!   document missing one that did ship is the failure the document exists to prevent. So this
-//!   errs by overstating, on purpose, and the amendment to that record says so.
+//!   `docs/adr/0021` argues that at length against generating an SBOM this way and is right - and
+//!   for an attribution document the error points the other way: naming a crate that did not ship
+//!   discharges an obligation nobody had, while omitting one that did ship is the failure. So this
+//!   errs by overstating, on purpose.
 //! * **Not the notice text of each dependency.** An Apache-2.0 dependency's own `NOTICE` file is
 //!   in its source tree and not in its metadata, so nothing here can render one.
-//! * **Not the two vendored path crates.** `mimalloc` and `libmimalloc-sys` are third-party code
-//!   carried in `vendor/`, and they have no `source` in the lock because they are path
-//!   dependencies - so this document does not name them. `VENDOR.md` records their upstream and
-//!   `REUSE.toml` records their licence per file, which is the shape vendored code is attributed
-//!   in here. The document says so where a reader will see it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -60,6 +79,9 @@ const DOCUMENT: &str = "ATTRIBUTION.md";
 
 /// The lock file, read as text. The same choice `arrow_major` and `shared_client` make.
 const LOCK: &str = "Cargo.lock";
+
+/// The workspace root manifest, which is where the member list lives.
+const MANIFEST: &str = "Cargo.toml";
 
 /// The task that rewrites the document, named in every failure message so the fix is the message.
 const REGENERATE: &str = "just attribution";
@@ -77,25 +99,71 @@ fn unquote(value: &str) -> Option<&str> {
     value.strip_prefix('"')?.strip_suffix('"')
 }
 
+/// Crate names declared as workspace members, read off the root manifest and each member's own.
+///
+/// **This is the discriminator, and `source` is not**: see the module header. A source-less stanza
+/// in `Cargo.lock` is either one of our crates or a vendored path dependency, and only the member
+/// list tells the two apart.
+///
+/// Two levels of file read rather than one, because a member is a PATH and the directory name is
+/// not the crate name - `dev` holds `sutura-dev`, so assuming otherwise would put `sutura-dev` in
+/// the attribution document.
+///
+/// `None` where the manifest declares no members or a member's name cannot be read, so the caller
+/// fails rather than proceeding with an empty set - which would attribute all seventeen of our own
+/// crates to somebody else.
+fn workspace_members(root: &Path, manifest: &str) -> Option<BTreeSet<String>> {
+    let start = manifest.find("members = [")?;
+    let rest = manifest.get(start..)?;
+    let end = rest.find("\n]")?;
+    let block = rest.get(..end)?;
+
+    let mut names = BTreeSet::new();
+    for raw in block.split('\n').skip(1) {
+        let line = raw.trim();
+        // Comment lines are skipped, and it is not tidiness: that members list carries prose about
+        // the architecture, and the prose quotes crate names - so a scan for quoted strings that
+        // did not skip comments would read `polyglot-sql` out of a comment and call it a member.
+        if line.starts_with('#') {
+            continue;
+        }
+        let Some(path) = line.strip_prefix('"').and_then(|l| l.split('"').next()) else {
+            continue;
+        };
+        let text = std::fs::read_to_string(root.join(path).join(MANIFEST)).ok()?;
+        names.insert(String::from(package_name(&text)?));
+    }
+    if names.is_empty() { None } else { Some(names) }
+}
+
+/// The `name` a manifest's `[package]` table declares.
+fn package_name(manifest: &str) -> Option<&str> {
+    manifest
+        .lines()
+        .find_map(|line| unquote(line.trim().strip_prefix("name = ")?))
+}
+
 /// Every THIRD-PARTY package in the lock file.
 ///
-/// A `[[package]]` stanza with no `source` key is a path or workspace member - this workspace's own
-/// nineteen crates, plus the two vendored ones under `vendor/`. Those are attributed by `LICENSE`,
-/// `VENDOR.md` and `REUSE.toml` rather than here, so the presence of a `source` line is what
-/// selects a row. Everything with one came from a registry or a git remote and is somebody else's
-/// code.
+/// Two shapes qualify, and the second is a review's correction: a stanza WITH a `source` came from
+/// a registry or a git remote, and a stanza WITHOUT one that is not a workspace member is a
+/// vendored path dependency - third-party code carried in this repository, which `sutura-cli`
+/// links on Linux. Only our own crates are excluded.
 ///
 /// The shape this relies on is `cargo`'s own output: within a stanza, `name` precedes `version`,
 /// and both are `key = "value"` on their own line. Parsed as text rather than as TOML for
 /// `arrow_major`'s reason - `xtask` reads two fields out of this file in three gates now, and a
 /// TOML dependency for that is a poor trade.
-fn third_party(lock: &str) -> Vec<Package> {
+fn third_party(lock: &str, members: &BTreeSet<String>) -> Vec<Package> {
     let mut found = Vec::new();
     let mut name: Option<&str> = None;
     let mut version: Option<&str> = None;
     let mut flush = |name: &mut Option<&str>, version: &mut Option<&str>, sourced: bool| {
+        // The OR is the review's correction: a stanza with a `source` is a registry or git
+        // dependency, and a source-less stanza that is not a workspace member is a vendored path
+        // dependency. Both are somebody else's code; only our own crates are excluded.
         if let (Some(n), Some(v)) = (name.take(), version.take())
-            && sourced
+            && (sourced || !members.contains(n))
         {
             found.push(Package {
                 name: String::from(n),
@@ -158,8 +226,14 @@ pub(crate) fn run_check(_args: &[String]) -> Verdict {
         eprintln!("  {REGENERATE} writes it.");
         return Verdict::Fail;
     };
+    let Some(members) = read(&root, MANIFEST).as_deref().and_then(|m| workspace_members(&root, m)) else {
+        eprintln!("xtask check-attribution: FAILED - no workspace members read from {MANIFEST}");
+        eprintln!("  Fails rather than proceeding: an empty member set makes every one of our own");
+        eprintln!("  crates look like somebody else's, and the document would grow seventeen rows.");
+        return Verdict::Fail;
+    };
 
-    let want: BTreeSet<Package> = third_party(&lock).into_iter().collect();
+    let want: BTreeSet<Package> = third_party(&lock, &members).into_iter().collect();
     let have = rows(&document);
 
     let mut failures = 0_usize;
@@ -250,9 +324,12 @@ the identifier is the canonical reference.\n\
   `docs/verifying-a-release.md` says how to read it.\n\
 - **Not the notice text of each dependency.** An Apache-2.0 crate's own `NOTICE` file lives in its\n\
   source tree rather than in its metadata, so nothing that reads metadata can render one.\n\
-- **Not the vendored trees.** `vendor/mimalloc_rust` is third-party code carried in this repository\n\
-  as a path dependency, so it has no registry source and is not a row below. `VENDOR.md` records\n\
-  its upstream, commit and local changes, and `REUSE.toml` records its licence per file.\n\
+- **The vendored trees ARE in it.** `mimalloc` and `libmimalloc-sys` live under `vendor/` and are\n\
+  declared as path dependencies, so they carry no registry source - and `sutura-cli` links the\n\
+  allocator on Linux, so they are rows below like anything else somebody else wrote. What selects a\n\
+  row is not being a workspace member, never the presence of a source. `VENDOR.md` records their\n\
+  upstream, commit and local changes and `REUSE.toml` records their licence per file; both are\n\
+  provenance, and neither puts a row in this file.\n\
 - **Not an advisory statement.** Whether any of these has a vulnerability against it is\n\
   `cargo deny check` against the RustSec database, whose verdict is a run rather than a document.\n\
 \n\
@@ -273,29 +350,101 @@ pub(crate) fn run_generate(_args: &[String]) -> Verdict {
         eprintln!("xtask attribution: could not determine the repo root");
         return Verdict::Fail;
     };
+    let Some(document) = document(&root) else {
+        return Verdict::Fail;
+    };
+    let path = root.join(DOCUMENT);
+    if let Err(error) = std::fs::write(&path, &document) {
+        eprintln!("xtask attribution: could not write {}: {error}", path.display());
+        return Verdict::Fail;
+    }
+    println!(
+        "xtask attribution: wrote {DOCUMENT} - {} third-party packages",
+        document.lines().filter(|l| row(l).is_some()).count()
+    );
+    Verdict::Pass
+}
 
+/// `cargo xtask check-attribution-current` - a fresh generation byte-compares with the committed
+/// file.
+///
+/// **The half a review had to ask for**, and the reason is worth keeping where the code is: the
+/// offline gate above can only see that a licence cell is non-empty, so replacing any row's SPDX
+/// expression with arbitrary text passed it. The main content of a generated artefact was trusted
+/// rather than compared, which is the one thing this repository's *Canonical Sources* rule forbids.
+///
+/// `check-api-docs` is the shape this copies, including why it is NOT in the hygiene sweep: it needs
+/// an input the nix sandbox has not got. There it is a compiler; here it is a resolvable registry.
+pub(crate) fn run_check_current(_args: &[String]) -> Verdict {
+    let Some(root) = repo::root() else {
+        eprintln!("xtask check-attribution-current: could not determine the repo root");
+        return Verdict::Fail;
+    };
+    let Some(fresh) = document(&root) else {
+        return Verdict::Fail;
+    };
+    let Some(committed) = read(&root, DOCUMENT) else {
+        eprintln!("  {REGENERATE} writes it.");
+        return Verdict::Fail;
+    };
+    if fresh == committed {
+        println!("xtask check-attribution-current: ok - {DOCUMENT} is what the generator produces");
+        return Verdict::Pass;
+    }
+
+    eprintln!("xtask check-attribution-current: FAILED - {DOCUMENT} is not a fresh generation");
+    // The FIRST differing line and its two sides, rather than a whole diff: the document is
+    // hundreds of rows, and a gate that prints all of them buries the one that matters. A changed
+    // licence expression is one line, which is exactly the case this exists for.
+    let mut lines = fresh.lines().zip(committed.lines()).enumerate();
+    if let Some((n, (want, have))) = lines.find(|(_, (want, have))| want != have) {
+        eprintln!("  first difference at line {}:", n.saturating_add(1));
+        eprintln!("    generated: {want}");
+        eprintln!("    committed: {have}");
+    } else {
+        eprintln!(
+            "  the shorter file is a prefix of the other: {} generated line(s), {} committed",
+            fresh.lines().count(),
+            committed.lines().count()
+        );
+    }
+    eprintln!();
+    eprintln!("  Run `{REGENERATE}` and commit the result. If a licence value moved, that is a");
+    eprintln!("  dependency's declaration changing and the diff is the thing to review.");
+    Verdict::Fail
+}
+
+/// The document the generator would write, as text.
+///
+/// One owner for the bytes, so the writer and the byte-compare cannot disagree about what a correct
+/// document is - which they would if each rendered its own.
+///
+/// `--all-features`, because a feature-gated dependency is still something a build of this workspace
+/// can pull in, and `--locked`, because the document has to describe the committed resolution rather
+/// than whatever cargo would resolve today.
+fn document(root: &Path) -> Option<String> {
     let mut command = std::process::Command::new("cargo");
     command
-        .current_dir(&root)
+        .current_dir(root)
         .args(["metadata", "--format-version", "1", "--all-features", "--locked"]);
     let output = match command.output() {
         Ok(output) => output,
         Err(error) => {
             eprintln!("xtask attribution: could not run `cargo metadata`: {error}");
-            return Verdict::Fail;
+            return None;
         }
     };
     if !output.status.success() {
         eprintln!("xtask attribution: `cargo metadata` failed");
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return Verdict::Fail;
+        return None;
     }
 
     let metadata: serde_json::Value = match serde_json::from_slice(&output.stdout) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("xtask attribution: `cargo metadata` output did not parse: {error}");
-            return Verdict::Fail;
+            return None;
         }
     };
 
@@ -303,9 +452,8 @@ pub(crate) fn run_generate(_args: &[String]) -> Verdict {
     // the authority on their licences. Reading the set from the lock rather than from the metadata
     // is what keeps the generator and the gate answering the same question: a generator that
     // decided the set for itself could write a document its own gate rejects.
-    let Some(lock) = read(&root, LOCK) else {
-        return Verdict::Fail;
-    };
+    let lock = read(root, LOCK)?;
+    let members = workspace_members(root, &read(root, MANIFEST)?)?;
     let mut licences: BTreeMap<Package, String> = BTreeMap::new();
     // `get` rather than `[..]`: `clippy::indexing_slicing` is denied across this workspace, and
     // `serde_json::Value`'s own `Index` impl panics on a non-object rather than answering `Null`.
@@ -327,7 +475,7 @@ pub(crate) fn run_generate(_args: &[String]) -> Verdict {
         licences.insert(key, String::from(licence));
     }
 
-    let wanted = third_party(&lock);
+    let wanted = third_party(&lock, &members);
     let mut lines: Vec<String> = Vec::new();
     let mut unlicensed = Vec::new();
     for package in {
@@ -360,21 +508,21 @@ pub(crate) fn run_generate(_args: &[String]) -> Verdict {
 
     let count = lines.len();
     let table = lines.join("\n");
-    let document = format!("{}{table}\n", header(count));
-    let path = root.join(DOCUMENT);
-    if let Err(error) = std::fs::write(&path, &document) {
-        eprintln!("xtask attribution: could not write {}: {error}", path.display());
-        return Verdict::Fail;
-    }
-    println!("xtask attribution: wrote {DOCUMENT} - {count} third-party packages");
-    Verdict::Pass
+    Some(format!("{}{table}\n", header(count)))
 }
 
 #[cfg(test)]
 mod tests {
     use core::fmt::Write as _;
 
-    use super::{Package, header, row, rows, third_party};
+    use std::collections::BTreeSet;
+
+    use super::{Package, header, package_name, row, rows, third_party, workspace_members};
+
+    /// The workspace's own crate names, as the two real files would yield them.
+    fn ours(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|n| String::from(*n)).collect()
+    }
 
     /// A lock stanza, so the fixtures read like the file they parse.
     fn stanza(name: &str, version: &str, source: Option<&str>) -> String {
@@ -388,24 +536,80 @@ mod tests {
     const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
     #[test]
-    fn a_stanza_with_no_source_is_not_third_party() {
-        // The whole selection rule. A workspace member and a path dependency have no `source`, and
-        // that is what distinguishes our own crates and the vendored allocator from somebody
-        // else's code - so getting this backwards would either attribute Apache-2.0 crates we
-        // wrote or silently drop 455 that we did not.
+    fn a_vendored_path_dependency_is_third_party_and_a_workspace_member_is_not() {
+        // RED BEFORE GREEN, and this is the finding a review had to make: the first version of this
+        // module selected on the presence of a `source` line, so `mimalloc` and `libmimalloc-sys` -
+        // vendored under `vendor/`, declared as PATH dependencies, and LINKED by `sutura-cli` on
+        // Linux - were left out of the released attribution asset. That is the exact failure
+        // `docs/adr/0021` says this document exists to prevent, and the old code passed its own
+        // tests while doing it.
+        //
+        // So the assertion is about the pair: a source-less NON-member is in, a source-less member
+        // is out.
         let lock = format!(
             "{}{}{}",
             stanza("sutura-domain", "0.1.0", None),
-            stanza("mimalloc", "0.1.50", None),
+            stanza("mimalloc", "0.1.52", None),
             stanza("serde", "1.0.230", Some(REGISTRY))
         );
+        let found = third_party(&lock, &ours(&["sutura-domain"]));
         assert_eq!(
-            third_party(&lock),
-            vec![Package {
-                name: String::from("serde"),
-                version: String::from("1.0.230")
-            }]
+            found,
+            vec![
+                Package {
+                    name: String::from("mimalloc"),
+                    version: String::from("0.1.52")
+                },
+                Package {
+                    name: String::from("serde"),
+                    version: String::from("1.0.230")
+                }
+            ],
+            "a vendored path dependency has to be attributed and a workspace member must not be"
         );
+    }
+
+    #[test]
+    fn the_member_list_is_read_through_each_members_own_manifest() {
+        // A member is a PATH, and `dev` holds `sutura-dev` - so deriving the crate name from the
+        // directory would put `sutura-dev` in the attribution document as if we had not written it.
+        // Read against the real files, because that mapping is the thing that can be wrong.
+        let Some(root) = crate::repo::root() else {
+            return;
+        };
+        let Ok(manifest) = std::fs::read_to_string(root.join(super::MANIFEST)) else {
+            return;
+        };
+        let members = workspace_members(&root, &manifest).expect("the workspace declares members");
+        assert!(members.contains("sutura-dev"), "the `dev` path resolves to its crate name");
+        assert!(members.contains("xtask"));
+        assert!(
+            !members.contains("mimalloc"),
+            "the vendored allocator is not a workspace member, so it belongs in the document"
+        );
+    }
+
+    #[test]
+    fn a_comment_in_the_member_list_contributes_no_member() {
+        // That list carries prose about the architecture, and the prose quotes crate names. A scan
+        // for quoted strings that did not skip comments would read one of those as a member and
+        // then EXCLUDE it from the attribution document - a silent omission, which is the failure
+        // mode this whole module is about.
+        let manifest = concat!(
+            "[workspace]\n",
+            "members = [\n",
+            "  # keeps \"polyglot-sql\" out of the core's closure\n",
+            "  \"crates/sutura-domain\",\n",
+            "]\n",
+        );
+        let root = std::path::Path::new("/nonexistent");
+        // The member path cannot be read here, so the whole thing is `None` - which is the
+        // fail-closed contract. What this pins is that the COMMENT did not become a member: were it
+        // read as one, the loop would try `/nonexistent/# keeps ...` and still answer `None`, so the
+        // observable difference is in `package_name`, asserted directly below.
+        assert!(workspace_members(root, manifest).is_none());
+        assert_eq!(package_name("[package]\nname = \"sutura-dev\"\n"), Some("sutura-dev"));
+        assert_eq!(package_name("[package]\nversion = \"0.1.0\"\n"), None);
     }
 
     #[test]
@@ -418,7 +622,7 @@ mod tests {
             stanza("arrow", "58.4.0", Some(REGISTRY)),
             stanza("arrow", "59.2.0", Some(REGISTRY))
         );
-        assert_eq!(third_party(&lock).len(), 2);
+        assert_eq!(third_party(&lock, &ours(&[])).len(), 2);
     }
 
     #[test]
@@ -431,7 +635,7 @@ mod tests {
             stanza("serde", "1.0.230", Some(REGISTRY)),
             stanza("xtask", "0.1.0", None)
         );
-        assert_eq!(third_party(&lock).len(), 1);
+        assert_eq!(third_party(&lock, &ours(&["xtask"])).len(), 1);
     }
 
     #[test]
@@ -440,7 +644,7 @@ mod tests {
         // cargo writes the lock with no trailing marker, so a parser that only flushes on the next
         // header loses whichever crate sorts last.
         let lock = stanza("zstd", "0.13.3", Some(REGISTRY));
-        assert_eq!(third_party(&lock).len(), 1);
+        assert_eq!(third_party(&lock, &ours(&[])).len(), 1);
     }
 
     #[test]
@@ -494,7 +698,11 @@ mod tests {
             return;
         };
         let have = rows(&document);
-        let want = third_party(&lock);
+        let Ok(manifest) = std::fs::read_to_string(root.join(super::MANIFEST)) else {
+            return;
+        };
+        let members = workspace_members(&root, &manifest).expect("the workspace declares members");
+        let want = third_party(&lock, &members);
         assert!(
             !want.is_empty(),
             "the lock resolves no third-party packages, which cannot be right"
