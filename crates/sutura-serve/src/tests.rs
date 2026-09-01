@@ -870,7 +870,7 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     // the BUILD rather than of the file: `sutura-config` can and must not see which catalog
     // adapter a binary linked, so the refusal lives in the composition root that would have to
     // open the kind. `datahub` is the vocabulary's one kind no binary here links.
-    use sutura_config::{Catalogs, CatalogKind, CatalogSettings};
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
     let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
@@ -905,7 +905,7 @@ fn a_deployment_with_more_than_one_catalog_is_refused_until_composition_lands() 
     // sources, and this build serves exactly one until the metadata assembler arrives. Refusing
     // here rather than silently serving the first is what keeps "I declared a second source and
     // nothing changed" from being the quiet failure mode of a half-merged settings diff.
-    use sutura_config::{Catalogs, CatalogKind, CatalogSettings};
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
     let version = DefinitionVersion::parse("test-1").expect("a test version is a version");

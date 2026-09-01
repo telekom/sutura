@@ -227,16 +227,11 @@ fn announce_surface(settings: &Settings) {
     } else {
         tracing::info!(docs = api.docs_enabled(), "generated interface description");
     }
-    let mut it = settings.catalogs().each();
-    if let Some(single) = it.next() {
-        // One catalog: the banner names where its model and data are. The N-catalog case, whose
-        // dirs the banner would otherwise have to flatten, is composed above the settings by the
-        // metadata assembler and is not this line's to render - see note on `it.next()` below.
-        debug_assert!(
-            it.next().is_none(),
-            "the banner names one catalog; a multi-catalog deployment is composed elsewhere"
-        );
-        tracing::info!(
+    // The banner names one catalog where the deployment serves one; where it declares several
+    // (a shape the metadata assembler composes above the settings), the banner says how many and
+    // points at the composition rather than flattening N dirs into one line.
+    match settings.catalogs().each().next() {
+        Some(single) if settings.catalogs().count() == 1 => tracing::info!(
             catalog_name = %single.name(),
             catalog_kind = single.kind().as_str(),
             catalog_dir = %single.dir().display(),
@@ -245,14 +240,13 @@ fn announce_surface(settings: &Settings) {
             log_format = %settings.telemetry().format(),
             log_format_explicit = settings.telemetry().format_was_explicit(),
             "catalog and log"
-        );
-    } else {
-        tracing::info!(
+        ),
+        _ => tracing::info!(
             catalogs = settings.catalogs().count(),
             log_format = %settings.telemetry().format(),
             log_format_explicit = settings.telemetry().format_was_explicit(),
-            "log, with no catalog to name"
-        );
+            "log; the declared catalogs are composed by the metadata assembler"
+        ),
     }
 }
 

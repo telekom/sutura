@@ -173,7 +173,10 @@ fn a_per_source_working_set_ceiling_is_refused_at_parse() {
     let error = Settings::load(&sources).expect_err("a ceiling on a catalog entry is not a setting");
     assert!(matches!(error, SettingsError::Source { .. }), "{error:?}");
     let rendered = format!("{:?}", core::error::Error::source(&error));
-    assert!(rendered.contains("working_set_max_bytes"), "the error should name the key: {rendered}");
+    assert!(
+        rendered.contains("working_set_max_bytes"),
+        "the error should name the key: {rendered}"
+    );
     // And the one place it IS a setting still is, so this test cannot pass by the key being unknown
     // everywhere.
     let sources = Sources::defaults(Environment::Development).with_overlay("runtime:\n  working_set_max_bytes: 2048\n");

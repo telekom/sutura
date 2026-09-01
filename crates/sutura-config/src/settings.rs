@@ -21,7 +21,7 @@ use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::pinned::{DefinitionVersion, InvalidVersion};
 
 use crate::api::ApiSettings;
-use crate::catalog::{Catalogs, CatalogKind, CatalogSettings, InvalidCatalogSettings, UnknownCatalogKind};
+use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
 use crate::environment::{Environment, UnknownEnvironment};
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, Quota, RateLimitSettings};

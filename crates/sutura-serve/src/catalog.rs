@@ -38,10 +38,7 @@ pub(crate) fn open_catalog(catalogs: &sutura_config::Catalogs) -> Result<LocalCa
 /// Opens one declared catalog, dispatching its kind exhaustively.
 fn open_one_catalog(settings: &sutura_config::CatalogSettings) -> Result<LocalCatalog, String> {
     match settings.kind() {
-        sutura_config::CatalogKind::Markdown => Ok(LocalCatalog::new(
-            PathBuf::from(settings.dir()),
-            settings.version().clone(),
-        )),
+        sutura_config::CatalogKind::Markdown => Ok(LocalCatalog::new(PathBuf::from(settings.dir()), settings.version().clone())),
         sutura_config::CatalogKind::Datahub => Err(format!(
             "`catalog.kind: {}` names a metadata adapter this build does not link - build the binary \
              with the feature that provides it, or write `markdown`",

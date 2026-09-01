@@ -125,7 +125,13 @@ impl CatalogSettings {
                 name: "catalog.data_dir",
             });
         }
-        Ok(Self { name, kind, dir, data_dir, version })
+        Ok(Self {
+            name,
+            kind,
+            dir,
+            data_dir,
+            version,
+        })
     }
 
     /// The declared name, which the contribution manifest keys on.
@@ -158,8 +164,8 @@ impl CatalogSettings {
 
 /// The catalogs a deployment declares, in declaration order.
 ///
-/// **A non-empty, ordered collection, and the empty member is unrepresentable.** Composition —
-/// the point of having N — is the metadata assembler in `sutura-app`; this type is the declared
+/// **A non-empty, ordered collection, and the empty member is unrepresentable.** Composition -
+/// the point of having N - is the metadata assembler in `sutura-app`; this type is the declared
 /// configuration it is handed. Order is declaration order, which is content order: the contribution
 /// manifest is a `BTreeMap` keyed on each entry's [`CatalogSettings::name`], so this ordering is
 /// what a reviewer reads and manifest determinism does not depend on it surviving a rename.
@@ -192,7 +198,7 @@ impl Catalogs {
 
     /// How many catalogs are declared.
     #[must_use]
-    pub fn count(&self) -> usize {
+    pub const fn count(&self) -> usize {
         self.entries.len()
     }
 }
@@ -204,7 +210,7 @@ mod tests {
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
 
-    use super::{Catalogs, CatalogKind, CatalogSettings, InvalidCatalogSettings};
+    use super::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings};
 
     fn version() -> DefinitionVersion {
         DefinitionVersion::parse("test-1").expect("a test version is a version")
@@ -219,21 +225,36 @@ mod tests {
     }
 
     fn settings(name_raw: &str) -> CatalogSettings {
-        CatalogSettings::parse(name(name_raw), kind(), PathBuf::from("/nowhere/catalog"), PathBuf::from("/nowhere/data"), version())
-            .expect("a declared catalog is a catalog")
+        CatalogSettings::parse(
+            name(name_raw),
+            kind(),
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
+            version(),
+        )
+        .expect("a declared catalog is a catalog")
     }
 
     #[test]
     fn an_unknown_catalog_kind_is_refused_against_the_available_ones() {
         // `SourceKind`'s precedent, on the metadata side: the vocabulary is closed, and an unknown
         // word is a parse refusal listing what it could have been rather than a silent default.
-        assert_eq!(CatalogKind::parse("markdown").expect("markdown is a kind"), CatalogKind::Markdown);
-        assert_eq!(CatalogKind::parse("datahub").expect("datahub is a kind"), CatalogKind::Datahub);
+        assert_eq!(
+            CatalogKind::parse("markdown").expect("markdown is a kind"),
+            CatalogKind::Markdown
+        );
+        assert_eq!(
+            CatalogKind::parse("datahub").expect("datahub is a kind"),
+            CatalogKind::Datahub
+        );
         let error = CatalogKind::parse("atlas").expect_err("atlas is not a kind this build has");
         assert!(error.to_string().contains("atlas"), "{}", error);
         assert!(error.to_string().contains("markdown"), "{}", error);
         assert!(CatalogKind::NAMES.contains(&"markdown"));
-        assert_eq!(CatalogKind::parse(CatalogKind::Markdown.as_str()).expect("a spelling is a kind"), CatalogKind::Markdown);
+        assert_eq!(
+            CatalogKind::parse(CatalogKind::Markdown.as_str()).expect("a spelling is a kind"),
+            CatalogKind::Markdown
+        );
     }
 
     #[test]
