@@ -8,6 +8,7 @@ use std::sync::Arc;
 use rmcp::model::{CallToolRequestParams, ErrorCode};
 use rmcp::service::RunningService;
 use rmcp::{RoleClient, RoleServer, ServiceError, serve_client, serve_server};
+use sutura_app::prompt::CatalogProse;
 use sutura_app::surface::{LocalService, Surface};
 use sutura_app::{Capability, Permitted};
 
@@ -23,7 +24,7 @@ async fn connected<S>(surface: S) -> RunningService<RoleClient, ()>
 where
     S: Surface,
 {
-    permitting(surface, Permitted::every_capability()).await
+    permitting(surface, Permitted::every_capability(), CatalogProse::Quoted).await
 }
 
 /// The same, with what the peer may do stated by the caller.
@@ -31,12 +32,12 @@ where
 /// The seam the scope tests use, and it is the production signature rather than a test-only door:
 /// `AgentSurface::new` takes the value because a composition root has to state it, and a test is
 /// simply another composition root.
-async fn permitting<S>(surface: S, permitted: Permitted) -> RunningService<RoleClient, ()>
+async fn permitting<S>(surface: S, permitted: Permitted, prose: CatalogProse) -> RunningService<RoleClient, ()>
 where
     S: Surface,
 {
     let (client_side, server_side) = tokio::io::duplex(64 * 1024);
-    let server = serve_server(AgentSurface::new(Arc::new(surface), permitted), server_side);
+    let server = serve_server(AgentSurface::new(Arc::new(surface), permitted, prose), server_side);
     let client = serve_client((), client_side);
     // Both halves of the handshake have to run at once: the server is waiting for `initialize`
     // and the client is waiting for its result, so awaiting either one first deadlocks.
@@ -139,6 +140,7 @@ async fn the_advertised_tools_differ_by_scope() {
     let catalog_only = permitting(
         certified_service(),
         Permitted::granted_by([Capability::DescribeCatalog.scope()]),
+        CatalogProse::Quoted,
     )
     .await;
     let tools = catalog_only.list_all_tools().await.expect("tools/list answers");
@@ -147,7 +149,12 @@ async fn the_advertised_tools_differ_by_scope() {
     drop(catalog_only.cancel().await);
 
     // Fail closed: a verified caller whose token named no capability scope sees nothing at all.
-    let nobody = permitting(certified_service(), Permitted::granted_by(["openid", "profile"])).await;
+    let nobody = permitting(
+        certified_service(),
+        Permitted::granted_by(["openid", "profile"]),
+        CatalogProse::Quoted,
+    )
+    .await;
     let tools = nobody.list_all_tools().await.expect("tools/list answers");
     assert!(tools.is_empty(), "{tools:?}");
     drop(nobody.cancel().await);
@@ -164,6 +171,7 @@ async fn a_tool_that_was_not_advertised_is_refused_when_it_is_called_anyway() {
     let client = permitting(
         certified_service(),
         Permitted::granted_by([Capability::DescribeCatalog.scope()]),
+        CatalogProse::Quoted,
     )
     .await;
     // Never advertised to this caller, and asked for by name regardless.
@@ -228,6 +236,42 @@ async fn the_catalog_tool_lists_the_metrics_this_deployment_measures() {
         .expect("the catalog carries a text block");
     assert!(text.contains("revenue"), "{text}");
     drop(client.cancel().await);
+}
+
+/// `prompt.catalog_prose: omitted` is honoured by the TOOL, end to end - not only by the prompt.
+///
+/// The catalog tool answers with a text block a plain client renders, so an operator who does not
+/// trust their catalog authors must be able to drop the prose from this surface too, the same way
+/// they drop it from the prompt. With the setting omitted the metric and dimension descriptions are
+/// absent from the text block and a notice says so; with the default they are quoted in.
+#[tokio::test]
+async fn catalog_prose_omitted_omits_it_from_the_tool_answers() {
+    let omitted = permitting(certified_service(), Permitted::every_capability(), CatalogProse::Omitted).await;
+    let result = omitted.call_tool(describe()).await.expect("the catalog tool answers");
+    let text = result
+        .content
+        .first()
+        .and_then(rmcp::model::ContentBlock::as_text)
+        .map(|block| block.text.clone())
+        .expect("the catalog carries a text block");
+    // The descriptions exist in the bundle, and are deliberately absent here.
+    assert!(!text.contains("Revenue, in minor units."), "{text}");
+    assert!(!text.contains("Sales region."), "{text}");
+    // The omission is stated, not silent.
+    assert!(text.contains("NOT included"), "{text}");
+    drop(omitted.cancel().await);
+
+    // And the default still quotes them in, so the two settings provably differ on one surface.
+    let quoted = permitting(certified_service(), Permitted::every_capability(), CatalogProse::Quoted).await;
+    let result = quoted.call_tool(describe()).await.expect("the catalog tool answers");
+    let text = result
+        .content
+        .first()
+        .and_then(rmcp::model::ContentBlock::as_text)
+        .map(|block| block.text.clone())
+        .expect("the catalog carries a text block");
+    assert!(text.contains("> Revenue, in minor units."), "{text}");
+    drop(quoted.cancel().await);
 }
 
 /// The catalog tool's arguments are PARSED, so a caller cannot believe it narrowed a listing.

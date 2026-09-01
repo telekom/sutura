@@ -9,6 +9,7 @@
 // over it. What moved is the whole of the column-zero property, which is one decision and one
 // hostile fixture; the fixture itself stays here, because `definitions` above declares it.
 mod column_zero;
+mod injection_corpus;
 
 use std::collections::{BTreeMap, BTreeSet};
 
