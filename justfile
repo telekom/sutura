@@ -282,25 +282,55 @@ causality base="origin/dev":
 
 # ---------------------------------------------------------------- artifacts ---
 
-# The release binary.
+# The release binaries: the command-line tool and the server.
+#
+# BOTH, because both are published. Before `github.com/telekom/sutura#111` this recipe built one
+# binary and so did the release, which is why nothing a release published could serve a question.
+# `nix/shipped.nix` is the list; a recipe that builds a subset of it is a recipe that says a green
+# local run means the release will build.
 build:
     nix build .#sutura
+    nix build .#sutura-serve
 
-# The release image: one binary, no shell, no package manager.
+# The release images: one binary each, no shell, no package manager.
 image:
     nix build .#oci
+    nix build .#oci-serve
 
-# Cross-build every shipped artifact.
+# Cross-build every shipped artifact: two binaries at four triples.
 #
-# All four, not the two glibc ones: the musl targets are statically linked and swap in mimalloc,
-# so they are a genuinely different build - a cross target has its own deps derivation and its
-# own C compile. A recipe that skipped them would let a developer pass `build-all` locally and
-# still break the release.
+# All four triples, not the two glibc ones: the musl targets are statically linked and swap in
+# mimalloc, so they are a genuinely different build - a cross target has its own deps derivation
+# and its own C compile. A recipe that skipped them would let a developer pass `build-all` locally
+# and still break the release.
 build-all:
     nix build .#sutura-x86_64-unknown-linux-gnu
     nix build .#sutura-aarch64-unknown-linux-gnu
     nix build .#sutura-x86_64-unknown-linux-musl
     nix build .#sutura-aarch64-unknown-linux-musl
+    nix build .#sutura-serve-x86_64-unknown-linux-gnu
+    nix build .#sutura-serve-aarch64-unknown-linux-gnu
+    nix build .#sutura-serve-x86_64-unknown-linux-musl
+    nix build .#sutura-serve-aarch64-unknown-linux-musl
+
+# What a release asserts about the artifacts it publishes, without publishing anything.
+#
+# Two checks and they answer different questions. `one-binary` reads each shipped package's `bin/`
+# and its runtime closure: one executable, named what the image entrypoint expects, and no
+# toolchain baked in. `shipped-features` reads the `cargo auditable` section out of each native
+# binary and asserts the feature set `nix/shipped.nix` declares - `axum` present in the server,
+# `ring` and `ureq` absent from both.
+#
+# NOT in `just ci`, deliberately, and the same reason `one-binary` never was: these build the
+# release-profile artifacts, so they are minutes rather than seconds. CI runs them on the trunk.
+shipped:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
+    for check in one-binary shipped-features; do
+        printf '\n=== %s ===\n' "$check"
+        nix build ".#checks.$system.$check" -L
+    done
 
 # Through nix: git-cliff's version is part of what it produces, so nix is its only pin and
 # `cargo xtask check-pins` fails if it reappears in pixi.toml. Docs go through pixi because
