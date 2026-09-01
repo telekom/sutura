@@ -41,6 +41,20 @@ jobs:
           extra_nix_config: |
             fallback = true
 
+      - name: Refuse a stale dispatch
+        # Checkout persists no credential. This command-scoped helper answers Git's one HTTPS
+        # challenge without putting the token in the URL or the repository configuration.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          credential_helper="!f() { printf '%s\n' 'username=x-access-token' \"password=\$GITHUB_TOKEN\"; }; f"
+          git -c credential.helper="$credential_helper" fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "::error::main moved after this dispatch started; dispatch the workflow again"
+            exit 1
+          fi
+
       - name: Compute the next version
         id: next
         run: |
