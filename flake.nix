@@ -830,7 +830,7 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            exec cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only "$@"
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features --run-ignored only "$@"
           '');
         };
         # `nix run .#crap` - the CRAP gate, outside the sandbox.

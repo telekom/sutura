@@ -1,4 +1,4 @@
-//! The warm-start gate: one target directory, spelled in two files, checked to be one directory.
+//! The warm-start gate: one target directory and one cargo profile, checked where they are used.
 //!
 //! `nix/cargo-env.nix` unpacks the dependency closure the checks already built into a directory
 //! under `target/`, and `xtask/src/causality.rs` points `CARGO_TARGET_DIR` at a directory it
@@ -36,6 +36,9 @@ const WARMER: &str = "nix/cargo-env.nix";
 /// The gate that builds into it.
 const CONSUMER: &str = "xtask/src/causality.rs";
 
+/// The apps that consume the warmed artifacts.
+const APPS: &str = "flake.nix";
+
 /// What [`WARMER`] must export, up to the value.
 const EXPORT: &str = "export CARGO_TARGET_DIR=\"";
 
@@ -53,7 +56,21 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
     let warmed_path = read(&root, WARMER).and_then(|text| warmed(&text));
     let built_path = read(&root, CONSUMER).and_then(|text| built(&text));
-    decide(warmed_path, built_path)
+    let paths = decide(warmed_path, built_path);
+    if paths != Verdict::Pass {
+        return paths;
+    }
+    let profiles = read(&root, APPS).and_then(|text| profiled_consumers(&text));
+    match profiles {
+        Ok(count) => {
+            println!("xtask check-warm-start: ok - {count} app(s) consume the artifacts with profile ci");
+            Verdict::Pass
+        }
+        Err(why) => {
+            eprintln!("xtask check-warm-start: {why}");
+            Verdict::Fail
+        }
+    }
 }
 
 /// What to say about the two paths.
@@ -205,6 +222,43 @@ fn joined(expression: &str) -> Vec<String> {
     components
 }
 
+/// Check every app that expands `cargoWarmStart`, rather than naming today's two consumers.
+fn profiled_consumers(text: &str) -> Result<usize, String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut consumers = 0_usize;
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim() != "${cargoWarmStart}" {
+            continue;
+        }
+        consumers = consumers.saturating_add(1);
+        let command = lines
+            .iter()
+            .skip(index.saturating_add(1))
+            .map(|line| line.trim())
+            .take_while(|line| !line.ends_with("'');"))
+            .find(|line| line.starts_with("exec cargo "))
+            .ok_or_else(|| format!("{APPS}:{} warms cargo but executes no cargo command", index.saturating_add(1)))?;
+        let words: Vec<&str> = command.split_whitespace().collect();
+        let flag = if words.starts_with(&["exec", "cargo", "nextest"]) {
+            "--cargo-profile"
+        } else {
+            "--profile"
+        };
+        if !words.windows(2).any(|pair| pair == [flag, "ci"]) {
+            return Err(format!(
+                "{APPS}:{} warms profile ci but its cargo command does not pass `{flag} ci`: {command}",
+                index.saturating_add(1)
+            ));
+        }
+    }
+    if consumers == 0 {
+        return Err(format!(
+            "{APPS} contains no consumer of `cargoWarmStart`; this gate checked nothing"
+        ));
+    }
+    Ok(consumers)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::Verdict;
@@ -297,5 +351,23 @@ mod tests {
         let built_path = super::read(&root, super::CONSUMER).and_then(|text| super::built(&text));
         assert!(warmed_path.is_ok(), "{warmed_path:?}");
         assert!(built_path.is_ok(), "{built_path:?}");
+    }
+
+    #[test]
+    fn every_warmed_app_uses_the_profile_that_was_warmed() {
+        let apps = concat!(
+            "            ${cargoWarmStart}\n",
+            "            exec cargo run --profile ci -p xtask\n",
+            "          '');\n",
+            "            ${cargoWarmStart}\n",
+            "            exec cargo nextest run --profile ci -p sutura-exec-bigquery\n",
+            "          '');\n",
+        );
+        let error = super::profiled_consumers(apps).expect_err("nextest's configuration profile is not Cargo's ci profile");
+        assert!(error.contains("does not pass `--cargo-profile ci`"), "{error}");
+        assert_eq!(
+            super::profiled_consumers(&apps.replace("nextest run --profile", "nextest run --cargo-profile")),
+            Ok(2)
+        );
     }
 }

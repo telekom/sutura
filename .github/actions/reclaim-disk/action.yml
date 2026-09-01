@@ -6,11 +6,12 @@ description: >
 inputs:
   minimum-gb:
     description: >
-      Fail if less than this many GB are available after the cleanup. 0 disables the check.
+      Clean only when less than this many GB are available, then fail if cleanup cannot reach it.
+      0 disables both cleanup and the check.
       A gate rather than a wish: running out of disk halfway through a compile reports itself
       as a compiler error, which is the most expensive way to learn about a full disk.
     required: false
-    default: "0"
+    default: "25"
     # MEASURED, not guessed, on `ubuntu-24.04` 2026-08-26: 14G available before, 34G after,
     # so the cleanup is worth +20G and takes ~60s. `ci` asks for 25 - comfortably under the
     # 34 that is actually there, and far enough above the 14 baseline that the check still
@@ -43,6 +44,13 @@ runs:
         set -u
         avail() { df --output=avail -BG / | tail -1 | tr -dc '0-9'; }
         before=$(avail)
+        minimum='${{ inputs.minimum-gb }}'
+
+        if [ "$minimum" -eq 0 ] || [ "$before" -ge "$minimum" ]; then
+          printf 'reclaim-disk: %sG available, cleanup not needed\n' "$before"
+          echo "available-gb=$before" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
 
         # `|| true` on each: a future runner image that drops one of these paths must not fail
         # the build over a directory that was already gone.
@@ -55,8 +63,7 @@ runs:
         printf 'reclaim-disk: %sG -> %sG available (+%sG)\n' "$before" "$after" "$((after - before))"
         echo "available-gb=$after" >> "$GITHUB_OUTPUT"
 
-        minimum='${{ inputs.minimum-gb }}'
-        if [ "$minimum" -gt 0 ] && [ "$after" -lt "$minimum" ]; then
+        if [ "$after" -lt "$minimum" ]; then
           printf 'reclaim-disk: FAILED - %sG available, %sG required\n' "$after" "$minimum" >&2
           exit 1
         fi
