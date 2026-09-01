@@ -9,6 +9,7 @@
 
 mod api_docs;
 mod arrow_major;
+mod attribution;
 mod boundaries;
 mod branches;
 mod causality;
@@ -132,6 +133,17 @@ const TASKS: &[Task] = &[
         description: "one Arrow major in Cargo.lock, or an explained exception",
         kind: Kind::Hygiene,
         run: arrow_major::run,
+    },
+    Task {
+        // Beside `check-arrow` because it reads the same file for the same reason: a statement
+        // about the dependency set, checked against Cargo.lock rather than trusted. `check-arrow`
+        // polices one type family; this one owns `THIRD_PARTY_NOTICES` - the committed,
+        // per-release attribution document whose decision lives in `docs/adr/0021`'s amendment.
+        // One owner per artefact, and the ARTEFACT is the lock file's.
+        name: "check-attribution",
+        description: "THIRD_PARTY_NOTICES names every crate Cargo.lock resolves (--fix)",
+        kind: Kind::Hygiene,
+        run: attribution::run,
     },
     Task {
         // Beside `check-arrow` because it is the same shape of gate for the same reason: a MEASUREMENT

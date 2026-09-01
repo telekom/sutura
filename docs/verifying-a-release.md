@@ -49,6 +49,7 @@ own embedded dependency list rather than out of a manifest.
 | the eight binary tarballs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | the four musl image tarballs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | the sixteen SBOMs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
+| `THIRD_PARTY_NOTICES`, the licence/attribution document | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | `image-digests.txt` | `<asset>.sigstore.json`, attached to the release | yes | n/a |
 | the `.sha256` sidecars | no | yes | n/a |
 | the eight leaf images | n/a | no | `cosign sign`, by digest |
@@ -185,6 +186,35 @@ Whether any of them has an advisory against it is `cargo-deny` against the RustS
 runs in CI on every dependency change and weekly regardless - a run, not a property of the artefact.
 `cargo audit --bin` will read this section and answer that question against the file you have.
 
+## What the licence report covers
+
+Every release carries `THIRD_PARTY_NOTICES` - the attribution document and the signed licence
+report, in one artefact. It is verified like any other asset:
+
+```bash
+cosign verify-blob \
+  --bundle THIRD_PARTY_NOTICES.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/telekom/sutura/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  THIRD_PARTY_NOTICES
+```
+
+It is generated from `Cargo.lock` at the released commit and gated - `cargo xtask check-attribution`
+regenerates it and fails when it drifts from the lock - so the copy on the release page is the
+document this release's dependency set produced, not a snapshot somebody typed. `docs/adr/0021`'s
+second amendment is the decision; the header of the document itself says what it is and is not.
+
+**What it covers: every crate the workspace's `Cargo.lock` resolves, with its version.** That is
+deliberately the whole resolved set rather than one binary's linked set, because attribution is the
+opposite direction from an inventory: failing to name a crate a release could carry is the failure
+an auditor disproves, and naming more than a specific binary links is safe where naming less is not.
+The per-binary precision lives in the SBOMs above.
+
+**What it is not:** a statement about a crate. It lists names and versions; whether a version has an
+advisory is `cargo-deny` (a CI run), and whether a licence is acceptable is `deny.toml`'s allowlist
+and the scheduled ORT review. The document is the raw material an auditor traces obligations from,
+not a verdict on them.
+
 ## What none of this establishes
 
 Stated plainly, because a page full of green checkmarks invites the larger reading:
@@ -196,7 +226,9 @@ Stated plainly, because a page full of green checkmarks invites the larger readi
   database, run in CI on every dependency change and weekly regardless, and its verdict is a CI run
   rather than an artefact you can check offline.
 - **Not that the licence obligations of the dependency set are discharged.** `deny.toml` holds an
-  exact allowlist of SPDX identifiers, which is a policy check and not an attribution document.
+  exact allowlist of SPDX identifiers, which is a policy check; `THIRD_PARTY_NOTICES` is the
+  attribution document that names the set, and neither is a verdict on whether the obligations of a
+  named licence have been met - that remains the review's.
 - **Not that the crate list covers everything in the binary.** It is what `cargo` compiled in. C
   that a build script compiled - the allocator, for one - is linked into the executable and is not
   a crate, so it appears in the image inventory as a file and not in the crate list as a package.
