@@ -5703,10 +5703,13 @@ is one sentence - *too much data, ask a narrower question* - and
 and the two arms differ in who measured it: the row cap is a number an operator configured here,
 and the volume bound belongs to the data system and is not one this process was told.
 
-**Closed, and read by exhaustive matches with no wildcard arm in both transports and in the
-agent-facing prompt.** A third bound is a compile error in each of them rather than a case one
-renders as another - which is what stops a bound with no number being described using somebody
-else's number.
+**Closed, and read by exhaustive matches with no wildcard arm in both transports.** A third bound
+is a compile error in each of them rather than a case one renders as another - which is what stops
+a bound with no number being described using somebody else's number. The agent-facing prompt is
+deliberately NOT one of those matches: `sutura_app::prompt::guide_for` keys on the
+`RefusalReason` variant and never the payload, because what it must tell an agent - *too much
+data, ask a narrower question* - is the same for both bounds and a guide per bound would give an
+agent two paragraphs saying one thing.
 
 #### Variants
 

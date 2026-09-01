@@ -613,10 +613,13 @@ golden matrix still gains no entry - one live statement is not a registered data
   in `QueryDeadline::within_request_timeout`, so a composition root gets a deadline that already
   fits inside the request timeout instead of a number it has to divide correctly.
 - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
-  `totalRows` beside the rows rather than by the rows alone. A `pageToken`, an incomplete job or a
-  delivered count short of the reported total is refused here - see `WireError::MoreThanOnePage`
-  and `WireError::NotComplete` - because to `answer()` a first page would read as *under the
-  cap, not truncated*, which is the exact row the row-cap invariant exists to hold. **And a wide
+  `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
+  (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
+  delivered count that is not the reported total is refused one port further out, in the adapter's
+  `BigQueryWarehouse::rows` as `BigQueryError::Incomplete` - `complete` here compares nothing, it
+  hands the rows and the total to the adapter - because to `answer()` a first page would read as
+  *under the cap, not truncated*, which is the exact row the row-cap invariant exists to hold.
+  **And a wide
   result now leaves as a REFUSAL rather than as a `503`, which is a correction to what this header
   used to say was the cost.** It used to reach a caller as `BigQueryError::Endpoint`, which both
   transports answer as the status a dead endpoint produces - inviting a retry that returns the same
@@ -645,8 +648,10 @@ golden matrix still gains no entry - one live statement is not a registered data
   endpoint documents that array as *"the first errors or warnings encountered"* and says entries
   *"do not necessarily mean that the job has completed or was unsuccessful"* - so refusing on it
   would decline successful queries that merely warned. What refuses is `jobComplete`, a
-  `pageToken`, an absent `totalRows`, and a delivered count that is not the reported total; the
-  reported `reason` is folded into whichever of those fires, because it is the best diagnostic
+  `pageToken`, an absent `totalRows`, and a delivered count that is not the reported total - the
+  last of those in the adapter (`BigQueryWarehouse::rows`, `BigQueryError::Incomplete`), not here;
+  the reported
+  `reason` is folded into whichever of those fires, because it is the best diagnostic
   available at that point. See `complete`, and the limit stated there.
 - **Every foreign string that reaches an error is bounded and filtered.** The endpoint's
   `reason` is kept and its free-text `message` is not, because a reason is a fixed vocabulary an
