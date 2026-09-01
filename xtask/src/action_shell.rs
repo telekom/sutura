@@ -64,31 +64,70 @@ struct Extracted {
     body: String,
 }
 
-/// Replace every `${{ ... }}` with a bare identifier.
+/// Replace every `${{ ... }}` with the expansion that has the SAME word-splitting behaviour the
+/// real interpolation has, given where it sits.
 ///
 /// `shellcheck` cannot parse `${{`, and an action's `run:` body may legitimately contain one. The
 /// substitution is a token rather than a removal so the surrounding syntax still balances - a
 /// deleted expression inside `"$(...)"` would change the parse rather than simplify it.
+///
+/// **WHY IT IS AN EXPANSION, and why not always.** GitHub substitutes an expression TEXTUALLY before
+/// bash ever parses the line, so the shell sees whatever the value was:
+///
+/// * `rm -rf ${{ inputs.dir }}/junk` becomes `rm -rf /some path/junk` and really does word-split.
+///   A bare `GHA_EXPRESSION` there is a literal, which cannot split, so `shellcheck` accepted it -
+///   the gate hid the one class of bug it is best placed to catch. A review found that. `$`-prefixed,
+///   it reports SC2086 exactly as the original should.
+/// * `minimum='${{ inputs.minimum-gb }}'` becomes `minimum='25'`, which is SAFE - single quotes are
+///   the right way to write it. A `$`-prefixed token there reports SC2016, *"expressions don't expand
+///   in single quotes"*, which is true of the substituted text and false of the source. That is a
+///   finding on correct code, and `.github/actions/reclaim-disk` really writes that line - so the
+///   first version of this fix turned a clean run red. MEASURED, not predicted.
+///
+/// So the quoting decides: inside a single-quoted span the faithful rendering is a literal, and
+/// everywhere else it is an expansion. Both halves are pinned by tests against the pinned
+/// `shellcheck` 0.11.0.
 fn strip_expressions(line: &str) -> String {
     let mut out = String::new();
-    let mut rest = line;
-    while let Some(open) = rest.find("${{") {
-        out.push_str(rest.get(..open).unwrap_or_default());
-        let after = rest.get(open.saturating_add(3)..).unwrap_or_default();
-        if let Some(close) = after.find("}}") {
-            out.push_str("GHA_EXPRESSION");
-            rest = after.get(close.saturating_add(2)..).unwrap_or_default();
-        } else {
-            // An unterminated expression is not ours to repair: keep the rest verbatim so the
-            // linter sees the real text and says so.
-            out.push_str("${{");
-            rest = after;
-            break;
+    let mut chars = line.char_indices();
+    // Single quotes only. Bash has no escape inside a single-quoted span - a `'` always ends it -
+    // so this is the whole rule, and double quotes need no tracking because `"$X"` is both safe and
+    // faithful.
+    let mut in_single = false;
+    while let Some((at, ch)) = chars.next() {
+        if ch == '\'' {
+            in_single = !in_single;
+            out.push(ch);
+            continue;
+        }
+        let rest = line.get(at..).unwrap_or_default();
+        if !rest.starts_with("${{") {
+            out.push(ch);
+            continue;
+        }
+        let after = rest.get(3..).unwrap_or_default();
+        let Some(close) = after.find("}}") else {
+            // An unterminated expression is not ours to repair: hand the rest to the linter
+            // verbatim so it sees the real text and says so.
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(if in_single { EXPRESSION } else { EXPANSION });
+        // Two for `}}` plus the opening three, minus the one `ch` this iteration already consumed.
+        for _ in 0..close.saturating_add(4) {
+            if chars.next().is_none() {
+                break;
+            }
         }
     }
-    out.push_str(rest);
     out
 }
+
+/// The stand-in for a GitHub expression where the shell would see a bare literal.
+const EXPRESSION: &str = "GHA_EXPRESSION";
+
+/// The stand-in where the shell would see an unquoted or double-quoted expansion.
+const EXPANSION: &str = "$GHA_EXPRESSION";
 
 /// Every `run:` block in one `action.yml`.
 ///
@@ -325,13 +364,46 @@ mod tests {
     fn a_github_expression_becomes_a_token_rather_than_a_hole() {
         // Deleting it would change the parse of whatever encloses it; `shellcheck` cannot read
         // `${{` at all, so leaving it is not an option either.
-        assert_eq!(strip_expressions("X=${{ inputs.target }}"), "X=GHA_EXPRESSION");
+        assert_eq!(strip_expressions("X=${{ inputs.target }}"), "X=$GHA_EXPRESSION");
         assert_eq!(
             strip_expressions("a ${{ x }} b ${{ y }} c"),
-            "a GHA_EXPRESSION b GHA_EXPRESSION c"
+            "a $GHA_EXPRESSION b $GHA_EXPRESSION c"
+        );
+        // THE CASE A REVIEW FOUND, and the reason the replacement is an expansion rather than a
+        // bare word: an unquoted interpolation is the word-splitting bug this gate exists to catch,
+        // and a bare literal cannot word-split - so `shellcheck` accepted it and the finding was
+        // hidden. MEASURED against the pinned shellcheck 0.11.0: this text reports SC2086, and
+        // `rm -rf GHA_EXPRESSION/junk` reports nothing.
+        assert_eq!(
+            strip_expressions("rm -rf ${{ inputs.dir }}/junk"),
+            "rm -rf $GHA_EXPRESSION/junk"
         );
         // An unterminated one is handed to the linter verbatim rather than repaired here.
         assert_eq!(strip_expressions("X=${{ oops"), "X=${{ oops");
+        // And an expression inside double quotes stays quoted, so a correctly written line does not
+        // acquire a finding it did not earn.
+        assert_eq!(strip_expressions("echo \"${{ x }}\""), "echo \"$GHA_EXPRESSION\"");
+    }
+
+    #[test]
+    fn a_single_quoted_expression_stays_a_literal() {
+        // THE FALSE POSITIVE THE FIRST FIX INTRODUCED, measured rather than predicted.
+        // `.github/actions/reclaim-disk` writes `minimum='${{ inputs.minimum-gb }}'`, and single
+        // quotes are the RIGHT way to write it - the runner substitutes the text before bash parses,
+        // so `minimum='25'` is safe. A `$`-prefixed token there reports SC2016, "expressions don't
+        // expand in single quotes", which is a finding on correct code: it turned a clean
+        // `just lint-actions` red.
+        assert_eq!(
+            strip_expressions("minimum='${{ inputs.minimum-gb }}'"),
+            "minimum='GHA_EXPRESSION'"
+        );
+        // The span really closes, so an expression AFTER it is an expansion again. Without that,
+        // every later line-position would be treated as quoted and SC2086 would stop firing - the
+        // original hole, reintroduced by the fix for it.
+        assert_eq!(
+            strip_expressions("a='${{ x }}' && rm -rf ${{ y }}/junk"),
+            "a='GHA_EXPRESSION' && rm -rf $GHA_EXPRESSION/junk"
+        );
         assert_eq!(strip_expressions("plain"), "plain");
     }
 

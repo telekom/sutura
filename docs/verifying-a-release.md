@@ -182,11 +182,17 @@ ship costs you one line to read, while omitting one that did ship is the failure
 to prevent. So it names every crate the workspace resolves at all features, which is more than
 `sutura-cli` links.
 
-**Why it is committed rather than generated at release time.** It has an owner and a gate:
-`just attribution` writes it and `cargo xtask check-attribution` fails when it falls behind
-`Cargo.lock`, so it cannot quietly drift. The release copies it and asserts it names at least a
-hundred crates, which catches the silent case - a generator that still writes a well formed document
-naming nothing.
+**Why it is committed rather than generated at release time.** It has an owner and two gates:
+`just attribution` writes it, `cargo xtask check-attribution` fails when its crate set falls behind
+`Cargo.lock`, and `cargo xtask check-attribution-current` byte-compares it against a fresh generation
+so a licence value cannot be edited or drift unnoticed. The release copies it and asserts it names at
+least a hundred crates, which catches the silent case - a generator that still writes a well formed
+document naming nothing.
+
+**It names vendored code too.** The two crates under `vendor/mimalloc_rust` are declared as path
+dependencies rather than pulled from a registry, and `sutura-cli` links the allocator on Linux - so
+they are rows like anything else somebody else wrote. What selects a row is not being a workspace
+member, never where the code came from.
 
 **What neither document carries is the notice text of each dependency.** An Apache-2.0 crate's own
 `NOTICE` file lives in its source tree rather than in its metadata, so nothing that reads metadata

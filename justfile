@@ -218,6 +218,11 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
+    # The BYTE-COMPARE half of the attribution gate. Here rather than in `hygiene` because it runs
+    # `cargo metadata`, which needs a resolvable registry the nix sandbox has not got - the same
+    # reason `check-api-docs` is not a hygiene gate. `check-attribution` in the sweep only sees that
+    # a licence cell is non-empty, so without this the main content of a generated file is trusted.
+    cargo run -q -p xtask -- check-attribution-current
     bash nix/run-gate.sh crap
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.

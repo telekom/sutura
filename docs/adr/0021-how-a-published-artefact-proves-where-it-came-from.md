@@ -391,10 +391,30 @@ owner, regenerated rather than hand-edited, and the regeneration checked. A rele
 none of those - it has no owner a reviewer can open, and nothing can fail when it falls behind. The
 release still publishes it, as a copy, which is a different thing from generating it there.
 
-**The gate reads `Cargo.lock` and the document and invokes nothing.** That is what lets it be a
-hygiene gate: the sweep runs on every commit and inside the nix sandbox, and a gate that had to
-resolve a registry to disagree with a lock file it could have read directly would not run in either.
-The cost is stated where the code is - the licence COLUMN is not gated, only the crate set is.
+**Two gates, and the split is which input each one needs.** `cargo xtask check-attribution` reads
+`Cargo.lock` and the document and invokes nothing, so it runs on every commit and inside the nix
+sandbox: it holds the crate SET exactly. `cargo xtask check-attribution-current` regenerates and
+byte-compares, so it holds the CONTENT - and it needs a resolvable registry, which is why it is a
+`just gates` and `ci.yml` step rather than a hygiene gate. `check-api-docs` is the precedent, and the
+reason has the same shape: an input the sandbox has not got.
+
+**The second gate is a REVIEW'S CORRECTION, and why the first alone was not enough is the part worth
+keeping.** The offline gate can only see that a licence cell is non-empty, so changing any row's SPDX
+expression to arbitrary text passed it: the main content of a generated artefact was trusted rather
+than compared, which is the one thing the *Canonical Sources* rule forbids. It also closes a case the
+crate key cannot see at all - a git dependency moving to another revision, changing its declared
+licence while keeping its name and version.
+
+**Which packages belong in it is decided by workspace MEMBERSHIP and not by the presence of a
+`source` line, and that is a second review correction of a real omission.** A `source` entry means
+"from a registry or a git remote"; it does not mean third-party. `mimalloc` and `libmimalloc-sys` are
+vendored under `vendor/` and declared as PATH dependencies, so they carry none - and `sutura-cli`
+LINKS the allocator on Linux. Filtering on `source` therefore left two shipped third-party crates out
+of the released asset, which is exactly the failure this record says the document exists to prevent,
+and the code passed its own tests while doing it. `VENDOR.md` and `REUSE.toml` remain those trees'
+provenance record; neither puts a row in the file a consumer downloads. The member list is read off
+the root manifest and each member's own `name`, because a member is a PATH and `dev` holds
+`sutura-dev`.
 
 ### Why a document generated from `Cargo.lock` is right here and wrong for the SBOM
 
@@ -487,25 +507,33 @@ Claimed, and checkable:
 
 - A consumer can obtain both documents **for a specific release** and verify each with the commands
   in `docs/verifying-a-release.md`, from the bytes and the bundle alone.
-- `ATTRIBUTION.md` names every third-party package in `Cargo.lock`, at the resolved version, and
-  names nothing else. That is `cargo xtask check-attribution`, in `just validate`.
+- `ATTRIBUTION.md` names every third-party package in `Cargo.lock` - registry, git and vendored path
+  alike - at the resolved version, and names nothing else. That is `cargo xtask check-attribution`,
+  in `just validate`.
+- And it is what its generator produces, byte for byte. That is `cargo xtask
+  check-attribution-current`, in `just gates` and in `ci.yml`.
 - The release asserts it independently: at least 100 named rows, the floor the SBOM assertion
   already uses and for the same reason - pinning the count would fail a correct tree after a bump.
 
 Not claimed, and each is real:
 
-- **Not that the licence expressions are correct.** They are what the manifests declare, copied
-  through. Verifying them against the licence files in each crate's source is a source scan, which
+- **Not that the licence expressions are TRUE of each crate's source.** They are what the manifests
+  declare, copied through - and now compared against a fresh generation rather than trusted.
+  Verifying them against the licence FILES in each crate's tree is a source scan, which
   `.github/actions/licence-review`'s header declines and for reasons that have not changed.
 - **Not the notice text of each dependency.** An Apache-2.0 crate's own `NOTICE` file is in its
   source tree, not in its metadata, so neither document renders one. **This is the largest remaining
   gap in the obligation** and closing it needs the scanner that is deliberately absent.
 - **Not that the document is the list a given binary links.** Deliberately wider; see above.
-- **Not that the vendored trees are in it.** `vendor/mimalloc_rust` is a path dependency with no
-  registry source. `VENDOR.md` and `REUSE.toml` are where it is attributed, and `ATTRIBUTION.md`
-  says so rather than leaving the absence to be discovered.
 - **Not that composite actions are fully linted.** Their SHELL is, now. The action metadata around
-  it is not, and cannot be until `actionlint` reads these files.
+  it is not, and cannot be until `actionlint` reads these files. **And what the extraction models is
+  the SUBSTITUTED text, which took two goes.** A GitHub expression is replaced by a variable
+  expansion, so an unquoted interpolation reports SC2086 as the real thing would - a bare literal
+  cannot word-split, so the first version hid the very class it exists to catch, and a review found
+  it. The fix then had to learn quoting: `reclaim-disk` writes `minimum='${{ inputs.minimum-gb }}'`
+  and single quotes are the SAFE form there, so a `$`-prefixed token inside them reports SC2016 on
+  correct code and turned a clean run red. Both halves are measured against the pinned `shellcheck`
+  0.11.0 and pinned by tests.
 - **Not verified end to end.** `just validate` covers the generator, the gate and the document. The
   release half is verified the way the rest of this path is - a tag, then `cosign verify-blob` and
   `gh attestation verify` against the two new assets - and that has not been run for these two.
