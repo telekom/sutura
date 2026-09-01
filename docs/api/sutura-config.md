@@ -488,7 +488,7 @@ what a reviewer reads and manifest determinism does not depend on it surviving a
 #### Methods
 
 ```rust
-pub fn count(&self) -> usize
+pub const fn count(&self) -> usize
 ```
 
 How many catalogs are declared.
