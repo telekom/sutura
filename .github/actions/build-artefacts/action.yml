@@ -137,12 +137,15 @@ runs:
             #
             # PER BINARY, because the two have different surfaces and a shared smoke test
             # would have to be their intersection - which is `--version`, and proves the
-            # least interesting thing about either. For the server the test IS the thing
-            # #111 says no published artefact could do: start, load a catalog through its
-            # port, re-execute every declared anchor against the data system, and answer.
-            # A liveness probe is the smallest observation that requires all four, and it is
-            # run as 65532 so the non-root default is proved on the artefact that will
-            # actually be scheduled.
+            # least interesting thing about either.
+            #
+            # For the server the test is `.github/serve-smoke.sh`, which starts the image and
+            # ASKS A QUESTION - #111's provable outcome is a user asking one through a
+            # published artefact, and a liveness probe does not reach the question path at
+            # all: the image could lose `POST /v1/query` and still answer `/health`. That
+            # script is one file rather than a copy here and another in `ci.yml`, and its
+            # header carries the three assertions and why the third is the one that makes the
+            # second mean anything.
             case "$bin" in
               sutura)
                 docker run --rm sutura:latest --version
@@ -151,47 +154,7 @@ runs:
                 docker run --rm --user 65532:65532 sutura:latest --version
                 ;;
               sutura-serve)
-                # The environment is MEASURED rather than copied from a page: it was run
-                # against a `nix build .#sutura-serve` binary and `/health` answered
-                # `{"status":"ok"}`. `SUTURA__CATALOG__DATA_DIR` is NOT among the keys - a
-                # `sources.<alias>` entry replaced it, and a catalog naming a source nobody
-                # declared is a startup refusal.
-                #
-                # `--network host` rather than `-p`, and that is what keeps the configuration
-                # honest: the default bind is loopback, and with `--network host` the
-                # container's loopback IS the runner's - so this test needs no access token
-                # and no TLS declaration, which is exactly the single-player posture the
-                # example documents. Publishing a port would mean binding `0.0.0.0`, and that
-                # is a startup refusal without both of those - so the test would be measuring
-                # a configuration nobody deploying this example would write.
-                id="$(docker run -d --network host --user 65532:65532 \
-                  -v "$PWD/examples/single-player:/examples:ro" \
-                  -e SUTURA__CATALOG__DIR=/examples/catalog \
-                  -e SUTURA__CATALOG__VERSION=release-smoke \
-                  -e SUTURA__SERVER__PORT=18080 \
-                  -e SUTURA__SECURITY__IDENTITY=single-user \
-                  -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="the release smoke test reads its own example files" \
-                  -e SUTURA__SOURCES__LOCAL__KIND=files \
-                  -e SUTURA__SOURCES__LOCAL__DATA_DIR=/examples/data \
-                  -e SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-                  sutura-serve:latest)"
-                live=0
-                for _ in $(seq 1 30); do
-                  if curl -fsS --max-time 2 http://127.0.0.1:18080/health >/dev/null 2>&1; then
-                    live=1
-                    break
-                  fi
-                  sleep 1
-                done
-                # The log either way: on success it is the startup output a first-time
-                # operator will see, and on failure it is the only thing that says why.
-                docker logs "$id" || true
-                docker rm -f "$id" >/dev/null 2>&1 || true
-                if [ "$live" -ne 1 ]; then
-                  echo "::error::${key}: the published server image never answered its liveness probe"
-                  exit 1
-                fi
-                echo "${key}: the server image started from examples/single-player and answered /health as 65532"
+                ./.github/serve-smoke.sh "${bin}:latest"
                 ;;
             esac
             ;;

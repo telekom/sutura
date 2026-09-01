@@ -4,8 +4,13 @@
 # TWO SHIPPED BINARIES since `github.com/telekom/sutura#111`, so eight tarballs and eight images:
 # `sutura`, the command-line tool, and `sutura-serve`, which answers certified questions over HTTP.
 # Before that issue every published artefact was the tool, so nothing a release published could
-# serve a question at all. `nix/shipped.nix` is the list; `BINARIES` below has to agree with it and
-# `Check that every build arrived` is what fails when they do not.
+# serve a question at all.
+#
+# `nix/shipped.nix` is the list, and `cargo xtask check-shipped-binaries` is what makes `BINARIES`
+# below agree with it - on a pull request, before anything is tagged. NOT the arrival check in
+# `publish`: that counts what THIS file's own literal produced, so a binary added to
+# `nix/shipped.nix` and not here would leave it seeing exactly what it expected. Review of the
+# change that closed #111 is where that was caught.
 #
 # Four triples: glibc and musl on x86_64 and aarch64. The musl pair is statically linked, which
 # is what makes it runnable on a host older than the builder and inside an image holding no libc
@@ -70,9 +75,13 @@ concurrency:
 env:
   IMAGE: ghcr.io/${{ github.repository }}
   # THE SHIPPED SET, and it must stay in step with `binaries` in `nix/shipped.nix`. It is not
-  # derived from it, because a workflow cannot evaluate a flake before it has installed nix - so
-  # instead `Check that every build arrived` in `publish` counts what turned up and fails on a
-  # shortfall rather than publishing half a release.
+  # DERIVED from it, because a workflow cannot evaluate a flake before it has installed nix and a
+  # `strategy.matrix` takes literals - so `cargo xtask check-shipped-binaries` reads both files and
+  # fails when they disagree. It is a `hygiene` gate, which the `gates` job runs first.
+  #
+  # The arrival check in `publish` is a DIFFERENT rule and does not cover this one: it counts what
+  # this literal produced, so it catches a target lost in the artifact round-trip and cannot catch a
+  # binary this literal never mentioned.
   #
   # `sutura` first, and the order is read: it is what an unqualified `docker pull` and an
   # unqualified download mean here, and it is the first row of every table in the notes.
@@ -302,13 +311,18 @@ jobs:
       # quietly shipped three binaries and a table one row short is exactly the kind of thing
       # nobody notices until a user does.
       #
-      # **THE COUNT IS NOW A PRODUCT, and this step is where the two lists that cannot be derived
-      # from each other are reconciled.** `strategy.matrix.target` takes literals and `BINARIES`
-      # is a string a shell splits, so neither can be read out of `nix/shipped.nix` before nix is
-      # installed. What this asserts instead is the shape of what turned up: one `facts/` file per
-      # binary per target, and no more - so a binary added to `nix/shipped.nix` and not to
-      # `BINARIES` ships nothing and is caught here rather than being a table one row short, and a
-      # target added to the matrix and not to `TARGETS` is caught in the other direction.
+      # **THE COUNT IS NOW A PRODUCT: one `facts/` file per binary per target, and no more.**
+      #
+      # WHAT THIS CATCHES is a target lost between four jobs and an artifact round-trip, and a
+      # target added to `strategy.matrix.target` and not to `TARGETS` - drift between two literals
+      # in THIS file, in both directions.
+      #
+      # **WHAT IT CANNOT CATCH, because both sides of it come from `BINARIES`:** a binary added to
+      # `nix/shipped.nix` and to nothing else. `build-artefacts` loops over `BINARIES`, so the
+      # files this counts and the number it expects move together - `want == have`, green, and the
+      # new binary in no release. An earlier version of this comment claimed otherwise, which is
+      # the same omission class #111 was. `cargo xtask check-shipped-binaries` is the rule for
+      # that, and it runs on a pull request rather than at tag time.
       - name: Check that every build arrived
         run: |
           set -eu

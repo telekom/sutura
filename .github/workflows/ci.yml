@@ -179,9 +179,14 @@ concurrency:
 
 env:
   # THE SHIPPED SET, and it must stay in step with `binaries` in `nix/shipped.nix` and with
-  # `BINARIES` in `release.yml`. It is not derived from either: a workflow cannot evaluate a flake
-  # before it has installed nix, and a matrix takes literals. What keeps it honest is that the
-  # cross matrix BUILDS every name in it, so a name that is not a package fails the link check.
+  # `BINARIES` in `release.yml`. It is not DERIVED from either: a workflow cannot evaluate a flake
+  # before it has installed nix, and a matrix takes literals.
+  #
+  # TWO RULES KEEP IT HONEST, and only the second reaches the direction that matters. The cross
+  # matrix BUILDS every name in it, so a name that is not a nix package fails the link check; and
+  # `cargo xtask check-shipped-binaries` - a `hygiene` gate, so the `Structural gates` step runs
+  # it - compares this literal against `nix/shipped.nix`, which is what catches a binary that
+  # ships and is named here by nobody.
   BINARIES: sutura sutura-serve
 
 jobs:
@@ -596,11 +601,11 @@ jobs:
 
       # ONE IMAGE PER SHIPPED BINARY, and the two smoke tests are deliberately not the same
       # test. `--version` is all the two surfaces have in common and it proves the least
-      # interesting thing about either; for the server the interesting claim is that the
-      # PUBLISHED IMAGE starts, loads a catalog through its port, re-executes every declared
-      # anchor and answers - which is what #111 says no published artefact could do. A liveness
-      # probe is the smallest observation that requires all four. `release.yml` runs the same
-      # pair per target; this is the one that runs on every push to the trunk.
+      # interesting thing about either; for the server the claim worth making is #111's own
+      # provable outcome - that somebody runs the PUBLISHED IMAGE and asks a question over HTTP -
+      # so `.github/serve-smoke.sh` asks one, asserts the certified figure in the answer, and
+      # asserts that a question the catalog refuses comes back refused. `release.yml` runs the
+      # same script per target; this is the one that runs on every push to the trunk.
       - name: Images
         if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/dev'
         run: |
@@ -611,36 +616,11 @@ jobs:
           docker run --rm sutura:latest doctor
           nix build .#oci-serve -L -o result-oci-serve
           ./result-oci-serve | docker load
-          # Measured, not copied: this exact set was run against a `nix build .#sutura-serve`
-          # binary and `/health` answered `{"status":"ok"}`. `--network host` keeps the bind on
-          # loopback, which is what lets the test use the single-player posture - no access
-          # token, no TLS declaration - rather than the `0.0.0.0` shape those two are refusals
-          # without. `release.yml` runs the same test per target.
-          id="$(docker run -d --network host --user 65532:65532 \
-            -v "$PWD/examples/single-player:/examples:ro" \
-            -e SUTURA__CATALOG__DIR=/examples/catalog \
-            -e SUTURA__CATALOG__VERSION=ci-smoke \
-            -e SUTURA__SERVER__PORT=18080 \
-            -e SUTURA__SECURITY__IDENTITY=single-user \
-            -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="the ci smoke test reads its own example files" \
-            -e SUTURA__SOURCES__LOCAL__KIND=files \
-            -e SUTURA__SOURCES__LOCAL__DATA_DIR=/examples/data \
-            -e SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-            sutura-serve:latest)"
-          live=0
-          for _ in $(seq 1 30); do
-            if curl -fsS --max-time 2 http://127.0.0.1:18080/health >/dev/null 2>&1; then
-              live=1
-              break
-            fi
-            sleep 1
-          done
-          docker logs "$id" || true
-          docker rm -f "$id" >/dev/null 2>&1 || true
-          if [ "$live" -ne 1 ]; then
-            echo "::error::the server image never answered its liveness probe"
-            exit 1
-          fi
+          # The SAME script `release.yml` runs per target: start the image, ask the corpus
+          # question, assert the certified figure, and assert that a question the catalog
+          # refuses is refused. One file rather than two copies - they had already drifted on
+          # the catalog version while both were inline.
+          ./.github/serve-smoke.sh sutura-serve:latest
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.

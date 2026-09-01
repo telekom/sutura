@@ -78,12 +78,33 @@ jobs are the gate that says whether that was necessary.
 `sutura-cli` as `sutura` and `sutura-serve` - so a release publishes two tarballs and two images per
 triple. Both are built with cargo's DEFAULT features, which is the same decision one level out: no
 `tls` and no `bigquery` in a published server, because each costs a rustls closure across two musl
-triples and each is a startup refusal naming the feature rather than a silent degradation. Two gates
-hold it. `checks.one-binary` reads each shipped package's `bin/` and its runtime closure - one
-executable, named what the image entrypoint expects, no toolchain baked in - and
-`checks.shipped-features` reads the `cargo auditable` section out of the binary itself and asserts
-`axum` present in the server, `ring` and `ureq` absent from both. The second one is an assertion about
-the ARTIFACT rather than about a manifest, which is what makes it a mechanism instead of a comment.
+triples and each is a startup refusal naming the feature rather than a silent degradation.
+
+**THREE gates hold it, and they answer three different questions - which is worth reading as a set,
+because two of them were added after a review found the first one alone could be believed to cover
+more than it does.**
+
+- `cargo xtask check-shipped-binaries` compares that list against **every literal that spells it
+  again**: `BINARIES` in `release.yml` and in `ci.yml`, and the input default in the two build
+  actions. It exists because the release path CANNOT derive the set - a `strategy.matrix` takes
+  literals and a job cannot evaluate a flake before installing nix - and because the arrival check
+  in `release.yml` reads like the mechanism and is not: both sides of its count come from
+  `BINARIES`, so a binary added to `nix/shipped.nix` and to nothing else leaves it green. That is
+  #111's own omission class, and finding it in the change that closed #111 is why this gate is
+  here.
+- `checks.one-binary` reads each shipped package's `bin/` and its runtime closure: one executable,
+  **named what the image entrypoint expects**, no toolchain baked in. The name half is the cheap
+  guard on a seam nothing else relates - `cargoExtraArgs` names a cargo package, the image names a
+  path.
+- `checks.shipped-features` reads the `cargo auditable` section out of the binary itself and
+  asserts `axum` present in the server, `ring` and `ureq` absent from both. An assertion about the
+  ARTIFACT rather than about a manifest, which is what makes it a mechanism instead of a comment.
+
+**The limit, stated because the first two are text scans:** `check-shipped-binaries` reads the
+release path only. The `justfile`'s `build`, `image` and `build-all` recipes write the same
+attribute names out and are held by review, on the argument that a subset there costs a developer a
+surprise rather than a release a binary.
+
 ## Commands
 
 `direnv allow` once per clone. Then:

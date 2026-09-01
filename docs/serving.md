@@ -865,10 +865,15 @@ published port would reach nothing. Binding `0.0.0.0` instead makes this deploym
 can reach, and that needs `security.access_token` and a `security.tls_termination` that says which
 cleartext hop the token crosses; without both, the process refuses to start and names both. Which is
 the right shape for a real deployment and the wrong one for reading this page. The image runs as uid
-65532 with no shell and no package manager in it, and the release path smoke-tests every published
-x86_64 target with this shape - the same mount, the same nine keys, a port of its own - asserting
-that it answers `/health` as that uid before the release is cut. The arm64 pair is built and not
-run: executing it would need an emulator registered on the runner.
+65532 with no shell and no package manager in it.
+
+**Every published x86_64 image is smoke-tested with this shape before a release is cut** -
+`.github/serve-smoke.sh`, the same mount and the same keys plus a port of its own - and the test is
+not a liveness probe. It starts the image, asks the `recurring_revenue` question from
+[`examples/single-player`](https://github.com/telekom/sutura/tree/main/examples/single-player),
+checks the certified January figure is in the answer, and checks that a question the catalog refuses
+comes back `403`. The arm64 pair is built and not run, because executing it would need an emulator
+registered on the runner.
 
 **Or from source**, which is what a change to this repository is tested with:
 
