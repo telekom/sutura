@@ -91,7 +91,7 @@ a table, a column or a file. The raw tool cannot hold that line: its entire reas
 the statement is the caller's, so the caller's text is already at the database, and the database's
 reply is a string the caller may have influenced.
 
-Tonight's decision, parked where `#129` will read it: **the raw tool's failure text is treated as
+This record's decision, parked where `#129` will read it: **the raw tool's failure text is treated as
 untrusted content and rendered with the same marking the text half already applies - quoted per line,
 never spliced at column zero, the boundary named - and it is never re-executed or re-parsed.** A "try
 this instead" correction the database embeds is content, not instruction, exactly as a catalog
