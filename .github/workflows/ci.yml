@@ -191,6 +191,23 @@ env:
 
 jobs:
   ci:
+    # SKIPPED ON THE RELEASE COMMIT, and the three jobs below `needs: [ci]` so they skip with it.
+    # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
+    # token, because the `main` ruleset requires a pull request and GITHUB_TOKEN cannot be given
+    # a bypass without bypassing every workflow here. An App token's push DOES start workflow
+    # runs, so that commit would otherwise re-run this whole workflow - and it is the most
+    # expensive commit in the repository to re-run, because it moves the workspace version and
+    # therefore crane's dependency derivation, so nothing in the build cache is reusable.
+    #
+    # WHAT IS GIVEN UP: `main` gets no `ci` run for that commit. Its tree is the promoted one
+    # plus a version number, release.yml builds and publishes from the tag, and the promotion PR
+    # that put the content on `main` was gated by this workflow - so what is skipped is a second
+    # opinion about a one-line diff, at the price of a cold full-workspace build.
+    #
+    # `head_commit` exists on `push` and on nothing else. A `pull_request` event reads the empty
+    # string and runs, which is what stops this from silently withholding a REQUIRED check: a
+    # promotion PR whose tip happens to be a release commit is still gated.
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     runs-on: rust-mcp
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
