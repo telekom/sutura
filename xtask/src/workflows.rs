@@ -9,10 +9,13 @@
 //! local could have noticed - clippy does not read YAML and zizmor does not read flake.nix -
 //! so the first report was a red run on the pull request.
 //!
-//! BOTH `.github/workflows` AND `.github/actions`, and the second was a hole rather than a
-//! widening: `nix run .#cosign` has lived in a local composite action since that sequence was split
-//! out of `release.yml`, and this gate read the workflows directory alone - so the one reference
-//! that publishes a release was the one reference nothing checked.
+//! THREE PLACES, not one: `.github/workflows`, `.github/actions` and the shared shell under `nix/`.
+//! The two additions were holes rather than widenings, and they are the same hole. `nix run .#cosign`
+//! has lived in a local composite action since that sequence was split out of `release.yml`, so the
+//! one reference that publishes a release was the one reference nothing checked; and
+//! `nix/run-gate.sh` names `.#deny`, `.#betterleaks` and `.#crap`, which decide whether three gates
+//! run at all. **A reference leaves this gate's sight whenever a step moves out of a workflow, and a
+//! hard line cap is what forces steps out** - so the scan follows the shell.
 //!
 //! Text scanning on both sides, because this has to run where there is no nix. It cannot know
 //! whether an output BUILDS; it knows whether it is declared, which is the failure that recurs.
@@ -92,7 +95,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if missing.is_empty() {
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s) and action(s), all declared",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared",
             references.len()
         );
         return Verdict::Pass;
@@ -247,6 +250,32 @@ fn gather(root: &std::path::Path) -> Option<Scan> {
         }
     }
 
+    // AND THE SHARED SHELL SCRIPTS UNDER `nix/`, which is the same hole one level over - and this
+    // change is what opened part of it. `ci.yml`'s workflow-analysis body moved into
+    // `nix/lint-workflows.sh` to stay under the 1000-line cap, and five `nix run .#` references
+    // went with it: this gate's count dropped from 60 to 55 and nothing failed. `nix/run-gate.sh`
+    // was already in that position with three of its own - `.#deny`, `.#betterleaks` and `.#crap`,
+    // which decide whether the supply-chain gate, the secret sweep and the CRAP score run at all.
+    //
+    // THE LESSON, since it has now happened twice: a reference leaves this gate's sight whenever a
+    // step moves out of a workflow, and moving steps out is exactly what a hard line cap forces.
+    // So the scan follows the shell rather than the file type it started with.
+    let scripts = root.join("nix");
+    for entry in std::fs::read_dir(&scripts).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("sh") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let label = path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        files = files.saturating_add(1);
+        collect(&text, &format!("nix/{label}"), &mut references);
+    }
+
     Some(Scan { references, files })
 }
 
@@ -321,6 +350,37 @@ mod tests {
         let mut found = Vec::new();
         super::collect("          nix build .#sutura -L\n", "release.yml", &mut found);
         assert!(found.is_empty());
+    }
+
+    #[test]
+    fn the_shared_nix_shell_scripts_are_scanned_too() {
+        // RED against the previous behaviour for the same reason as the actions test: a verdict
+        // cannot tell the two scans apart on a correct tree. This one is not hypothetical - moving
+        // `ci.yml`'s workflow-analysis body into `nix/lint-workflows.sh` dropped this gate's count
+        // from 60 references to 55 and nothing failed.
+        let Some(root) = crate::repo::root() else {
+            return;
+        };
+        let Some(scan) = super::gather(&root) else {
+            panic!("the scan could not read .github/workflows");
+        };
+        let from_nix: Vec<&str> = scan
+            .references
+            .iter()
+            .map(|r| r.workflow.as_str())
+            .filter(|w| w.starts_with("nix/"))
+            .collect();
+        assert!(
+            !from_nix.is_empty(),
+            "no flake reference was collected from nix/*.sh, so a step moved out of a workflow has \
+             left this gate's sight"
+        );
+        assert!(
+            scan.references
+                .iter()
+                .any(|r| r.workflow == "nix/run-gate.sh" && r.name == "deny"),
+            "run-gate.sh's `nix run .#deny` was not seen: collected {from_nix:?}"
+        );
     }
 
     #[test]

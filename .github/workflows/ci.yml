@@ -324,45 +324,20 @@ jobs:
       - name: Secrets
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
-      # The committed attribution document is what its generator produces. NOT gated on
-      # classification: a licence value can move without `Cargo.lock` moving - a git dependency
-      # resolving to another revision keeps its name and version - and a hand edit to the document
-      # is not a dependency change at all. `cargo xtask check-attribution` in the hygiene sweep
-      # cannot see either case, because it reads the lock and can only tell that a licence cell is
-      # non-empty. Here rather than in a nix check because it needs a resolvable registry.
+      # NOT gated on classification: a licence value can move without `Cargo.lock` moving, and a
+      # hand edit to the document is not a dependency change at all. The hygiene half reads the lock
+      # and can only see that a licence cell is non-empty; this needs a resolvable registry.
       - name: The attribution document is current
         run: nix run .#xtask -- check-attribution-current
 
+      # `nix/lint-workflows.sh` rather than inline, and the reason is a cap rather than taste:
+      # this file is under the 1000-line limit `cargo xtask max-lines` enforces and reached 1020
+      # with the composite-action pass added. That script's header carries what each tool covers,
+      # including the one gap none of them reached - the shell inside a composite action, which
+      # `actionlint` cannot read at all.
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
-        run: |
-          set -eu
-          nix run .#zizmor -- .github/workflows
-          nix run .#actionlint
-          # Every shell script we ship, and now the glob really IS the list. It used to name one
-          # file under this comment, so `nix/run-gate.sh` - which decides whether the tests, the
-          # secret sweep, the supply-chain gate and the CRAP score run at all - was linted by
-          # nothing. An empty list would pass by checking nothing, so it is a failure.
-          mapfile -t scripts < <(find . -name '*.sh' -not -path './.git/*' -not -path './target/*' | sort)
-          printf 'shellcheck: %d script(s)\n' "${#scripts[@]}"
-          test "${#scripts[@]}" -gt 0
-          nix run .#shellcheck -- -x "${scripts[@]}"
-          # AND THE SHELL INSIDE A COMPOSITE ACTION, which neither tool above reaches.
-          # `actionlint` is the one that would normally carry it - it shells each workflow's
-          # `run:` block out to shellcheck itself - and it CANNOT READ a composite action:
-          # measured against 1.7.12, handed `.github/actions/attest-and-sign/action.yml` it
-          # reports `"jobs" section is missing in workflow`. The glob above cannot see them
-          # either, because a `run:` block is not a `.sh` file. So the release path's own
-          # `cosign` invocations were shell nothing had ever linted. `cargo xtask action-shell`
-          # extracts each block into a real file with a pointer back to its source line, and it
-          # fails closed: no action directory, or a composite action it read no shell out of, is
-          # a non-zero exit rather than a zero-script run that reads as coverage.
-          actions_out="$(mktemp -d)"
-          nix run .#xtask -- action-shell "$actions_out"
-          mapfile -t action_scripts < <(find "$actions_out" -name '*.sh' | sort)
-          printf 'shellcheck: %d composite-action script(s)\n' "${#action_scripts[@]}"
-          test "${#action_scripts[@]}" -gt 0
-          nix run .#shellcheck -- -x "${action_scripts[@]}"
+        run: bash nix/lint-workflows.sh
 
       - name: Tests
         if: steps.classify.outputs.rust == 'true'
