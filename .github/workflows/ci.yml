@@ -87,8 +87,20 @@ name: ci
 # state." The `merge_group` trigger below is that failure fixed for one event; the path filters
 # above can still leave it pending on a pull request targeting `main`, and that exposure is the
 # promotion path only, because the `dev` ruleset requires no status check at all.
+# THERE IS EXACTLY ONE `merge_group:` KEY IN THIS FILE and it is the documented one below, after
+# the `pull_request` block. A bare second copy sat here and made the whole file invalid - "key
+# `merge_group` is duplicated in `on` section" - so GitHub started NO run at all: runs
+# 33500695027 and 33500684237 on the `pr-177` queue ref are startup failures with zero jobs. That
+# is the worst shape available, because `ci` is the one required context: a workflow that cannot
+# start cannot report, a required check that never reports leaves the merge PENDING rather than
+# red, and the queue then wedges on a file nobody can see is broken from the pull request page.
+#
+# IT SURVIVED EVERY GATE, and the reason is worth keeping: `actionlint` catches this instantly -
+# it is what found it - but `actionlint`, `zizmor` and `shellcheck` are STEPS IN THIS FILE, so an
+# invalid `ci.yml` disables the only three things that would have named it. `just lint-ci` is the
+# same three from a shell and is what to run when this file changes; nothing mechanical here can
+# close that loop, which is why this paragraph is a warning rather than a check.
 on:
-  merge_group:
   push:
     # `dev` IS THE TRUNK and `main` is the release ref. Both are listed, and the second one is
     # not redundant: a promotion to `main` is a fast-forward of commits CI already judged on
