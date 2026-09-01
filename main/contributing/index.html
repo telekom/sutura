@@ -707,6 +707,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#trunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trunk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#releasing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1118,6 +1129,8 @@
   
     
     
+      
+        
       
         
       
@@ -1778,6 +1791,34 @@
     
   
     How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
   
 
     
@@ -2457,6 +2498,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#trunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trunk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#releasing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2863,21 +2915,21 @@ else:</p>
 </span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>refactor!: rename the Warehouse port's execute method
 </span></code></pre></div>
 <p>The body is not checked. Use it for why.</p>
+<h2 id="trunk">Trunk<a class="headerlink" href="#trunk" title="Permanent link">&para;</a></h2>
+<p><strong><code>main</code> is the sole trunk and the base for pull requests and the merge queue.</strong> Pull requests are
+squashed, leaving one conventional commit for <code>git-cliff</code> to classify. The branch ruleset enforces
+that path and the required checks.</p>
 <h2 id="releasing">Releasing<a class="headerlink" href="#releasing" title="Permanent link">&para;</a></h2>
-<p>Manual, on purpose. Run <code>version-bump</code> from the Actions tab on <code>main</code>, or:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>gh<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>version-bump.yml<span class="w"> </span>--ref<span class="w"> </span>main
-</span></code></pre></div>
-<p>The version is still <strong>derived</strong> from the commit subjects above - <code>feat</code> a minor, <code>fix</code> and the
-rest a patch, <code>!</code> or a <code>BREAKING CHANGE</code> footer a major - so what is manual is the timing, not
-the number. Nothing is tagged if no commit since the last tag would move it.</p>
-<p>Every push to <code>main</code> still refreshes <code>CHANGELOG.md</code>, so the <code>## Unreleased</code> heading always
-lists what is on main and waiting. That is where you look to decide whether a release is worth
-cutting.</p>
-<p>It used to tag on every push whose commits moved the version, which meant one <code>feat</code> merge cut
-a release. The cost was not the tag: the release commit edits the workspace version, that
-version reaches crane's dependency derivation, and so every release recompiled and re-cached
-the whole dependency closure for all four targets - enough to push the build cache past its
-quota, after which everything gets slower.</p>
+<p>An approved manual dispatch of <code>version-bump</code> on <code>main</code> is the only release entry point. It derives
+the version from commit subjects, writes <code>CHANGELOG.md</code> in the release commit, and pushes that exact
+commit and its <code>v*</code> tag through the narrow release App. The tag starts <code>release.yml</code> and <code>docs.yml</code>;
+the release workflow has no manual trigger of its own.</p>
+<p>The version is <strong>derived</strong> from the commit subjects above - <code>feat</code> a minor, <code>fix</code> and the rest a
+patch, <code>!</code> or a <code>BREAKING CHANGE</code> footer a major. Nothing is tagged if no commit since the last
+tag would move it, so a dispatch over chores publishes nothing.</p>
+<p>If a tagged release fails, its commit and tag stay for diagnosis, no GitHub Release is created and
+no image manifest or moving tag is published. Fix the source and approve a new dispatch; never
+rewrite a release tag.</p>
 <h2 id="a-test-has-to-be-shown-to-test-something">A test has to be shown to test something<a class="headerlink" href="#a-test-has-to-be-shown-to-test-something" title="Permanent link">&para;</a></h2>
 <p>A new or changed test must be red against the base behaviour and green with your change. A test
 that passes both ways proves nothing and is worse than no test, because it looks like coverage.</p>
@@ -2895,12 +2947,14 @@ tests, the causality check and the push-stage gates. Run it before saying a chan
 <h2 id="stacked-pull-requests">Stacked pull requests<a class="headerlink" href="#stacked-pull-requests" title="Permanent link">&para;</a></h2>
 <p>A chain of dependent changes ships as one reviewable pull request per link, not as one branch
 that grows until nobody can review it. <code>stax</code> (<code>st</code>) does the rebasing:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>st<span class="w"> </span>create<span class="w"> </span>feat/thing<span class="w">   </span><span class="c1"># branch off the current one, entering the stack</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>st<span class="w"> </span>modify<span class="w">              </span><span class="c1"># stage and amend into the branch tip</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>st<span class="w"> </span>ss<span class="w">                  </span><span class="c1"># push the stack, opening or updating a PR per branch</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>st<span class="w"> </span>ls<span class="w">                  </span><span class="c1"># what the stack looks like now</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>st<span class="w"> </span>refresh<span class="w">             </span><span class="c1"># sync trunk, restack the stack, submit the updates</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>st<span class="w"> </span>create<span class="w"> </span>feat/thing<span class="w">   </span><span class="c1"># branch off the current one, entering the stack</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>st<span class="w"> </span>modify<span class="w">              </span><span class="c1"># stage and amend into the branch tip</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>st<span class="w"> </span>ss<span class="w">                  </span><span class="c1"># push the stack, opening or updating a PR per branch</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>st<span class="w"> </span>ls<span class="w">                  </span><span class="c1"># what the stack looks like now</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>st<span class="w"> </span>refresh<span class="w">             </span><span class="c1"># sync trunk, restack the stack, submit the updates</span>
 </span></code></pre></div>
+<p><strong>Restack with stax (<code>st</code>); never hand-<code>git rebase</code> a branch that belongs to a stack.</strong> See the
+<code>stacked-branches</code> skill.</p>
 <p>A branch behind <code>main</code> is <strong>rebased</strong>, never merged. A merge commit from <code>main</code> into a topic
 branch comes back as a rebase request in review, and it also destroys the linear shape <code>st</code>
 relies on. Run <code>just ship-check</code> per branch rather than once for the stack, since each pull
@@ -2913,15 +2967,15 @@ machine set up for a different one does not submit stacks there.
 <p>The site is mkdocs-material, versioned by <a href="https://github.com/jimporter/mike">mike</a>, and every
 command goes through pixi's isolated <code>docs</code> environment - the docs toolchain is Python and pixi
 is the one resolver for Python here.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>just<span class="w"> </span>docs<span class="w">          </span><span class="c1"># render the site to site/</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>just<span class="w"> </span>docs-serve<span class="w">    </span><span class="c1"># live reload</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>just<span class="w"> </span>docs-list<span class="w">     </span><span class="c1"># what is published, per mike</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>just<span class="w"> </span>docs-deploy<span class="w">   </span><span class="c1"># one version to gh-pages; `--push` is deliberately absent</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>just<span class="w"> </span>docs<span class="w">          </span><span class="c1"># render the site to site/</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>just<span class="w"> </span>docs-serve<span class="w">    </span><span class="c1"># live reload</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>just<span class="w"> </span>docs-list<span class="w">     </span><span class="c1"># what is published, per mike</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>just<span class="w"> </span>docs-deploy<span class="w">   </span><span class="c1"># one version to gh-pages; `--push` is deliberately absent</span>
 </span></code></pre></div>
 <p>The API reference under <code>docs/api/</code> is generated from rustdoc JSON and committed, so publishing
 the site needs no Rust toolchain. Regenerate it when a public type or its documentation changes:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>cargo<span class="w"> </span>rustdoc<span class="w"> </span>-q<span class="w"> </span>-p<span class="w"> </span>sutura-domain<span class="w"> </span>--all-features<span class="w"> </span>--<span class="w"> </span>-Z<span class="w"> </span>unstable-options<span class="w"> </span>--output-format<span class="w"> </span>json
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>python<span class="w"> </span>docs/.tools/rustdoc_to_markdown.py<span class="w"> </span>target/doc/sutura_domain.json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>cargo<span class="w"> </span>rustdoc<span class="w"> </span>-q<span class="w"> </span>-p<span class="w"> </span>sutura-domain<span class="w"> </span>--all-features<span class="w"> </span>--<span class="w"> </span>-Z<span class="w"> </span>unstable-options<span class="w"> </span>--output-format<span class="w"> </span>json
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>python<span class="w"> </span>docs/.tools/rustdoc_to_markdown.py<span class="w"> </span>target/doc/sutura_domain.json
 </span></code></pre></div>
 <p><code>--output-format json</code> is an unstable rustdoc option, so run that in the dev shell where the bare
 <code>cargo</code> is the nightly pin. The generator refuses to run on a <code>format_version</code> it was not written

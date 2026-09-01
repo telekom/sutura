@@ -858,6 +858,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-a-release-publishes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a release publishes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-is-signed" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -906,6 +917,17 @@
     <span class="md-ellipsis">
       
         What the SBOM covers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-licence-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The licence statement
       
     </span>
   </a>
@@ -1024,6 +1046,8 @@
   
     
     
+      
+        
       
         
       
@@ -1697,6 +1721,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2269,6 +2321,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-a-release-publishes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a release publishes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-is-signed" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2324,6 +2387,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-licence-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The licence statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-none-of-this-establishes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2369,6 +2443,47 @@ second, and nothing says the third.</p>
 <p><strong>The SBOM does inventory the crate graph, and it is read out of the binary rather than out of a
 lock file.</strong> Why that distinction is worth the sentence is under
 <a href="#what-the-sbom-covers">What the SBOM covers</a>.</p>
+<h2 id="what-a-release-publishes">What a release publishes<a class="headerlink" href="#what-a-release-publishes" title="Permanent link">&para;</a></h2>
+<p><strong>Two binaries, at four target triples each.</strong> Which one you want is the first choice to make, and
+nothing about the file names decides it for you:</p>
+<table>
+<thead>
+<tr>
+<th>Binary</th>
+<th>What it is</th>
+<th>Asset</th>
+<th>Image tag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura</code></td>
+<td>the command-line tool: <code>doctor</code>, <code>catalog</code>, <code>describe</code>, <code>prompt</code>, <code>compile</code>, <code>query</code></td>
+<td><code>sutura-&lt;triple&gt;.tar.gz</code></td>
+<td><code>:&lt;version&gt;</code>, <code>:latest</code>, <code>:&lt;version&gt;-musl</code>, <code>:latest-musl</code></td>
+</tr>
+<tr>
+<td><code>sutura-serve</code></td>
+<td>the service: answers certified questions over HTTP</td>
+<td><code>sutura-serve-&lt;triple&gt;.tar.gz</code></td>
+<td><code>:&lt;version&gt;-serve</code>, <code>:latest-serve</code>, <code>:&lt;version&gt;-serve-musl</code>, <code>:latest-serve-musl</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>One registry repository</strong>, <code>ghcr.io/telekom/sutura</code>, and the tag says which binary. The unsuffixed
+tags have always been the command-line tool and they still are: pointing <code>:latest</code> at the server
+because the server is the more deployable artefact would be a silent change of what an existing
+<code>docker pull</code> returns. Which one you get is something you have to type.</p>
+<p><strong>Both are built with cargo's default features</strong>, which for <code>sutura-serve</code> means the published
+server carries the HTTP surface, the caller-token verification, the rate limiter and the generated
+interface description, and carries <strong>neither in-process TLS nor the BigQuery adapter</strong>. Both of those
+cost an outbound rustls closure on two statically linked triples, and both are a startup refusal
+naming the feature rather than a silent degradation - so a deployment that needs either builds from
+source and knows it. <code>nix/shipped.nix</code> is where that decision is written, and
+<code>nix build .#checks.x86_64-linux.shipped-features</code> is what asserts it, out of the shipped binary's
+own embedded dependency list rather than out of a manifest.</p>
+<p><strong>A release also carries a licence statement, and it is a different list on purpose.</strong> What each of
+the two documents answers is under <a href="#the-licence-statement">The licence statement</a>.</p>
 <h2 id="what-is-signed">What is signed<a class="headerlink" href="#what-is-signed" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2381,19 +2496,25 @@ lock file.</strong> Why that distinction is worth the sentence is under
 </thead>
 <tbody>
 <tr>
-<td>the four binary tarballs</td>
+<td>the eight binary tarballs</td>
 <td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
 <td>yes</td>
 <td>n/a</td>
 </tr>
 <tr>
-<td>the two musl image tarballs</td>
+<td>the four musl image tarballs</td>
 <td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
 <td>yes</td>
 <td>n/a</td>
 </tr>
 <tr>
-<td>the eight SBOMs</td>
+<td>the sixteen SBOMs</td>
+<td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
+<td>yes</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>the two licence documents</td>
 <td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
 <td>yes</td>
 <td>n/a</td>
@@ -2411,13 +2532,13 @@ lock file.</strong> Why that distinction is worth the sentence is under
 <td>n/a</td>
 </tr>
 <tr>
-<td>the four leaf images</td>
+<td>the eight leaf images</td>
 <td>n/a</td>
 <td>no</td>
 <td><code>cosign sign</code>, by digest</td>
 </tr>
 <tr>
-<td>the two manifest lists</td>
+<td>the four manifest lists</td>
 <td>n/a</td>
 <td>yes</td>
 <td><code>cosign sign</code>, by digest</td>
@@ -2430,6 +2551,10 @@ lock file.</strong> Why that distinction is worth the sentence is under
 </tr>
 </tbody>
 </table>
+<p>Every count in that table is two binaries times four triples, or its consequence. A leaf and the SBOM
+beside it are named by the same key - <code>&lt;triple&gt;</code> for <code>sutura</code>, <code>serve-&lt;triple&gt;</code> for <code>sutura-serve</code> -
+which is also how <code>image-digests.txt</code> records them, so an entry there and an asset on the release page
+are matched by reading rather than by working anything out.</p>
 <p>Three asymmetries in that table are deliberate rather than gaps, and each has a reason worth
 knowing before you conclude something is missing.</p>
 <p><strong>The <code>.sha256</code> sidecars are not signed.</strong> A Sigstore bundle over <code>sutura-&lt;target&gt;.tar.gz</code> already
@@ -2442,7 +2567,7 @@ produced it.</p>
 <p><strong>Provenance covers the manifest lists and not the leaves.</strong> A list is what an unqualified
 <code>docker pull</code> resolves and what the release notes tell you to pin. The leaves are what a list points
 at, they are signed by <code>cosign</code> individually, and pinning one means asking for a single architecture
-on purpose.</p>
+on purpose. There are four lists rather than two now, because there are two binaries.</p>
 <p><strong>The images get <code>cosign</code> and the assets get a bundle, and the reason is who can verify.</strong>
 <code>gh attestation verify</code> asks GitHub's API - it needs reach to the forge and an authenticated <code>gh</code>.
 <code>cosign verify-blob</code> needs the file, its bundle and Sigstore's trust root, so an artefact you
@@ -2485,6 +2610,7 @@ meant when you ran it.</p>
 </span></code></pre></div>
 <p>For the manifest lists, GitHub's provenance works on the same digest:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0-serve<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
 </span></code></pre></div>
 <h2 id="what-the-sbom-covers">What the SBOM covers<a class="headerlink" href="#what-the-sbom-covers" title="Permanent link">&para;</a></h2>
 <p>Each leaf image ships two inventories of the same scan - CycloneDX and SPDX, so the two cannot
@@ -2503,11 +2629,19 @@ executable. That is worth a sentence, because the obvious way to produce this li
 <li>A document generated from <code>Cargo.lock</code> beside the binary is a <em>checked</em> claim about it. The two
   can drift - a rebuild, a re-tag, a file swapped in a mirror - and neither the binary nor the
   document says so.</li>
-<li>It would also be the <strong>wrong list</strong>. <code>Cargo.lock</code> records what cargo <em>resolved</em>, not what the
-  linker <em>kept</em>: <code>sutura-cli</code> links the engine only, while <code>libduckdb-sys</code> and the BigQuery wire put
-  <code>ureq</code>, rustls and <code>ring</code> into the resolve graph for a binary that links none of them. A
+<li>
+<p>It would also be the <strong>wrong list</strong>. <code>Cargo.lock</code> records what cargo <em>resolved</em>, not what the
+  linker <em>kept</em>: neither shipped binary carries the DuckDB adapter or the BigQuery wire, while
+  <code>libduckdb-sys</code> and that wire put <code>ureq</code>, rustls and <code>ring</code> into the resolve graph. A
   workspace-wide document names all three and is wrong in the direction that matters, which is
-  overstating what ships.</li>
+  overstating what ships. Measured on 2026-09-01, out of the artefacts themselves: 263 crates in
+  <code>sutura</code> and 326 in <code>sutura-serve</code> - the difference is the transport - and <code>ring</code>, <code>ureq</code> and
+  <code>rustls</code> in neither.</p>
+</li>
+<li>
+<p><strong>The two binaries therefore have two different lists, and there is one SBOM per image rather than
+  one per release.</strong> A single document would be true of neither.</p>
+</li>
 </ul>
 <p>So the list is put <strong>inside the artefact at build time</strong> and read back out of the bytes being
 scanned. It cannot drift from the binary, because it is the binary. The release job checks that the
@@ -2518,6 +2652,52 @@ apart from a correct run.</p>
 Whether any of them has an advisory against it is <code>cargo-deny</code> against the RustSec database, which
 runs in CI on every dependency change and weekly regardless - a run, not a property of the artefact.
 <code>cargo audit --bin</code> will read this section and answer that question against the file you have.</p>
+<h2 id="the-licence-statement">The licence statement<a class="headerlink" href="#the-licence-statement" title="Permanent link">&para;</a></h2>
+<p>The release carries the workspace-wide attribution document beside the per-binary SBOMs.</p>
+<table>
+<thead>
+<tr>
+<th>Asset</th>
+<th>What it is</th>
+<th>Generated from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura-attribution.md</code></td>
+<td>every third-party crate this workspace resolves, with the SPDX expression its manifest declares</td>
+<td><code>cargo metadata</code>, committed as <code>ATTRIBUTION.md</code> and copied into the release</td>
+</tr>
+</tbody>
+</table>
+<p>It is signed and carries provenance, so it verifies exactly like a binary tarball:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-attribution.md.sigstore.json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>sutura-attribution.md
+</span></code></pre></div>
+<p><strong>The attribution document is deliberately WIDER than the SBOM, and that is not a contradiction.</strong>
+The SBOM says what is <em>in</em> one binary, so overstating it would be a false statement about the file
+in your hand - which is why that list lives inside the executable. The attribution document
+discharges a licence obligation, and there the errors are not symmetric: naming a crate that did not
+ship costs you one line to read, while omitting one that did ship is the failure the document exists
+to prevent. So it names every crate the workspace resolves at all features, which is more than
+<code>sutura-cli</code> links.</p>
+<p><strong>Why it is committed rather than generated at release time.</strong> It has an owner and two gates:
+<code>just attribution</code> writes it, <code>cargo xtask check-attribution</code> fails when its crate set falls behind
+<code>Cargo.lock</code>, and <code>cargo xtask check-attribution-current</code> byte-compares it against a fresh generation
+so a licence value cannot be edited or drift unnoticed. The release copies it and asserts it names at
+least a hundred crates, which catches the silent case - a generator that still writes a well formed
+document naming nothing.</p>
+<p><strong>It names vendored code too.</strong> The two crates under <code>vendor/mimalloc_rust</code> are declared as path
+dependencies rather than pulled from a registry, and <code>sutura-cli</code> links the allocator on Linux - so
+they are rows like anything else somebody else wrote. What selects a row is not being a workspace
+member, never where the code came from.</p>
+<p><strong>What neither document carries is the notice text of each dependency.</strong> An Apache-2.0 crate's own
+<code>NOTICE</code> file lives in its source tree rather than in its metadata, so nothing that reads metadata
+can render one. That is the largest remaining gap in the obligation, and closing it needs a
+source-code licence scan of the whole closure, which is deliberately not run.</p>
 <h2 id="what-none-of-this-establishes">What none of this establishes<a class="headerlink" href="#what-none-of-this-establishes" title="Permanent link">&para;</a></h2>
 <p>Stated plainly, because a page full of green checkmarks invites the larger reading:</p>
 <ul>
@@ -2527,8 +2707,10 @@ runs in CI on every dependency change and weekly regardless - a run, not a prope
 <li><strong>Not that dependencies are free of known advisories.</strong> That is <code>cargo-deny</code> against the RustSec
   database, run in CI on every dependency change and weekly regardless, and its verdict is a CI run
   rather than an artefact you can check offline.</li>
-<li><strong>Not that the licence obligations of the dependency set are discharged.</strong> <code>deny.toml</code> holds an
-  exact allowlist of SPDX identifiers, which is a policy check and not an attribution document.</li>
+<li><strong>Not that the licence obligations of the dependency set are fully discharged.</strong> There is an
+  attribution document now, and it is signed - see above. What is still missing is the notice text
+  each Apache-2.0 dependency's own <code>NOTICE</code> file carries, which is in its source and not in its
+  metadata. <code>deny.toml</code>'s allowlist remains a policy check either way.</li>
 <li><strong>Not that the crate list covers everything in the binary.</strong> It is what <code>cargo</code> compiled in. C
   that a build script compiled - the allocator, for one - is linked into the executable and is not
   a crate, so it appears in the image inventory as a file and not in the crate list as a package.</li>
