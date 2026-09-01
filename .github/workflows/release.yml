@@ -306,6 +306,20 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
+      # The attribution document is COMMITTED and gated - `cargo xtask check-attribution`
+      # regenerates it from `Cargo.lock` and a failing diff is a failing gate - so the tag
+      # checkout already holds the right bytes; this is a copy into what gets signed and
+      # uploaded, not a build. `docs/adr/0021`'s amendment is the decision; this step and the
+      # arrival check below are what make it a release asset like every other.
+      - name: Copy the attribution document into the release
+        run: |
+          set -eu
+          if [ ! -s THIRD_PARTY_NOTICES ]; then
+            echo "::error::THIRD_PARTY_NOTICES is missing or empty in the checkout - cargo xtask check-attribution owns this file"
+            exit 1
+          fi
+          cp THIRD_PARTY_NOTICES dist/THIRD_PARTY_NOTICES
+
       # The failure mode the split introduces, gated before anything is published. A single job
       # could not lose a target; four jobs and an artifact round-trip can, and a release that
       # quietly shipped three binaries and a table one row short is exactly the kind of thing
@@ -362,6 +376,13 @@ jobs:
           have="$(find facts -type f -name '*.txt' | wc -l)"
           if [ "$have" -ne "$want" ]; then
             echo "::error::${have} artefact(s) arrived but this job expects ${want}: TARGETS and BINARIES here, strategy.matrix.target in 'build', and binaries in nix/shipped.nix have drifted apart"
+            exit 1
+          fi
+          # And the one release asset no build produces, because it is committed rather than
+          # built: the attribution document. The copy step above refuses an absent file, this
+          # asserts the bytes survived into `dist/` where the signing step reads them.
+          if [ ! -s dist/THIRD_PARTY_NOTICES ]; then
+            echo "::error::dist/THIRD_PARTY_NOTICES is missing or empty - the attribution document is not part of this release"
             exit 1
           fi
           ls -l dist images facts
@@ -726,6 +747,7 @@ jobs:
             echo "| --- | --- |"
             echo "| the files in the image: the binary, CA certificates, tzdata | the image layers |"
             echo "| the crates the binary was compiled from | a \`cargo auditable\` section inside the binary, not from \`Cargo.lock\` |"
+            echo "| the whole dependency closure, with versions | \`THIRD_PARTY_NOTICES\`, committed and regenerated from \`Cargo.lock\` by \`check-attribution\` |"
           } >> notes.md
 
           {
@@ -734,7 +756,7 @@ jobs:
             echo
             echo "| Artefact | Sigstore bundle | SLSA provenance | Registry signature |"
             echo "| --- | --- | --- | --- |"
-            echo "| binaries, image tarballs, SBOMs, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
+            echo "| binaries, image tarballs, SBOMs, \`image-digests.txt\`, \`THIRD_PARTY_NOTICES\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
             echo "| the \`.sha256\` sidecars | no: the bundle above already commits to the digest | yes | n/a |"
             echo "| images, eight leaves and four manifest lists | n/a | the four manifest lists | \`cosign\`, all twelve references |"
             echo "| each leaf image's CycloneDX SBOM | n/a | n/a | \`cosign attest --type cyclonedx\` |"
@@ -754,6 +776,8 @@ jobs:
               "$IMAGE" "$identity" "$issuer"
             printf "| what is inside an image | \`cosign verify-attestation --type cyclonedx %s@<digest> --certificate-identity-regexp %s --certificate-oidc-issuer %s\` |\n" \
               "$IMAGE" "$identity" "$issuer"
+            printf "| the licence/attribution document is the release's, offline | \`cosign verify-blob --bundle THIRD_PARTY_NOTICES.sigstore.json --certificate-identity-regexp %s --certificate-oidc-issuer %s THIRD_PARTY_NOTICES\` |\n" \
+              "$identity" "$issuer"
             printf "| what any of it means | [Verifying a release](%s/%s/blob/%s/docs/verifying-a-release.md) |\n" \
               "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$tag"
           } >> notes.md
