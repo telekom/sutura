@@ -9,6 +9,14 @@
 //! local could have noticed - clippy does not read YAML and zizmor does not read flake.nix -
 //! so the first report was a red run on the pull request.
 //!
+//! THREE PLACES, not one: `.github/workflows`, `.github/actions` and the shared shell under `nix/`.
+//! The two additions were holes rather than widenings, and they are the same hole. `nix run .#cosign`
+//! has lived in a local composite action since that sequence was split out of `release.yml`, so the
+//! one reference that publishes a release was the one reference nothing checked; and
+//! `nix/run-gate.sh` names `.#deny`, `.#betterleaks` and `.#crap`, which decide whether three gates
+//! run at all. **A reference leaves this gate's sight whenever a step moves out of a workflow, and a
+//! hard line cap is what forces steps out** - so the scan follows the shell.
+//!
 //! Text scanning on both sides, because this has to run where there is no nix. It cannot know
 //! whether an output BUILDS; it knows whether it is declared, which is the failure that recurs.
 
@@ -70,61 +78,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let mut references = Vec::new();
-    let mut files = 0_usize;
-    let github = root.join(".github");
-    let Ok(entries) = std::fs::read_dir(github.join("workflows")) else {
-        eprintln!("xtask check-workflows: no .github/workflows directory");
+    let Some(Scan { references, files }) = gather(&root) else {
         return Verdict::Fail;
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let yaml = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e == "yml" || e == "yaml");
-        if !yaml {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let name = path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        files += 1;
-        collect(&text, &name, &mut references);
-    }
-
-    // AND EVERY LOCAL COMPOSITE ACTION, which this gate did not read and which is where the
-    // references now live. `.github/actions/attest-and-sign` runs `nix run .#cosign` and
-    // `.github/actions/build-artefacts` runs `nix run .#syft`, so the flake outputs a release
-    // depends on were invisible to the one gate whose whole job is to notice a renamed output.
-    //
-    // The hole was PRE-EXISTING - `attest-and-sign` has held `nix run .#cosign` since it was
-    // split out - and it widened rather than appeared: `build-artefacts` was carved out of
-    // `release.yml` under the 1000-line cap and took `nix run .#syft` with it. A gate that gets
-    // narrower every time a file is split is a gate on its way to reading nothing.
-    //
-    // Not recursive, and one level deep is not an approximation: an action is
-    // `.github/actions/<name>/action.yml` by GitHub's own resolution rules, so there is no
-    // deeper place for one to hide.
-    if let Ok(dirs) = std::fs::read_dir(github.join("actions")) {
-        for dir in dirs.flatten() {
-            for leaf in ["action.yml", "action.yaml"] {
-                let path = dir.path().join(leaf);
-                let Ok(text) = std::fs::read_to_string(&path) else {
-                    continue;
-                };
-                let name = dir
-                    .path()
-                    .file_name()
-                    .map_or_else(String::new, |n| format!("actions/{}/{leaf}", n.to_string_lossy()));
-                files += 1;
-                collect(&text, &name, &mut references);
-            }
-        }
-    }
 
     let missing: Vec<&Reference> = references
         .iter()
@@ -139,7 +95,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if missing.is_empty() {
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s) and action(s), all declared",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared",
             references.len()
         );
         return Verdict::Pass;
@@ -249,6 +205,101 @@ fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
     names
 }
 
+/// What one scan of `.github` found: the references, and how many files were read.
+///
+/// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
+/// is right to: `usize` beside a `Vec` says nothing about which count it is.
+struct Scan {
+    references: Vec<Reference>,
+    files: usize,
+}
+
+/// Every `nix run .#` / `nix build .#` reference in `.github`, and how many files were read.
+///
+/// A function rather than the body of `run`, so a test can assert WHERE the references came from.
+/// The composite-action half is only observable that way: a gate that walked one directory and a
+/// gate that walks two return the same verdict on a correct tree, which is exactly how the hole
+/// this closes went unnoticed.
+fn gather(root: &std::path::Path) -> Option<Scan> {
+    let mut references = Vec::new();
+    let mut files = 0_usize;
+    let Ok(entries) = std::fs::read_dir(root.join(".github").join("workflows")) else {
+        eprintln!("xtask check-workflows: no .github/workflows directory");
+        return None;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let yaml = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e == "yml" || e == "yaml");
+        if !yaml {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let name = path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        files = files.saturating_add(1);
+        collect(&text, &name, &mut references);
+    }
+
+    // AND THE LOCAL COMPOSITE ACTIONS, which is a hole this gate had rather than a widening of
+    // what it claims. `nix run .#cosign` has lived in `.github/actions/attest-and-sign` since that
+    // sequence was split out of `release.yml`, and this scan read `.github/workflows` only - so
+    // the one reference that publishes a release was the one reference nothing checked. Splitting
+    // a step into an action is how a reference leaves this gate's sight, and the split is exactly
+    // what this repository does when a workflow reaches the 1000-line cap, so it will happen
+    // again. Named by their DIRECTORY, because every one of these files is called `action.yml` and
+    // a failure saying `action.yml:118` names nothing a reader can open.
+    //
+    // A missing `.github/actions` is not a failure, unlike a missing `.github/workflows`: a
+    // repository with no composite action is a repository with none, and this gate must not start
+    // failing on one.
+    let actions = root.join(".github").join("actions");
+    for entry in std::fs::read_dir(&actions).into_iter().flatten().flatten() {
+        let dir = entry.path();
+        for candidate in ["action.yml", "action.yaml"] {
+            let Ok(text) = std::fs::read_to_string(dir.join(candidate)) else {
+                continue;
+            };
+            let label = dir.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            files = files.saturating_add(1);
+            collect(&text, &format!("actions/{label}"), &mut references);
+        }
+    }
+
+    // AND THE SHARED SHELL SCRIPTS UNDER `nix/`, which is the same hole one level over - and this
+    // change is what opened part of it. `ci.yml`'s workflow-analysis body moved into
+    // `nix/lint-workflows.sh` to stay under the 1000-line cap, and five `nix run .#` references
+    // went with it: this gate's count dropped from 60 to 55 and nothing failed. `nix/run-gate.sh`
+    // was already in that position with three of its own - `.#deny`, `.#betterleaks` and `.#crap`,
+    // which decide whether the supply-chain gate, the secret sweep and the CRAP score run at all.
+    //
+    // THE LESSON, since it has now happened twice: a reference leaves this gate's sight whenever a
+    // step moves out of a workflow, and moving steps out is exactly what a hard line cap forces.
+    // So the scan follows the shell rather than the file type it started with.
+    let scripts = root.join("nix");
+    for entry in std::fs::read_dir(&scripts).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("sh") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let label = path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        files = files.saturating_add(1);
+        collect(&text, &format!("nix/{label}"), &mut references);
+    }
+
+    Some(Scan { references, files })
+}
+
 /// Find every `nix run .#...` and `nix build .#...` in one workflow.
 fn collect(text: &str, workflow: &str, out: &mut Vec<Reference>) {
     for (index, line) in text.lines().enumerate() {
@@ -320,6 +371,68 @@ mod tests {
         let mut found = Vec::new();
         super::collect("          nix build .#sutura -L\n", "release.yml", &mut found);
         assert!(found.is_empty());
+    }
+
+    #[test]
+    fn the_shared_nix_shell_scripts_are_scanned_too() {
+        // RED against the previous behaviour for the same reason as the actions test: a verdict
+        // cannot tell the two scans apart on a correct tree. This one is not hypothetical - moving
+        // `ci.yml`'s workflow-analysis body into `nix/lint-workflows.sh` dropped this gate's count
+        // from 60 references to 55 and nothing failed.
+        let Some(root) = crate::repo::root() else {
+            return;
+        };
+        let Some(scan) = super::gather(&root) else {
+            panic!("the scan could not read .github/workflows");
+        };
+        let from_nix: Vec<&str> = scan
+            .references
+            .iter()
+            .map(|r| r.workflow.as_str())
+            .filter(|w| w.starts_with("nix/"))
+            .collect();
+        assert!(
+            !from_nix.is_empty(),
+            "no flake reference was collected from nix/*.sh, so a step moved out of a workflow has \
+             left this gate's sight"
+        );
+        assert!(
+            scan.references
+                .iter()
+                .any(|r| r.workflow == "nix/run-gate.sh" && r.name == "deny"),
+            "run-gate.sh's `nix run .#deny` was not seen: collected {from_nix:?}"
+        );
+    }
+
+    #[test]
+    fn the_local_composite_actions_are_scanned_too() {
+        // RED against the previous behaviour, which read `.github/workflows` alone: this asserts
+        // where a reference came FROM, because a verdict cannot tell the two scans apart on a
+        // correct tree. `attest-and-sign` reaches `cosign` and is the reference that publishes a
+        // release, so it is the one worth naming rather than a synthetic fixture.
+        let Some(root) = crate::repo::root() else {
+            return;
+        };
+        let Some(scan) = super::gather(&root) else {
+            panic!("the scan could not read .github/workflows");
+        };
+        let references = scan.references;
+        let from_actions: Vec<&str> = references
+            .iter()
+            .map(|r| r.workflow.as_str())
+            .filter(|w| w.starts_with("actions/"))
+            .collect();
+        assert!(
+            !from_actions.is_empty(),
+            "no flake reference was collected from .github/actions, so a step split out of a \
+             workflow has left this gate's sight"
+        );
+        assert!(
+            references
+                .iter()
+                .any(|r| r.workflow == "actions/attest-and-sign" && r.name == "cosign"),
+            "attest-and-sign's `nix run .#cosign` was not seen: collected {from_actions:?}"
+        );
     }
 
     #[test]

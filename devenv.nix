@@ -178,6 +178,14 @@ in
     # Python lives behind pixi only; this is just the launcher.
     pixi
 
+    # The Pulumi CLI for the test-infra stack under `test-infra/pulumi/google`. It is the
+    # nix-pinned CLI (nixpkgs pins the version, per the rule that a tool whose version changes
+    # what it reports is pinned by nix); the Python SDK it drives lives in pixi's `infra` env.
+    # Given here so `pulumi` is on PATH in the dev shell AND reachable by name from the
+    # `infra` pixi tasks, and in CI via `nix run .#pulumi`. Note nixpkgs' pulumi may lag the
+    # pypi SDK by a patch release; the CLI/SDK pair stays within the 3.x series.
+    pulumi
+
     # For gh-axi (below) and any other npm-delivered tooling.
     nodejs_22
 
@@ -190,6 +198,11 @@ in
   # first entry rather than listed in `packages`, because a missing nixpkgs attribute
   # breaks the entire shell - too high a price for a convenience tool.
   env.NPM_CONFIG_PREFIX = "${config.devenv.state}/npm";
+
+  # The nix-pinned pulumi version, exported so the dev shell can see it. The pixi `infra` env's
+  # SDK is pinned to this SAME version (see pixi.toml) - nix is the authority for the number,
+  # and this env var is the readable witness that the two stay equal.
+  env.PULUMI_VERSION = "${pkgs.pulumi.version}";
 
   # A broken pin should take two seconds to diagnose, not a mid-CI failure.
   enterShell = ''

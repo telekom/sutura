@@ -7,6 +7,7 @@
 //! Gates live in one binary rather than a script per check: one thing to install, one language
 //! to review, and they are unit-tested by `cargo nextest run --workspace` like any other code.
 
+mod action_shell;
 mod api_docs;
 mod arrow_major;
 mod attribution;
@@ -135,17 +136,6 @@ const TASKS: &[Task] = &[
         run: arrow_major::run,
     },
     Task {
-        // Beside `check-arrow` because it reads the same file for the same reason: a statement
-        // about the dependency set, checked against Cargo.lock rather than trusted. `check-arrow`
-        // polices one type family; this one owns `THIRD_PARTY_NOTICES` - the committed,
-        // per-release attribution document whose decision lives in `docs/adr/0021`'s amendment.
-        // One owner per artefact, and the ARTEFACT is the lock file's.
-        name: "check-attribution",
-        description: "THIRD_PARTY_NOTICES names every crate Cargo.lock resolves (--fix)",
-        kind: Kind::Hygiene,
-        run: attribution::run,
-    },
-    Task {
         // Beside `check-arrow` because it is the same shape of gate for the same reason: a MEASUREMENT
         // written into a record, checked against the lock it was taken from. `docs/adr/0018` says the
         // BigQuery wire costs zero new packages because `libduckdb-sys` already resolves the same
@@ -166,6 +156,16 @@ const TASKS: &[Task] = &[
         description: "every release-path binary literal equals nix/shipped.nix",
         kind: Kind::Hygiene,
         run: shipped::run,
+    },
+    Task {
+        // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
+        // GENERATED artefact checked against the file it is generated from, read as text so the
+        // check needs no resolver. `docs/adr/0021`'s attribution amendment is the decision, and
+        // `just attribution` is the fix every failure message names.
+        name: "check-attribution",
+        description: "ATTRIBUTION.md names every third-party crate in Cargo.lock",
+        kind: Kind::Hygiene,
+        run: attribution::run_check,
     },
     Task {
         name: "line-endings",
@@ -301,6 +301,38 @@ const TASKS: &[Task] = &[
         description: "docs/api/*.md is what the generator produces (NIGHTLY; compiles)",
         kind: Kind::Standalone,
         run: api_docs::run,
+    },
+    Task {
+        // The BYTE-COMPARE half, and `check-api-docs` is the shape it copies including why it is
+        // not in the hygiene sweep: it needs an input the nix sandbox has not got - a compiler
+        // there, a resolvable registry here. It exists because a review found that the offline gate
+        // could only see that a licence cell was non-empty, so the main content of a generated
+        // artefact was trusted rather than compared.
+        name: "check-attribution-current",
+        description: "ATTRIBUTION.md is what the generator produces (needs a resolvable registry)",
+        kind: Kind::Standalone,
+        run: attribution::run_check_current,
+    },
+    Task {
+        // NOT `Kind::Hygiene`, and for `check-api-docs`' reason rather than its own: it invokes
+        // `cargo metadata`, which needs a resolvable registry, and the hygiene sweep runs inside a
+        // nix sandbox with no network. `check-attribution` above is the half that runs everywhere,
+        // and it reads `Cargo.lock` precisely so it can.
+        name: "attribution",
+        description: "regenerate ATTRIBUTION.md from cargo metadata (needs a resolvable registry)",
+        kind: Kind::Standalone,
+        run: attribution::run_generate,
+    },
+    Task {
+        // NOT `Kind::Hygiene`, and for a different reason from `check-api-docs`: it compiles
+        // nothing and needs no network, but it is only half a gate. It EXTRACTS; the verdict comes
+        // from `shellcheck`, which is a nix-pinned tool the cheap sweep must not require. So the
+        // pairing lives in `just lint-actions` and in `ci.yml`'s workflow-analysis step, beside
+        // the `actionlint` call that cannot read these files at all.
+        name: "action-shell",
+        description: "extract every composite action's shell into a directory, for shellcheck",
+        kind: Kind::Standalone,
+        run: action_shell::run,
     },
     Task {
         name: "fmt",

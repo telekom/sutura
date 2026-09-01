@@ -88,6 +88,7 @@ name: ci
 # above can still leave it pending on a pull request targeting `main`, and that exposure is the
 # promotion path only, because the `dev` ruleset requires no status check at all.
 on:
+  merge_group:
   push:
     # `dev` IS THE TRUNK and `main` is the release ref. Both are listed, and the second one is
     # not redundant: a promotion to `main` is a fast-forward of commits CI already judged on
@@ -353,20 +354,21 @@ jobs:
       - name: Secrets
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
+      # NOT gated on classification: a licence value can move without `Cargo.lock` moving, and a
+      # hand edit to the document is not a dependency change at all. The hygiene half reads the lock
+      # and can only see that a licence cell is non-empty; this needs a resolvable registry.
+      - name: The attribution document is current
+        run: nix run .#xtask -- check-attribution-current
+
+      # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
+      # TWO callers and was written twice - here and in the justfile - and two copies of a gate are
+      # how the two come to check different things. That script's header carries what each tool
+      # covers, including the one gap none of them reached: the shell inside a composite action,
+      # which `actionlint` cannot read at all. It also records the line-cap measurement that
+      # decided WHEN to split, which is a fact about the `dev` trunk and not about this file here.
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
-        run: |
-          set -eu
-          nix run .#zizmor -- .github/workflows
-          nix run .#actionlint
-          # Every shell script we ship, and now the glob really IS the list. It used to name one
-          # file under this comment, so `nix/run-gate.sh` - which decides whether the tests, the
-          # secret sweep, the supply-chain gate and the CRAP score run at all - was linted by
-          # nothing. An empty list would pass by checking nothing, so it is a failure.
-          mapfile -t scripts < <(find . -name '*.sh' -not -path './.git/*' -not -path './target/*' | sort)
-          printf 'shellcheck: %d script(s)\n' "${#scripts[@]}"
-          test "${#scripts[@]}" -gt 0
-          nix run .#shellcheck -- -x "${scripts[@]}"
+        run: bash nix/lint-workflows.sh
 
       - name: Tests
         if: steps.classify.outputs.rust == 'true'

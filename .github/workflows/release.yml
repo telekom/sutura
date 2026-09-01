@@ -250,6 +250,83 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  # THE LICENCE STATEMENT, and it is here rather than in `licence-review.yml` because of a
+  # property of this forge rather than a preference: this repository has GitHub's immutable
+  # releases enabled, so once a release is published its assets can never be added to. A report
+  # produced by a second workflow racing this one cannot become an asset of it, and the ninety-day
+  # CI artifact it used to be was the one output an auditor asks for and no consumer could obtain
+  # or verify. Produced here, it is signed and attached before the release is published.
+  #
+  # `needs: [gates]` and not `[build]`: it compiles nothing, so it runs beside the four cross
+  # builds. IT CAN FAIL A RELEASE, and that is the trade - `docs/adr/0021`'s attribution amendment
+  # records it. `contents: read` only; `publish` is what signs and pushes.
+  licence:
+    needs: [gates]
+    runs-on: rust-mcp
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # ORT labels its result with the project's VCS metadata, so a shallow clone would leave
+          # the report describing an unknown revision.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Straight into `dist/`, which is the directory `publish` collects and the signing action
+      # signs every file of. A new asset shape is a file landing there and needs no new signing
+      # step - the action's own header says so at length.
+      - uses: ./.github/actions/licence-review
+        with:
+          pack-to: dist/sutura-licence-review.tar.gz
+
+      # THE COMMITTED DOCUMENT, copied rather than generated: `just attribution` writes it from
+      # `cargo metadata` and `cargo xtask check-attribution` fails when it falls behind
+      # `Cargo.lock`, so the tagged tree already carries a current one and generating a second
+      # copy here would be a second owner for one artefact. Deliberately WIDER than any one
+      # binary - every crate the workspace resolves - because for attribution the safe error is
+      # naming a crate that did not ship, not omitting one that did.
+      #
+      # The count is a FLOOR, for the reason the SBOM assertion in `build` gives: pinning it would
+      # make a dependency bump fail on a correct tree. What it catches is the silent case, a
+      # generator that still writes a well formed document naming nothing.
+      - name: The attribution document travels with the report
+        run: |
+          set -eu
+          if [ ! -s ATTRIBUTION.md ]; then
+            echo "::error::ATTRIBUTION.md is missing from the checkout; 'just attribution' writes it"
+            exit 1
+          fi
+          cp ATTRIBUTION.md dist/sutura-attribution.md
+          ( cd dist && sha256sum sutura-attribution.md > sutura-attribution.md.sha256 )
+          named="$(grep -c '^| `' dist/sutura-attribution.md || true)"
+          if [ "$named" -lt 100 ]; then
+            echo "::error::sutura-attribution.md names ${named} package(s); a workspace this size resolves hundreds"
+            exit 1
+          fi
+          printf 'attribution: %s packages\n' "$named"
+
+      # NOT `release-*`, deliberately, and this is the one thing about the handover worth reading.
+      # `upload-artifact` roots an artifact at the least common ancestor of what it matched, so a
+      # single `path: dist/` produces an artifact whose entries are BARE FILE NAMES - where the
+      # matrix, matching three directories, produces one whose entries are `dist/...`. Merged into
+      # `publish` under the `release-*` pattern this would have unpacked to the workspace root and
+      # the arrival check would have reported both documents missing. So it is named out of that
+      # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
+      # correctly.
+      #
+      # Not `if: always()`: an unsigned partial report must not reach a release, and a failed ORT
+      # run has already failed above.
+      - name: Hand the report to publish
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: licence-statement
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
   # The only job that can write anything, and the only one that builds nothing.
   #
   # Gated at the JOB level rather than per step, so on a branch dispatch the job holding the
@@ -257,7 +334,7 @@ jobs:
   # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
   # `vN.N.N` tag may move `:latest`, which is what consumers pull.
   publish:
-    needs: [build]
+    needs: [build, licence]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: rust-mcp
     timeout-minutes: 60
@@ -306,19 +383,13 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
-      # The attribution document is COMMITTED and gated - `cargo xtask check-attribution`
-      # regenerates it from `Cargo.lock` and a failing diff is a failing gate - so the tag
-      # checkout already holds the right bytes; this is a copy into what gets signed and
-      # uploaded, not a build. `docs/adr/0021`'s amendment is the decision; this step and the
-      # arrival check below are what make it a release asset like every other.
-      - name: Copy the attribution document into the release
-        run: |
-          set -eu
-          if [ ! -s THIRD_PARTY_NOTICES ]; then
-            echo "::error::THIRD_PARTY_NOTICES is missing or empty in the checkout - cargo xtask check-attribution owns this file"
-            exit 1
-          fi
-          cp THIRD_PARTY_NOTICES dist/THIRD_PARTY_NOTICES
+      # Its own step for the reason the upload states: this artifact is rooted at `dist/`, so its
+      # entries are bare file names and it has to be told where they go.
+      - name: Collect the licence statement
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: licence-statement
+          path: dist
 
       # The failure mode the split introduces, gated before anything is published. A single job
       # could not lose a target; four jobs and an artifact round-trip can, and a release that
@@ -378,14 +449,25 @@ jobs:
             echo "::error::${have} artefact(s) arrived but this job expects ${want}: TARGETS and BINARIES here, strategy.matrix.target in 'build', and binaries in nix/shipped.nix have drifted apart"
             exit 1
           fi
-          # And the one release asset no build produces, because it is committed rather than
-          # built: the attribution document. The copy step above refuses an absent file, this
-          # asserts the bytes survived into `dist/` where the signing step reads them.
-          if [ ! -s dist/THIRD_PARTY_NOTICES ]; then
-            echo "::error::dist/THIRD_PARTY_NOTICES is missing or empty - the attribution document is not part of this release"
-            exit 1
-          fi
           ls -l dist images facts
+
+      # THE LICENCE STATEMENT, asserted for the reason the step above exists: it is written by the
+      # `licence` job, and a release quietly shipping no statement of what a consumer may do with
+      # it is the state this path was built to leave. Two documents, because they answer two
+      # questions - `sutura-attribution.md` is the committed list of every crate the workspace
+      # resolves, `sutura-licence-review.tar.gz` is ORT's curated report over the same metadata
+      # plus an advisory pass. `docs/adr/0021`'s attribution amendment says which owns what.
+      - name: The licence statement arrives with the release
+        run: |
+          set -eu
+          for f in sutura-attribution.md sutura-attribution.md.sha256 \
+                   sutura-licence-review.tar.gz sutura-licence-review.tar.gz.sha256; do
+            if [ ! -s "dist/${f}" ]; then
+              echo "::error::dist/${f} is missing or empty: the 'licence' job handed over nothing"
+              exit 1
+            fi
+          done
+          ls -l dist/sutura-attribution.md dist/sutura-licence-review.tar.gz
 
       # Only from a tag that looks like a release. Without this a `workflow_dispatch` on any
       # branch computed a tag from the branch name and moved `:latest`, which is what consumers
@@ -747,7 +829,19 @@ jobs:
             echo "| --- | --- |"
             echo "| the files in the image: the binary, CA certificates, tzdata | the image layers |"
             echo "| the crates the binary was compiled from | a \`cargo auditable\` section inside the binary, not from \`Cargo.lock\` |"
-            echo "| the whole dependency closure, with versions | \`THIRD_PARTY_NOTICES\`, committed and regenerated from \`Cargo.lock\` by \`check-attribution\` |"
+
+            # THE LICENCE STATEMENT, as a table for the reason everything here is one: it is the
+            # facts a reader chooses on. Two documents and one row each, because they answer two
+            # questions and a reader who takes the wrong one gets the wrong answer. In THIS group
+            # rather than its own, because shellcheck's SC2129 counts redirects to one file and a
+            # fourth `} >> notes.md` is what tipped it - and the two tables are adjacent anyway.
+            echo
+            echo "### Licence"
+            echo
+            echo "| Document | Covers |"
+            echo "| --- | --- |"
+            printf "| [\`sutura-attribution.md\`](%s/sutura-attribution.md) | every third-party crate this workspace resolves and the licence it declares; committed, generated from \`cargo metadata\` |\n" "$base"
+            printf "| [\`sutura-licence-review.tar.gz\`](%s/sutura-licence-review.tar.gz) | the curated review: CycloneDX, SPDX, a rendered NOTICE and an OSV advisory pass over the same declared metadata |\n" "$base"
           } >> notes.md
 
           {
@@ -756,7 +850,7 @@ jobs:
             echo
             echo "| Artefact | Sigstore bundle | SLSA provenance | Registry signature |"
             echo "| --- | --- | --- | --- |"
-            echo "| binaries, image tarballs, SBOMs, \`image-digests.txt\`, \`THIRD_PARTY_NOTICES\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
+            echo "| binaries, image tarballs, SBOMs, the two licence documents, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
             echo "| the \`.sha256\` sidecars | no: the bundle above already commits to the digest | yes | n/a |"
             echo "| images, eight leaves and four manifest lists | n/a | the four manifest lists | \`cosign\`, all twelve references |"
             echo "| each leaf image's CycloneDX SBOM | n/a | n/a | \`cosign attest --type cyclonedx\` |"
@@ -776,7 +870,7 @@ jobs:
               "$IMAGE" "$identity" "$issuer"
             printf "| what is inside an image | \`cosign verify-attestation --type cyclonedx %s@<digest> --certificate-identity-regexp %s --certificate-oidc-issuer %s\` |\n" \
               "$IMAGE" "$identity" "$issuer"
-            printf "| the licence/attribution document is the release's, offline | \`cosign verify-blob --bundle THIRD_PARTY_NOTICES.sigstore.json --certificate-identity-regexp %s --certificate-oidc-issuer %s THIRD_PARTY_NOTICES\` |\n" \
+            printf "| the licence statement is the release's, offline | \`cosign verify-blob --bundle sutura-attribution.md.sigstore.json --certificate-identity-regexp %s --certificate-oidc-issuer %s sutura-attribution.md\` |\n" \
               "$identity" "$issuer"
             printf "| what any of it means | [Verifying a release](%s/%s/blob/%s/docs/verifying-a-release.md) |\n" \
               "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$tag"
