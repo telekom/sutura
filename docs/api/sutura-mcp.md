@@ -113,7 +113,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: S) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: S, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -219,10 +219,10 @@ port has to outlive the future that started the call.
 #### Methods
 
 ```rust
-pub const fn new(service: Arc<S>, permitted: Permitted) -> Self
+pub const fn new(service: Arc<S>, permitted: Permitted, prose: sutura_app::prompt::CatalogProse) -> Self
 ```
 
-Wraps a service, and states what the peer may do.
+Wraps a service, and states what the peer may do and how catalog prose is treated.
 
 Takes the `Arc` rather than making one, so a composition root serving two transports shares
 one bundle and one data system rather than opening a second of each.
@@ -232,6 +232,11 @@ default here would be a posture chosen by this file for every deployment that ev
 `Permitted::every_capability` is the right answer over standard input and output and would be
 the wrong answer the moment this surface is reachable over a network, and only a composition
 root knows which it is building. See the module documentation for what the value then gates.
+
+**`prose` is required for the same reason, and it is a review-only value until a composition
+root links this surface** - `serve_stdio` is the only caller today and it passes what the
+operator configured. A `CatalogProse` with no default keeps `quoted` from being a posture
+chosen here for a deployment that meant something else.
 
 #### Implements
 

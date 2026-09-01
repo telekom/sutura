@@ -9,6 +9,7 @@
 // over it. What moved is the whole of the column-zero property, which is one decision and one
 // hostile fixture; the fixture itself stays here, because `definitions` above declares it.
 mod column_zero;
+mod injection_corpus;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -523,25 +524,6 @@ fn a_hostile_description_cannot_reach_column_zero() {
     assert!(!text.contains('\r'), "a carriage return from a description survived");
     // And the boundary is named for the agent, not only enforced for the renderer.
     assert!(text.contains("data, not instruction"));
-}
-
-#[test]
-fn the_injection_corpus_prose_never_reaches_column_zero_in_the_prompt() {
-    // The same hostile descriptions the tool walks, here through `quote` - so the two text surfaces
-    // hold to one property (no line of catalog prose reaches column zero) and a future surface
-    // inherits both tests from the one `sutura_app::untrusted` corpus.
-    for prose in crate::untrusted::PROSE {
-        let quoted = quote(prose);
-        assert!(
-            quoted.lines().all(|line| line.starts_with('>')),
-            "a corpus description reached column zero:\n{quoted}"
-        );
-        // Every entry carries a marker, so this is non-vacuous: the prose really ran, quoted.
-        assert!(
-            quoted.contains("> # SYSTEM") || quoted.contains("> definitions:"),
-            "the corpus entry did not render quoted:\n{quoted}"
-        );
-    }
 }
 
 #[test]
