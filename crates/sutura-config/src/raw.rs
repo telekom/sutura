@@ -34,7 +34,14 @@ pub(crate) struct RawSettings {
     pub(crate) telemetry: RawTelemetry,
     #[serde(default)]
     pub(crate) api: RawApi,
-    pub(crate) catalog: RawCatalog,
+    /// The metadata sources this deployment reads, in declaration order.
+    ///
+    /// A LIST rather than a map because declaration order is content order for the contribution
+    /// manifest; each entry names itself, which is what a reviewer reads and what the manifest
+    /// keys on. The empty-list refusal and the duplicate-name check live in
+    /// `crate::catalog::Catalogs`.
+    #[serde(default)]
+    pub(crate) catalogs: Vec<RawCatalog>,
     pub(crate) runtime: RawRuntime,
     #[serde(default)]
     pub(crate) prompt: RawPrompt,
@@ -316,9 +323,27 @@ pub(crate) struct RawApi {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawCatalog {
+    /// The declared name, which the contribution manifest keys on.
+    pub(crate) name: String,
+    /// Which adapter opens this catalog. Defaulted to `markdown` - the only kind every build can
+    /// open - so a deployment that has not yet chosen reads the same model it always did, and the
+    /// explicit word in `defaults.yaml` is what a reader is pointed at. `datahub` here does not
+    /// fail the PARSE; it is refused by the composition root that would have to link the adapter,
+    /// which is where `SourceKind::BigQuery` makes the same stand.
+    #[serde(default = "catalog_kind_markdown")]
+    pub(crate) kind: String,
     pub(crate) dir: String,
     pub(crate) data_dir: String,
     pub(crate) version: String,
+}
+
+/// The default spelling of [`crate::catalog::CatalogKind::Markdown`], for `#[serde(default)]`.
+///
+/// A `const fn` is not possible because `serde` calls it by pointer; it returns the one spelling
+/// named by the catalog kind's own `NAMES`, so the default cannot drift into a word the parser
+/// refuses.
+fn catalog_kind_markdown() -> String {
+    String::from("markdown")
 }
 
 /// What goes into the agent-facing prompt beyond the bundle and the tool list.

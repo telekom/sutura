@@ -17,10 +17,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::pinned::{DefinitionVersion, InvalidVersion};
 
 use crate::api::ApiSettings;
-use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
+use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
 use crate::environment::{Environment, UnknownEnvironment};
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
@@ -265,6 +266,16 @@ pub enum SettingsError {
         #[source]
         cause: InvalidVersion,
     },
+    #[error("`catalog.kind` does not name a catalog this configuration can express")]
+    CatalogKind {
+        #[source]
+        cause: UnknownCatalogKind,
+    },
+    #[error("`catalogs` holds a name that is not a catalog name")]
+    CatalogName {
+        #[source]
+        cause: InvalidIdentifier,
+    },
     #[error("the catalog configuration is not usable")]
     Catalog {
         #[source]
@@ -380,7 +391,7 @@ pub struct Settings {
     rate_limit: RateLimitSettings,
     telemetry: TelemetrySettings,
     api: ApiSettings,
-    catalog: CatalogSettings,
+    catalogs: Catalogs,
     runtime: RuntimeSettings,
     prompt: PromptSettings,
     sources: SourceRegistry,
@@ -426,7 +437,7 @@ impl Settings {
                 raw.api.docs.unwrap_or_else(|| ApiSettings::docs_default_for(environment)),
                 raw.api.docs.is_some(),
             ),
-            catalog: parse_catalog(raw)?,
+            catalogs: parse_catalogs(raw)?,
             runtime: parse_runtime(raw)?,
             prompt: parse_prompt(raw)?,
             sources,
@@ -620,9 +631,10 @@ impl Settings {
         self.api
     }
 
+    /// The metadata sources this deployment reads, in declaration order.
     #[inline]
-    pub const fn catalog(&self) -> &CatalogSettings {
-        &self.catalog
+    pub const fn catalogs(&self) -> &Catalogs {
+        &self.catalogs
     }
 
     /// How much runs at once, how wide the engine is, and how long stopping may take.
@@ -840,10 +852,27 @@ fn parse_telemetry(raw: &RawSettings, environment: Environment) -> Result<Teleme
     Ok(TelemetrySettings::new(name, filter, format, raw.telemetry.format.is_some()))
 }
 
-fn parse_catalog(raw: &RawSettings) -> Result<CatalogSettings, SettingsError> {
-    let version = DefinitionVersion::parse(&raw.catalog.version).map_err(|cause| SettingsError::Version { cause })?;
-    CatalogSettings::parse(PathBuf::from(&raw.catalog.dir), PathBuf::from(&raw.catalog.data_dir), version)
-        .map_err(|cause| SettingsError::Catalog { cause })
+fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsError> {
+    let mut entries = Vec::with_capacity(raw.catalogs.len());
+    for raw_catalog in &raw.catalogs {
+        // `name` and `kind` are required here for the same reason a source's alias is: the
+        // contribution manifest keys on the name and the composition root dispatches the kind, so
+        // an entry that omits either is a declaration that cannot be opened. `kind` is parsed as a
+        // closed set; an absent one was already defaulted by the raw shape.
+        let name = SourceName::parse(&raw_catalog.name).map_err(|cause| SettingsError::CatalogName { cause })?;
+        let kind = CatalogKind::parse(&raw_catalog.kind).map_err(|cause| SettingsError::CatalogKind { cause })?;
+        let version = DefinitionVersion::parse(&raw_catalog.version).map_err(|cause| SettingsError::Version { cause })?;
+        let settings = CatalogSettings::parse(
+            name,
+            kind,
+            PathBuf::from(&raw_catalog.dir),
+            PathBuf::from(&raw_catalog.data_dir),
+            version,
+        )
+        .map_err(|cause| SettingsError::Catalog { cause })?;
+        entries.push(settings);
+    }
+    Catalogs::parse(entries).map_err(|cause| SettingsError::Catalog { cause })
 }
 
 /// The concurrency bounds and the two deadlines that are not per-request.

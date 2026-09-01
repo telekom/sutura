@@ -192,12 +192,18 @@ telemetry:
 # per-source ceiling would be a number with nothing to bound. Writing it under a source is an
 # unknown-key error rather than a setting that quietly does nothing.
 
-catalog:
-  dir: "catalog"
-  data_dir: "data"
-  # A placeholder, and it is meant to be replaced by a commit id or a build number: what identifies
-  # a snapshot of a directory is not something the directory knows.
-  version: "unversioned"
+# Metadata sourceS the deployment reads, in declaration order. Each entry names itself (the key
+# the contribution manifest is keyed on), declares its kind, and says where its model and its own
+# data live. `kind: markdown` is the only kind any build here can open; an absent kind also means
+# `markdown`.
+catalogs:
+  - name: "model"
+    kind: "markdown"
+    dir: "catalog"
+    data_dir: "data"
+    # A placeholder, and it is meant to be replaced by a commit id or a build number: what
+    # identifies a snapshot of a directory is not something the directory knows.
+    version: "unversioned"
 
 runtime:
   # The resource that runs out is a blocking-pool thread holding a data system, not a socket, so

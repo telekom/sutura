@@ -279,6 +279,12 @@ happened rather than implying the check was run.
 
 ## `use None`
 
+## `use None`
+
+## `use None`
+
+## `use None`
+
 ## Module `api`
 
 Whether the generated documentation is served, and why the default differs by environment.
@@ -339,6 +345,60 @@ wherever the files the engine reads happen to be mounted. Conflating them would 
 deployment that moved its data look like a catalog change, which is the one thing a pinned
 bundle exists to make visible.
 
+### `enum CatalogKind`
+
+```rust
+pub enum CatalogKind
+```
+
+Which adapter the catalog configuration names, and therefore which one opens it.
+
+**A closed set of typed declarations, `crate::sources::SourceKind`'s shape on the metadata
+side.** A DATA source's adapter is chosen by `SourceKind` and dispatched by the composition
+root's exhaustive match with no wildcard arm; a METADATA source has exactly the same need, and
+until this type existed the settings tree carried a directory and a version and no word an
+operator could write to say *read the model from somewhere else* - so a second catalog kind
+could merge complete and silently remain unreachable from any binary.
+
+Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
+that exists in a record rather than in a linked crate is still a word an operator might write.
+
+#### Variants
+
+- `Markdown` - A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
+- `Datahub` - A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The spelling, for the startup log.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownCatalogKind>
+```
+
+Reads the configured word.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct UnknownCatalogKind`
+
+```rust
+pub struct UnknownCatalogKind
+```
+
+The configured word did not name a kind of catalog this build has.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct CatalogSettings`
 
 ```rust
@@ -346,6 +406,10 @@ pub struct CatalogSettings
 ```
 
 Where the definitions and the data are, and what the resulting bundle is called.
+
+Each catalog carries a declared NAME, the way a `sources:` entry carries an alias: the
+contribution manifest keys on it, and a reviewer reads it in a settings file. It is named by
+code and not by index so that reordering the list does not silently rename a contributor.
 
 #### Methods
 
@@ -358,10 +422,22 @@ pub fn dir(&self) -> &Path
 ```
 
 ```rust
-pub fn parse(dir: PathBuf, data_dir: PathBuf, version: DefinitionVersion) -> Result<Self, InvalidCatalogSettings>
+pub const fn kind(&self) -> CatalogKind
 ```
 
-Reads the two directories and the version label.
+Which adapter opens this catalog.
+
+```rust
+pub const fn name(&self) -> &SourceName
+```
+
+The declared name, which the contribution manifest keys on.
+
+```rust
+pub fn parse(name: SourceName, kind: CatalogKind, dir: PathBuf, data_dir: PathBuf, version: DefinitionVersion) -> Result<Self, InvalidCatalogSettings>
+```
+
+Reads the declared name, kind, the two directories and the version label.
 
 The version arrives already parsed, because what identifies a snapshot of a directory is
 a commit id or a build number and only the caller has it. Existence of the directories is
@@ -388,10 +464,50 @@ Why a catalog configuration is not usable.
 #### Variants
 
 - `EmptyPath` - A path was empty, which resolves to the process working directory - a different directory on every host, and never the one the operator meant.
+- `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
+- `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct Catalogs`
+
+```rust
+pub struct Catalogs
+```
+
+The catalogs a deployment declares, in declaration order.
+
+**A non-empty, ordered collection, and the empty member is unrepresentable.** Composition -
+the point of having N - is the metadata assembler in `sutura-app`; this type is the declared
+configuration it is handed. Order is declaration order, which is content order: the contribution
+manifest is a `BTreeMap` keyed on each entry's `CatalogSettings::name`, so this ordering is
+what a reviewer reads and manifest determinism does not depend on it surviving a rename.
+
+#### Methods
+
+```rust
+pub const fn count(&self) -> usize
+```
+
+How many catalogs are declared.
+
+```rust
+pub fn each(&self) -> impl Iterator<Item>
+```
+
+Every catalog, in declaration order.
+
+```rust
+pub fn parse(entries: Vec<CatalogSettings>) -> Result<Self, InvalidCatalogSettings>
+```
+
+Reads the declared catalogs, refusing an empty list and any duplicated name.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
 
 ## Module `credentials`
 

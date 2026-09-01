@@ -227,14 +227,27 @@ fn announce_surface(settings: &Settings) {
     } else {
         tracing::info!(docs = api.docs_enabled(), "generated interface description");
     }
-    tracing::info!(
-        catalog_dir = %settings.catalog().dir().display(),
-        data_dir = %settings.catalog().data_dir().display(),
-        definition_version = %settings.catalog().version(),
-        log_format = %settings.telemetry().format(),
-        log_format_explicit = settings.telemetry().format_was_explicit(),
-        "catalog and log"
-    );
+    // The banner names one catalog where the deployment serves one; where it declares several
+    // (a shape the metadata assembler composes above the settings), the banner says how many and
+    // points at the composition rather than flattening N dirs into one line.
+    match settings.catalogs().each().next() {
+        Some(single) if settings.catalogs().count() == 1 => tracing::info!(
+            catalog_name = %single.name(),
+            catalog_kind = single.kind().as_str(),
+            catalog_dir = %single.dir().display(),
+            data_dir = %single.data_dir().display(),
+            definition_version = %single.version(),
+            log_format = %settings.telemetry().format(),
+            log_format_explicit = settings.telemetry().format_was_explicit(),
+            "catalog and log"
+        ),
+        _ => tracing::info!(
+            catalogs = settings.catalogs().count(),
+            log_format = %settings.telemetry().format(),
+            log_format_explicit = settings.telemetry().format_was_explicit(),
+            "log; the declared catalogs are composed by the metadata assembler"
+        ),
+    }
 }
 
 /// The one line an operator must not be able to miss, and it is now two lines because the answer

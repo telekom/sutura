@@ -44,6 +44,9 @@ use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_http::{LocalService, ServiceState};
 use sutura_runtime::{Shutdown, TracingAuditSink, banner, shutdown, telemetry};
 
+/// How a declared `catalogs:` becomes the catalog this build serves.
+mod catalog;
+
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
 /// **No longer a check, and that is the change worth reading.** It used to be the only source name
@@ -122,7 +125,7 @@ fn run() -> Result<(), String> {
     banner::announce(&settings);
 
     // 6. The adapters, then the service. Both ports are named exactly here.
-    let catalog = LocalCatalog::new(PathBuf::from(settings.catalog().dir()), settings.catalog().version().clone());
+    let catalog = catalog::open_catalog(settings.catalogs())?;
     let pinned = catalog.load().map_err(flatten)?;
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
@@ -190,7 +193,7 @@ fn run() -> Result<(), String> {
         refuse_unattached(&served_tables(service.definitions()), &attached)?;
     }
     tracing::info!(
-        definition_version = %settings.catalog().version(),
+        definition_version = %pinned.version(),
         metrics = pinned.definitions().metrics().len(),
         "catalog loaded and every anchor reproduced its number"
     );
@@ -457,8 +460,7 @@ type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
     sutura_exec_bigquery::wire::BigQueryWire<sutura_exec_bigquery::wire::credential::Credential>,
 >;
 
-/// The started service, with the adapter it was built over erased.
-///
+/// The started service, with the adapter it was built over erased.///
 /// Named because `Result<Arc<dyn Surface>, String>` is over the `type_complexity` threshold this
 /// workspace tightened - the same reason `sutura_exec_bigquery`'s `Mapped` exists - and because the
 /// erasure is the thing worth naming: what the transport takes is a trait object, so which adapter
