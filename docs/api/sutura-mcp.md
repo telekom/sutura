@@ -59,9 +59,10 @@ of evidence that says an agent client can actually ask.
 `serde_derive_internals` - counted by diffing the package names against the base branch rather
 than read off a dependency tree. Everything else it wants was already in the lock: `tokio-util`,
 `uuid`, `chrono` and `futures` arrive here through this crate for the first time, but they are
-nobody's new supply-chain surface. No shipped artifact grows, because **no binary links this
-crate yet**. `macros` is off, so no attribute of theirs writes code into this crate, and the
-handler is three methods written by hand.
+nobody's new supply-chain surface. The only shipped artifact that grows is `sutura` itself,
+which links this crate behind its `mcp` subcommand - and the dependency is pure Rust, so nothing
+about the two musl triples changes. `macros` is off, so no attribute of theirs writes code into
+this crate, and the handler is three methods written by hand.
 
 # What is deliberately absent
 
@@ -82,9 +83,10 @@ handler is three methods written by hand.
 * **Resources and prompts.** A gateway of the shape this product runs behind surfaces tools and
   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
   where they are - in `sutura_app::prompt`, advisory, for a cooperative client.
-* **A composition root.** Nothing links this crate yet: `serve_stdio` is the entry point a
-  binary would call, and which binary gets it - and how a deployment configures it - is a
-  composition decision this slice does not take.
+* **A composition root.** Nothing below `serve_stdio` cares about transport, and the binary that
+  calls it is `sutura`'s `mcp` subcommand - the single-player answer to *which binary gets it*,
+  composed in `sutura-cli` the way `query` is. This crate deliberately does not decide that; it
+  is the transport a composition root calls.
 
 ## `enum NotServed`
 
@@ -113,7 +115,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: S, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -123,7 +125,14 @@ protocol on its pipes. There is no socket, no port and no listener, which is als
 authentication here - the process boundary is the boundary, and a deployment that needs a
 network-reachable agent surface needs the identity leg `docs/adr/0014` designs first.
 
-Consumes the service, wraps it in an `Arc`, and returns when the peer closes or is cancelled.
+Takes `Arc<S>` rather than an owned `S`, and not for convenience. The surface's engine holds a
+nested `tokio` runtime, which rmcp keeps alive inside a task of the CALLER's runtime; if that task
+held the only strong reference, the engine would be released on a worker thread when the caller's
+runtime shuts down - and dropping a runtime on a worker is not allowed there, so the process aborts
+with no message. Taking the `Arc` lets the composition root keep a handle of its own, outside the
+runtime, and release the engine on a non-async thread after the runtime is gone.
+
+Returns when the peer closes or is cancelled.
 
 # Errors
 
@@ -233,10 +242,9 @@ default here would be a posture chosen by this file for every deployment that ev
 the wrong answer the moment this surface is reachable over a network, and only a composition
 root knows which it is building. See the module documentation for what the value then gates.
 
-**`prose` is required for the same reason, and it is a review-only value until a composition
-root links this surface** - `serve_stdio` is the only caller today and it passes what the
-operator configured. A `CatalogProse` with no default keeps `quoted` from being a posture
-chosen here for a deployment that meant something else.
+**`prose` is required for the same reason, and it is a composition-root value.** `sutura`'s
+`mcp` subcommand passes what this deployment renders; a `CatalogProse` with no default keeps
+`quoted` from being a posture chosen here for a deployment that meant something else.
 
 #### Implements
 

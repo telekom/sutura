@@ -389,7 +389,10 @@ pub(crate) use crate::mcp::mcp;
 /// there is no second caller for that identity to be wrong for. `ImpersonationCapability` on the
 /// adapter says the same thing from the other side, so the two agree by construction rather than by a
 /// check this command could skip.
-pub(crate) fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Warehouses<DataFusionWarehouse>, String> {
+pub(crate) fn open_engine(
+    pinned: &PinnedDefinitions,
+    data: &Path,
+) -> Result<sutura_app::Warehouses<DataFusionWarehouse>, String> {
     let sources = sutura_app::sources(pinned);
     let declared = match sources.as_slice() {
         [only] => (*only).clone(),
