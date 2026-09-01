@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use sutura_domain::pinned::{DefinitionVersion, InvalidVersion};
 
 use crate::api::ApiSettings;
-use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
+use crate::catalog::{CatalogKind, CatalogSettings, InvalidCatalogSettings, UnknownCatalogKind};
 use crate::environment::{Environment, UnknownEnvironment};
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
@@ -264,6 +264,11 @@ pub enum SettingsError {
     Version {
         #[source]
         cause: InvalidVersion,
+    },
+    #[error("`catalog.kind` does not name a catalog this configuration can express")]
+    CatalogKind {
+        #[source]
+        cause: UnknownCatalogKind,
     },
     #[error("the catalog configuration is not usable")]
     Catalog {
@@ -841,8 +846,9 @@ fn parse_telemetry(raw: &RawSettings, environment: Environment) -> Result<Teleme
 }
 
 fn parse_catalog(raw: &RawSettings) -> Result<CatalogSettings, SettingsError> {
+    let kind = CatalogKind::parse(&raw.catalog.kind).map_err(|cause| SettingsError::CatalogKind { cause })?;
     let version = DefinitionVersion::parse(&raw.catalog.version).map_err(|cause| SettingsError::Version { cause })?;
-    CatalogSettings::parse(PathBuf::from(&raw.catalog.dir), PathBuf::from(&raw.catalog.data_dir), version)
+    CatalogSettings::parse(kind, PathBuf::from(&raw.catalog.dir), PathBuf::from(&raw.catalog.data_dir), version)
         .map_err(|cause| SettingsError::Catalog { cause })
 }
 

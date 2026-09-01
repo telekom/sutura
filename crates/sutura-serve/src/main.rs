@@ -122,7 +122,7 @@ fn run() -> Result<(), String> {
     banner::announce(&settings);
 
     // 6. The adapters, then the service. Both ports are named exactly here.
-    let catalog = LocalCatalog::new(PathBuf::from(settings.catalog().dir()), settings.catalog().version().clone());
+    let catalog = open_catalog(settings.catalog())?;
     let pinned = catalog.load().map_err(flatten)?;
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
@@ -457,13 +457,31 @@ type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
     sutura_exec_bigquery::wire::BigQueryWire<sutura_exec_bigquery::wire::credential::Credential>,
 >;
 
-/// The started service, with the adapter it was built over erased.
-///
+/// The started service, with the adapter it was built over erased.///
 /// Named because `Result<Arc<dyn Surface>, String>` is over the `type_complexity` threshold this
 /// workspace tightened - the same reason `sutura_exec_bigquery`'s `Mapped` exists - and because the
 /// erasure is the thing worth naming: what the transport takes is a trait object, so which adapter
 /// answered stops being visible in a type exactly here.
 type Serving = Arc<dyn Surface>;
+
+/// Opens the catalog the settings declare, dispatching the kind exhaustively.
+///
+/// **`sutura_config::CatalogKind` is the metadata side of `SourceKind`, and this is the same
+/// exhaustive no-wildcard match that dispatches a source kind in [`open_engine`].** A third kind is
+/// therefore a compile error here rather than a refusal that reads the same wherever it is written.
+fn open_catalog(settings: &sutura_config::CatalogSettings) -> Result<LocalCatalog, String> {
+    match settings.kind() {
+        sutura_config::CatalogKind::Markdown => Ok(LocalCatalog::new(
+            PathBuf::from(settings.dir()),
+            settings.version().clone(),
+        )),
+        sutura_config::CatalogKind::Datahub => Err(format!(
+            "`catalog.kind: {}` names a metadata adapter this build does not link - build the binary \
+             with the feature that provides it, or write `markdown`",
+            sutura_config::CatalogKind::Datahub.as_str()
+        )),
+    }
+}
 
 /// Loads the catalog a second time through its port, verifies every anchor, and erases the adapter.
 ///

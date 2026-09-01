@@ -863,3 +863,32 @@ fn the_two_bundles_agreeing_is_the_ordinary_case_and_starts() {
         "the comparison is over sets, so declaration order is not a difference"
     );
 }
+
+#[test]
+fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() {
+    // `SourceKind::BigQuery`'s property on the metadata side, and the reason it is a property of
+    // the BUILD rather than of the file: `sutura-config` can and must not see which catalog
+    // adapter a binary linked, so the refusal lives in the composition root that would have to
+    // open the kind. `datahub` is the vocabulary's one kind no binary here links.
+    use sutura_config::{CatalogKind, CatalogSettings};
+    use sutura_domain::pinned::DefinitionVersion;
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    let settings = CatalogSettings::parse(
+        CatalogKind::Datahub,
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
+        version.clone(),
+    )
+    .expect("a directory and a version are a settings");
+    let err = super::open_catalog(&settings).expect_err("datahub cannot be opened by this build");
+    assert!(err.contains("datahub"), "{err}");
+    assert!(err.contains("markdown"), "{err}");
+    let markdown = CatalogSettings::parse(
+        CatalogKind::Markdown,
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
+        version,
+    )
+    .expect("a directory and a version are a settings");
+    super::open_catalog(&markdown).expect("markdown is the kind this build links");
+}

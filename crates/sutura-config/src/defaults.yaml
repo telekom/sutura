@@ -193,6 +193,11 @@ telemetry:
 # unknown-key error rather than a setting that quietly does nothing.
 
 catalog:
+  # Which adapter opens this catalog. `markdown` is the only kind any build here can open; an
+  # absent key also means `markdown`, so a deployment that has not chosen reads the model it
+  # always did. `datahub` is refused by the composition root, which is where an unlinked kind is
+  # told apart from a misspelling.
+  kind: "markdown"
   dir: "catalog"
   data_dir: "data"
   # A placeholder, and it is meant to be replaced by a commit id or a build number: what identifies
