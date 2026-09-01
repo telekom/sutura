@@ -2967,7 +2967,9 @@ that grows until nobody can review it. <code>stax</code> (<code>st</code>) does 
 </span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>st<span class="w"> </span>ls<span class="w">                  </span><span class="c1"># what the stack looks like now</span>
 </span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>st<span class="w"> </span>refresh<span class="w">             </span><span class="c1"># sync trunk, restack the stack, submit the updates</span>
 </span></code></pre></div>
-<p>A branch behind <code>dev</code> is <strong>rebased</strong>, never merged. A merge commit from <code>dev</code> into a topic
+<p><strong>Restack with stax (<code>st</code>); never hand-<code>git rebase</code> a branch that belongs to a stack.</strong> See the
+<code>stacked-branches</code> skill.</p>
+<p>A branch behind <code>main</code> is <strong>rebased</strong>, never merged. A merge commit from <code>main</code> into a topic
 branch comes back as a rebase request in review, and it also destroys the linear shape <code>st</code>
 relies on. Run <code>just ship-check</code> per branch rather than once for the stack, since each pull
 request is reviewed alone and so has to be green alone. Restacking rewrites history by design,

@@ -2965,7 +2965,7 @@ internal that a stable surface can grow behind.</p>
 <td>22</td>
 <td>~~<code>build/supply-chain</code>~~</td>
 <td>nothing - orthogonal</td>
-<td><strong>DONE</strong> - <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/">0021</a>. A Sigstore bundle per asset, <code>cosign</code> on all six image references, CycloneDX and SPDX per leaf image from the auditable binary, SLSA provenance, ORT in <code>licence-review.yml</code>, and REUSE. <strong>The licence half is now built too:</strong> <code>THIRD_PARTY_NOTICES</code> is committed and gated by <code>cargo xtask check-attribution</code>, released and signed with every tag, and documented in <code>docs/verifying-a-release.md</code> - the roadmap bullet's <em>signed licence reports</em> is no longer three-quarters</td>
+<td><strong>DONE</strong> - <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/">0021</a>. A Sigstore bundle per asset, <code>cosign</code> on all six image references, CycloneDX and SPDX per leaf image from the auditable binary, SLSA provenance, ORT in <code>licence-review.yml</code>, and REUSE. <strong>The licence half is now built too:</strong> <code>ATTRIBUTION.md</code> is committed and gated by <code>cargo xtask check-attribution</code> and <code>check-attribution-current</code>, released and signed with every tag, and documented in <code>docs/verifying-a-release.md</code> - the roadmap bullet's <em>signed licence reports</em> is no longer three-quarters</td>
 </tr>
 <tr>
 <td>23</td>
