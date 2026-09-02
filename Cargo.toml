@@ -14,6 +14,10 @@
 resolver = "3"
 members = [
   "crates/sutura-domain",
+  # THE declaring catalog source, measured against its declaration rather than the golden oracle -
+  # `docs/adr/0016`. Everything it decides is tested against a fake reader over recorded aspects; a
+  # real HTTP reader awaits the read-path-cost measurement against a provisioned instance.
+  "crates/sutura-catalog-datahub",
   "crates/sutura-catalog-local",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
@@ -73,6 +77,7 @@ repository = "https://github.com/telekom/sutura"
 [workspace.dependencies]
 sutura-domain = { path = "crates/sutura-domain" }
 sutura-catalog-local = { path = "crates/sutura-catalog-local" }
+sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }

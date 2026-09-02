@@ -244,6 +244,20 @@ impl CatalogUnderTest for sutura_catalog_local::LocalCatalog {
     }
 }
 
+/// The first DECLARING catalog: `DataHub`, opened over its recorded fixture corpus.
+///
+/// Its corpus is NOT the example markdown - a metadata service over HTTP has no directory of YAML to
+/// share - so this opens over the crate's own recorded aspects, which is what a `sources.<alias>`-per
+/// platform deployment reads. The three universal cells hold because the fixture bundle is measured
+/// against the adapter's declaration, which is the whole point of the `declaring` path.
+impl CatalogUnderTest for sutura_catalog_datahub::DataHubCatalog<sutura_catalog_datahub::fixture::FixtureReader> {
+    const NAME: &'static str = "datahub";
+
+    fn open() -> Self {
+        sutura_catalog_datahub::fixture::over_fixture_source(source(), version())
+    }
+}
+
 /// A `Warehouse` adapter this suite executes the example corpus against.
 ///
 /// [`open`] takes the bundle because attaching a table per model is what makes a data system able to
@@ -460,9 +474,16 @@ macro_rules! registered {
         // `sutura-catalog-local`, the metadata reference: a directory of markdown documents with
         // YAML frontmatter. Golden - it defines the model here, so it is held to the whole of it.
         $cell!(markdown, golden, sutura_catalog_local::LocalCatalog);
-        // A future narrow adapter is registered here with `declaring` and gets the universal cells
-        // and no golden-only cell. There is none to register yet; the split exists so that when the
-        // first one lands it is a registration rather than a matrix redesign. `docs/adr/0016`.
+        // `sutura-catalog-datahub`, the first narrow adapter: a DECLARING source that supplies the
+        // physical model, the descriptions and the join columns and no metric layer. It gets the
+        // universal cells and no golden-only cell, and is measured against its own declaration -
+        // `docs/adr/0016`. Its corpus is the crate's recorded aspects rather than the example
+        // markdown, which is what a metadata service over HTTP reads.
+        $cell!(
+            datahub,
+            declaring,
+            sutura_catalog_datahub::DataHubCatalog<sutura_catalog_datahub::fixture::FixtureReader>
+        );
     };
 
     (data_systems: $cell:ident) => {
