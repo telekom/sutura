@@ -13,20 +13,24 @@
 #
 # Measured on 2026-09-01: 18,688 entries used 32.95 GB. Closed pull requests held 2.63 GB and
 # closed merge-queue refs another 3.27 GB; `main` held 11.17 GB and stays explicitly out of scope.
+# Actions cache has no per-ref retention setting, so this workflow cannot promise exactly three days
+# for `main`; it never deletes those entries and leaves their lifetime to GitHub's idle/LRU policy.
 #
 # What it costs when it is wrong: re-running CI on an already-closed pull request rebuilds
 # from scratch instead of restoring. That is slower and still correct, and it is rare enough
 # to be the right trade against evicting main's cache.
 #
-# NOT event-driven, deliberately. `pull_request: closed` from a fork gets a read-only token
-# and could not delete anything, and `pull_request_target` would hand a full token to a
-# workflow triggered by an outside contributor. A schedule needs neither.
+# A close event deletes only the exact `refs/pull/<n>/merge` scope. `pull_request_target` supplies
+# the base workflow and a write token for forks too; this is safe because no pull-request code or
+# data is executed. Queue refs need a repository-wide scan, so the daily sweep collects those.
 #
 # THIRD-PARTY ACTIONS: none - and no checkout either. This reads and deletes through the API
 # and never needs the source tree.
 name: cache-prune
 
 on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] fixed base script executes no PR code or data
+    types: [closed]
   schedule:
     # Daily at 04:23 UTC and off the hour: scheduled jobs on the hour queue behind everyone else's.
     - cron: "23 4 * * *"
@@ -61,6 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          CLOSED_PR: ${{ github.event.pull_request.number }}
           # `inputs` is empty on a schedule, so both carry the scheduled default.
           BUDGET: ${{ inputs.budget || '800' }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
@@ -69,6 +74,7 @@ jobs:
 
           # A non-numeric budget would reach `head -n` and abort there with a worse message.
           case "$BUDGET" in ''|*[!0-9]*) echo "::error::budget must be a number, got '$BUDGET'"; exit 1 ;; esac
+          case "$CLOSED_PR" in ''|*[!0-9]*) [ -z "$CLOSED_PR" ] || { echo "::error::invalid pull request number '$CLOSED_PR'"; exit 1; } ;; esac
 
           pr_number_for_ref() {
             case "$1" in
@@ -89,24 +95,27 @@ jobs:
           test "$(pr_number_for_ref refs/heads/gh-readonly-queue/main/pr-456-deadbeef)" = 456
           test -z "$(pr_number_for_ref refs/heads/main || true)"
 
-          # OPEN pull requests first, and the run ABORTS if this fails. Fail closed: an empty
-          # list read as "nothing is open" would mark every cache dead and delete the lot. The
-          # same rule the xtask gates learned - a check that could not run must not report a
-          # finding - applied to a step that deletes.
-          if ! gh api --paginate "repos/${REPO}/pulls?state=open&per_page=100" \
-                 --jq '.[].number' > open.txt 2>err.txt; then
-            echo "::error::could not list open pull requests; refusing to guess what is closed"
-            cat err.txt >&2
-            exit 1
+          : > open.txt
+          if [ -z "$CLOSED_PR" ]; then
+            # The sweep ABORTS if this fails. An empty result caused by an API failure must not
+            # read as "nothing is open" and mark every pull-request cache dead.
+            if ! gh api --paginate "repos/${REPO}/pulls?state=open&per_page=100" \
+                   --jq '.[].number' > open.txt 2>err.txt; then
+              echo "::error::could not list open pull requests; refusing to guess what is closed"
+              cat err.txt >&2
+              exit 1
+            fi
+            echo "open pull requests: $(paste -sd, open.txt || echo none)"
           fi
-          echo "open pull requests: $(paste -sd, open.txt || echo none)"
 
-          # Every cache entry, paged until a page comes back empty.
+          # A close event asks for one exact ref. Scheduled/manual sweeps page the whole repository.
           : > all.tsv
           page=1
           while :; do
-            gh api "repos/${REPO}/actions/caches?per_page=100&page=${page}" \
-              --jq '.actions_caches[] | [.id, .ref, .size_in_bytes, .key] | @tsv' > page.tsv
+            args=(--method GET "repos/${REPO}/actions/caches" -f per_page=100 -f "page=${page}")
+            [ -z "$CLOSED_PR" ] || args+=(-f "ref=refs/pull/${CLOSED_PR}/merge")
+            gh api "${args[@]}" --jq \
+              '.actions_caches[] | [.id, .ref, .size_in_bytes, .key] | @tsv' > page.tsv
             [ -s page.tsv ] || break
             cat page.tsv >> all.tsv
             page=$((page + 1))
@@ -121,6 +130,7 @@ jobs:
           while IFS=$'\t' read -r id ref size key; do
             n="$(pr_number_for_ref "$ref" || true)"
             [ -n "$n" ] || continue
+            if [ -n "$CLOSED_PR" ] && [ "$n" != "$CLOSED_PR" ]; then continue; fi
             if grep -qx "$n" open.txt; then continue; fi
             printf '%s\t%s\t%s\t%s\n' "$size" "$id" "$ref" "$key" >> dead.tsv
           done < all.tsv
