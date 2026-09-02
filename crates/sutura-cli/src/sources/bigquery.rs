@@ -167,38 +167,11 @@ pub(super) fn open(
 
 #[cfg(test)]
 mod tests {
-    use crate::sources::{bundle_naming, declaring, open_engine, timeout};
-
-    /// One `sources:` entry for a `BigQuery` dataset, with every key that kind is opened with.
-    ///
-    /// The credential file points at a path that is not there ON PURPOSE, and each test below says
-    /// what it is proving with that: a refusal naming that key is proof the composition reached the
-    /// credential layer, which is the furthest a test with no project can get. The shape is
-    /// `sutura-serve`'s own `bigquery_entry`, because the composition under test is the same one.
-    fn declaring_bigquery(posture: &str, extra: &str) -> sutura_config::SourceRegistry {
-        declaring(
-            "warehouse",
-            &format!(
-                "    kind: bigquery\n    billing_project: \"acme-analytics\"\n    dataset: \"marts\"\n    \
-                 credential_file: \"/nonexistent/sutura-cli-test-bigquery.json\"\n    max_bytes_billed: \
-                 1073741824\n{extra}"
-            ),
-            posture,
-        )
-    }
-
-    /// The `workload_identity` block an `impersonation-at-source` entry must carry.
-    ///
-    /// `#[cfg(feature = "bigquery")]`, because only the test that reaches the posture cross-check
-    /// needs one and `dead_code` is `deny` here - which is what a build with the feature OFF caught.
+    // The fixtures live one module up so the dataset-argument refusal - which is `sources.rs`'s,
+    // not this file's - can be tested beside the arm that makes it. One entry builder, two suites.
     #[cfg(feature = "bigquery")]
-    fn wif() -> String {
-        String::from(
-            "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
-             workloadIdentityPools/p/providers/sso\"\n      scope: \"https://www.googleapis.com/auth/\
-             bigquery.readonly\"\n",
-        )
-    }
+    use crate::sources::wif;
+    use crate::sources::{bundle_naming, declaring_bigquery, open_engine, timeout};
 
     #[test]
     #[cfg(not(feature = "bigquery"))]

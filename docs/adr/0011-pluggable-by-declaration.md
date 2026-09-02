@@ -718,12 +718,24 @@ That is this record's decision arriving in the second place it applies, not a ne
   as whoever ran the command. It is a declaration in code rather than an absence treated as
   permission, and it is why `[data-dir]` is optional now - a fully declared deployment needs none, and
   supplying both for one source is refused as two answers to one question.
-- **The built-in declaration keeps its NAME**, which is the control the registry did not replace. The
-  old comparison existed for a real defect: an engine named after whatever the catalog declared
-  satisfied `sutura-app`'s `plan.source() != warehouse.source()` guard by construction, so a bundle
-  certifying a metric against a real data system got that metric answered out of the caller's CSV
-  files under the real bundle's digest. A DECLARED source replaces that comparison with the
-  declaration; an UNDECLARED one replaces it with nothing, so the name still has to match.
+- **The built-in declaration keeps its NAME**, which is the control the registry did not replace, and
+  the reason is a LOOKUP rather than a comparison. *An earlier version of this bullet named a
+  `plan.source() != warehouse.source()` guard; that guard does not exist anywhere in the tree, and
+  `sutura-app`'s own source says the opposite - "The plan SELECTS its warehouse - it is not compared
+  against one."* What happens is `warehouses.get(plan.source())`, in `answer` and again in
+  `verify_anchors`, keyed on the name the CATALOG declared. So an engine registered under whatever
+  the catalog said makes that lookup succeed by construction and a bundle certifying a metric against
+  a real data system gets it answered out of the caller's CSV files under the real bundle's digest;
+  an engine under a fixed name misses, and a miss is `SourceUnavailable` / `SourceNotConfigured` - a
+  clean refusal. A DECLARED source replaces the name check with the declaration; an UNDECLARED one
+  replaces it with nothing, so the name still has to match.
+- **And a declaration is not a claim about CONTENT**, which is the limit this decision introduces and
+  which belongs beside it: an entry says where a data system is, and the only thing that checks the
+  data there is an anchor - `verify_anchors` walks the metrics that declare one, and the table-set
+  comparison at boot reads names. So a bundle of unanchored metrics is answered under its real digest
+  out of whatever directory an operator points the entry at. Parity with `sutura-serve` rather than
+  something the second root opened, and stated because this is the change that makes it the
+  documented command-line workflow.
 
 **And the limit, because a registry reads like availability:** which KINDS a given binary can open is
 still a property of the build. `kind: bigquery` parses - the adapter exists - and the `sutura` command

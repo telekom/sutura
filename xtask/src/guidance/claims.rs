@@ -107,7 +107,7 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
                 holds: "",
             },
             Evidence {
-                path: "crates/sutura-cli/src/sources.rs",
+                path: "crates/sutura-cli/src/sources/files.rs",
                 holds: "DataFusionWarehouse::new",
             },
         ],
@@ -225,11 +225,47 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
         name: "query builds a database",
         wordings: &["the database is built in memory"],
         evidence: &[Evidence {
-            path: "crates/sutura-cli/src/sources.rs",
+            path: "crates/sutura-cli/src/sources/files.rs",
             holds: "attach_parquet",
         }],
         instead: "there is no database. The engine registers one file per model in process, \
                   Parquet preferred over CSV, and reads it where it lies",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
+        name: "no configuration selects a data system",
+        // **This entry exists because review found the gate blind to its own class.** Two
+        // front-door pages - `README.md` and `docs/index.md` - still asserted a compile-time
+        // decision after `github.com/telekom/sutura#121` made it a declaration, and the identical
+        // sentence had been corrected in `AGENTS.md` and `docs/adr/0016` in the same change. A
+        // wording is added here the moment it is found, which is what stops the next page drifting
+        // the same way.
+        wordings: &[
+            "no configuration that selects a metadata provider or a data system",
+            "there is no configuration that selects one",
+            "no configuration that selects a data system",
+            "which data system is opened is a compile-time decision",
+        ],
+        evidence: &[
+            Evidence {
+                path: "crates/sutura-config/src/sources.rs",
+                holds: "pub enum SourceKind",
+            },
+            Evidence {
+                path: "crates/sutura-cli/src/sources.rs",
+                holds: "SourceKind::Files",
+            },
+            Evidence {
+                path: "crates/sutura-serve/src/main.rs",
+                holds: "SourceKind::Files",
+            },
+        ],
+        instead: "`sources.<alias>.kind` selects the adapter, and BOTH composition roots dispatch \
+                  it through an exhaustive match. What stays a compile-time decision is which KINDS \
+                  a given build linked: `kind: bigquery` on a build without the default-off \
+                  `bigquery` feature is a refusal naming that feature. `docs/architecture.md`'s \
+                  table is the inventory",
         only: &[],
         except: &[],
     },

@@ -212,9 +212,16 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
         let usage = "prompt <catalog-dir> [config-dir]";
         let root = arg(args, 0, "catalog-dir", usage)?;
         let environment = sutura_config::environment_from_process().map_err(|e| render(&e))?;
+        // **The positional wins, and the VARIABLE is the fallback - which is a fix rather than a
+        // convenience.** Review reproduced one binary reading the deployment configuration from two
+        // places: `sutura prompt <catalog>` printed `configuration from embedded defaults only`
+        // while `sutura query <catalog> <question>` refused on the content of the directory
+        // `SUTURA_CONFIG_DIR` names, on one machine, at the same moment. Two subcommands resolving
+        // different settings is exactly what exporting the variable name from `sutura_config` was
+        // meant to stop.
         let settings = sutura_config::Settings::load(&sutura_config::Sources::from_process_environment(
             environment,
-            args.get(1).map(PathBuf::from),
+            args.get(1).map(PathBuf::from).or_else(sutura_config::config_dir_from_process),
         ))
         .map_err(|e| render(&e))?;
         // **Standard error, and that is not a detail.** This command's standard output is piped into

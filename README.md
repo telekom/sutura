@@ -101,8 +101,12 @@ and a bounded range compiles to a plan; every metric that declares a certified n
 reproduces it before the bundle can be served.
 
 ```
-sutura query <catalog-dir> <question.yaml> <data-dir>
+sutura query <catalog-dir> <question.yaml> [data-dir]
 ```
+
+The data directory is optional: a deployment that declares its data system in a `sources:` tree has
+already said where the data is. Passing it as well is fine when the two agree, and refused when they
+do not.
 
 Two things read as more than they are. The plan can be **rendered** as SQL for DuckDB, Postgres,
 ClickHouse or BigQuery - `sutura compile` does that and the goldens parse-check each one - but
@@ -115,9 +119,11 @@ golden suite and by a differential test that runs one plan both ways and compare
 binary does not link it and you need no `libduckdb` to run the command above. `sutura doctor` prints
 `data systems : none - this build reads files, and pushes down to nothing`.
 
-Which adapter is used is decided at compile time. There is no configuration that selects a metadata
-provider or a data system yet, which is why "pluggable" describes the ports and not an operator's
-options. [What can be plugged in today](https://telekom.github.io/sutura/latest/architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
+Which METADATA adapter is used is decided at compile time - there is one, and no configuration selects
+it. A **data system** is a declaration: `sources.<alias>.kind` picks the adapter, so a catalogue may
+name its data system anything an entry declares, and `kind: bigquery` needs a build carrying the
+default-off feature. What "pluggable" still does not mean is a plugin an operator drops in: the set of
+kinds is closed, and a word outside it is a refusal listing what is available. [What can be plugged in today](https://telekom.github.io/sutura/latest/architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
 is the table.
 
 The part that makes the first line of this README true of a *warehouse* is still not built, and it is

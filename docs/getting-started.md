@@ -218,9 +218,23 @@ sources:
 ```
 
 Then `source: warehouse` is answered, and the data directory comes off that entry rather than off the
-command line - so `sutura query catalog/ question.yaml` takes no third argument, and passing one
-anyway is refused as two answers to one question. It is the same `sources:` tree
-[the service](serving.md) reads, which is the point: one declaration, whichever surface asks.
+command line - so `sutura query catalog/ question.yaml` takes no third argument. Passing one anyway is
+fine when it names the same directory the entry does, and refused when it names a different one: two
+answers that agree are one answer, and a disagreement is not something to resolve silently. It is the
+same `sources:` tree [the service](serving.md) reads, which is the point: one declaration, whichever
+surface asks.
+
+**What a declaration does NOT say**, and it is worth knowing before pointing one at a directory: it
+says where a data system is, never that the files there hold what your catalogue certifies. The only
+thing that checks the data is an **anchor** - a metric that declares one has its number re-executed
+before anything is served, and a metric that declares none is answered out of whatever is there,
+under the catalogue's real digest. That is true of the service too. Anchor the metrics you care
+about; [Being refused](#being-refused) is what a mismatch looks like when one is declared.
+
+A configuration that will not SERVE will not answer here either - `SUTURA_ENVIRONMENT=production`
+with no access token configured stops this command too, and says so. That is one door into the
+settings rather than two, and the refusal names the two variables that get you back to answering from
+the directory on the command line.
 
 `kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries do
 not, because the outbound TLS stack it links compiles C and assembly for four release triples. Build

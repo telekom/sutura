@@ -235,11 +235,27 @@ refuses `datasets.create`.
 0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
 one target the parse check cannot see a function's argument order.
 
-The engine refuses a catalogue that declares any data system other than the one it is: naming the
-engine after whatever the catalogue said was a real bug, because it satisfied the composition root's
-own `plan.source() != warehouse.source()` guard by construction, and a catalogue naming a production
-warehouse then got its certified metric answered out of the caller's files under that bundle's digest.
-Today a catalogue that names something else gets an error saying there is no adapter for it.
+**A catalogue may name its data system anything, and an UNDECLARED name is still refused - both
+halves matter, and this paragraph said the opposite of each until #121.** A declared source is opened
+under its own name and its own posture; a source no `sources:` entry names falls back to the
+command-line tool's built-in `files` declaration, which answers to `local` only.
+
+Why the undeclared name is still checked: `sutura_app::answer` and `verify_anchors` both do
+`warehouses.get(plan.source())` - a LOOKUP keyed on the name the catalogue declared, not a
+comparison. (An earlier version of this paragraph named a `plan.source() != warehouse.source()`
+guard, which exists nowhere in the tree; `sutura-app`'s own source says *"The plan SELECTS its
+warehouse - it is not compared against one."*) So an engine registered under whatever the catalogue
+said makes that lookup succeed by construction, and a catalogue naming a production warehouse would
+get its certified metric answered out of the caller's files under that bundle's digest. An engine
+registered under a fixed name misses instead, and a miss is a refusal - `SourceUnavailable` from a
+question, `SourceNotConfigured` from an anchor.
+
+**The limit a declaration does NOT close**, stated next to the claim: an entry says where a data
+system is, never that the files there hold what the bundle certifies. The only thing that checks
+content is an ANCHOR, and `verify_anchors` walks the metrics that declare one - so a bundle of
+unanchored metrics is answered under its real digest out of whatever directory the entry points at.
+That is true of `sutura-serve` too and always was; #121 is the change that makes it the documented
+command-line workflow.
 
 **What it costs to add a fourth adapter.** A `Warehouse` or `SemanticCatalog` implementation, one line
 in the workspace manifest, one line in the composition root - and, in the test suite, one `impl` of
