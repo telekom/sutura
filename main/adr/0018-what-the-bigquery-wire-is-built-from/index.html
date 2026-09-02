@@ -1739,6 +1739,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-02-a-second-call-at-the-socket-and-it-is-not-a-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-02: a second call at the socket, and it is not a job
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2628,6 +2639,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-02-a-second-call-at-the-socket-and-it-is-not-a-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-02: a second call at the socket, and it is not a job
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3168,6 +3190,63 @@ remove the property the test would be checking around.</p>
   is a process invocation and a JSON parser in a crate with one dependency. That absence is written
   in the gate's own header, because a gate that reads as if it covered something it does not is the
   failure this repository names as its canonical example.</li>
+</ul>
+<h2 id="amendment-2026-09-02-a-second-call-at-the-socket-and-it-is-not-a-job">Amendment, 2026-09-02: a second call at the socket, and it is not a job<a class="headerlink" href="#amendment-2026-09-02-a-second-call-at-the-socket-and-it-is-not-a-job" title="Permanent link">&para;</a></h2>
+<p><em>What is built</em> above enumerates the wire as <code>submit</code> / <code>validate</code> / <code>run</code> - three names over one
+endpoint, <code>jobs.query</code>. Issue #120 added a fourth call and it is a different KIND of call, so this
+record says so rather than letting a reader infer that everything here submits a job.</p>
+<p><strong>What was added.</strong> <code>wire::tables::list</code>, reached through <code>JobTransport::list_tables</code>, is a paged
+<code>GET</code> on <code>tables.list</code>: it issues no statement, reads no rows, and is billed for nothing. It exists
+because <code>sutura-serve</code> needs to know at boot whether a dataset holds the tables a bundle names - a
+<code>files</code> deployment already refuses that case and a <code>bigquery</code> one did not - and because asking per
+DATASET rather than per MODEL is what makes the check affordable at all.</p>
+<p><strong>What it inherits without re-arguing:</strong> the host is the same <code>const</code>, the agent is the same pinned
+<code>WireAgent</code>, redirects are refused, the answer is read under <code>MAX_ANSWER_BYTES</code>, and the bearer comes
+from the same credential source through the same expiry guard - factored into <code>source_bearer</code> when
+this became its second caller.</p>
+<p><strong>What it decides for itself, and each is a decision rather than a default:</strong></p>
+<ul>
+<li><strong>One absolute deadline for the whole listing</strong>, not one per page. <code>CallDeadline</code> is opened once
+  and each page reads what is left, so a dataset that pages slowly shortens the pages after it. A
+  budget spent before the next page is <code>DeadlineSpent</code> and never a partial listing, because a partial
+  listing is a wrong ANSWER rather than a slow one - this call's output is <em>these tables are absent</em>.</li>
+<li><strong>A page bound that fails rather than truncates.</strong> <code>MAX_PAGES</code> pages of <code>PAGE_SIZE</code> is 64,000
+  tables; past it the call is <code>ListingDidNotFinish</code>, for the same reason.</li>
+<li><strong>A page token is VALIDATED and never filtered.</strong> A token is opaque, so a stripped character
+  addresses a different page rather than a safe one. It is checked against the URL-unreserved set
+  plus <code>=</code>, and bounded - review had to point out that <em>validated</em> named the alphabet and not a
+  length, and that the only bound on it was the 32 MiB answer cap.</li>
+<li><strong>The quota project is the SOURCE's billing project and not the dataset's.</strong> This is the one live
+  bug review found here, and it is worth the paragraph: a cross-project model at
+  <code>partner-data.shared.dim_region</code> on a source declared <code>billing_project: acme-analytics</code> had its
+  listing attributed to <code>partner-data</code>, which the caller holds no <code>serviceusage.services.use</code> on - so
+  the listing would have <code>403</code>'d while a QUERY against the same table worked. <code>DatasetAddress</code> carries
+  the two projects in two accessors named for their roles, because a newtype per id prevents an
+  argument-ORDER mistake and permits a ROLE mistake, and the role mistake is the one that happened.</li>
+<li><strong>A refusal is told apart from an outage, and that is a port method rather than a status check at
+  the call site.</strong> <code>JobTransport::listing_was_refused</code> answers <code>true</code> for <code>401</code> and <code>403</code> only; the
+  adapter forwards it as <code>Warehouse::preflight_was_refused</code>, and <code>sutura-serve</code> refuses the boot
+  naming the grant. Everything else - unreachable, unreadable, a document that would not decode, a
+  <code>404</code> - stays a warning and the deployment serves. Without that split, a missing
+  <code>bigquery.tables.list</code> grant and a momentarily dead endpoint were the same permanent warning, which
+  turned the check off in the deployment least likely to read a startup log. <strong>A <code>404</code> is deliberately
+  in the warning half:</strong> a dataset that is not there cannot be told from a name somebody is about to
+  fix, and the endpoint answers <code>404</code> for an invisible project too.</li>
+</ul>
+<p><strong>Three limits, in this record's own tradition of stating them next to the claim:</strong></p>
+<ul>
+<li><strong>No live dataset has answered a listing.</strong> The three response documents this suite decodes were
+  written here, which is this record's existing limit restated for a second endpoint - and the
+  acceptance leg does not cover the pre-flight either, so issue #120's own <em>Verification</em> bullet
+  about a <code>just bigquery-acceptance</code> run is outstanding.</li>
+<li><strong>A document whose shape the service changes decodes to an EMPTY listing</strong>, because every field is
+  <code>#[serde(default)]</code> - and an empty listing means <em>every table is absent</em>. That fails toward
+  refusing a deployment rather than serving one, which is the right direction, and a test pins the
+  behaviour so the direction is a measured property rather than a hope. It cannot be told from an
+  empty dataset, which really does answer with no <code>tables</code> array.</li>
+<li><strong><code>tables.list</code> reports existence and nothing else.</strong> Not the columns a model names, and not
+  whether the identity that will ask a question may read the rows: a listing grant and a read grant
+  are two grants. An anchor is what covers both, for the metrics that have one.</li>
 </ul>
 
 

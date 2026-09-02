@@ -6979,6 +6979,113 @@ the two is the one line that declares the capability:</p>
 </span><span id="__span-456-36"><a id="__codelineno-456-36" name="__codelineno-456-36" href="#__codelineno-456-36"></a>    ImpersonationCapability::NoPlaceForASubject
 </span><span id="__span-456-37"><a id="__codelineno-456-37" name="__codelineno-456-37" href="#__codelineno-456-37"></a>);
 </span></code></pre></div>
+<h3 id="module-preflight">Module <code>preflight</code><a class="headerlink" href="#module-preflight" title="Permanent link">&para;</a></h3>
+<p>The pre-flight's own vocabulary: what a data system said about the tables a bundle names.</p>
+<p><strong><code>pub mod</code> with no re-export beside it, and that is a documentation decision rather than a
+style one.</strong> The domain's usual shape is a private submodule plus a <code>pub use</code>, which rustdoc
+inlines into the parent - and it did NOT inline here: <code>just api</code> generated three
+<code>### use None</code> stubs and no content for these three types, so the published reference would have
+carried a port method returning a type it does not describe. A public module gets documented.
+What a data system answered when it was asked whether the bundle's tables are there.</p>
+<p><strong>A module of its own rather than three types in <code>warehouse.rs</code></strong>, and the seam is a real one:
+nothing here is about a plan, a credential or a row. It is the vocabulary for one question a
+composition root asks once, at boot, before a listener is bound - <em>does this data system hold the
+tables the bundle names</em> - and the reason it needs a vocabulary at all is that there are three
+honest answers and only two of them are about the tables.</p>
+<h1 id="the-asymmetry-this-exists-to-close">The asymmetry this exists to close<a class="headerlink" href="#the-asymmetry-this-exists-to-close" title="Permanent link">&para;</a></h1>
+<p>A <code>files</code> deployment whose catalog names a table with no file behind it does not start: the
+engine is given one file per model, and a missing one is a refusal naming the model. A networked
+data system has no such step - the tables live in the dataset, and this process learns whether
+one is there when a question reaches it. So the same mistyped table name cost a boot refusal on
+one kind of deployment and a failed answer for whoever asked first on the other.</p>
+<p><a href="crate::warehouse::Warehouse::preflight"><code>Warehouse::preflight</code></a> is the port that closes it, and
+this is the answer it returns.</p>
+<p><strong>The links here are <code>crate::</code>-prefixed rather than <code>super::</code>-prefixed on purpose.</strong> The API
+reference pages are generated from these doc comments and copied through verbatim, and
+<code>AGENTS.md</code> records a MEASURED boundary: <code>crate::</code>-prefixed links do not warn under
+<code>mkdocs build --strict</code>, while another shape aborted it. <code>super::</code> was never measured, so it is
+not the form to find out with.</p>
+<h4 id="struct-absenttables"><code>struct AbsentTables</code><a class="headerlink" href="#struct-absenttables" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-457-1"><a id="__codelineno-457-1" name="__codelineno-457-1" href="#__codelineno-457-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AbsentTables</span>
+</span></code></pre></div>
+<p>A non-empty set of tables a data system was asked about and does not hold.</p>
+<p><strong>A newtype whose <code>parse</code> refuses an empty set, so <code>AllBut(nothing)</code> is unrepresentable rather
+than checked.</strong> The variant it fills is read by a composition root as <em>refuse to start and name
+these</em>, and a set with no names in it would produce a refusal naming nothing - the shape of a
+boot failure an operator cannot act on. There is one way to get one and it takes the set.</p>
+<h5 id="methods_83">Methods<a class="headerlink" href="#methods_83" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-458-1"><a id="__codelineno-458-1" name="__codelineno-458-1" href="#__codelineno-458-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeSet</span><span class="o">&lt;</span><span class="n">QualifiedTable</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The tables, for a refusal that names them.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-459-1"><a id="__codelineno-459-1" name="__codelineno-459-1" href="#__codelineno-459-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="nc">BTreeSet</span><span class="o">&lt;</span><span class="n">QualifiedTable</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotAbsent</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a set of tables a data system does not hold.</p>
+<p><strong>The canonical constructor</strong>, and <code>TablesPresent::of</code> is the only caller that matters: it
+routes an empty set to <code>TablesPresent::All</code>, so no call site has to decide what an empty
+set means.</p>
+<h5 id="implements_123">Implements<a class="headerlink" href="#implements_123" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-notabsent"><code>enum NotAbsent</code><a class="headerlink" href="#enum-notabsent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-460-1"><a id="__codelineno-460-1" name="__codelineno-460-1" href="#__codelineno-460-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotAbsent</span>
+</span></code></pre></div>
+<p>Why a set of absent tables is not one.</p>
+<p>One variant, and it is an enum rather than a unit struct for the reason every other error in this
+domain is one: a second reason has somewhere to go.</p>
+<h5 id="variants_63">Variants<a class="headerlink" href="#variants_63" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Nothing</code> - Nothing was named. Say <code>TablesPresent::All</code> instead.</li>
+</ul>
+<h5 id="implements_124">Implements<a class="headerlink" href="#implements_124" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="enum-tablespresent"><code>enum TablesPresent</code><a class="headerlink" href="#enum-tablespresent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-461-1"><a id="__codelineno-461-1" name="__codelineno-461-1" href="#__codelineno-461-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TablesPresent</span>
+</span></code></pre></div>
+<p>What a data system said about the tables it was asked for.</p>
+<p><strong><code>Self::NotAsked</code> is not <code>Self::All</code>, and no caller can read it as one.</strong> That is the shape
+<a href="crate::warehouse::PreFlight"><code>PreFlight</code></a> already uses and it is here for the same reason: the port's
+default has to be <em>nothing to report</em>, because an adapter that cannot ask a data system cheaply
+must not be forced to lie - and a default of "every table is there" is exactly that lie, told at
+boot, in the one place a deployment is deciding whether to serve at all. An adapter that really
+looked and found everything answers <code>Self::All</code>; one that did not look answers the default, and
+a composition root can tell which it got.</p>
+<p><strong>The third outcome is not a variant here, deliberately.</strong> A data system that could not be
+asked at all - a credential with no permission to list, a dataset that is not there, an endpoint
+that did not answer - is an <code>Err</code> from the port, not a variant of this enum. Two reasons, and the
+first is the one that decides it: <em>could not verify</em> and <em>this table is absent</em> must not collapse
+into one message, because an operator told the wrong one fixes the wrong thing, and the adapter's
+own error type is where the reason lives in the detail an operator needs. The second is that a
+variant would need a reason field, and a reason field in a domain enum is either a bounded string
+nobody owns or an erased cause the domain has no vocabulary for.</p>
+<p><strong>The limit, stated with the claim:</strong> what this reports is that a table EXISTS. It says nothing
+about the columns a model names on it, and nothing about whether the identity that asked can
+read it: a listing grant and a read grant are two grants. An anchor is what covers both, for the
+metrics that have one.</p>
+<h5 id="variants_64">Variants<a class="headerlink" href="#variants_64" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>NotAsked</code> - The adapter did not ask. The port's default, and the honest answer for an adapter that has already answered this question another way - a file engine is given its tables at boot, so a second check would be a check on the set it just built.</li>
+<li><code>All</code> - The data system was asked and holds every table it was asked about.</li>
+<li><code>AllBut</code> - The data system was asked and does not hold these.</li>
+</ul>
+<h5 id="methods_84">Methods<a class="headerlink" href="#methods_84" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-462-1"><a id="__codelineno-462-1" name="__codelineno-462-1" href="#__codelineno-462-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">absent</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">AbsentTables</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The tables that are not there, if any were named.</p>
+<p><code>None</code> for both <code>Self::NotAsked</code> and <code>Self::All</code>, which is correct for a caller asking
+<em>what do I refuse over</em> and is exactly why <code>Self::was_asked</code> is a separate question.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-463-1"><a id="__codelineno-463-1" name="__codelineno-463-1" href="#__codelineno-463-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">absent</span><span class="p">:</span><span class="w"> </span><span class="nc">BTreeSet</span><span class="o">&lt;</span><span class="n">QualifiedTable</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The answer for an adapter that asked, from the tables it found absent.</p>
+<p><strong>One constructor, and it is what keeps the empty case from being a decision at a call
+site.</strong> An adapter computes the difference between what it was asked about and what it holds
+and hands the result over; an empty difference is <code>Self::All</code>, which is the only honest
+reading of <em>I asked and nothing was missing</em>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-464-1"><a id="__codelineno-464-1" name="__codelineno-464-1" href="#__codelineno-464-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">was_asked</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether the adapter looked at all.</p>
+<p>Read by a composition root's log line, which says a different thing for a deployment nobody
+verified than for one that was verified clean.</p>
+<h5 id="implements_125">Implements<a class="headerlink" href="#implements_125" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 
 
 
