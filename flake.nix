@@ -768,6 +768,17 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
+            # `utoipa-swagger-ui`'s build script embeds an ABSOLUTE `OUT_DIR` path into the
+            # rust-embed `#[folder]` attribute it generates
+            # (`target/ci/build/utoipa-swagger-ui-*/out/embed.rs`). When the warmed closure is
+            # unpacked here from a sandbox build (whose source root is `/build/source`) and cargo
+            # recompiles the crate under `--all-features`, it reuses that stale `embed.rs` and
+            # fails with `#[derive(RustEmbed)] folder ... does not exist`. Purging the crate's
+            # build output after the warm start forces `build.rs` to rerun and regenerate
+            # `embed.rs` against the current source root.
+            rm -rf -- "''${CARGO_TARGET_DIR:-target}/ci/build/utoipa-swagger-ui-"* \
+                      "''${CARGO_TARGET_DIR:-target}/ci/.fingerprint/utoipa-swagger-ui-"* \
+                      2>/dev/null || true
             exec cargo run -q --profile ci -p xtask -- test-causality "$@"
           '');
         };
