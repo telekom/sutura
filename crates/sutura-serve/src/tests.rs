@@ -19,7 +19,8 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
-use super::{ENGINE_SOURCE, Opened, OpenedSources, open_engine, refuse_unattached};
+use super::boot::refuse_unattached;
+use super::{ENGINE_SOURCE, Opened, OpenedSources, open_engine};
 
 fn tables(names: &[&str]) -> BTreeSet<TableName> {
     names
@@ -134,14 +135,18 @@ fn engine_declared() -> sutura_config::SourceRegistry {
 }
 
 /// One model as a catalog document names it: the model, its data system, its table.
-type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
+pub(crate) type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
 
 /// A pinned bundle over exactly the models given, and no metrics.
 ///
 /// Models are all `open_engine` reads: [`sutura_app::sources`] maps over them and `attach` is
 /// called once per model, so a metric would add nothing any arm of that function looks at.
 /// Leaving them out is what lets one helper stand behind every arm below.
-fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
+///
+/// `pub(crate)` so `crate::boot`'s own tests build their bundles the same way rather than growing a
+/// second copy of this that could drift from what a document really produces. Both modules are
+/// `#[cfg(test)]`, so nothing compiled into the binary can reach it.
+pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
     let declared: Vec<Model> = models
         .iter()
         .map(|&(model, source, table)| {
@@ -490,6 +495,15 @@ fn a_bigquery_source_reaches_the_credential_the_deployment_declared() {
     assert!(
         !error.contains("no fallback"),
         "the shared posture is deliverable by this adapter: {error}"
+    );
+    // **And the pre-flight has not run either, which is the ordering half.** An operator told about
+    // a table when the credential is unreadable would go and edit the catalog, which was never
+    // wrong. The type is what makes this hold rather than this assertion: `boot::refuse_absent_tables`
+    // takes an OPEN registry and only `open_engine` produces one, so there is no arrangement of
+    // `run` in which a listing is asked for before the credential was read.
+    assert!(
+        !error.contains("does not hold"),
+        "no dataset is asked about a table before its credential is read: {error}"
     );
 }
 

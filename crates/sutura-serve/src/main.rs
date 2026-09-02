@@ -65,6 +65,9 @@ use sutura_runtime::{Shutdown, TracingAuditSink, banner, shutdown, telemetry};
 /// How a declared `catalogs:` becomes the catalog this build serves.
 mod catalog;
 
+/// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
+mod boot;
+
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
 /// **No longer a check, and that is the change worth reading.** It used to be the only source name
@@ -189,7 +192,16 @@ fn run() -> Result<(), String> {
             Some(files.attached),
         ),
         #[cfg(feature = "bigquery")]
-        OpenedSources::BigQuery(engines) => (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None),
+        OpenedSources::BigQuery(engines) => {
+            // **The pre-flight, and this line is where its ORDER is decided.** It runs after
+            // `open_engine` - which read the credential for every declared source, so an operator
+            // whose credential file is wrong is told about the credential file and not about a table
+            // they would then go and not fix - and before the listener opens, several statements
+            // below. A registry is the only thing that can be asked, and only `open_engine` produces
+            // one, which is what makes the first half of that order a type rather than a convention.
+            boot::refuse_absent_tables(&pinned, &engines)?;
+            (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
+        }
     };
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
     // needed; the service serves the SECOND. A model added to the catalog directory between the two
@@ -198,18 +210,21 @@ fn run() -> Result<(), String> {
     // query-time error for whoever asked first, which is precisely the trade this startup sequence
     // exists to avoid: a bundle that does not hold together must stop the process, not one question.
     //
-    // **`None` for a data system this process attached nothing to, and that is a NARROWING worth
-    // reading rather than a branch to skim.** The check compares the tables the served bundle names
-    // against the tables the engine holds, and the engine holds them because `attach` put them there
-    // - a file per model, refused at boot when the file is missing. A `BigQuery` source has no attach
-    // step: the tables live in the dataset, and this process learns whether one is there when a
-    // question or an anchor reaches it. So a `bigquery` deployment whose catalog names a table the
-    // dataset does not hold starts, and the first question against that model fails - where a `files`
-    // deployment in the same state does not start at all. What closes the gap for a metric that
-    // matters is an anchor, which re-executes at boot; what would close it for the rest is a
-    // per-model pre-flight, and that is a network call per model rather than a check on a set.
+    // **`None` for a data system this process attached nothing to, and what that costs has CHANGED
+    // rather than gone away - which is the whole of issue 120.** The check compares the served
+    // bundle's tables against the tables the engine holds, and the engine holds them because `attach`
+    // put them there. A `BigQuery` source has no attach step: the tables live in the dataset. That
+    // used to mean a `bigquery` deployment whose catalog names a table the dataset does not hold
+    // STARTED, and the first question against that model failed - where a `files` deployment in the
+    // same state did not start at all. `boot::refuse_absent_tables`, in the arm above, is that
+    // asymmetry closed: one metadata read per dataset, and a refusal naming the model and the table.
+    //
+    // **What is still narrower here than on the files path, stated because it is the whole remaining
+    // gap:** the pre-flight reads the bundle loaded FIRST, so a model added to the catalog directory
+    // between this root's two loads is caught below on `files` and is not caught at all on
+    // `bigquery`.
     if let Some(attached) = attached {
-        refuse_unattached(&served_tables(service.definitions()), &attached)?;
+        boot::refuse_unattached(&boot::served_tables(service.definitions()), &attached)?;
     }
     tracing::info!(
         definition_version = %pinned.version(),
@@ -507,44 +522,6 @@ where
         .map_err(flatten)
 }
 
-/// Every table the served bundle's models sit behind.
-fn served_tables(served: &PinnedDefinitions) -> BTreeSet<TableName> {
-    served
-        .definitions()
-        .models()
-        .values()
-        .map(|model| model.table_name().clone())
-        .collect()
-}
-
-/// The tables the served bundle names, against the tables the engine actually holds.
-///
-/// Two sets rather than a bundle and a set, so the comparison is unit-testable without a digest, a
-/// knowledge declaration and an engine - [`served_tables`] is the other half and is one map over a
-/// public accessor.
-///
-/// Both directions are refused, and the second is not pedantry: a table attached for a model the
-/// served bundle no longer names means the catalog directory changed between two loads seconds
-/// apart, and whatever else moved with it is the part nobody has looked at.
-fn refuse_unattached(serving: &BTreeSet<TableName>, attached: &BTreeSet<TableName>) -> Result<(), String> {
-    let missing = names(serving.difference(attached));
-    let extra = names(attached.difference(serving));
-    if missing.is_empty() && extra.is_empty() {
-        return Ok(());
-    }
-    Err(format!(
-        "the catalog changed while this process was starting: the engine was opened for the bundle \
-         loaded first, and the bundle being served names different tables. Served with no table \
-         attached: [{missing}]. Attached and no longer served: [{extra}]. Refusing to serve a model \
-         whose questions would fail at query time"
-    ))
-}
-
-/// One line of table names, for a message an operator has to act on.
-fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
-    tables.map(TableName::as_str).collect::<Vec<&str>>().join(", ")
-}
-
 /// Starts the engine and registers one file per model, returning what it attached.
 ///
 /// The engine reads the files itself, so there is no database to create and nothing to keep in step
@@ -578,7 +555,7 @@ fn open_engine(
     // Before the engines are built, and the order is the classic one: the cheap check that reads the
     // parsed tree runs before the expensive one that starts a runtime and a memory pool. It also puts
     // the more actionable message first - an anchor with no identity to run it as names the metric.
-    refuse_unverifiable_anchors(pinned, registry)?;
+    boot::refuse_unverifiable_anchors(pinned, registry)?;
     // **An exhaustive match with no wildcard arm, and it is the one line where "which adapter opens a
     // declared kind" is decided.** A third kind is a compile error here rather than a case that falls
     // through, which is the whole reason `sutura_config::SourceKind`'s vocabulary is separate from the
@@ -912,46 +889,6 @@ fn build_engine(
     // wrapper exists so a thread count and a quantity of memory cannot be swapped at this call.
     let working_set = sutura_exec_datafusion::WorkingSet::of_bytes(runtime.working_set().bytes());
     DataFusionWarehouse::with_worker_threads(source.clone(), identity.posture().clone(), width, working_set).map_err(flatten)
-}
-
-/// Refuses a bundle that declares an anchor on a source with no identity to re-run it under.
-///
-/// **Not skipped, not warned about, and not treated as a passing anchor** - the three ways this would
-/// otherwise become a mode nobody chose. A deployment that genuinely wants an impersonating source with
-/// no verification identity gets it by authoring no anchors on that source's metrics, which is a catalog
-/// fact a reviewer can see rather than a runtime behaviour they have to infer.
-///
-/// It names the metric AND the source, because the fix is in one of two different files: either the
-/// catalog stops certifying that number, or the source's entry declares the identity that would.
-///
-/// The identity the check reads is the one the port does not take yet. When `Warehouse` gains a method
-/// that runs an anchor under a `VerificationIdentity`, this check stays where it is and stops being the
-/// only thing between a declared identity and the one that ran.
-fn refuse_unverifiable_anchors(pinned: &PinnedDefinitions, registry: &sutura_config::SourceRegistry) -> Result<(), String> {
-    for (metric, _anchor) in pinned.anchored_metrics() {
-        let Some(source) = sutura_app::source_of(pinned, metric) else {
-            continue;
-        };
-        let Some(identity) = registry.get(source).and_then(sutura_config::ConfiguredSource::identity) else {
-            // Already refused by `configured_source` for every source the catalog names, so there is
-            // nothing left to say here and nothing to skip: a source with no declaration never gets
-            // this far.
-            continue;
-        };
-        match identity.anchors_run_as() {
-            sutura_domain::source::AnchorIdentity::TheSharedIdentity { .. }
-            | sutura_domain::source::AnchorIdentity::Declared { .. } => {}
-            sutura_domain::source::AnchorIdentity::NoneDeclared => {
-                return Err(format!(
-                    "metric {metric} declares an anchor and reads from {source}, which is \
-                     `impersonation-at-source` with no `sources.{source}.verification_identity`. There \
-                     is no identity to re-run that certified number as. Declare one, or remove the \
-                     anchor from {metric}"
-                ));
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Registers one model's file, preferring Parquet.
