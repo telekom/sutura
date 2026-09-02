@@ -167,11 +167,15 @@ services:
 #     certified against. And `docs/adr/0008` records Oracle's impersonation as DEFERRED anyway: the
 #     capability is in the database and no Rust driver exposes it, so there is nothing to test yet.
 #   * **Datahub** and **OpenMetadata.** Neither is one image: each is a stack - its own store, a
-#     search index, a scheduler - so the two together roughly quadruple the container count.
-#     `AGENTS.md` lists `sutura-datahub` as planned and non-existent, and there is no OpenMetadata
-#     crate at all, so nothing would read from either. Adding them now makes this tier's unmeasured
-#     cost real for zero coverage gained, which is the argument the plan's deferred
-#     selective-service-CI section is already having.
+#     search index, a scheduler - so the two together roughly quadruple the container count. That
+#     cost is the whole of the reason now, and the SECOND half of it is spent: this cell used to say
+#     `sutura-datahub` was planned and non-existent, and `sutura-catalog-datahub` exists - the first
+#     DECLARING catalog adapter, `docs/adr/0016`. So something WOULD read from a Datahub instance,
+#     and what it would buy is exactly the measurement 0016 leaves open: the only `AspectReader`
+#     implementor is `fixture::FixtureReader` over recorded aspects, so the HTTP read path's cost has
+#     never been measured against a real one. There is still no OpenMetadata crate at all. Deferred
+#     on container count, then, not on "nothing would read from either" - and the day somebody wants
+#     that measurement, this is the registration below rather than a rewrite.
 #
 # Each arrives as a REGISTRATION when its adapter does: a row in `sutura_dev::scope::SERVICES` and a
 # block here, plus a profile if it should be off by default. That is the property the plan asks for -

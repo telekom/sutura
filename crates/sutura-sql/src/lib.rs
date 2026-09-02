@@ -10,7 +10,7 @@
 //! [`generate_leg`] renders one leg of a federated question from a `LegPlan`. They share every
 //! decision that could drift - the quoting, the placeholder style, the bucket, the joins, how a term
 //! renders - and differ in the four ways `generate_leg`'s own documentation lists. Nothing in a
-//! binary calls the second one yet: there is no splitter, so `AGENTS.md`'s *Built And Not Wired*
+//! binary calls the second one yet: there is no splitter, so `.agents/skills/sutura/query-surface`'s built-and-not-wired
 //! section is where its state is recorded.
 //!
 //! # Why this is its own crate and not the compiler's last stage

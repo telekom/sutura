@@ -1,7 +1,7 @@
 //! The chain this transport establishes, which is the deployment and nothing more.
 //!
 //! A near-twin of `sutura_http`'s module of the same name, and **deliberately not shared with it**:
-//! `AGENTS.md`'s *Ports And Adapters* says an adapter never calls another adapter, and that one is
+//! `engineering/rust`'s *dependencies point inward* says an adapter never calls another adapter, and that one is
 //! `pub(crate)` for exactly that reason. What the two have in common is a fact about today rather
 //! than code worth extracting - neither transport establishes a caller identity, so both name the
 //! deployment. When one of them learns leg 1 from

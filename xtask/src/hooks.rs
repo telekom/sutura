@@ -10,7 +10,7 @@
 //!
 //! WHY IT NEEDS A GATE AND NOT A COMMENT. The push hook is one block of YAML. Deleting it, or
 //! moving it to the commit stage, breaks nothing visible: every other gate stays green, the tier
-//! table in `CONTRIBUTING.md` goes on saying the push stage compiles, and the next rebase pushes a
+//! table in `.agents/skills/sutura/gates` goes on saying the push stage compiles, and the next rebase pushes a
 //! tree nobody built. That is the shape this repo keeps deleting invariant rows over - a mechanism
 //! that reads as enforcement and checks nothing. Note the tier it guards is BYPASSABLE, with
 //! `--no-verify`, so this is not an invariant and `AGENTS.md` does not carry it as one; what it

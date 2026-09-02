@@ -24,7 +24,7 @@
 //! request it says it builds and reads the answer it says it reads*, over documents that are not the
 //! service's.
 //!
-//! So: still *Built And Not Wired* in AGENTS.md, two lines further along. `sutura-serve` links no
+//! So: still built and not wired - `.agents/skills/sutura/query-surface` - two lines further along. `sutura-serve` links no
 //! `BigQuery` adapter and refuses `kind: bigquery` by name, and the `data_systems:` axis of the
 //! golden matrix still gains no entry - one live statement is not a registered data system.
 //!

@@ -9,6 +9,19 @@
         "skill-policy": "agent-system/skill-policy/SKILL.md"
       }
     },
+    "sutura": {
+      "readme": "sutura/README.md",
+      "scope": "This codebase's own reference: invariants, the query and tool surface, identity, the crate map, dependency currency, security reasoning, and what a green run actually covers.",
+      "skills": {
+        "invariants": "sutura/invariants/SKILL.md",
+        "query-surface": "sutura/query-surface/SKILL.md",
+        "identity": "sutura/identity/SKILL.md",
+        "crate-map": "sutura/crate-map/SKILL.md",
+        "dependencies": "sutura/dependencies/SKILL.md",
+        "secure-by-design": "sutura/secure-by-design/SKILL.md",
+        "gates": "sutura/gates/SKILL.md"
+      }
+    },
     "engineering": {
       "readme": "engineering/README.md",
       "scope": "Rust in this workspace, debugging, OAuth 2.x / OIDC and token exchange.",
@@ -39,6 +52,13 @@
   "intents": [
     { "intent": "start a session, or find which skill applies", "group": "agent-system", "skill": "using-skills" },
     { "intent": "import, update or remove a skill", "group": "agent-system", "skill": "skill-policy" },
+    { "intent": "change a mechanism, or claim that something is enforced", "group": "sutura", "skill": "invariants" },
+    { "intent": "change the tool surface, a plan, a dialect or a refusal", "group": "sutura", "skill": "query-surface" },
+    { "intent": "work on tokens, credentials, postures, brokers or provenance", "group": "sutura", "skill": "identity" },
+    { "intent": "add or change a crate, a feature, or what a release ships", "group": "sutura", "skill": "crate-map" },
+    { "intent": "bump, patch or vendor a dependency, or resolve a version conflict", "group": "sutura", "skill": "dependencies" },
+    { "intent": "shape a parse, an error boundary, a clone or an Arc", "group": "sutura", "skill": "secure-by-design" },
+    { "intent": "work out what a green run covered, or why a gate passed when it should not have", "group": "sutura", "skill": "gates" },
     { "intent": "cut over-engineering: the simplest thing that works", "group": "engineering", "skill": "ponytail" },
     { "intent": "write or change Rust in this workspace", "group": "engineering", "skill": "rust" },
     { "intent": "general Rust discipline beyond this repo's rules", "group": "engineering", "skill": "ms-rust" },

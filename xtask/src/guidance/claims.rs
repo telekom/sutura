@@ -512,7 +512,7 @@ mod tests {
     fn every_live_rule_still_has_its_evidence() {
         // A rule whose evidence has gone is SILENT - right behaviour, and a failure mode nobody
         // notices. This is the tell: either the claim became true, in which case delete the row
-        // the way the invariants table says, or its anchor was renamed and needs replacing.
+        // the way the invariants skill's deletion rule says, or its anchor was renamed and needs replacing.
         let root = crate::repo::root().expect("the repo root");
         for rule in CONTRADICTED {
             for evidence in rule.evidence {

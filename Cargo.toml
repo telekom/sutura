@@ -31,7 +31,7 @@ members = [
   # The first cloud data source: renders through `sutura-sql` in the fourth dialect and pushes down.
   # NOTHING LINKS IT, and that is recorded rather than incidental - its `JobTransport` port has no
   # implementor that speaks to the endpoint, because no test in this repository can verify one.
-  # AGENTS.md's *Built And Not Wired* section and `docs/adr/0017` carry the argument.
+  # `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory and `docs/adr/0017` carry the argument.
   "crates/sutura-exec-bigquery",
   "crates/sutura-exec-datafusion",
   # A network data system over an existing `Dialect::Postgres` rendering. THE DATA SOURCE, not an

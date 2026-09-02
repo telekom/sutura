@@ -97,8 +97,8 @@ adapter that can carry a per-subject credential, and neither shipped adapter can
 
 ## What we already treat as a defect
 
-Each of these is held by a type, a lint or a gate today, and `AGENTS.md` names the mechanism beside
-it. If you can break one, that is a security bug, not a feature request:
+Each of these is held by a type, a lint or a gate today, and
+`.agents/skills/sutura/invariants` names the mechanism beside it, with the limit it does not reach. If you can break one, that is a security bug, not a feature request:
 
 - SQL, a table name, or a predicate reaching the tool surface
 - a value from a question reaching a generated statement as text rather than as a bind parameter
@@ -116,7 +116,7 @@ it. If you can break one, that is a security bug, not a feature request:
 ## Not yet guarantees
 
 These are the design and are **not** enforced, so breaking one is not a vulnerability report - it
-is the state of the repository, recorded in the invariant table in `AGENTS.md` and in
+is the state of the repository, recorded in `.agents/skills/sutura/invariants` and in
 [what exists today](https://telekom.github.io/sutura/latest/architecture/#what-exists-today):
 
 - **a query executing as the calling subject.** The port is there and the fallback is not: every

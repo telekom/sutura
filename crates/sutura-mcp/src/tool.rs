@@ -29,7 +29,7 @@
 //!
 //! # The dump, and why it is a gate rather than a convenience
 //!
-//! `AGENTS.md`'s *changing the query path or the tool surface* table wants a widened tool input to be
+//! `.agents/skills/sutura/query-surface`'s governance-boundary table wants a widened tool input to be
 //! caught by something a reviewer cannot miss. `tests::the_advertised_tool_schemas_are_the_committed_ones`
 //! is that byte-compare: **every** capability's generated schema is snapshotted, so a new or widened
 //! field changes a snapshot and the test fails until somebody re-accepts it. That puts the new surface
