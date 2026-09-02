@@ -261,6 +261,10 @@ mod tests {
     impl StsExchange for FakeExchange {
         type Error = std::convert::Infallible;
 
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a fake exchange echoes the caller's token so a test can assert WHOSE credential reached the leg"
+        )]
         fn exchange(&self, _audience: &str, _scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error> {
             let raw = String::from(subject_token.expose_secret());
             self.exchanged.borrow_mut().insert(raw.clone(), raw.clone());
@@ -288,6 +292,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the minted material IS the assertion: that the asker's own token is what was exchanged"
+    )]
     fn an_impersonating_source_exchanges_the_askers_own_token_for_the_leg() {
         let broker = WorkloadIdentityBroker::empty(FakeExchange::default()).impersonating(
             source("warehouse"),
@@ -336,6 +344,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "comparing the two minted values IS the assertion that two subjects are kept apart"
+    )]
     fn two_subjects_get_two_different_credentials() {
         // **The acceptance criterion, at the broker boundary.** Two askers, two tokens, two distinct
         // exchanged credentials - which is exactly what lets a dataset with row-level security read a

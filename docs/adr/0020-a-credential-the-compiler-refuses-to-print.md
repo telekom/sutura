@@ -205,3 +205,29 @@ drop.
   invariant rows whose mechanism moved** - from *we did not write the impl* to *the inner type has
   none, so a derive on the wrapper cannot produce one*. A row being restated is the moment to pin it;
   calling either one red-before-green would not be true.
+
+## Amendment, 2026-09-02: the `expose_secret` limit is now a lint
+
+The bullet above - *"a call site can still write `token.expose_secret()` into a log, which is why
+that method is named to be conspicuous in a grep rather than relied upon to be absent"* - is the one
+limit in this record that a mechanism could close, and #145 closed it. `clippy.toml` disallows
+`sutura_domain::identity::Secret::expose_secret`, so an exposure is an error under `-D warnings`
+until somebody writes an `#[expect]` beside it saying what the exposed value is for. That is the
+`Warehouse::verify_anchor` and `tokio::task::spawn_blocking` shape, and it was **verified to resolve**
+the way this repository's `clippy.toml` header demands: the entry was added and clippy rejected the
+existing call sites by file and line - twenty-one diagnostics across eleven files, answered by
+eighteen expectations, because `#[expect]` is per item and three functions expose twice.
+
+**What changed is the DEFAULT, not the possibility.** The exposures that were legitimate are still
+there and still legitimate - a constant-time compare of the deployment token, the bearer header a job
+is submitted with, the RFC 8693 subject token, a `PKCS#8` key handed to `ring`, an assertion handed to
+a broker, and the tests that read a minted credential in order to say whose it was. None of them
+reaches a log. What is new is that a twenty-second one cannot arrive without a diff a reviewer sees.
+
+**Three limits, and the first is the one to read.** A lint is not a type: it reaches this workspace,
+an `#[allow]` walks past it, and clippy does not lint doctests at all - the three doctests in
+`sutura_domain::identity` that call the method are outside it. `#[expect]` is per ITEM rather than per
+call, so a function carrying one expectation may make two exposures; the reason text is what a
+reviewer reads, and `#[expect]` at least fails when the last one goes away. And the ban says nothing
+about what the exposed `&str` is then *used* for - that is still review, which is why every reason
+here names the destination.

@@ -669,6 +669,12 @@ impl Credential {
     /// **`ring` computes the signature and this function writes the text**, which is the boundary the
     /// module header argues for. Two JSON documents, base64url with no padding, joined with a dot,
     /// signed, and the signature appended the same way - RFC 7515's compact serialization.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the private key has to be decoded to sign with it; the exposed text reaches a \
+                  base64 decoder and then `ring`, and neither the key nor the DER is ever \
+                  formatted, logged or put in an error"
+    )]
     fn assertion(
         client_email: &str,
         private_key_id: &str,
@@ -786,6 +792,11 @@ impl AccessTokens for Credential {
     ///
     /// Form-encoded, because that is what both grants take; every value travels in the body and never
     /// in the URL, so none of them reaches a proxy log as a query string.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a form-encoded grant is text; both exposures here become body fields of the \
+                  token request, which is the one place either value is allowed to go"
+    )]
     fn bearer(&self, now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, Self::Error> {
         /// The grant a signed assertion is presented under, spelled as the endpoint documents it.
         const ASSERTION_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -875,6 +886,11 @@ fn unwrap_pem(pem: &str) -> Option<Secret> {
 /// because that is what [`Kind::ServiceAccount`] holds and what [`Secret`] can carry - so the DER is
 /// parsed twice over a process's life, once at boot to refuse and once per assertion to sign. That
 /// costs a parse beside an HTTPS round trip and buys the boot refusal.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the boot-time refusal has to decode the key to know it is one; the exposed text \
+              reaches a base64 decoder and `ring`, and every refusal below drops the cause"
+)]
 fn readable_key(pem: &str) -> Result<Secret, KeyUnusable> {
     let packed = unwrap_pem(pem).ok_or(KeyUnusable::NotAPemBlock)?;
     let der = base64::engine::general_purpose::STANDARD

@@ -655,6 +655,10 @@ fn the_pinned_client_is_the_only_kind_either_half_of_this_module_accepts() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the second half of the assertion: `Debug` withholds the token AND the accessor still returns it"
+)]
 fn a_bearer_never_shows_its_token() {
     // `Secret` is the mechanism and this is the assertion that it survives being wrapped: a `Bearer`
     // is what the transport holds, and a derived `Debug` on it would print the token.

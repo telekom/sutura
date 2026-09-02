@@ -87,6 +87,11 @@ struct ExchangesForTheAsker;
 impl CredentialBroker for ExchangesForTheAsker {
     type Error = NoFixtureFailure;
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a fake broker that EXCHANGES has to read what it was handed, which is how a test \
+                  shows the verified caller's own assertion is what reached it"
+    )]
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
         let subject = context
             .chain()
@@ -166,6 +171,11 @@ impl Warehouse for RecordsWhatItWasHanded {
         Ok(AnchorRows::of(self.result.clone()))
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the recording fake exists to report WHICH credential reached the adapter, which is \
+                  the property two subjects driving two credentials is measured on"
+    )]
     fn execute(&self, _executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
         presented
             .agrees_with(&self.posture, &self.source)

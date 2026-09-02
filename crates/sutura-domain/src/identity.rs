@@ -217,6 +217,10 @@ mod tests {
 
     /// Redaction must not make the value unusable - otherwise people avoid the type.
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test that the accessor works at all: it is the exposure, not a use of one"
+    )]
     fn expose_secret_returns_the_value() {
         assert_eq!(Secret::new("v").expose_secret(), "v");
     }
@@ -241,6 +245,10 @@ mod tests {
     /// derived - `SecretBox<str>` cannot derive it - so a clone that returned something renderable
     /// would be an upstream change no other test here would see.
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading both values IS the assertion that a clone holds what the original held"
+    )]
     fn a_clone_is_still_opaque_and_still_holds_the_value() {
         let original = Secret::new("hunter2-do-not-log-me");
         let copy = original.clone();

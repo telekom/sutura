@@ -108,6 +108,11 @@ impl StsOverHttp {
 impl StsExchange for StsOverHttp {
     type Error = StsError;
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "RFC 8693 puts the subject token in the request body, so the exchange cannot \
+                  happen without exposing it once; it becomes a serialized field and nothing else"
+    )]
     fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error> {
         let call = CallDeadline::opened(self.agent.bounds().deadline());
         let now = std::time::SystemTime::now()
@@ -167,6 +172,10 @@ mod tests {
     use sutura_domain::identity::Secret;
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the fixture builds the body the real exchange builds, so the pinned document is the one that goes on the wire"
+    )]
     fn the_request_body_is_the_rfc_8693_shape_with_the_subject_token_in_it() {
         let request = Request {
             grant_type: GRANT_TYPE_EXCHANGE,

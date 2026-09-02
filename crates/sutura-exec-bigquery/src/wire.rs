@@ -777,6 +777,11 @@ where
         // reaches the credential source as before. The two are never both sent: a subject bearer is
         // the asker's, and blending the deployment's identity into the same header would be the
         // cross-subject leak this crate refuses.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a bearer has to reach the wire as text; the two exposures here build the one \
+                      header value the client parses, which is the whole reason the token exists"
+        )]
         let sending_bearer: String = if let Some(subject) = request.subject_bearer() {
             format!("Bearer {}", subject.expose_secret())
         } else {

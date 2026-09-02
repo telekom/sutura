@@ -35,6 +35,7 @@ downstream re-checks it. A newtype that merely *can* be checked has moved the pr
 | normalising at comparison sites (`eq_ignore_ascii_case`) | normalise inside `parse`, so derived `PartialEq`/`Hash`/`Serialize` all agree which value this is | *review* |
 | `impl Deref for MyNewtype` | an inherent method, or `AsRef<T>` if a borrow is genuinely wanted | *review*. `Deref` re-exports the inner type's whole API, and the invariant leaks out with it |
 | deriving `PartialEq` on credential material | no impl at all - a derived comparison is byte-wise and early-returning, which is a timing oracle at whatever call site adds it later | the compiler: `==` on a `Secret` does not compile |
+| letting a credential out of `Secret` on the way to a log | keep it wrapped, and expose it only where the value itself is the payload | `clippy.toml` disallows `Secret::expose_secret`, so an exposure is an error under `-D warnings` until an `#[expect]` beside it names the destination. A lint, not a type: it reaches this workspace, an `#[allow]` walks past it, and doctests are outside it |
 
 An error type per constructor, and keep it small: if testing every failure permutation is a
 chore, the type is doing too much.
@@ -173,6 +174,7 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
 | `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
 | `cargo xtask check-serde-parse` | a derived `Deserialize` on a type with a fallible constructor and no `#[serde(try_from = ..)]`; and a `try_from` whose derived `Serialize` writes a different shape |
+| `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |
 | `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles nothing, and a push-stage clippy invocation that is not the commit stage's own |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
 
