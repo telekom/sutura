@@ -179,18 +179,25 @@ fn split_top_level(text: &str) -> impl Iterator<Item = String> {
     let mut parts: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut depth = 0_usize;
+    let mut previous = ' ';
     for character in text.chars() {
         match character {
             '<' | '(' | '[' => depth = depth.saturating_add(1),
-            '>' | ')' | ']' => depth = depth.saturating_sub(1),
+            ')' | ']' => depth = depth.saturating_sub(1),
+            // `closes_generics` rather than a bare `>`, for the reason it documents: a `Box<dyn
+            // Fn() -> u8>` in a field's position would otherwise close one bracket early and the
+            // rest of the list would split at the wrong commas.
+            '>' if closes_generics(character, previous) => depth = depth.saturating_sub(1),
             ',' if depth == 0 => {
                 parts.push(current.clone());
                 current.clear();
+                previous = character;
                 continue;
             }
             _ => {}
         }
         current.push(character);
+        previous = character;
     }
     parts.push(current);
     parts.into_iter()
@@ -292,21 +299,34 @@ fn inherent_impl_target(trimmed: &str) -> Option<&str> {
 }
 
 /// The byte offset of the `>` that closes the `<` at the start of `text`.
-fn matching_angle(text: &str) -> Option<usize> {
+///
+/// `pub(crate)` because `crate::newtype_leaks` reads an `impl` header the same way, and this is
+/// the one piece of it with a trap in: see [`closes_generics`].
+pub(crate) fn matching_angle(text: &str) -> Option<usize> {
     let mut depth = 0_usize;
+    let mut previous = ' ';
     for (at, character) in text.char_indices() {
-        match character {
-            '<' => depth = depth.saturating_add(1),
-            '>' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(at);
-                }
+        if character == '<' {
+            depth = depth.saturating_add(1);
+        } else if closes_generics(character, previous) {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(at);
             }
-            _ => {}
         }
+        previous = character;
     }
     None
+}
+
+/// Is this `>` the end of a generic list, rather than half of `->` or `=>`?
+///
+/// **A real defect rather than a precaution.** `impl<F: for<'a> Fn(&'a str) -> u8> Deref for X`
+/// closed the parameter list at the arrow, four characters early, and the trait after it was then
+/// unreadable - caught by `crate::newtype_leaks`' own higher-ranked-bound test. `api_shape`'s
+/// `generic_args` next door carries the same guard for the same reason.
+const fn closes_generics(character: char, previous: char) -> bool {
+    character == '>' && previous != '-' && previous != '='
 }
 
 /// The joined signature that starts on the line at `at`, up to the `{` or `;` that ends it.
@@ -469,7 +489,7 @@ impl Sink {
 /// are consumed so that `'"'` cannot open a string, and a lifetime is left alone.
 ///
 /// Newlines are always preserved, so a reported line number is the one a reader will open.
-pub(super) fn code_lines(text: &str) -> Vec<String> {
+pub(crate) fn code_lines(text: &str) -> Vec<String> {
     let mut sink = Sink::default();
     let mut state = Lexeme::Code;
     let mut characters = text.chars();
@@ -644,7 +664,7 @@ fn char_literal_width(characters: &core::str::Chars<'_>) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{Shape, code_lines, constructor_name, derives, fallible_constructors, serde_arg, shape_of};
+    use super::{Shape, code_lines, constructor_name, derives, fallible_constructors, matching_angle, serde_arg, shape_of};
 
     #[test]
     fn a_trait_impl_is_not_an_inherent_impl() {
@@ -768,6 +788,31 @@ mod tests {
         let text = "impl<'a> Digest<'a> {}\npub struct After(String);\n";
         let lines = code_lines(text);
         assert!(lines.iter().any(|line| line.contains("struct After")), "{lines:?}");
+    }
+
+    #[test]
+    fn an_arrow_inside_a_generic_list_is_not_its_closing_bracket() {
+        // `impl<F: for<'a> Fn(&'a str) -> u8> Holder<F>` closed the parameter list at the arrow,
+        // four characters early, so the type after it was unreadable. `crate::newtype_leaks`
+        // found it; the guard lives here because both gates read an `impl` header this way.
+        let bound = "<F: for<'a> Fn(&'a str) -> u8> Holder<F>";
+        let at = matching_angle(bound).expect("the parameter list closes");
+        // Asserted by what FOLLOWS rather than by an offset, so the test says the property
+        // instead of a number: everything past the bracket is the type being implemented for.
+        assert_eq!(bound.get(at..), Some("> Holder<F>"), "closed early at {at}");
+        assert_eq!(matching_angle("<T> Holder<T>"), Some(2));
+    }
+
+    #[test]
+    fn a_generic_impl_with_a_function_bound_still_names_its_type() {
+        let code = code_lines(
+            "impl<F: for<'a> Fn(&'a str) -> u8> Holder<F> {\n    pub fn parse(raw: F) -> Result<Self, Bad> {\n        todo!()\n    }\n}\n",
+        );
+        assert!(
+            fallible_constructors(&code).contains_key("Holder"),
+            "{:?}",
+            fallible_constructors(&code)
+        );
     }
 
     #[test]
