@@ -698,25 +698,21 @@ where
     /// vocabulary. It names the position rather than the value, because the value is a row.
     #[error("the cell at row {row}, column {column} is not a scalar")]
     NotAScalar { row: usize, column: usize },
-    /// The answer to a table listing was not one.
-    ///
-    /// Distinct from [`Self::NotADocument`], the same failure for a query answer: the two documents
-    /// are two shapes, and a boot check reporting *the query answer would not parse* sends an
-    /// operator to the wrong request.
+    /// The answer to a table listing was not one. Distinct from [`Self::NotADocument`], the same
+    /// failure for a query answer: two documents, two shapes, and one message per request.
     #[error("the endpoint's answer was not a table listing")]
     NotAListing {
         #[source]
         cause: serde_json::Error,
     },
-    /// The service handed back a page token this transport will not write into a URL.
-    ///
-    /// **Refused rather than filtered**, and `tables::usable_token` carries the argument. The token
-    /// travels through [`bounded`], which keeps a foreign string out of a log unbounded.
+    /// The service handed back a page token this transport will not write into a URL. **Refused
+    /// rather than filtered**, and `tables::usable_token` carries the argument; the token travels
+    /// through [`bounded`], which keeps a foreign string out of a log unbounded.
     #[error("the endpoint's next page token is not one this transport can send: {named}")]
     UnusablePageToken { named: String },
     /// A dataset that did not finish listing inside the page bound. **A failure rather than a short
-    /// listing**: the answer this feeds is *these tables are absent*, and a listing cut off reports
-    /// a table that is there as missing.
+    /// listing**: this feeds *these tables are absent*, so a cut-off listing reports a table that is
+    /// there as missing.
     #[error("the dataset had not finished listing after {pages} pages")]
     ListingDidNotFinish { pages: usize },
 }
@@ -785,8 +781,8 @@ where
     /// **Factored out of [`Self::submit`] when a second call site arrived** - the pre-flight's
     /// listing, which has no asking subject by construction, because it runs at boot. The expiry
     /// guard is here rather than at either call site, so neither can forget it, and it is checked
-    /// BEFORE anything is sent, so an expired credential costs no round trip. A subject's own token
-    /// deliberately does NOT come through here: the broker that minted it already checked it.
+    /// BEFORE anything is sent. A subject's own token deliberately does NOT come through here: the
+    /// broker that minted it already checked it.
     #[expect(
         clippy::disallowed_methods,
         reason = "a bearer has to reach the wire as text; the exposure here builds the one header \
@@ -935,6 +931,11 @@ where
     /// The dataset's table ids, over `tables.list`, paged. `tables::list` is the whole of it.
     fn list_tables(&self, at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
         tables::list(self, at)
+    }
+
+    /// Whether the endpoint REFUSED the listing. `tables::was_refused` holds the match.
+    fn listing_was_refused(&self, error: &Self::Error) -> bool {
+        tables::was_refused(error)
     }
 
     /// One arm, and it is the wire's own reading of the endpoint's page contract.

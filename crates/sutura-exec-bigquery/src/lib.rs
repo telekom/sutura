@@ -258,21 +258,6 @@ where
         #[source]
         cause: MalformedRowSet,
     },
-    /// A model's table path names a project or a dataset this adapter cannot address.
-    ///
-    /// **Reachable only from the pre-flight, and it is a refusal rather than a skipped table.** A
-    /// bundle's table path is parsed by the domain's name types, whose accepted set is not this
-    /// adapter's: `ProjectId` accepts `[a-z0-9-]` and `DatasetId` accepts `[A-Za-z0-9_]`, because
-    /// those are what can be written into a request path. A path the domain accepted and this adapter
-    /// cannot address is a model no question against it could ever answer, so saying so at boot is
-    /// strictly better than pretending the table might be there.
-    #[error("the table path {table} names a {what} this adapter cannot address")]
-    UnusableTablePath {
-        table: String,
-        what: &'static str,
-        #[source]
-        cause: crate::transport::UnusableResourceName,
-    },
 }
 
 /// A `BigQuery` dataset, behind the [`Warehouse`] port.
@@ -530,7 +515,7 @@ where
         Ok(())
     }
 
-    /// Which dataset one model's table path resolves in, as a pair this transport can address.
+    /// Which dataset one model's table path resolves in, or `None` if this adapter cannot address it.
     ///
     /// **The unqualified case is the connection's own pair and not a guess**, which is the same
     /// decision the request body's `defaultDataset` carries: a bare table name resolves in the
@@ -538,25 +523,30 @@ where
     /// path overrides one or both, and each part is re-parsed by the type for its position - the
     /// second parse `build_bigquery` already makes for the source's own two names, for the same
     /// reason: the value written into a request path is this crate's to accept or refuse.
-    fn addressed(&self, table: &QualifiedTable) -> Mapped<DatasetAddress, T::Error> {
+    ///
+    /// **`None` rather than an `Err`, and review is why.** It used to return
+    /// `BigQueryError::UnusableTablePath`, which [`Self::preflight`] propagated out of the grouping
+    /// loop **before any dataset was listed** - so one mixed-case project id in a forty-model bundle
+    /// turned the whole check off for that source, as a single `WARN`, which is precisely the
+    /// issue-120 failure the check exists to remove. A path this adapter cannot write into a request
+    /// is a **definite negative and not an unknown**: no question against that model could ever be
+    /// answered, whatever the dataset holds. So it is an ABSENCE, it reaches the operator as a
+    /// refusal naming the model, and it costs no round trip.
+    fn addressed(&self, table: &QualifiedTable) -> Option<DatasetAddress> {
+        let billed_to = self.billing_project.clone();
         let Some(qualifier) = table.qualifier() else {
-            return Ok(DatasetAddress::of(self.billing_project.clone(), self.default_dataset.clone()));
+            return Some(DatasetAddress::of(
+                billed_to,
+                self.billing_project.clone(),
+                self.default_dataset.clone(),
+            ));
         };
-        let named = || table.to_string();
         let project = match qualifier.project() {
             None => self.billing_project.clone(),
-            Some(project) => ProjectId::parse(project.as_str()).map_err(|cause| BigQueryError::UnusableTablePath {
-                table: named(),
-                what: "project",
-                cause,
-            })?,
+            Some(project) => ProjectId::parse(project.as_str()).ok()?,
         };
-        let dataset = DatasetId::parse(qualifier.dataset().as_str()).map_err(|cause| BigQueryError::UnusableTablePath {
-            table: named(),
-            what: "dataset",
-            cause,
-        })?;
-        Ok(DatasetAddress::of(project, dataset))
+        let dataset = DatasetId::parse(qualifier.dataset().as_str()).ok()?;
+        Some(DatasetAddress::of(billed_to, project, dataset))
     }
 
     /// A job's result, as a domain result set.
@@ -676,18 +666,38 @@ where
     /// present because a case-folded comparison matched would put the failure back on the first
     /// caller, which is the whole defect this method exists to remove.
     ///
+    /// **A path this adapter cannot ADDRESS is an absence and never an error**, which is a review
+    /// correction rather than the original shape - [`Self::addressed`] carries the measurement of
+    /// what the original cost. It is a definite negative: no question against such a model could be
+    /// answered whatever the dataset holds, so it belongs in the absent set beside a table that is
+    /// simply not there, and it costs no round trip.
+    ///
     /// # Errors
     ///
-    /// [`BigQueryError::Endpoint`] where the dataset could not be listed - no permission, no such
+    /// [`BigQueryError::Endpoint`] where a dataset could not be listed - no permission, no such
     /// dataset, no answer - which the port keeps distinct from a table that is absent so an operator
-    /// is not sent to fix the wrong thing. [`BigQueryError::UnusableTablePath`] where a path the
-    /// domain accepted names a project or dataset this adapter cannot address.
+    /// is not sent to fix the wrong thing. Which of those it was is
+    /// [`Self::preflight_was_refused`]'s question, because only a permission failure is worth
+    /// stopping a boot for.
     fn preflight(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
-        let mut grouped: ByDataset<'_> = BTreeMap::new();
-        for table in tables {
-            grouped.entry(self.addressed(table)?).or_default().push(table);
+        // **`NotAsked` and not `All` for an empty set**, which is a review nit worth taking: `All`
+        // means *asked, nothing missing*, and nothing was asked. The composition root guards this
+        // case, so what the arm buys is that any other caller gets the honest answer.
+        if tables.is_empty() {
+            return Ok(TablesPresent::NotAsked);
         }
+        let mut grouped: ByDataset<'_> = BTreeMap::new();
         let mut absent: BTreeSet<QualifiedTable> = BTreeSet::new();
+        for table in tables {
+            // Partitioned BEFORE anything is listed, so an unaddressable path can neither skip the
+            // loop nor cost a call: it is already an answer.
+            match self.addressed(table) {
+                Some(at) => grouped.entry(at).or_default().push(table),
+                None => {
+                    absent.insert(table.clone());
+                }
+            }
+        }
         for (at, asked) in grouped {
             let held = self
                 .transport
@@ -701,6 +711,37 @@ where
             );
         }
         Ok(TablesPresent::of(absent))
+    }
+
+    /// Whether the endpoint REFUSED to list a dataset, rather than failing to answer about one.
+    ///
+    /// **The split a review asked for, and the reason is in the port's own documentation:** a `403`
+    /// on `tables.list` is a grant an operator can add and will fail identically on every boot, while
+    /// a `503` from the endpoint is a condition that passes - and before this they were the same
+    /// permanent warning in the deployment least likely to read a startup log.
+    ///
+    /// It asks the TRANSPORT, for [`Self::result_did_not_fit`]'s reason: the HTTP status is a fact
+    /// about the wire and `T::Error` is the transport's own type. Every other variant is `false`
+    /// exhaustively rather than through a wildcard, so a variant added to [`BigQueryError`] has to be
+    /// decided here - and `false` is the reading that keeps a deployment serving, which is the safe
+    /// direction the port states.
+    fn preflight_was_refused(&self, error: &Self::Error) -> bool {
+        match *error {
+            BigQueryError::Endpoint { ref cause } => self.transport.listing_was_refused(cause),
+            BigQueryError::Render { .. }
+            | BigQueryError::LegWithoutCombiner { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::PresentedDisagreesWithPosture { .. }
+            | BigQueryError::UnmappedType { .. }
+            | BigQueryError::NotAnInteger { .. }
+            | BigQueryError::NotADouble { .. }
+            | BigQueryError::NotABool { .. }
+            | BigQueryError::NotFinite { .. }
+            | BigQueryError::NotADate { .. }
+            | BigQueryError::RowWidth { .. }
+            | BigQueryError::Incomplete { .. }
+            | BigQueryError::Shape { .. } => false,
+        }
     }
 
     // `working_set_exhausted` is deliberately NOT overridden. The port's default is `None`, and that
@@ -749,10 +790,7 @@ where
             | BigQueryError::NotFinite { .. }
             | BigQueryError::NotADate { .. }
             | BigQueryError::RowWidth { .. }
-            | BigQueryError::Shape { .. }
-            // A boot-path refusal about a NAME, reached before any result exists. It cannot be a
-            // bound on how much data came back.
-            | BigQueryError::UnusableTablePath { .. } => false,
+            | BigQueryError::Shape { .. } => false,
         }
     }
 }

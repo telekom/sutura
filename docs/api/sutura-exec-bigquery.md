@@ -126,7 +126,6 @@ an owned `#[source]`.
 - `RowWidth` - A row had more or fewer cells than the schema had columns.
 - `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
 - `Shape` - The result set could not be built.
-- `UnusableTablePath` - A model's table path names a project or a dataset this adapter cannot address.
 
 ### Implements
 
@@ -396,13 +395,35 @@ a working declaration into a dataset that does not exist.
 pub struct DatasetAddress
 ```
 
-One dataset, addressed the way a metadata read needs it: the project it lives in and its own id.
+One dataset, addressed the way a metadata read needs it: who pays, where it lives, and its id.
 
-**A named pair rather than two arguments**, for the reason `ProjectId` is a wrapper at all: a
-call taking two ids in the wrong order compiles and is wrong, and here the two are the same
-shape. It is also the grouping key the pre-flight uses, which is what the derived `Ord` is for.
+**A named struct rather than loose arguments**, for the reason `ProjectId` is a wrapper at all:
+a call taking ids of the same shape in the wrong order compiles and is wrong. It is also the
+grouping key the pre-flight uses, which is what the derived `Ord` is for.
+
+**THREE fields and not two, and the third one is a review finding rather than symmetry.** The
+first shape of this type carried the dataset's project only, and the listing then sent that as
+the quota project - so a source declared `billing_project: acme-analytics` reading a model at
+`partner-data.shared.dim_region` attributed the listing to `partner-data`, which the caller holds
+no `serviceusage.services.use` on. It would have 403'd and become a permanent warning, while a
+QUERY against the same table attributed to `acme-analytics` and worked. `docs/adr/0018` states
+the rule as *carrying the source's declared billing project*.
+
+**What that says about the newtype, written down because it is the interesting half:** a wrapper
+per id prevents an argument-ORDER mistake and permits a ROLE mistake - *where the dataset lives*
+against *who pays* - and the role mistake is the one that happened. Two accessors named for their
+roles is the fix that a single `project` field could not be.
 
 #### Methods
+
+```rust
+pub const fn billed_to(&self) -> &ProjectId
+```
+
+The project whose quota and billing this read is attributed to: the SOURCE's, always.
+
+Read into `x-goog-user-project` where the credential requires that header, which is the one
+place the distinction from `Self::project` bites - see this type's own documentation.
 
 ```rust
 pub const fn dataset(&self) -> &DatasetId
@@ -411,16 +432,21 @@ pub const fn dataset(&self) -> &DatasetId
 The dataset's own id.
 
 ```rust
-pub const fn of(project: ProjectId, dataset: DatasetId) -> Self
+pub const fn of(billed_to: ProjectId, project: ProjectId, dataset: DatasetId) -> Self
 ```
 
-Addresses a dataset.
+Addresses a dataset: the source's billing project, the dataset's own project, and its id.
+
+The first two are equal for an unqualified model and differ for a cross-project one, which is
+exactly the case the role distinction exists for.
 
 ```rust
 pub const fn project(&self) -> &ProjectId
 ```
 
-The project the dataset lives in, which is also the one the metadata read is attributed to.
+The project the dataset LIVES in, which is the one written into the request path.
+
+Not the one the read is attributed to - `Self::billed_to` is.
 
 #### Implements
 
@@ -1061,9 +1087,9 @@ every other variant and `clippy::result_large_err` is on.
 - `NotATotal` - The total was not a number.
 - `NoSchema` - A complete job with rows and no schema to read them against.
 - `NotAScalar` - A cell that is neither a string nor a null.
-- `NotAListing` - The answer to a table listing was not one.
-- `UnusablePageToken` - The service handed back a page token this transport will not write into a URL.
-- `ListingDidNotFinish` - A dataset that did not finish listing inside the page bound. **A failure rather than a short listing**: the answer this feeds is *these tables are absent*, and a listing cut off reports a table that is there as missing.
+- `NotAListing` - The answer to a table listing was not one. Distinct from `Self::NotADocument`, the same failure for a query answer: two documents, two shapes, and one message per request.
+- `UnusablePageToken` - The service handed back a page token this transport will not write into a URL. **Refused rather than filtered**, and `tables::usable_token` carries the argument; the token travels through `bounded`, which keeps a foreign string out of a log unbounded.
+- `ListingDidNotFinish` - A dataset that did not finish listing inside the page bound. **A failure rather than a short listing**: this feeds *these tables are absent*, so a cut-off listing reports a table that is there as missing.
 
 #### Implements
 

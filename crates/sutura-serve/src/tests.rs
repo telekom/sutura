@@ -498,9 +498,10 @@ fn a_bigquery_source_reaches_the_credential_the_deployment_declared() {
     );
     // **And the pre-flight has not run either, which is the ordering half.** An operator told about
     // a table when the credential is unreadable would go and edit the catalog, which was never
-    // wrong. The type is what makes this hold rather than this assertion: `boot::refuse_absent_tables`
-    // takes an OPEN registry and only `open_engine` produces one, so there is no arrangement of
-    // `run` in which a listing is asked for before the credential was read.
+    // wrong. A type is what makes this hold rather than this assertion - though not the type this
+    // comment first named: `wire::credential::Credential::read` is the only public constructor of a
+    // `Credential`, and a `BigQueryWarehouse` cannot exist without one, so no arrangement of `run`
+    // can ask a dataset about a table before its credential was read off disk.
     assert!(
         !error.contains("does not hold"),
         "no dataset is asked about a table before its credential is read: {error}"

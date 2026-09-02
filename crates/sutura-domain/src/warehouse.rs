@@ -755,6 +755,38 @@ pub trait Warehouse {
     fn preflight(&self, _tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
         Ok(TablesPresent::NotAsked)
     }
+
+    /// Was this pre-flight failure the data system REFUSING, rather than failing to answer?
+    ///
+    /// **Added because the first version of the pre-flight could not tell those apart, and a review
+    /// found what that cost.** [`preflight`](Warehouse::preflight)'s `Err` is *could not verify*, and
+    /// a composition root's reasonable response to that is a warning rather than a refusal - a
+    /// deployment whose data system is briefly unreachable at boot still has to be able to serve.
+    /// But a data system that refused because the identity lacks the permission to LIST is a
+    /// different thing entirely: it will refuse again on every boot, forever, and the fix is one
+    /// grant. Collapsed into the warning, the check silently does nothing in exactly the deployment
+    /// least likely to read a startup log.
+    ///
+    /// `true` means *this identity may not ask*, and a composition root is expected to refuse and
+    /// name the grant. `false` is every other failure, including one whose text happens to mention
+    /// permissions.
+    ///
+    /// **A predicate rather than a conversion, and a `bool` rather than a reason**, for
+    /// [`result_did_not_fit`](Warehouse::result_did_not_fit)'s reasons exactly: `Self::Error` is the
+    /// adapter's own type so nothing above this port can read it, and the refusal vocabulary stays
+    /// the domain's. The adapter's error already carries the detail an operator needs, and it travels
+    /// as the cause.
+    ///
+    /// Defaulted to `false`, which is the honest answer for an adapter that cannot tell the two apart
+    /// and for one whose [`preflight`](Warehouse::preflight) never fails. **The default is the safe
+    /// direction here, and it is the opposite direction from the other two predicates on this
+    /// trait:** a refusal reported as a transport hiccup leaves a deployment serving unverified,
+    /// which is where this whole check started; a transport hiccup reported as a refusal stops a
+    /// deployment that would have worked. Answering `false` picks the first, because it is the
+    /// status quo rather than a new failure mode - and an adapter that knows better says so.
+    fn preflight_was_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

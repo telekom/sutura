@@ -171,13 +171,27 @@ pub struct ProjectId(String);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DatasetId(String);
 
-/// One dataset, addressed the way a metadata read needs it: the project it lives in and its own id.
+/// One dataset, addressed the way a metadata read needs it: who pays, where it lives, and its id.
 ///
-/// **A named pair rather than two arguments**, for the reason [`ProjectId`] is a wrapper at all: a
-/// call taking two ids in the wrong order compiles and is wrong, and here the two are the same
-/// shape. It is also the grouping key the pre-flight uses, which is what the derived `Ord` is for.
+/// **A named struct rather than loose arguments**, for the reason [`ProjectId`] is a wrapper at all:
+/// a call taking ids of the same shape in the wrong order compiles and is wrong. It is also the
+/// grouping key the pre-flight uses, which is what the derived `Ord` is for.
+///
+/// **THREE fields and not two, and the third one is a review finding rather than symmetry.** The
+/// first shape of this type carried the dataset's project only, and the listing then sent that as
+/// the quota project - so a source declared `billing_project: acme-analytics` reading a model at
+/// `partner-data.shared.dim_region` attributed the listing to `partner-data`, which the caller holds
+/// no `serviceusage.services.use` on. It would have 403'd and become a permanent warning, while a
+/// QUERY against the same table attributed to `acme-analytics` and worked. `docs/adr/0018` states
+/// the rule as *carrying the source's declared billing project*.
+///
+/// **What that says about the newtype, written down because it is the interesting half:** a wrapper
+/// per id prevents an argument-ORDER mistake and permits a ROLE mistake - *where the dataset lives*
+/// against *who pays* - and the role mistake is the one that happened. Two accessors named for their
+/// roles is the fix that a single `project` field could not be.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DatasetAddress {
+    billed_to: ProjectId,
     project: ProjectId,
     dataset: DatasetId,
 }
@@ -190,13 +204,32 @@ pub struct DatasetAddress {
 pub type HeldTables = BTreeSet<String>;
 
 impl DatasetAddress {
-    /// Addresses a dataset.
+    /// Addresses a dataset: the source's billing project, the dataset's own project, and its id.
+    ///
+    /// The first two are equal for an unqualified model and differ for a cross-project one, which is
+    /// exactly the case the role distinction exists for.
     #[must_use]
-    pub const fn of(project: ProjectId, dataset: DatasetId) -> Self {
-        Self { project, dataset }
+    pub const fn of(billed_to: ProjectId, project: ProjectId, dataset: DatasetId) -> Self {
+        Self {
+            billed_to,
+            project,
+            dataset,
+        }
     }
 
-    /// The project the dataset lives in, which is also the one the metadata read is attributed to.
+    /// The project whose quota and billing this read is attributed to: the SOURCE's, always.
+    ///
+    /// Read into `x-goog-user-project` where the credential requires that header, which is the one
+    /// place the distinction from [`Self::project`] bites - see this type's own documentation.
+    #[inline]
+    #[must_use]
+    pub const fn billed_to(&self) -> &ProjectId {
+        &self.billed_to
+    }
+
+    /// The project the dataset LIVES in, which is the one written into the request path.
+    ///
+    /// Not the one the read is attributed to - [`Self::billed_to`] is.
     #[inline]
     #[must_use]
     pub const fn project(&self) -> &ProjectId {
@@ -476,6 +509,23 @@ pub trait JobTransport {
     /// that is not there, an endpoint that did not answer. What it must NOT do is report any of those
     /// as an empty listing.
     fn list_tables(&self, at: &DatasetAddress) -> Result<HeldTables, Self::Error>;
+
+    /// Was that listing failure the endpoint REFUSING, rather than failing to answer?
+    ///
+    /// **The `Warehouse::preflight_was_refused` question one port further down**, and it has to be
+    /// asked here for the reason [`Self::result_did_not_fit`] does: the HTTP status is a fact about
+    /// the wire, and `Self::Error` is the implementor's own type, so the adapter above - which holds
+    /// the failure as `BigQueryError::Endpoint` - cannot read it.
+    ///
+    /// `true` for an authorization failure: the identity may not list this dataset, which will fail
+    /// identically on every boot and is fixed by one grant. `false` for everything else, including an
+    /// endpoint that did not answer - a condition that passes.
+    ///
+    /// Defaulted to `false`, which is the answer a fake gives unless a test is about this split, and
+    /// which is the direction that keeps a deployment serving.
+    fn listing_was_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
 
     /// Was this failure the endpoint declining to return the whole result at once?
     ///
