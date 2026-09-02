@@ -2581,6 +2581,16 @@ written, and they are the list to check a claim against.</p>
 <p>The rule the middle row establishes: <strong>the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.</strong> A real provider stops being a prerequisite for testing
 everything <em>around</em> it, and shrinks to the one job only it can do.</p>
+<div class="admonition warning">
+<p class="admonition-title">The two end-to-end suites are not venues for anything on this page</p>
+<p><code>just serve-e2e</code> and <code>just mcp-e2e</code> drive the composed HTTP surface and the composed agent surface
+end to end - a real settings file, a real catalog, a real listener or a real pipe, and a real
+answer. <strong>Neither establishes an identity claim.</strong> The example they run declares one shared
+identity, so every question in them is answered as the deployment; and a pipe has no header a token
+could arrive in, so the agent surface grants every capability to whoever can launch the process and
+says so at startup. They are transport venues, named here only so that a green run in one is not
+read as evidence in the table below. Leg 1 on a composed binary is the mock issuer's job.</p>
+</div>
 <h2 id="which-venue-answers-which-claim">Which venue answers which claim<a class="headerlink" href="#which-venue-answers-which-claim" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

@@ -2299,9 +2299,10 @@ of evidence that says an agent client can actually ask.</p>
 <code>serde_derive_internals</code> - counted by diffing the package names against the base branch rather
 than read off a dependency tree. Everything else it wants was already in the lock: <code>tokio-util</code>,
 <code>uuid</code>, <code>chrono</code> and <code>futures</code> arrive here through this crate for the first time, but they are
-nobody's new supply-chain surface. No shipped artifact grows, because <strong>no binary links this
-crate yet</strong>. <code>macros</code> is off, so no attribute of theirs writes code into this crate, and the
-handler is three methods written by hand.</p>
+nobody's new supply-chain surface. The only shipped artifact that grows is <code>sutura</code> itself,
+which links this crate behind its <code>mcp</code> subcommand - and the dependency is pure Rust, so nothing
+about the two musl triples changes. <code>macros</code> is off, so no attribute of theirs writes code into
+this crate, and the handler is three methods written by hand.</p>
 <h1 id="what-is-deliberately-absent">What is deliberately absent<a class="headerlink" href="#what-is-deliberately-absent" title="Permanent link">&para;</a></h1>
 <ul>
 <li><strong>A row cap of this transport's own.</strong> The answer cap is <code>max_rows + 1</code> and a result that hits
@@ -2321,9 +2322,10 @@ handler is three methods written by hand.</p>
 * <strong>Resources and prompts.</strong> A gateway of the shape this product runs behind surfaces tools and
   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
   where they are - in <code>sutura_app::prompt</code>, advisory, for a cooperative client.
-* <strong>A composition root.</strong> Nothing links this crate yet: <code>serve_stdio</code> is the entry point a
-  binary would call, and which binary gets it - and how a deployment configures it - is a
-  composition decision this slice does not take.</p>
+* <strong>A composition root.</strong> Nothing below <code>serve_stdio</code> cares about transport, and the binary that
+  calls it is <code>sutura</code>'s <code>mcp</code> subcommand - the single-player answer to <em>which binary gets it</em>,
+  composed in <code>sutura-cli</code> the way <code>query</code> is. This crate deliberately does not decide that; it
+  is the transport a composition root calls.</p>
 <h2 id="enum-notserved"><code>enum NotServed</code><a class="headerlink" href="#enum-notserved" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotServed</span>
 </span></code></pre></div>
@@ -2342,14 +2344,30 @@ throw away the only description of the fault that exists.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-serve_stdio"><code>fn serve_stdio</code><a class="headerlink" href="#fn-serve_stdio" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Serves the agent surface over standard input and output, until the client disconnects.</p>
 <p>The transport an agent client launches a server over: it spawns the process and speaks the
 protocol on its pipes. There is no socket, no port and no listener, which is also why there is no
 authentication here - the process boundary is the boundary, and a deployment that needs a
 network-reachable agent surface needs the identity leg <code>docs/adr/0014</code> designs first.</p>
-<p>Consumes the service, wraps it in an <code>Arc</code>, and returns when the peer closes or is cancelled.</p>
+<p>Takes <code>std::sync::Arc&lt;S&gt;</code> rather than an owned <code>S</code>, for the one edge the engine's own drop
+cannot cover. The service's engine shuts its nested runtime down through <code>shutdown_background</code>, so
+releasing it is safe on any thread once no question is in flight - and the rmcp task ending is
+normally that state. What would still abort is releasing the engine in the middle of an answer,
+while its runtime is inside a <code>block_on</code> on a pool thread and this process aborts on a panic. The
+composition root's outer handle defers that release until its own <code>shutdown_timeout</code> has let the
+in-flight answer finish.</p>
+<p><strong><code>permitted</code> is required for the same reason it is on <code>AgentSurface::new</code>: a pipe has no
+header a token could arrive in, so this transport alone cannot choose who the peer is. The
+composition root decides</strong> - <code>sutura</code>'s <code>mcp</code> subcommand passes <code>Permitted::every_capability</code>
+and prints that at startup - so the value lives next to the notice that states it rather than
+hidden in this function.</p>
+<p>rmcp serves requests concurrently - one task per request, unbounded - so several questions from
+one peer answer against the same <code>S</code> at once. The surface has no state a question mutates, so the
+concurrency is free; what it does mean is that the engine's working-set ceiling, not any
+transport bound, is what an agent flooding its one pipe cannot exceed.</p>
+<p>Returns when the peer closes or is cancelled.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
 <p><code>NotServed::Handshake</code> if the client never completes <code>initialize</code>, and
 <code>NotServed::Interrupted</code> if the task driving the session did not finish - a panic, or a runtime
@@ -2471,10 +2489,9 @@ default here would be a posture chosen by this file for every deployment that ev
 <code>Permitted::every_capability</code> is the right answer over standard input and output and would be
 the wrong answer the moment this surface is reachable over a network, and only a composition
 root knows which it is building. See the module documentation for what the value then gates.</p>
-<p><strong><code>prose</code> is required for the same reason, and it is a review-only value until a composition
-root links this surface</strong> - <code>serve_stdio</code> is the only caller today and it passes what the
-operator configured. A <code>CatalogProse</code> with no default keeps <code>quoted</code> from being a posture
-chosen here for a deployment that meant something else.</p>
+<p><strong><code>prose</code> is required for the same reason, and it is a composition-root value.</strong> <code>sutura</code>'s
+<code>mcp</code> subcommand passes what this deployment renders; a <code>CatalogProse</code> with no default keeps
+<code>quoted</code> from being a posture chosen here for a deployment that meant something else.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>ServerHandler</code></p>
 <h2 id="module-tool">Module <code>tool</code><a class="headerlink" href="#module-tool" title="Permanent link">&para;</a></h2>

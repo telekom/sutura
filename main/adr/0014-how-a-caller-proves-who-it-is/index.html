@@ -1665,6 +1665,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-01-serve_stdio-has-a-binary-and-this-sections-decision-is-unchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-01: serve_stdio has a binary, and this section's decision is unchanged
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2704,6 +2715,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-01-serve_stdio-has-a-binary-and-this-sections-decision-is-unchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-01: serve_stdio has a binary, and this section's decision is unchanged
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3208,6 +3230,14 @@ no header for a token to arrive in. Nothing in <code>sutura_http::inbound</code>
 adapter never calls another adapter - so wiring that surface means first deciding how it is reached
 at all, and then which crate the validator moves to. <strong>That is an architecture decision, not a
 refactor</strong>, and it is the same decision that leaves <code>serve_stdio</code> without a binary.</p>
+<h2 id="amendment-2026-09-01-serve_stdio-has-a-binary-and-this-sections-decision-is-unchanged">Amendment, 2026-09-01: <code>serve_stdio</code> has a binary, and this section's decision is unchanged<a class="headerlink" href="#amendment-2026-09-01-serve_stdio-has-a-binary-and-this-sections-decision-is-unchanged" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted.</strong> The sentence this amendment amends - "the same decision that
+leaves <code>serve_stdio</code> without a binary" - stopped being true when the single-player binary linked the
+agent surface as <code>sutura mcp &lt;catalog-dir&gt; &lt;data-dir&gt;</code> (#110). What the sentence was pointing at is
+unaffected: the agent surface still answers <code>Subject::TheDeploymentItself</code>, nothing in
+<code>sutura_http::inbound</code> is reachable from it, and wiring a caller identity to it still needs the two
+decisions this section names. Only the "without a binary" half is spent, so the sentence is amended
+rather than the section rewritten.</p>
 
 
 
