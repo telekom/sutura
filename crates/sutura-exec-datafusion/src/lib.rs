@@ -787,9 +787,7 @@ mod drop_tests {
         crate::DataFusionWarehouse::new(
             SourceName::parse("local").expect("a test source is a source"),
             crate::test_posture(),
-            crate::WorkingSet::of_bytes(
-                core::num::NonZeroUsize::new(64 * 1024 * 1024).expect("a test ceiling is positive"),
-            ),
+            crate::WorkingSet::of_bytes(core::num::NonZeroUsize::new(64 * 1024 * 1024).expect("a test ceiling is positive")),
         )
         .expect("a current-thread runtime builds")
     }
