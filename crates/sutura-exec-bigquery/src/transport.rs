@@ -244,18 +244,50 @@ impl DatasetAddress {
     }
 }
 
+/// Which of this adapter's two resource names a refusal is about.
+///
+/// **A variant rather than the `&'static str` this field used to be**, because *Structured Errors*
+/// says the variant is the contract and the message is not: a test can assert [`Self::Project`]
+/// and a rename is then a compile error at the assertion, where a string compare kept passing while
+/// asserting the old spelling. The [`core::fmt::Display`] impl is the one place the operator-facing
+/// wording lives, so [`UnusableResourceName`]'s sentences read exactly as they did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NamedResource {
+    /// The project a job is billed to - [`ProjectId`].
+    Project,
+    /// The dataset unqualified table names resolve in - [`DatasetId`].
+    Dataset,
+}
+
+impl core::fmt::Display for NamedResource {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match *self {
+            Self::Project => "project id",
+            Self::Dataset => "dataset id",
+        })
+    }
+}
+
 /// Why a resource name this adapter was handed is not usable.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UnusableResourceName {
     /// Nothing was written, or only whitespace was.
     #[error("a {what} cannot be empty")]
-    Empty { what: &'static str },
+    Empty {
+        /// Which name was empty.
+        what: NamedResource,
+    },
     /// A character that could leave the part of a request this value is written into.
     ///
     /// **The position is carried and the value is not.** A project id is one of the things this
     /// repository does not print, so a refusal says where the problem is rather than quoting it.
     #[error("the character at position {at} is not allowed in a {what}")]
-    Character { what: &'static str, at: usize },
+    Character {
+        /// Which name the character was found in.
+        what: NamedResource,
+        /// Its position, counted in characters of the trimmed value.
+        at: usize,
+    },
 }
 
 impl ProjectId {
@@ -268,11 +300,16 @@ impl ProjectId {
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnusableResourceName> {
         let trimmed = raw.as_ref().trim();
         if trimmed.is_empty() {
-            return Err(UnusableResourceName::Empty { what: "project id" });
+            return Err(UnusableResourceName::Empty {
+                what: NamedResource::Project,
+            });
         }
         for (at, character) in trimmed.chars().enumerate() {
             if !matches!(character, 'a'..='z' | '0'..='9' | '-') {
-                return Err(UnusableResourceName::Character { what: "project id", at });
+                return Err(UnusableResourceName::Character {
+                    what: NamedResource::Project,
+                    at,
+                });
             }
         }
         Ok(Self(String::from(trimmed)))
@@ -294,11 +331,16 @@ impl DatasetId {
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnusableResourceName> {
         let trimmed = raw.as_ref().trim();
         if trimmed.is_empty() {
-            return Err(UnusableResourceName::Empty { what: "dataset id" });
+            return Err(UnusableResourceName::Empty {
+                what: NamedResource::Dataset,
+            });
         }
         for (at, character) in trimmed.chars().enumerate() {
             if !matches!(character, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_') {
-                return Err(UnusableResourceName::Character { what: "dataset id", at });
+                return Err(UnusableResourceName::Character {
+                    what: NamedResource::Dataset,
+                    at,
+                });
             }
         }
         Ok(Self(String::from(trimmed)))
@@ -575,7 +617,7 @@ pub trait JobTransport {
 
 #[cfg(test)]
 mod tests {
-    use super::{DatasetId, ProjectId, UnusableResourceName};
+    use super::{DatasetId, NamedResource, ProjectId, UnusableResourceName};
 
     #[test]
     fn a_project_id_that_could_leave_a_url_path_segment_is_refused() {
@@ -605,9 +647,16 @@ mod tests {
         assert_eq!(
             err,
             UnusableResourceName::Character {
-                what: "project id",
+                what: NamedResource::Project,
                 at: 4
             }
+        );
+        // The wording an operator reads is the Display impl's, in one place, rather than a literal
+        // repeated at each construction site - so this is what a rename would have to move.
+        assert_eq!(err.to_string(), "the character at position 4 is not allowed in a project id");
+        assert_eq!(
+            DatasetId::parse("  ").expect_err("whitespace is empty").to_string(),
+            "a dataset id cannot be empty"
         );
     }
 
@@ -619,10 +668,13 @@ mod tests {
             DatasetId::parse("Analytics_Prod").expect("mixed case parses").as_str(),
             "Analytics_Prod"
         );
-        assert!(matches!(
+        assert_eq!(
             DatasetId::parse("analytics-prod"),
-            Err(UnusableResourceName::Character { .. })
-        ));
+            Err(UnusableResourceName::Character {
+                what: NamedResource::Dataset,
+                at: 9
+            })
+        );
         assert_eq!(
             ProjectId::parse("analytics-prod")
                 .expect("a hyphen IS in a project id")

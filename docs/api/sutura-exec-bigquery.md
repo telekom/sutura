@@ -452,6 +452,29 @@ Not the one the read is attributed to - `Self::billed_to` is.
 
 `Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
 
+### `enum NamedResource`
+
+```rust
+pub enum NamedResource
+```
+
+Which of this adapter's two resource names a refusal is about.
+
+**A variant rather than the `&'static str` this field used to be**, because *Structured Errors*
+says the variant is the contract and the message is not: a test can assert `Self::Project`
+and a rename is then a compile error at the assertion, where a string compare kept passing while
+asserting the old spelling. The `core::fmt::Display` impl is the one place the operator-facing
+wording lives, so `UnusableResourceName`'s sentences read exactly as they did.
+
+#### Variants
+
+- `Project` - The project a job is billed to - `ProjectId`.
+- `Dataset` - The dataset unqualified table names resolve in - `DatasetId`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
 ### `enum UnusableResourceName`
 
 ```rust
