@@ -135,6 +135,23 @@ test:
     SUTURA_DEV_REQUIRE_TIER=1 cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
+# The served deployment, asked a question: `crates/sutura-serve/tests/served.rs` writes a settings
+# file over `examples/single-player`, starts the composed binary on a kernel-chosen port and asks it.
+#
+# It IS a gate - `checks.nextest` runs it, because a files-backed source needs no network and no
+# credential - so this recipe is a way to run that one target while working on it rather than a
+# second tier. Unlike `just bigquery-acceptance`, nothing here is `#[ignore]`d.
+
+# Run the end-to-end suite against the composed serve binary.
+serve-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "serve-e2e: scope sutura-serve - the composed HTTP surface, over a loopback listener."
+    echo "serve-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
+    cargo nextest run -p sutura-serve --all-features
+
 # `*paths`, not `+paths`, and the no-argument form is the one a PERSON uses: with nothing to go on
 # the gate reads the working tree itself, so `just check-changed` answers "does what I have touched
 # compile" without anybody having to type a path list. The commit hook keeps passing filenames.

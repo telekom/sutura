@@ -3870,6 +3870,7 @@ version = "0.4.1"
 dependencies = [
  "axum",
  "mimalloc",
+ "serde_json",
  "sutura-app",
  "sutura-catalog-local",
  "sutura-config",

@@ -67,6 +67,20 @@ sutura-runtime = { workspace = true }
 tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { workspace = true }
 
+# For `tests/served.rs`, which spawns this crate's own binary and then reads two documents: the
+# service's own log (one JSON object per line, because the fixture configures `telemetry.format:
+# bunyan`) and the JSON body of every reply.
+#
+# **`serde_json` and NOT an HTTP client**, and the choice is the same one this crate's `bigquery`
+# feature is default-off for. `ureq` would arrive with rustls and `ring`, and `crane.buildDepsOnly`
+# is deliberately unscoped so the checks can share one dependency derivation - so the four cross
+# builds, two of them musl, would compile that closure for a binary that links none of it. What the
+# test needs is one plaintext loopback request with a fixed shape, which it writes to a `TcpStream`
+# itself. `serde_json` is already in the target graph as `sutura-http`'s own dependency, so this
+# adds nothing to `Cargo.lock` and nothing to any build.
+[dev-dependencies]
+serde_json = { workspace = true }
+
 # The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`, for
 # the reason `sutura-cli`'s manifest gives: this way the C is never compiled - not even a build
 # script - on a macOS or Windows laptop, so the one platform we ship on is the only one that pays
