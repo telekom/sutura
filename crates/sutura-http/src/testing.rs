@@ -83,7 +83,24 @@ pub(crate) fn a_question() -> sutura_domain::query::Query {
     sutura_domain::query::Query::new(metric_name(), Grain::Month, june(), Vec::new(), Vec::new())
 }
 
+/// The same bundle, with prose a catalog author wrote to be hostile.
+///
+/// For the corpus tests: `sutura_app::untrusted::PROSE` goes through a REAL
+/// [`sutura_domain::catalog::Description`] rather than straight into a wire type, so what the test
+/// walks is prose a catalog could actually hold - a description the domain refuses is not an input
+/// this surface can ever be handed.
+pub(crate) fn described_bundle(prose: &str) -> PinnedDefinitions {
+    pinned_described(Some(Anchor::new(june(), String::from(ANCHORED_VALUE))), prose, prose)
+}
+
 fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {
+    // The two default descriptions are DIFFERENT text, and a test asserting that neither reaches a
+    // caller is the reason: one string for both would make the dimension's half of that assertion
+    // pass on the metric's.
+    pinned_described(anchor, "Revenue, in minor units.", "Sales region.")
+}
+
+fn pinned_described(anchor: Option<Anchor>, prose: &str, dimension_prose: &str) -> PinnedDefinitions {
     let model = Model::new(
         ModelName::parse("orders").expect("a test model is a model"),
         source(),
@@ -96,7 +113,7 @@ fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {
         column("region"),
         None,
         Some(BTreeSet::from([declared_value("north"), declared_value("south")])),
-        description("Sales region."),
+        description(dimension_prose),
     );
     let revenue = Metric::new(
         metric_name(),
@@ -110,7 +127,7 @@ fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {
             region,
         )]),
         anchor,
-        description("Revenue, in minor units."),
+        description(prose),
     );
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(

@@ -48,5 +48,17 @@ const TAG: &str = "catalog";
 pub(crate) async fn catalog(State(state): State<ServiceState>) -> Json<CatalogBody> {
     // No blocking pool and no data system: this reads a bundle that was pinned at startup and has
     // not changed since. A catalog edit cannot reach this - it would be a different process.
-    Json(CatalogBody::from(state.definitions()))
+    //
+    // The prose setting is read here, from the settings the state already holds, and `crate::state`
+    // is right that a value a handler can read is a value a handler can branch on - so the reason
+    // this one is read per request is worth stating rather than leaving to the reader. It is fixed
+    // at startup and the branch is on a constant; what makes reading it better than a constructor
+    // argument on `ServiceState` is the direction the two fail in. A `catalog_prose` argument that a
+    // composition root forgot would take `CatalogProse::default()`, which is `quoted`, and ship the
+    // prose of a deployment that asked for none. The settings are the one place that cannot be out
+    // of date about what the operator wrote.
+    Json(CatalogBody::of(
+        state.definitions(),
+        state.settings().prompt().catalog_prose(),
+    ))
 }

@@ -25,6 +25,13 @@ use crate::testing::{
     warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
 };
 
+/// Whether the catalog route honours the prose setting it was started with.
+///
+/// Its own file rather than another section here, and the reason is mechanical: this one is at 1000
+/// lines, which `cargo xtask max-lines` refuses. The helpers it needs are this module's, reached
+/// through `super`.
+mod catalog_prose;
+
 /// A token that satisfies the configured floor.
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 
