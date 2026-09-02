@@ -197,8 +197,16 @@ fn run() -> Result<(), String> {
             // `open_engine` - which read the credential for every declared source, so an operator
             // whose credential file is wrong is told about the credential file and not about a table
             // they would then go and not fix - and before the listener opens, several statements
-            // below. A registry is the only thing that can be asked, and only `open_engine` produces
-            // one, which is what makes the first half of that order a type rather than a convention.
+            // below.
+            //
+            // This comment used to add *and only `open_engine` produces a registry, which is what
+            // makes the first half of that order a type rather than a convention*, and review
+            // disproved it twice: `Warehouses::of` and `::and` are both `pub`, and this very file
+            // calls `of` further down, in `open_bigquery`. What holds the first half is the
+            // `BigQuerySource` alias declared beside `OpenedSources`, whose transport parameter is
+            // `BigQueryWire<Credential>` and whose `Credential` has one public constructor,
+            // `Credential::read`. So the ORDER here is a convention this line keeps, resting on a
+            // type that cannot be built the other way round.
             boot::refuse_absent_tables(&pinned, &engines)?;
             (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
         }
@@ -642,7 +650,7 @@ fn open_bigquery(
 ///
 /// The message names the FEATURE and not just the kind, because the two things an operator can do are
 /// in two different files: change the `kind:`, or build with `--features bigquery`. A message that
-/// only said "this binary links no BigQuery adapter" sent them to the first when they wanted the
+/// only said "this binary links no `BigQuery` adapter" sent them to the first when they wanted the
 /// second - which was this refusal's shape before the adapter was registered at all.
 #[cfg(not(feature = "bigquery"))]
 fn open_bigquery(

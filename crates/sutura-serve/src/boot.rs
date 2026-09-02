@@ -16,12 +16,29 @@
 //! arm of `main.rs`'s dispatch, so with that default-off feature absent `dead_code = "deny"` makes
 //! all three hard errors - and `nix/shipped.nix` builds this package with cargo's DEFAULT features,
 //! so the published binary, its image and all four cross triples are exactly the configuration that
-//! would not compile. **Nothing in this repository would have caught it:** `just lint`, `just test`,
-//! `just hygiene` and `just check-changed` all pass `--all-features`, and the `ci` job has no
-//! default-feature build. `Cargo.toml` says so in its own words - *"held by
-//! `cargo check -p sutura-serve` on a developer's machine and by review"* - and this is the next
-//! feature on this crate not having to rediscover it. It was found in review, having been shipped
-//! red.
+//! would not compile.
+//!
+//! **Which gate would have caught it, stated precisely, because the first version of this paragraph
+//! said *nothing in this repository* and review measured otherwise - in both directions.** The four
+//! `cross` jobs build `.#sutura-serve-<triple>-ci` for every shipped triple on every pull request,
+//! and `nix/shipped.nix` passes `--package` and `--target` with no `--features`, i.e. cargo's
+//! default set: they WOULD have caught it, and they did not run, because they are `needs: [ci]` and
+//! `ci` had already failed. That is a sequencing fact rather than an absence of coverage. And
+//! `just validate` would not have caught it either: the checks it runs build no package, and their
+//! clippy and nextest both pass `--all-features`. So the honest sentence is *the gates a developer
+//! runs before pushing cannot see this lane; the four `cross` link checks can, and they run only
+//! after `ci` passes, which is why it reached review.*
+//!
+//! **The developer half of that lane is a gate now, which is what changes the paragraph above from
+//! advice into history.** `just gates` runs `check-default-features`, which reads the shipped package
+//! list out of `nix/shipped.nix` and both COMPILES and LINTS each one at cargo's default features -
+//! two things `just lint` and `just check-changed` cannot do, because both pass `--all-features`. It
+//! is in `gates` rather than `just hygiene` for `check-attribution-current`'s reason: it shells out
+//! to cargo, and the sandbox `hygiene` runs in has no registry. **The limit, and it is the reason
+//! this paragraph is not simply deleted:** nothing runs it in CI yet, so what CI has is still the
+//! four `cross` builds for the compile half and nothing at all for the lint half. Wiring it there
+//! wants a flake app sharing the warmed target directory, the way `apps.causality` does, which is a
+//! change to CI rather than to this crate.
 
 #[cfg(feature = "bigquery")]
 use std::collections::BTreeMap;
@@ -91,12 +108,18 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 /// not the type this comment used to name.** It said *this takes an OPEN registry, and only
 /// `open_engine` can produce one*, and review disproved that in one line: `Warehouses::of` and
 /// `::and` are both `pub`, and this file's own tests build a registry from a fake two hundred lines
-/// below. What actually holds the order is `sutura_exec_bigquery::wire::credential::Credential`,
-/// whose only public constructor is `Credential::read` - so a `BigQueryWarehouse` cannot exist
-/// without a credential having been read off disk first. **Naming the right type matters more than
-/// the property:** a later `Credential::from_token` would spend the guarantee while a sentence about
-/// registries still read true, which is the third time this repository has caught a doc crediting a
-/// type with a property something else holds.
+/// below. What actually holds the order is `main.rs`'s
+/// `type BigQuerySource = BigQueryWarehouse<BigQueryWire<Credential>>`, whose credential-shaped
+/// parameter has one implementor - `sutura_exec_bigquery::wire::credential::Credential`, whose only
+/// public constructor is `Credential::read`. **The ALIAS and not the warehouse, which is review
+/// correcting this same sentence a second time:** `BigQueryWarehouse<T>` is generic in its transport
+/// and that adapter's own suite builds twenty-four of them over fakes with no credential in sight -
+/// `grep -c '= open(' crates/sutura-exec-bigquery/src/tests.rs`, measured 2026-09-02 - so *a
+/// `BigQueryWarehouse` cannot exist without a credential read off disk* was false of the type it
+/// named. **Naming the right type matters more than the property:** a later
+/// `Credential::from_token` would spend the guarantee while a sentence about registries still read
+/// true, which is the third time this repository has caught a doc crediting a type with a property
+/// something else holds.
 ///
 /// **A data system that could not be ASKED is a WARNING and not a refusal, and that is now narrower
 /// than it was.** Review found the earlier version indefensible: a `403` on `tables.list` - a grant

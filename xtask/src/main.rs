@@ -18,6 +18,7 @@ mod changes;
 mod commit_msg;
 mod compose;
 mod crap;
+mod default_features;
 mod docs;
 mod fmt;
 mod guidance;
@@ -159,6 +160,17 @@ const TASKS: &[Task] = &[
         description: "every release-path binary literal equals nix/shipped.nix",
         kind: Kind::Hygiene,
         run: shipped::run,
+    },
+    Task {
+        // Beside `check-shipped-binaries` because it reads the same declaration, and STANDALONE
+        // rather than hygiene for `check-attribution-current`'s reason: it invokes cargo, so it
+        // needs a resolvable registry and a target directory the nix sandbox has not got, so `just
+        // gates` is its caller. The lane it covers is the one every other compiling gate is blind
+        // to, and CI does not run it yet - the module's own header says what that costs.
+        name: "check-default-features",
+        description: "every shipped package compiles and lints at cargo's default features",
+        kind: Kind::Standalone,
+        run: default_features::run,
     },
     Task {
         // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
