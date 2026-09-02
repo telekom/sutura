@@ -99,7 +99,7 @@ The rules, now that there are ports to apply them to:
 | The adapter wraps the third-party library and maps its errors to the domain's at the boundary | *review* |
 | Composition happens in a composition root and nowhere else - `sutura-cli` for the CLI, `sutura-serve` for the HTTP surface | *review*. Both consume both driven ports, which is what lets a transport be transport-only: it never reads a catalog directory and never opens a data system |
 | Generics with trait bounds for a driven port; `dyn` exactly once, and only for the driving one | *review*. `LocalService<W>` is generic in the warehouse and `start` is generic in the catalog; `ServiceState` holds `Arc<dyn Surface>`, because an `axum` handler is a concrete function - a generic port there would make the router, its state and the generated interface description generic too |
-| An adapter never calls another adapter | *review* |
+| An adapter never calls another adapter | `check-boundaries` for the half that has an honest definition: no NORMAL dependency between two adapters of the same class - `sutura-exec-*`, `sutura-catalog-*`, or the two transports. `sutura-sql`, `sutura-runtime` and a composition root are legitimate cross-adapter edges and are in no class; a dev-dependency is exempt, because that is how a corpus reaches a real system. *review* for anything outside those three classes |
 | No `#[derive(Serialize)]` on a domain type for a transport's convenience - a wire shape belongs to the transport | *review*. `DefinitionDigest` does derive serde, because a pinned snapshot is persisted data rather than a transport shape; that is the exception, and `#[serde(try_from)]` is what keeps it from being a hole |
 
 Ports get **fakes**, not mocked HTTP - that is what lets the whole tool surface, refusals
@@ -172,7 +172,7 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask unused-deps` | a declared dependency nothing references, and a `[workspace.dependencies]` entry nobody inherits |
 | `cargo xtask line-endings` | CRLF. `fmt` fixes it |
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
-| `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
+| `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; a normal dependency between two adapters of the same class; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
 | `cargo xtask check-serde-parse` | a derived `Deserialize` on a type with a fallible constructor and no `#[serde(try_from = ..)]`; and a `try_from` whose derived `Serialize` writes a different shape |
 | `cargo xtask check-refusal-coverage` | a `RefusalReason` variant no test names and no snapshot records - a file naming EVERY variant is a census and counts for none of them |
 | `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |

@@ -1,8 +1,10 @@
-//! The architecture-boundary gate. Three halves - two of them about which way dependencies
+//! The architecture-boundary gate. Four halves - three of them about which way dependencies
 //! point, one about what the crossing looks like:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
+//! * no adapter reaches an adapter of its own kind ([`adapter_classes`], and `adapters` for the
+//!   definition, which is the whole of the work in that rule)
 //! * a library's types and errors are a typed contract, not a struct with public fields
 //!   returning `Result<_, String>` (`api_shape`)
 //!
@@ -28,6 +30,7 @@
 //! express a fact about one of them, and then re-enumerating it every time an unrelated
 //! dependency moved.
 
+mod adapters;
 mod api_shape;
 
 use std::collections::BTreeSet;
@@ -199,8 +202,47 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
     },
 ];
 
-/// Every package name reachable from `start` in the resolve graph.
-fn transitive_names(meta: &serde_json::Value, start: &str) -> Result<BTreeSet<String>, String> {
+/// Which dependency edges a walk follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Edges {
+    /// Every edge cargo resolved, dev- and build-dependencies included.
+    ///
+    /// The right answer for the two halves below, and deliberately so: `ALLOWED_IN_DOMAIN` is
+    /// about what the WORKSPACE build can reach, and an edge moved behind a feature or a
+    /// dev-dependency is still an edge for that question.
+    Every,
+    /// Normal dependencies only.
+    ///
+    /// What the adapter-class half needs, and the difference is not a detail: a dev-dependency
+    /// between two adapters is how a corpus reaches a real data system, so following dev edges
+    /// there would forbid the differential suite. `adapters` carries the argument.
+    Normal,
+}
+
+impl Edges {
+    /// Does this walk follow this dependency?
+    fn follows(self, dep: &serde_json::Value) -> bool {
+        match self {
+            Self::Every => true,
+            // A dependency with no `dep_kinds` at all is older metadata than this repo produces;
+            // reading it as normal keeps the walk over-broad, which fails safe for a rule that
+            // forbids an edge.
+            Self::Normal => dep
+                .get("dep_kinds")
+                .and_then(|kinds| kinds.as_array())
+                .is_none_or(|kinds| kinds.iter().any(is_normal_kind)),
+        }
+    }
+}
+
+/// Is this one `dep_kinds` entry a normal dependency? `null` is normal; the other two are
+/// spelled `dev` and `build`.
+fn is_normal_kind(kind: &serde_json::Value) -> bool {
+    kind.get("kind").is_none_or(serde_json::Value::is_null)
+}
+
+/// Every package name reachable from `start` over the edges `edges` follows.
+fn transitive_names(meta: &serde_json::Value, start: &str, edges: Edges) -> Result<BTreeSet<String>, String> {
     let packages = meta
         .get("packages")
         .and_then(|p| p.as_array())
@@ -229,7 +271,12 @@ fn transitive_names(meta: &serde_json::Value, start: &str) -> Result<BTreeSet<St
             .iter()
             .find(|n| n.get("id").and_then(|i| i.as_str()) == Some(id))
             .and_then(|n| n.get("deps")?.as_array())
-            .map(|deps| deps.iter().filter_map(|d| d.get("pkg")?.as_str().map(String::from)).collect())
+            .map(|deps| {
+                deps.iter()
+                    .filter(|dep| edges.follows(dep))
+                    .filter_map(|d| d.get("pkg")?.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default()
     };
 
@@ -262,11 +309,51 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // that stops early makes the second violation look like it appeared after the first fix.
     let direction = dependency_direction();
     let edges = forbidden_edges();
+    let classes = adapter_classes();
     let surface = typed_surface();
-    if direction == Verdict::Pass && edges == Verdict::Pass && surface == Verdict::Pass {
+    if direction == Verdict::Pass && edges == Verdict::Pass && classes == Verdict::Pass && surface == Verdict::Pass {
         Verdict::Pass
     } else {
         Verdict::Fail
+    }
+}
+
+/// Which way dependencies point, a third time: no edge INSIDE one class of adapter.
+fn adapter_classes() -> Verdict {
+    // `--all-features` for the reason every other half uses it, and `Edges::Normal` inside the
+    // walk for the reason `adapters` states: a dev-dependency between two adapters is the
+    // differential suite.
+    let meta = match crate::cargo_metadata(&["--all-features"]) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            return Verdict::Fail;
+        }
+    };
+    match adapters::check(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            let described = report
+                .sizes
+                .iter()
+                .map(|(name, size)| format!("{name} ({size})"))
+                .collect::<Vec<String>>()
+                .join(", ");
+            println!("xtask check-boundaries: ok - no edge inside an adapter class: {described}");
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - an adapter reaches an adapter of its own kind:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            adapters::explain(&report.problems);
+            Verdict::Fail
+        }
     }
 }
 
@@ -288,7 +375,7 @@ fn forbidden_edges() -> Verdict {
         // Walked per entry rather than once, because `from` differs per rule and a missing
         // `from` has to be an error rather than a vacuous pass: a renamed crate would
         // otherwise silently switch the rule off.
-        let tree = match transitive_names(&meta, edge.from) {
+        let tree = match transitive_names(&meta, edge.from, Edges::Every) {
             Ok(names) => names,
             Err(message) => {
                 eprintln!("xtask check-boundaries: {message}");
@@ -338,7 +425,7 @@ fn dependency_direction() -> Verdict {
         }
     };
 
-    let tree = match transitive_names(&meta, DOMAIN) {
+    let tree = match transitive_names(&meta, DOMAIN, Edges::Every) {
         Ok(names) => names,
         Err(message) => {
             eprintln!("xtask check-boundaries: {message}");
@@ -398,7 +485,7 @@ fn typed_surface() -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{ALLOWED_IN_DOMAIN, FORBIDDEN_EDGES, transitive_names, violations};
+    use super::{ALLOWED_IN_DOMAIN, Edges, FORBIDDEN_EDGES, transitive_names, violations};
 
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|n| String::from(*n)).collect()
@@ -436,7 +523,7 @@ mod tests {
             }"#,
         )
         .expect("fixture parses");
-        let tree = transitive_names(&meta, "sutura-domain").expect("walk succeeds");
+        let tree = transitive_names(&meta, "sutura-domain", Edges::Every).expect("walk succeeds");
         assert_eq!(tree, set(&["a", "b"]));
     }
 
@@ -456,14 +543,14 @@ mod tests {
             }"#,
         )
         .expect("fixture parses");
-        let tree = transitive_names(&meta, "sutura-domain").expect("walk succeeds");
+        let tree = transitive_names(&meta, "sutura-domain", Edges::Every).expect("walk succeeds");
         assert!(tree.contains("a"));
     }
 
     #[test]
     fn a_missing_crate_is_an_error_not_a_pass() {
         let meta: serde_json::Value = serde_json::from_str(r#"{"packages": [], "resolve": {"nodes": []}}"#).expect("parses");
-        drop(transitive_names(&meta, "sutura-domain").unwrap_err());
+        drop(transitive_names(&meta, "sutura-domain", Edges::Every).unwrap_err());
     }
 
     #[test]
@@ -486,7 +573,7 @@ mod tests {
             }"#,
         )
         .expect("fixture parses");
-        let tree = transitive_names(&meta, "sutura-semantic").expect("walk succeeds");
+        let tree = transitive_names(&meta, "sutura-semantic", Edges::Every).expect("walk succeeds");
         for edge in FORBIDDEN_EDGES {
             assert!(tree.contains(edge.forbidden), "{} was not seen in the tree", edge.forbidden);
         }
