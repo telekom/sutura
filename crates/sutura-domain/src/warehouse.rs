@@ -16,11 +16,16 @@
 //! [`crate::query`] is the *tool* surface, where SQL must be unrepresentable because the text would
 //! come from a caller; here there is no text for a value to reach at all.
 
+use std::collections::BTreeSet;
+
 use crate::calendar::Date;
 use crate::identity::Presented;
-use crate::model::SourceName;
+use crate::model::{QualifiedTable, SourceName};
 use crate::plan::{AnchorPlan, Executable};
 use crate::source::{ImpersonationCapability, SourcePosture};
+
+mod preflight;
+pub use crate::warehouse::preflight::{AbsentTables, NotAbsent, TablesPresent};
 
 /// A value bound to a placeholder.
 ///
@@ -704,6 +709,43 @@ pub trait Warehouse {
     /// certified scalar.
     fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
         false
+    }
+
+    /// Does this data system hold the tables the bundle names?
+    ///
+    /// **Asked once, at boot, before a listener is bound**, and it exists to close an asymmetry
+    /// between two kinds of deployment rather than to add a check. A file engine is GIVEN one file
+    /// per model, so a catalog naming a table with nothing behind it is already a refusal naming the
+    /// model. A networked data system has no such step: the tables live in the dataset, and without
+    /// this the process learns a table is absent when a question reaches it - a green startup, a
+    /// healthy liveness probe, and a failure for whoever asked first.
+    ///
+    /// **Defaulted to [`TablesPresent::NotAsked`], and the default is the whole reason this is a
+    /// defaulted method rather than a required one.** An adapter that has no cheap way to ask must
+    /// not be forced to answer, and the only answers available to one that cannot look are *nothing
+    /// to report* and a lie. That is `working_set_exhausted`'s and `result_did_not_fit`'s precedent
+    /// pointed at a boot check: the default is the reading that costs least when it is wrong.
+    /// [`TablesPresent`] says at length why the default is not readable as *verified*.
+    ///
+    /// **A SET rather than a table, deliberately.** A networked data system can usually answer this
+    /// for a whole dataset in one call, and a method taking one table would make that a call per
+    /// model - which is the cost that kept this check from existing. An adapter reading more than
+    /// one dataset makes one call per dataset, which is still a set rather than a model.
+    ///
+    /// It takes no credential, for [`verify_anchor`](Warehouse::verify_anchor)'s reason: there is no
+    /// caller at boot. So what it establishes is what the identity this adapter was configured with
+    /// can see, which is the same limit an anchor carries.
+    ///
+    /// # Errors
+    ///
+    /// **A data system that could not be ASKED is an `Err` and never a variant of the answer** - a
+    /// credential with no permission to list, a dataset that is not there, an endpoint that did not
+    /// reply. That separation is the contract: *could not verify* and *this table is absent* must
+    /// reach an operator as two different sentences, because the fix for each is in a different
+    /// place. A composition root is free to treat the first as a warning and the second as a refusal,
+    /// and it cannot make that choice if the adapter collapsed them.
+    fn preflight(&self, _tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
+        Ok(TablesPresent::NotAsked)
     }
 }
 
