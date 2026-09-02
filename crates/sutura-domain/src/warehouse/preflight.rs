@@ -14,8 +14,14 @@
 //! one is there when a question reaches it. So the same mistyped table name cost a boot refusal on
 //! one kind of deployment and a failed answer for whoever asked first on the other.
 //!
-//! [`Warehouse::preflight`](super::Warehouse::preflight) is the port that closes it, and this is the
-//! answer it returns.
+//! [`Warehouse::preflight`](crate::warehouse::Warehouse::preflight) is the port that closes it, and
+//! this is the answer it returns.
+//!
+//! **The links here are `crate::`-prefixed rather than `super::`-prefixed on purpose.** The API
+//! reference pages are generated from these doc comments and copied through verbatim, and
+//! `AGENTS.md` records a MEASURED boundary: `crate::`-prefixed links do not warn under
+//! `mkdocs build --strict`, while another shape aborted it. `super::` was never measured, so it is
+//! not the form to find out with.
 
 use std::collections::BTreeSet;
 
@@ -65,7 +71,7 @@ impl AbsentTables {
 /// What a data system said about the tables it was asked for.
 ///
 /// **[`Self::NotAsked`] is not [`Self::All`], and no caller can read it as one.** That is the shape
-/// [`PreFlight`](super::PreFlight) already uses and it is here for the same reason: the port's
+/// [`PreFlight`](crate::warehouse::PreFlight) already uses and it is here for the same reason: the port's
 /// default has to be *nothing to report*, because an adapter that cannot ask a data system cheaply
 /// must not be forced to lie - and a default of "every table is there" is exactly that lie, told at
 /// boot, in the one place a deployment is deciding whether to serve at all. An adapter that really

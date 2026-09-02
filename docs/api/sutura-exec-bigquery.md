@@ -24,7 +24,10 @@ What it contains is everything this adapter DECIDES:
 - the rendering, through `sutura-sql` in `Dialect::BigQuery`, so no second set of quoting and
   placeholder decisions exists here;
 - the refusal of a federated leg, because there is no combiner above it;
-- the value mapping, which is where a wrong number would come from.
+- the value mapping, which is where a wrong number would come from;
+- the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
+  tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
+  on a `files` deployment rather than a failed answer for whoever asks first.
 
 **A limit of that mapping, stated because it decides what a time column on this source is:**
 `transport::FieldType` reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
@@ -123,6 +126,7 @@ an owned `#[source]`.
 - `RowWidth` - A row had more or fewer cells than the schema had columns.
 - `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
 - `Shape` - The result set could not be built.
+- `UnusableTablePath` - A model's table path names a project or a dataset this adapter cannot address.
 
 ### Implements
 
@@ -326,6 +330,10 @@ the crate whose transport interpolates it into a request path, and a check belon
 is. The two are not one copy of one rule: an adapter may not depend on the settings tree, so
 sharing the type would be an adapter reaching into another adapter.
 
+**`Ord` is derived so the pre-flight can group by it**, and the ordering it derives is the inner
+string's: `parse` neither trims into a different value nor folds case, so the wrapper compares
+exactly as the text it holds does and there is no invariant for the derive to disagree with.
+
 #### Methods
 
 ```rust
@@ -347,7 +355,7 @@ request, and a too-short id is a diagnostic the settings tree already gives.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
 
 ### `struct DatasetId`
 
@@ -356,6 +364,10 @@ pub struct DatasetId
 ```
 
 The dataset unqualified table names resolve in, as this adapter holds it.
+
+`Ord` for the reason `ProjectId`'s is derived, plus one of its own: this type PRESERVES case, so
+the derived ordering and the derived equality are the case-sensitive comparison a dataset id
+really wants.
 
 #### Methods
 
@@ -376,7 +388,43 @@ a working declaration into a dataset that does not exist.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
+
+### `struct DatasetAddress`
+
+```rust
+pub struct DatasetAddress
+```
+
+One dataset, addressed the way a metadata read needs it: the project it lives in and its own id.
+
+**A named pair rather than two arguments**, for the reason `ProjectId` is a wrapper at all: a
+call taking two ids in the wrong order compiles and is wrong, and here the two are the same
+shape. It is also the grouping key the pre-flight uses, which is what the derived `Ord` is for.
+
+#### Methods
+
+```rust
+pub const fn dataset(&self) -> &DatasetId
+```
+
+The dataset's own id.
+
+```rust
+pub const fn of(project: ProjectId, dataset: DatasetId) -> Self
+```
+
+Addresses a dataset.
+
+```rust
+pub const fn project(&self) -> &ProjectId
+```
+
+The project the dataset lives in, which is also the one the metadata read is attributed to.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
 
 ### `enum UnusableResourceName`
 
@@ -553,10 +601,20 @@ endpoint really does distinguish them - its request body carries a dry-run flag,
 uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
 `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
 
-**Two more members are not that, and the count is spelled out because it has been wrong twice.**
-`result_did_not_fit` asks the implementor about a failure it already has and sends nothing; and
-`apply`, behind the `fixtures` feature, is the third statement-issuing method - present only in a
-build that loads fixtures, so no deployment can reach it.
+**Three more members are not that, and the count is spelled out because it has been wrong
+twice.** `result_did_not_fit` asks the implementor about a failure it already has and sends
+nothing; `list_tables` sends a metadata read rather than a statement, which is what makes it
+cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
+statement-issuing method - present only in a build that loads fixtures, so no deployment can
+reach it.
+
+### `type_alias HeldTables`
+
+Every table one dataset holds, by the id it knows each under.
+
+A name rather than the type, because `Result<BTreeSet<String>, _>` is over the `type_complexity`
+threshold this workspace tightened - the same reason `crate::BigQueryWarehouse`'s `Mapped`
+exists - and because *table ids* is what the set means where `BTreeSet<String>` is not.
 
 ## Module `wire`
 
@@ -1003,6 +1061,9 @@ every other variant and `clippy::result_large_err` is on.
 - `NotATotal` - The total was not a number.
 - `NoSchema` - A complete job with rows and no schema to read them against.
 - `NotAScalar` - A cell that is neither a string nor a null.
+- `NotAListing` - The answer to a table listing was not one.
+- `UnusablePageToken` - The service handed back a page token this transport will not write into a URL.
+- `ListingDidNotFinish` - A dataset that did not finish listing inside the page bound. **A failure rather than a short listing**: the answer this feeds is *these tables are absent*, and a listing cut off reports a table that is there as missing.
 
 #### Implements
 

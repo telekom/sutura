@@ -24,8 +24,16 @@ use crate::model::{QualifiedTable, SourceName};
 use crate::plan::{AnchorPlan, Executable};
 use crate::source::{ImpersonationCapability, SourcePosture};
 
-mod preflight;
-pub use crate::warehouse::preflight::{AbsentTables, NotAbsent, TablesPresent};
+/// The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
+///
+/// **`pub mod` with no re-export beside it, and that is a documentation decision rather than a
+/// style one.** The domain's usual shape is a private submodule plus a `pub use`, which rustdoc
+/// inlines into the parent - and it did NOT inline here: `just api` generated three
+/// `### use None` stubs and no content for these three types, so the published reference would have
+/// carried a port method returning a type it does not describe. A public module gets documented.
+pub mod preflight;
+
+use crate::warehouse::preflight::TablesPresent;
 
 /// A value bound to a placeholder.
 ///

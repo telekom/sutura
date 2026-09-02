@@ -23,7 +23,8 @@ use sutura_domain::plan::{
     StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
-use sutura_domain::warehouse::{ParamValue, PreFlight, TablesPresent, Value, Warehouse};
+use sutura_domain::warehouse::preflight::TablesPresent;
+use sutura_domain::warehouse::{ParamValue, PreFlight, Value, Warehouse};
 
 use crate::transport::{
     Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobRequest, JobRows, JobTransport, ProjectId,

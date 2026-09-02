@@ -214,7 +214,8 @@ mod tests {
     use sutura_domain::model::{QualifiedTable, SourceName};
     use sutura_domain::plan::{AnchorPlan, Executable};
     use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-    use sutura_domain::warehouse::{AnchorRows, RowSet, TablesPresent, Warehouse};
+    use sutura_domain::warehouse::preflight::TablesPresent;
+    use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
     use super::refuse_absent_tables;
 

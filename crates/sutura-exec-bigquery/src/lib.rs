@@ -96,9 +96,8 @@ use sutura_domain::model::TableName;
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::{
-    AnchorRows, MalformedRowSet, NotFinite, PreFlight, Real, RowSet, TablesPresent, Value, Warehouse,
-};
+use sutura_domain::warehouse::preflight::TablesPresent;
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
