@@ -70,6 +70,11 @@ impl Recording {
         Self::answering(JobRows::of(Vec::new(), Vec::new(), 0))
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the recording fake exists to assert the exact bearer the adapter forwarded, which \
+                  needs its text; production code never reads it"
+    )]
     fn record(&self, request: &JobRequest<'_>) {
         self.seen.borrow_mut().push(Asked {
             statement: String::from(request.statement()),

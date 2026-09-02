@@ -58,6 +58,25 @@ disallowed-methods = [
   # writing the call and watching clippy reject it; the limit is that a lint is not a type, so it
   # reaches this workspace and not a crate outside it.
   { path = "sutura_domain::warehouse::Warehouse::verify_anchor", reason = "the only port method that executes with no credential; it belongs to the boot path alone, whose one call site holds the single #[expect]" },
+  # The one call that lets credential material out of `Secret`, and until #145 the only thing
+  # holding it was its NAME. `docs/adr/0020` made logging a credential a compile error - `Secret`
+  # has no `Display`, so a `%` tracing field does not build - and that record's own documentation
+  # states the hole it left: nothing stopped a call site writing the exposure into a log, "which is
+  # why the method is named to be greppable rather than relied on to be absent". Greppable is not a
+  # mechanism.
+  #
+  # So the ban makes each exposure a place somebody wrote an `#[expect]` a reviewer can see, which
+  # is the `verify_anchor` and `spawn_blocking` shape one row up. There is no list of permitted call
+  # sites in this file on purpose: a name here would rot silently, where an expectation that stops
+  # firing is an error under `-D warnings`.
+  #
+  # VERIFIED TO RESOLVE the way this file's header requires - not by writing a new call, but by
+  # adding the entry and watching clippy reject the existing ones by file and line.
+  #
+  # Test code is NOT exempt: there is no `allow-disallowed-methods-in-tests`, and the
+  # `allow-*-in-tests` switches at the top reach four named lints only. A test's exposure carries
+  # an expectation like any other, and the reason it gives says it is a test.
+  { path = "sutura_domain::identity::Secret::expose_secret", reason = "the one call that lets credential material out; every exposure carries an #[expect] naming what it is for, so a new one is a visible diff" },
 ]
 
 disallowed-types = [

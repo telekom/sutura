@@ -149,6 +149,11 @@ impl AccessToken {
     /// What this still does not do: it is not a password hash. There is no salt and no work
     /// factor, because the input is a high-entropy secret an operator generated rather than
     /// something a person chose, and nothing here is stored for an attacker to find offline.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the deployment token has to be hashed to be compared; the exposed value reaches \
+                  a digest and nothing else, and never a log or an error"
+    )]
     pub fn matches_in_constant_time(&self, presented: &str) -> bool {
         let expected = sha2::Sha256::digest(self.0.expose_secret().as_bytes());
         let actual = sha2::Sha256::digest(presented.as_bytes());

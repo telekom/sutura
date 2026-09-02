@@ -94,6 +94,11 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the retained assertion is the point of the check: the token that passed \
+                  the gate is what a broker would be handed"
+    )]
     fn a_verified_caller_becomes_a_context_naming_the_person_and_the_agent_that_acted() {
         // The half that could not exist before leg 1: an audit record for this call names the person.
         // Asserted through `Attribution` rather than by reading a field, because that is the accessor

@@ -337,6 +337,10 @@ fn a_key_never_shows_itself_through_a_derived_debug() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "reading the unwrapped body IS the assertion that unwrapping strips delimiters and nothing more"
+)]
 fn the_pem_unwrapping_is_a_text_format_and_nothing_more() {
     // What this function is allowed to do, pinned: strip two delimiters and pack the body. It does not
     // decode, it does not parse ASN.1, and it does not validate - `ring` does that, one layer down.
