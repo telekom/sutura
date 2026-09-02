@@ -56,7 +56,11 @@
 //!   module of the same crate is not seen. Every one in this workspace is beside its type.
 //! * It does not parse Rust. [`scan`] carries the rest of that argument, and the tests for it.
 
-mod scan;
+// `pub(crate)` rather than private, for one item: `crate::newtype_leaks` reads `scan::code_lines`,
+// because "each line of this file with everything that is not code blanked out" is one question and
+// a second implementation of it would be a second thing to keep in step. Nothing else in there is
+// crate-visible.
+pub(crate) mod scan;
 
 use crate::Verdict;
 use crate::repo;

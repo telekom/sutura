@@ -24,6 +24,7 @@ mod guidance;
 mod hooks;
 mod line_endings;
 mod max_lines;
+mod newtype_leaks;
 mod pins;
 mod refusals;
 mod repo;
@@ -187,6 +188,16 @@ const TASKS: &[Task] = &[
         description: "every RefusalReason variant is provoked, or excused in devco/refusals-unprovoked-allow",
         kind: Kind::Hygiene,
         run: refusals::run,
+    },
+    Task {
+        // The third of the newtype rules held by a check, beside `check-serde-parse`. It starts
+        // GREEN - there was no first-party `Deref` and no `Borrow` in the tree when it was written
+        // - so its whole job is to keep it that way, which makes it the cheapest gate here and the
+        // one most likely to earn its keep years from now.
+        name: "check-newtype-leaks",
+        description: "no first-party Deref or Borrow - both leak a newtype's invariant",
+        kind: Kind::Hygiene,
+        run: newtype_leaks::run,
     },
     Task {
         name: "line-endings",
