@@ -657,8 +657,8 @@ for the evidence instead: the command you ran, the failure before the fix, the p
   because the variant is the contract and the message is not; and **dependencies point inward**, so
   the domain names what it needs and adapters implement it. The parts with a mechanism are rows in
   the Invariants table above. The rest is **advisory - review catches it or nothing does**, and
-  `.agents/skills/engineering/rust/SKILL.md` marks which is which, line by line, with the source
-  each rule comes from.
+  `.agents/skills/engineering/rust/SKILL.md` marks which is which line by line AND lists the
+  advisory half at its foot, so the honest part is handed to a reader rather than inferred.
 
 ## Design Principles
 

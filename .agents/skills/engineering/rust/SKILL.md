@@ -19,6 +19,15 @@ Sources, and the definition of "correct" for a review here:
 Read the **Caught by** column literally. Where it says *review*, nothing fails the build - the
 rule is real but unenforced, and this file says so rather than implying a gate exists.
 
+**Eighteen table rows said *review* before #145 and fifteen do now** - measured with
+`grep -c '^|.*\*review\*'` on this file, stated because a bare number nobody can recount is the
+defect this page is about. It is a smaller drop than the six gates that landed, and the reason is
+worth reading: two of those gates cover rules this page had no row for at all, one row went from
+*review* to *review for the CHOICE and gated for the CONSEQUENCE*, and two new rows arrived already
+gated. The count is not the point; **what stays advisory is**, and it is listed at the foot of this
+file rather than left to be inferred - a rule described as enforced when it is not spends a
+reviewer's trust exactly where they needed it.
+
 ### Newtypes parse; they do not validate
 
 The point is that a value which violates the invariant cannot be constructed, so no code
@@ -62,18 +71,24 @@ is allowed because a typed, exhaustive error enum already is the documentation.
 `sutura-domain` is the hexagon's interior. Everything else is an adapter that depends on it,
 and nothing depends on an adapter.
 
-**Three ports exist, and each arrived with its implementor.** That is the rule - `AGENTS.md`'s
-*Layout* states it as "a port trait arrives with its first implementor" - and it is also why there
-is no fourth. A trait with no implementor and no caller is a guess at a signature only the first
-real adapter can settle, and in a library crate `pub` hides it from `dead_code`, which is how an
-unused item survives review. `CredentialBroker` is the live example: module comments in
-`sutura-domain`, `sutura-config` and `sutura-http` name it as the port that would mint a credential
-per request, and it is deliberately **absent** rather than sketched. Do not add one speculatively.
+**Four driven ports and one driving port exist, and each arrived with its implementor.** That is
+the rule - `AGENTS.md`'s *Layout* states it as "a port trait arrives with its first implementor" -
+and it is also why there is no sixth. A trait with no implementor and no caller is a guess at a
+signature only the first real adapter can settle, and in a library crate `pub` hides it from
+`dead_code`, which is how an unused item survives review. Do not add one speculatively.
+
+**`CredentialBroker` used to be this page's worked example of a port deliberately ABSENT, and it is
+now the worked example of the rule being followed** - the paragraph here said module comments named
+it and nothing declared it, which stopped being true when the first implementor arrived with it.
+That is the correction, and it is the shape this file is most prone to: a sentence that was accurate
+when written and reads as current.
 
 | Port | Declared in | Implemented by |
 | --- | --- | --- |
-| `Warehouse` - driven | `sutura-domain`, `warehouse.rs` | `DataFusionWarehouse`, the engine that ships; `DuckDbWarehouse` on the dev-dependency leg; the fakes |
+| `Warehouse` - driven | `sutura-domain`, `warehouse.rs` | `DataFusionWarehouse`, the engine that ships; `DuckDbWarehouse` and `PostgresWarehouse` on the dev-dependency legs; `BigQueryWarehouse`; the fakes |
 | `SemanticCatalog` - driven | `sutura-domain`, `pinned.rs` | `LocalCatalog` in `sutura-catalog-local`; the fakes, and the hand-written oracle the goldens compare against |
+| `CredentialBroker` - driven | `sutura-domain`, `identity/credential.rs` | `StaticCredentialBroker` in `sutura-config`, which mints from the settings tree; `WorkloadIdentityBroker` in `sutura-exec-bigquery`, the first that EXCHANGES; the fakes |
+| `AuditSink` - driven | `sutura-domain`, `audit.rs` | `TracingAuditSink` in `sutura-runtime`; the recording fakes |
 | `Surface` - driving | `sutura-app`, `surface.rs` | `LocalService<W>`, and nothing else |
 
 **Driven and driving are not the same rule, and the difference decides which crate declares the
@@ -133,11 +148,18 @@ and exempt in tests (`allow-*-in-tests` in `clippy.toml`). Shipped profiles use
 Slices are walked with `split_first` rather than indexed. `unsafe_code` is `forbid` - not
 `deny` - so a crate cannot re-allow it locally.
 
-## 3. `--all-features` on every entry point, even though it is a no-op
+## 3. `--all-features` on every entry point, and it is no longer a no-op
 
-No crate here declares a feature today, and nothing is `optional = true`. So the flag currently
-changes nothing - and it is on every gate for exactly that reason: the day an adapter goes behind a
-feature, coverage must not silently drop to nothing without anyone noticing.
+**This section said "no crate here declares a feature today, and nothing is `optional = true`", and
+that is the second stale claim #145 corrected on this page.** Six crates declare features -
+`sutura-config` and `sutura-http` and `sutura-serve` (`tls`), `sutura-exec-bigquery` (`wire`,
+`fixtures`), `sutura-serve` (`bigquery`), `sutura-runtime` (`test-capture`) and `sutura-dev`
+(`mock-issuer`) - and four of them make dependencies `optional = true`, which is what makes those
+crates ABSENT from a build that does not ask rather than merely unused.
+
+So the flag now decides what gets compiled, linted and tested, which is precisely the day the old
+sentence was written against: it was on every gate so that coverage could not silently drop to
+nothing when that day came. It did, and it did not.
 
 The inner loop is deliberately narrow:
 
@@ -188,6 +210,39 @@ Run `gates` before you claim done. Individually:
 - Ports get **fakes**, not mocked HTTP. A test asserting on source text proves nothing.
 - Adding a dependency: `unused-deps` requires it to be referenced, and `cargo-deny` checks
   its licence and advisories. Both run in the gates.
+
+## What stays advisory, and this list is the point of it
+
+Fifteen rows above say *review*. **Naming them is part of the deliverable**, because the failure
+this whole page guards against is a rule described as enforced when it is not - that spends a
+reviewer's trust exactly where they needed it, and `AGENTS.md` calls an overstated claim the defect
+itself. So: nothing below fails a build. A reviewer catches it or nothing does.
+
+**Newtypes.** One `parse` and no separate `is_valid`. A check that accepts more than its name
+claims - the `DefinitionDigest::parse("not a hash")` bug. A second constructor that repeats the
+checks instead of delegating. Normalising at comparison sites rather than inside `parse`.
+
+**Errors.** Typed fields rather than a sentence in the message. One enum per fallible operation
+rather than an umbrella per module. And the choice of `Ok` over `Err` for an expected outcome -
+which is the deepest of the four principles and the least mechanisable: a governance refusal is
+`ToolOutcome::Refusal`, and only a reader can tell that a thing that went *right* is being returned
+as an error. What IS gated is the consequence, by `check-refusal-coverage`.
+
+**Ports and adapters.** A driven port declared by the domain and named for what the domain needs. A
+port's methods taking and returning domain types only. A port staying synchronous while `Warehouse`
+is. An adapter mapping its library's errors at the boundary. Composition in a composition root.
+Generics for a driven port and `dyn` exactly once for the driving one. No serde derive on a domain
+type for a transport's convenience. And any cross-adapter edge OUTSIDE the three classes
+`check-boundaries` knows about.
+
+**Borrowing.** Preferring a borrow to a clone, and knowing which clones are cheap. There is no
+mechanism for this and there is not going to be one: a clone is a decision with a reason, and a
+gate cannot read the reason.
+
+Two of these could plausibly become gates and are deliberately not: *one `parse` and no
+`is_valid`* would have to guess which method is the constructor, and *a port's methods take domain
+types only* would have to know what a domain type is. Both would fail correct code, and a gate that
+fails correct code gets disabled - which costs more than the rule was worth.
 
 ## Before claiming completion
 
