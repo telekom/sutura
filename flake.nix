@@ -798,7 +798,8 @@
         # `GOOGLE_APPLICATION_CREDENTIALS` at a credential file, plus `SUTURA_BQ_DATASET` and
         # `SUTURA_BQ_TABLE`. The billing project comes from a service-account key's own
         # `project_id`, so CI configures no project variable. `--run-ignored only` is what reaches
-        # the three `#[ignore]`d tests; every other task skips them.
+        # the `#[ignore]`d tests - every one in the crate, not a listed set, so a test added there is
+        # reached without editing this comment; every other task skips them.
         apps.bigquery-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''

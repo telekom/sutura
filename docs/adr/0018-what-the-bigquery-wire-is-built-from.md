@@ -501,15 +501,29 @@ this became its second caller.
 
 **Three limits, in this record's own tradition of stating them next to the claim:**
 
-- **No live dataset has answered a listing.** The three response documents this suite decodes were
-  written here, which is this record's existing limit restated for a second endpoint - and the
-  acceptance leg does not cover the pre-flight either, so issue #120's own *Verification* bullet
-  about a `just bigquery-acceptance` run is outstanding.
+- **A live dataset HAS now answered a listing, and the documents this suite decodes are still ours.**
+  The three response documents were written here, which is this record's existing limit restated for
+  a second endpoint; what closes the other half of #216 is a run and not a document.
+  `the_dataset_really_answers_a_listing_and_names_only_the_table_it_does_not_hold` is `#[ignore]`d
+  beside its neighbours and asks a real dataset about a set of one table it holds and one it does
+  not, with the clean set asserted FIRST as the control. **It has never run on a developer machine
+  here** - no dataset is named in this environment, so `just bigquery-acceptance` fails on its own
+  precondition rather than reporting green. **It has RUN, green, in CI on 2026-09-02** - the
+  `bigquery-acceptance` job, 9 tests passed, this one the sixth of the endpoint leg's - and it keeps
+  running there, because `--run-ignored only` reaches every `#[ignore]`d test in the crate rather
+  than a set somebody has to remember to extend. **What the run does not reach is the soft edge:** no
+  live dataset has FAILED to answer, so the refusal-versus-warning split of `preflight_was_refused`
+  is still exercised against a fake transport only.
 - **A document whose shape the service changes decodes to an EMPTY listing**, because every field is
   `#[serde(default)]` - and an empty listing means *every table is absent*. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
   behaviour so the direction is a measured property rather than a hope. It cannot be told from an
-  empty dataset, which really does answer with no `tables` array.
+  empty dataset, which really does answer with no `tables` array. **A `totalItems` cross-check would
+  tell the two apart** - a non-zero total beside an empty `tables` array is a shape change and not an
+  empty dataset - and it is deliberately NOT built: nothing here has seen whether the service
+  populates that field on a real listing, and a decoder that refuses on a field the service may omit
+  would refuse every boot. The live run above is what would settle it, which is the honest order:
+  measure, then decide.
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
