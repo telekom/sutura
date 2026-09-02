@@ -1,11 +1,13 @@
 # Examples
 
-Runnable catalogs. Each directory here is a complete input to the binary: a catalog of
-markdown documents, the data those documents describe, and a corpus of questions asked
-against them.
+Runnable catalogs. **`single-player/` is a complete input to the binary** - a catalog of markdown
+documents, the data those documents describe, and a corpus of questions asked against them.
+**`multi-player/` is not that**: it is the served deployment SHAPE you would configure (and no binary
+in this repository can open its catalog yet), whose runnable proof is test code over a recorded
+fixture rather than an input directory - its own section below says which is which.
 
 They are examples and tests at the same time, and that is the point rather than a
-convenience. `crates/sutura-cli/tests/example.rs` loads every catalog here, pins its
+convenience. `crates/sutura-cli/tests/example.rs` loads the `single-player/` catalog, pins its
 digest, re-executes every declared anchor and runs every question, so a quickstart that
 stopped working fails the build instead of failing the next person who tried it. There is
 no separate copy of the commands below for CI to run.
@@ -20,9 +22,16 @@ principal" holds trivially: a local file has no login to present. That makes it 
 right shape for learning the format, and it is also exactly the claim that a laptop
 cannot test.
 
-**`multi-player/`** is where that stops being free: per-request credentials, two callers
-getting different rows for the same question, and a refusal when a leg cannot run as the
-subject. It is a placeholder today, and its README says what is missing and why.
+**`multi-player/`** is the served deployment shape with per-caller identities: `security.inbound` declares
+who is asking, `security.identity: multi-user` makes the operator's acknowledgment a requirement, and
+the catalog is DataHub (`sutura-catalog-datahub`) with its certified metric arriving from the
+deployment-defined `sutura` structured property (issue #202). It is not a directory of markdown that
+`examples/single-player` can share, and **no binary in this repository can open its catalog yet** - the
+crate is a `sutura-app` dev-dependency and `sutura-serve` refuses `catalog.kind: datahub` by name - so
+its README documents the shape and names the runnable part: the recorded-fixture example test in
+`crates/sutura-catalog-datahub/tests/multi_player.rs`, which CI runs with no network, and the parts
+(two callers seeing two row sets, a provisioned DataHub read path, a served composition) that still
+need a live system.
 
 ## The data
 
@@ -35,7 +44,8 @@ anything outside this repository.
 ## Reaching a data system, when an example needs one
 
 **Neither directory here needs one today**, and saying so first is the honest order:
-`single-player/` is CSVs the engine reads directly, and `multi-player/` is a placeholder. The
+`single-player/` is CSVs the engine reads directly, and `multi-player/`'s runnable form is the
+recorded DataHub fixture rather than a data system. The
 development service tier exists for the adapters that are not written yet. This section is here so
 that the documented path to it is one command rather than something a reader has to work out, and
 so that the answer to "which port?" is never a number in a README.

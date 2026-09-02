@@ -1,70 +1,110 @@
 # Multi player
 
-Empty on purpose. The example that belongs here cannot be written yet, and this file says
-what it would be and what is missing.
+**The deployment shape this example documents is not servable in this repository yet.** No binary
+here links `sutura-catalog-datahub` - its only dependant is `sutura-app`, as a dev-dependency - and
+`sutura-serve` refuses `catalog.kind: datahub` by name. So this page is the shape a deployment would
+configure, and the proof the build gives about it, told in that order; the *What runs here and now*
+section below says exactly where the proof stops.
 
-## Why single player proves less than it looks like
+This is the sibling of `single-player/` that single-player cannot be: there, every claim holds
+because a local file has no login to present and there is nobody else to be. Here the deployment
+declares a per-caller identity (`security.inbound`), the catalog is a metadata service rather than
+markdown in git, and the answered identity is a difference the runtime knows about. It exists to show
+the DataHub connector doing its job in that shape, and to say plainly which half of "multiplayer"
+still cannot run here.
 
-`examples/single-player` is a catalog in git, a CSV per model, and whatever access the
-process already had. Every claim in it holds. The one claim that matters most holds for a
-reason that does not generalise: "every query runs as the calling principal" is trivially
-true there, because a local file has no login to present and there is nobody else to be.
+## The deployment
 
-That is a true statement about a laptop and not about a warehouse. On a data system with
-grants, the same question asked by two people is two different sets of rows, and a runtime
-that reads them under its own service identity has turned a row-level security policy into
-decoration. Nothing in the single-player example can tell the two apart, so nothing in it
-tests the difference.
+Two things make a deployment multi-player, and both are configuration rather than code:
 
-## What will be here
+- **`security.identity: "multi-user"`** - the operator's declaration that callers are not all one
+  person. In multi-user mode a `shared-service-user` source needs its per-source operator
+  acknowledgement (`sources.<alias>.acknowledged_because`); without it the process refuses to boot
+  (`SharedSourceNotAcknowledged`).
+- **`security.inbound`** - who is asking, verified from a signature: `direct` (a token from this
+  deployment's own authorization server) or `behind-gateway` (a compact, short-lived assertion signed
+  by the trusted component). Either way the deployment knows the caller's subject, and the caller
+  cannot state their own identity in a request body - `docs/adr/0014`.
 
-An example is only worth writing once it can fail. This one needs three things it can
-demonstrate:
+Those are two different refusals for two different configuration mistakes. A deployment that
+*declares* an inbound mode but attaches no gate to it is refused as
+`RouterNotBuilt::InboundIdentityNotAttached` before the listener opens; a multi-user deployment whose
+`shared-service-user` source carries no acknowledgement is refused at boot as
+`SharedSourceNotAcknowledged`. The reference is `docs/serving.md`.
 
-- **Per-request credentials.** A credential minted for the caller of this request, for this
-  leg of this plan, rather than a connection opened at startup and shared.
-- **Two callers, two answers.** The same certified question, the same catalog, the same
-  data system, and two different result sets, because the two principals may read different
-  rows. That is the assertion the example exists for, and it needs at least two identities
-  to be worth running.
-- **A refusal instead of a downgrade.** A leg that cannot run as the subject comes back as
-  a refusal naming that, never as an answer computed under some other identity. The failure
-  mode being guarded against is the silent one: an answer that looks correct and was read by
-  the wrong principal.
+The catalog is DataHub, read by `sutura-catalog-datahub` - the first **declaring** `SemanticCatalog`.
+It provides `Structure`, `Descriptions` and `Relationships` unconditionally, and the metric kinds as
+**declared-and-empty may-provide** declarations (`docs/adr/0016`, issue #202): a certified metric
+comes from the deployment itself. `DataHub`'s `structuredProperty` is scalar-only, so a deployment
+defines metric content as **one string-valued structured property named `sutura`** whose value is a
+JSON document over the domain's closed vocabularies. What the deployment defines for the example's
+metric looks like this - the canonical shape `sutura-catalog-datahub` decodes:
 
-## What is missing
+```json
+{
+  "name": "revenue",
+  "dialect": "ANSI_SQL",
+  "expression": "SUM(amount_cents)",
+  "sutura": {
+    "string_value": "{\"model\":\"orders\",\"description\":\"Net revenue in minor units, from active orders.\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"required_filters\":[{\"equals\":{\"column\":\"status\",\"value\":\"active\"}}],\"dimensions\":[{\"name\":\"segment\",\"column\":\"segment\",\"via\":\"orders_to_customer\",\"allowed_values\":[\"retail\",\"wholesale\"]}],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\"},\"value\":\"412345\"}}"
+  }
+}
+```
 
-**The port now exists**, and it arrived the way this repository requires - with an adapter
-that implements it rather than as a guess at a signature.
-`sutura_domain::identity::CredentialBroker` mints once per answer for every source a plan
-reads, `Warehouse::execute` cannot be called without the result, and
-`sutura_config::StaticCredentialBroker` is the implementor: credentials as configuration,
-one user, one host, which is the single-player deployment mode rather than test scaffolding.
+The inner document is structure, not text: `measure` is the domain `Measure` vocabulary, `grains`,
+`required_filters` and `allowed_values` are the closed sets, and a dimension's `via` names a
+relationship this snapshot carries. An unrecognised property is refused by name rather than guessed.
+A metric **without** the property stays the promotion candidate `docs/adr/0016` describes - read,
+never certified - and because the kinds are declared-and-empty, a DataHub whose metrics all lack it
+still loads, as a bundle with models, prose and joins and no certified metrics.
 
-**Two of the three missing pieces have arrived, and naming which is the point of this
-paragraph** - somebody writing this example would otherwise build one of them again.
+## The shape, and where the data system sits
 
-**The plumbing is no longer missing.** The two databases this example needs are one command
-away - `just dev-up` - one independent instance per worktree, and a harness reaches them
-through `sutura_dev::provisioned` rather than through a port anybody wrote down.
-`examples/README.md` has the three commands under *Reaching a data system, when an example
-needs one*.
+The whole point of a multi-player deployment is that the question runs as the caller who asked it.
+Concretely: caller A and caller B ask the same certified question, the catalog is the same DataHub
+bundle, and the data system evaluates each leg under the identity the runtime minted for *that*
+caller - so two principals can legitimately read two different sets of rows. A leg that cannot run as
+the subject is refused (`credential_unavailable`) rather than answered under some other identity,
+because that silent downgrade is the failure mode the shape exists against. That is the shape's
+intent; today no shipped deployment reaches the refusal, because no served source impersonates at
+all - the shipped serve binary answers under the shared identity, and `docs/adr/0008` records the
+port that changes that.
 
-**The port is no longer missing either.** A credential is minted per leg for the asking
-subject, and a source that declares `impersonation-at-source` but has nowhere for a subject's
-credential to arrive is refused as `credential_unavailable` - the *refusal instead of a
-downgrade* above, arriving before the impersonation does.
+```
+caller A ─┐                                   ┌─> shared-service-user or
+caller B ─┼─ security.inbound ─> sutura ──────┼─> impersonation-at-source source
+catalog   ─┘  (a signature)                   └─> the rows the leg's identity can read
+```
 
-**What is still missing is the half this example is actually about: a data system with
-identities to run under.** Both adapters in this build declare they have nowhere for a
-subject's own credential to arrive - one process reading local files, one process holding one
-connection - so what a broker can mint here is the deployment's own identity for a source,
-acknowledged by an operator. So the two bullets this example turns on remain unrunnable:
-**two callers, two answers** needs a data system that evaluates two principals differently,
-and nothing here can present one to it.
+## What runs here and now
 
-`docs/architecture.md` is the design - its security section says why the shape is what it is,
-and *What exists today* is the honest inventory - and
-`docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md`'s *What is built* is the
-per-part inventory. No date is offered here, because a date in a README is not a commitment
-anything enforces.
+There is no live DataHub in this repository and no warehouse with row-level grants, so the runnable
+form of the example is the recorded fixture: `crates/sutura-catalog-datahub/tests/multi_player.rs`
+loads the recorded corpus with the certified `revenue` metric above. The example question is a real
+documented input rather than a copy - `examples/multi-player/question.json` holds it (`revenue in
+June 2026`, monthly), the README names it, and the test reads it off disk - so the question, this
+page and the suite cannot drift apart. The test compiles that question into a plan over the orders
+table. It is in `checks.nextest`, needs no network, and is what CI uses to keep the integration
+honest: the DataHub bundle, its certified metric and a question about it all agreeing, on every pull
+request.
+
+**What that test proves is: a bundle loads, certifies its metric, and a question about it compiles
+to a plan.** It stops at the plan - nothing here reaches a warehouse, a surface or a settings file,
+and no binary in this repository can open this catalog (`catalog.kind: datahub` is refused by
+`sutura-serve`, and the crate has no other composition root). What the fixture **cannot** prove, and
+what the example therefore says explicitly rather than pretending:
+
+- **A served deployment** needs a composition root that links `sutura-catalog-datahub`; none exists
+  today (the crate is a `sutura-app` dev-dependency), which is the *Built and not wired* entry
+  `.agents/skills/sutura/query-surface/SKILL.md` records alongside the read-path paragraph below.
+- **Two callers, two answers** needs a data system that evaluates two principals differently, and
+  nothing here can present one to it. `docs/adr/0008` records the port (a credential per leg for the
+  calling subject); the missing piece is a data system with grants and a served source that actually
+  executes as the asker.
+- **A real DataHub read path** needs a provisioned instance and the `AspectReader` over its versioned
+  OpenAPI entity surface - the open measurement `docs/adr/0016` leaves, exactly as
+  `sutura-exec-bigquery`'s acceptance leg was measured against a real system.
+
+Until those land, "multiplayer" here means: the deployment shape is declared, the DataHub bundle
+certifies its defined metric under the flat `sutura` property, and a question about it compiles to a
+plan - with identity's per-row half and the served half stated as limits rather than elided.

@@ -3693,6 +3693,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sutura-domain",
+ "sutura-semantic",
  "thiserror 2.0.20",
 ]
 
