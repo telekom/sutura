@@ -997,7 +997,7 @@ not narrowed what any answer would contain.
 
 And within that: **filtering advertisement is presentation, and the control is at invocation.** A
 caller that names a capability it was not granted is refused whether or not it was ever told the
-capability exists. Both halves are built - see the *Invariants* row `AGENTS.md` gained with this
+capability exists. Both halves are built - see the row `.agents/skills/sutura/invariants` gained with this
 module - and if they ever disagree it is the refusal that is the control.
 
 # A scope names a capability and never a metric

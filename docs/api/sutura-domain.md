@@ -1756,7 +1756,7 @@ them.
 
 **This module is a classification and a rule, and nothing executes it.** There is no leg plan
 type, no splitter and no combiner in this workspace yet, so nothing here has a production
-caller: the same shape `AGENTS.md`'s *Built And Not Wired* section describes for the
+caller: the same shape `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory describes for the
 authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
 classification that looks wired is worse than one that says it is not.
 
@@ -5171,7 +5171,7 @@ One source's share of a federated question, and the only thing the port can be h
 **The shapes, their closure, and nothing that produces or executes one.** There is no splitter
 and no combiner in this workspace, so no production code constructs a `LegPlan`: what is here
 is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
-before anything runs it. `AGENTS.md`'s *Built And Not Wired* section carries that state, and this
+before anything runs it. `.agents/skills/sutura/query-surface` carries that state, and this
 module says it rather than leaving it to be discovered.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
