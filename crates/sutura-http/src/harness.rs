@@ -5,19 +5,15 @@
 //! `tower`'s `oneshot`. That exercises the layer stack, the token gate, the limiter, the extractors
 //! and the response shapes without a socket, a catalog directory or a data system.
 //!
-//! One thing has to be supplied by hand that the real server supplies for it: the peer address. The
-//! limiter keys on the connection's address, which `axum::serve` attaches via
-//! `into_make_service_with_connect_info`; a `oneshot` has no connection, so [`request`] inserts one.
-//! Without it the limiter would report that it cannot extract a key and limit nothing - which is
-//! also the failure mode in production if that call is ever dropped from
-//! [`crate::server::serve`].
+//! One thing has to be supplied by hand that the real server supplies for it: the peer address.
+//! `crate::testing::request` inserts it, and that pair - the builder and `crate::testing::call` -
+//! lives there rather than here because four test modules had grown four copies of it. See its own
+//! documentation for what a copy that forgot the peer address would have looked like.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use sutura_config::{Environment, Settings, Sources};
 use tower::ServiceExt as _;
@@ -25,15 +21,12 @@ use tower::ServiceExt as _;
 use crate::state::ServiceState;
 use crate::surface::LocalService;
 use crate::testing::{
-    bundle, catalog_of, fake_warehouse, sink, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
+    bundle, call, catalog_of, fake_warehouse, request, sink, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
     warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
 };
 
 /// A token that satisfies the configured floor.
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
-
-/// A well formed question the fake will answer.
-const QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
 
 fn settings(environment: Environment, overlay: &str) -> Settings {
     Settings::load(&Sources::defaults(environment).with_overlay(overlay)).expect("the test settings load")
@@ -61,9 +54,7 @@ where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let service = LocalService::start(&catalog_of(pinned), warehouses, sink(), crate::testing::broker(), 1 << 30)
-        .expect("the test bundle validates");
-    crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles")
+    crate::testing::serving(pinned, warehouses, crate::testing::broker(), settings, None)
 }
 
 /// One question, and the three things a refused caller must be given.
@@ -92,35 +83,6 @@ async fn refusal(app: &Router, question: &str) -> (StatusCode, String, String) {
     );
     assert!(!detail.is_empty(), "{code} refused with no sentence");
     (status, code, detail)
-}
-
-/// A request with a peer address attached. See the module documentation.
-fn request(method: &str, path: &str, token: Option<&str>, body: Body) -> Request<Body> {
-    let mut builder = Request::builder().method(method).uri(path);
-    if let Some(token) = token {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let mut request = builder
-        .header("content-type", "application/json")
-        .body(body)
-        .expect("the test request is well formed");
-    let peer: SocketAddr = "203.0.113.7:44444".parse().expect("a test peer address is an address");
-    request.extensions_mut().insert(ConnectInfo(peer));
-    request
-}
-
-/// Calls the router once and reads the whole response.
-async fn call(app: &Router, request: Request<Body>) -> (StatusCode, String) {
-    let response = app
-        .clone()
-        .oneshot(request)
-        .await
-        .expect("the router is infallible as a service");
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .expect("the test response body is readable");
-    (status, String::from_utf8_lossy(&bytes).into_owned())
 }
 
 // -------------------------------------------------------------------- health ----
@@ -204,7 +166,11 @@ async fn a_loopback_development_service_with_no_token_configured_answers_without
 #[tokio::test]
 async fn a_certified_question_is_answered_with_its_provenance() {
     let app = app(settings(Environment::Development, ""));
-    let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains(r#""outcome":"answer""#), "{body}");
     assert!(body.contains(r#""definition_version":"test-1""#), "{body}");
@@ -341,7 +307,7 @@ async fn an_answer_past_the_row_cap_is_a_413_that_says_it_was_not_truncated() {
         warehouse_that_answers_past_the_row_cap(),
         settings(Environment::Development, ""),
     );
-    let (status, code, detail) = refusal(&app, QUESTION).await;
+    let (status, code, detail) = refusal(&app, crate::testing::A_QUESTION).await;
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(code, "result_too_large");
     assert!(detail.contains("10000"), "the sentence does not name the cap: {detail}");
@@ -368,7 +334,7 @@ async fn an_answer_the_data_system_would_not_return_at_once_is_the_same_413_and_
         crate::testing::WarehouseThatWillNotPage::new(crate::testing::source()),
         settings(Environment::Development, ""),
     );
-    let (status, code, detail) = refusal(&app, QUESTION).await;
+    let (status, code, detail) = refusal(&app, crate::testing::A_QUESTION).await;
     assert_ne!(
         status,
         StatusCode::SERVICE_UNAVAILABLE,
@@ -405,7 +371,11 @@ async fn an_execute_failure_that_is_not_a_size_bound_is_503_not_413() {
     // A `ServiceError::Warehouse` is a FAILURE, not a refusal - it is the problem body the transport
     // reserves for an outage, with no `outcome` field - which is exactly the distinction this test is
     // about. So it is read with `call` rather than `refusal`, and asserted by status and code.
-    let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+    )
+    .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert!(body.contains(r#""code":"unavailable""#), "{body}");
 }
@@ -425,7 +395,7 @@ async fn a_data_system_the_plan_names_and_this_process_did_not_open_is_a_503() {
     );
     let response = app
         .clone()
-        .oneshot(request("POST", "/v1/query", None, Body::from(QUESTION)))
+        .oneshot(request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)))
         .await
         .expect("the router is infallible as a service");
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -434,7 +404,7 @@ async fn a_data_system_the_plan_names_and_this_process_did_not_open_is_a_503() {
         "a refusal invented a retry hint"
     );
 
-    let (status, code, detail) = refusal(&app, QUESTION).await;
+    let (status, code, detail) = refusal(&app, crate::testing::A_QUESTION).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(code, "source_unavailable");
     assert!(detail.contains("local"), "{detail}");
@@ -471,7 +441,11 @@ async fn a_body_carrying_sql_is_a_bad_request_and_the_field_is_named() {
 #[tokio::test]
 async fn a_body_larger_than_the_configured_bound_is_refused_before_it_is_parsed() {
     let bounded = app(settings(Environment::Development, "server:\n  max_body_bytes: 8\n"));
-    let (status, body) = call(&bounded, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
+    let (status, body) = call(
+        &bounded,
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+    )
+    .await;
     // `413` and not `400`, and the distinction is the whole reason `routes::v1::query::rejected`
     // branches on the rejection's status. The body-limit layer makes the JSON extractor reject with
     // a length-limit error, which is a `JsonRejection` exactly like a malformed body is - so mapping
@@ -505,7 +479,11 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     let app = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
     held.arm();
 
-    let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+    )
+    .await;
     // Released before the assertions, so a failing one does not also leave the blocking pool holding
     // the runtime open for the cap.
     held.release();
@@ -770,7 +748,7 @@ fn a_request_produces_one_info_span_carrying_the_route_and_a_correlation_id() {
     let (status, body, rendered) = captured(
         sutura_config::LogFormat::Bunyan,
         &app,
-        request("POST", "/v1/query", None, Body::from(QUESTION)),
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
     );
     assert_eq!(status, StatusCode::OK, "{body}");
 
@@ -903,7 +881,7 @@ fn a_body_that_states_its_own_subject_is_not_a_question() {
     let (status, body, _) = captured(
         sutura_config::LogFormat::Bunyan,
         &app,
-        request("POST", "/v1/query", None, Body::from(QUESTION)),
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
     );
     assert_eq!(status, StatusCode::OK, "{body}");
 }
@@ -918,7 +896,7 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
     // three unknown ones agreeing - and it also pins the ingress case, which is the reason for
     // reading the header at all.
     let app = app(settings(Environment::Development, ""));
-    let mut request = request("POST", "/v1/query", None, Body::from(QUESTION));
+    let mut request = request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
     request
         .headers_mut()
         .insert(crate::correlation::HEADER, "Ingress-42_abc".parse().expect("a test header"));

@@ -38,6 +38,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | `kid` selection, and an unknown key id | - | **yes** | - | redundant | - |
 | Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | redundant | - |
 | Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | redundant | - |
+| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | redundant | - |
 | Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | see below | - |
 | The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | redundant | - |
 | Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | painful to script | - |
@@ -105,6 +106,16 @@ source that ships:
 The first six live in `crates/sutura-http/src/inbound/tests/published.rs` and the last three in
 `crates/sutura-http/src/identity_e2e.rs`, which is the same split the code has: one file is about
 establishing who is asking and the other about what is minted for them.
+
+**And the line the transport crate draws, because it decides which fixture a new test should reach
+for:** a test that goes through the **router** mints from this venue, through the shared helpers in
+`crates/sutura-http/src/testing.rs`; the gate-level unit tests keep their own in-place key pair and
+encoder. Two reasons, neither of them tidiness. The router tests are the ones a composed-binary
+harness will later re-point at a socket, and a fixture private to one module could not travel with
+them. And the gate-level tests need a rawer tool than a mock issuer should be - they sign claim sets
+with a `sub` carrying a newline, with no `exp` at all, and past the token size cap. Widening the
+issuer to emit arbitrary JSON would make it a signer of anything and cost it the property that makes
+it worth having: **every token it mints is one an issuer could have minted.**
 
 ### What it cannot answer - read this before citing a green run
 

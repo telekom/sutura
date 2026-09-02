@@ -303,15 +303,18 @@ Saying that plainly is the point; three of nine tested behind a list of nine wou
 
 # Which knobs have a caller today, said out loud
 
-**A fixture is not exempt from this file's own rule about stating limits.** The first suite to use
-this module drives `kid` selection, the audience (one, none, and a wrong one), the issuer, `exp`,
-`nbf`, the `typ` in three states, `alg: none`, a stranger's signature and all three curves. What has
-**no caller yet** is the gateway-mode arithmetic - `Token::issued_ago`,
-`Token::stating_no_issued_at` and `Token::living_for` - plus `Token::for_audiences`,
-`Token::claiming`, `MockIssuer::key_ids`, `MockIssuer::issuer` and
-`MockIssuer::audience`. Those are the knobs `docs/where-identity-is-proven.md` marks **can**
-rather than **yes**: the standing test for the `iat` ceiling is at the gate, over in-crate fixtures,
-and moving it here is a later change rather than a claim this one makes.
+**A fixture is not exempt from this file's own rule about stating limits.** What the first suites to
+use this module drive: `kid` selection, the audience (its own, none, and a wrong one), the issuer,
+`exp`, `nbf`, the `typ` in three states, `alg: none`, a stranger's signature, a duplicate key id,
+all three curves, and both names a deployment is configured with.
+
+**Four knobs have no caller yet, and they are named rather than left to be found:**
+`Token::issued_ago`, `Token::stating_no_issued_at`, `Token::living_for` and
+`Token::for_audiences`. The first three are the gateway mode's replay-window arithmetic and the
+fourth is the `aud` array; all four already have standing tests **at the gate**, over that
+transport's own in-place fixtures, so minting them here as well would be a second venue for the
+same refusals - which `AGENTS.md` calls the shape that reads as coverage. The venue page,
+`docs/where-identity-is-proven.md`, marks those rows **can** rather than **yes** for that reason.
 
 They are built now rather than when somebody wants them because the whole argument for a *builder*
 is that a negative test costs one call - and a builder that had to grow a method per negative would

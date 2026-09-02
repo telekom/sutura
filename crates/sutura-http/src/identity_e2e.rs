@@ -30,31 +30,19 @@
 
 use std::sync::Arc;
 
-use axum::body::Body;
 use axum::http::StatusCode;
 use sutura_config::{Environment, Settings, Sources};
-use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
+use sutura_dev::issuer::{MockIssuer, PublishedKeySet};
 use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet};
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
-use tower::ServiceExt as _;
 
 use crate::inbound::gate::InboundGate;
 use crate::state::ServiceState;
 use crate::surface::LocalService;
-use crate::testing::{bundle, catalog_of, sink, source};
-
-/// This deployment's own resource identifier, which is what an accepted token's `aud` has to equal.
-const RESOURCE: &str = "https://sutura.example.com";
-/// The mock authorization server.
-const ISSUER: &str = "https://issuer.example.com";
-/// The key id it publishes.
-const KID: &str = "the-current-key";
-
-/// A well formed question the fake adapter answers.
-const QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+use crate::testing::{Answered, accepted_by, an_issuer, asked, bundle, catalog_of, direct_overlay, sink, source};
 
 // ------------------------------------------------------------------- the fakes ----
 
@@ -245,12 +233,11 @@ fn app_over_a_refusing_broker() -> axum::Router {
 }
 
 /// A router that verifies its callers and exchanges for each of them.
-fn app_that_exchanges(published: &PublishedKeySet) -> (axum::Router, tokio::sync::mpsc::UnboundedReceiver<String>) {
-    let path = published.path().to_string_lossy().into_owned();
-    let overlay = format!(
-        "security:\n  inbound:\n    mode: \"direct\"\n    resource: \"{RESOURCE}\"\n    \
-         authorization_server: \"{ISSUER}\"\n    key_set_file: \"{path}\"\n    algorithms: [\"ES256\"]\n"
-    );
+fn app_that_exchanges(
+    issuer: &MockIssuer,
+    published: &PublishedKeySet,
+) -> (axum::Router, tokio::sync::mpsc::UnboundedReceiver<String>) {
+    let overlay = direct_overlay(issuer, &published.path().to_string_lossy());
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
         .expect("the exchanging overlay loads");
     let recording = recording_warehouse();
@@ -272,39 +259,14 @@ fn app_that_exchanges(published: &PublishedKeySet) -> (axum::Router, tokio::sync
     (crate::router(&state).expect("the test router assembles"), recording.handed)
 }
 
-/// One question through the real router, with a peer address the limiter can key on.
-async fn ask(app: &axum::Router, token: Option<&str>) -> (StatusCode, String) {
-    let mut builder = axum::http::Request::builder()
-        .method("POST")
-        .uri("/v1/query")
-        .header("content-type", "application/json");
-    if let Some(token) = token {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let mut request = builder.body(Body::from(QUESTION)).expect("the test request is well formed");
-    let peer: std::net::SocketAddr = "203.0.113.11:44444".parse().expect("a test peer address is an address");
-    let _previous_peer = request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
-    let response = app
-        .clone()
-        .oneshot(request)
-        .await
-        .expect("the router is infallible as a service");
-    let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
-        .await
-        .expect("a test response body is readable");
-    (status, String::from_utf8_lossy(&body).into_owned())
+/// One question through the real router, carrying `token` if there is one.
+async fn ask(app: &axum::Router, token: Option<&str>) -> Answered {
+    asked(app, "POST", "/v1/query", token).await
 }
 
 /// A token this deployment accepts, granting every capability the surface has.
 fn accepted(issuer: &MockIssuer, subject: &str) -> String {
-    let scope = sutura_app::Capability::every()
-        .map(sutura_app::Capability::scope)
-        .collect::<Vec<&str>>()
-        .join(" ");
-    issuer
-        .mint(&Token::for_subject(subject).granting(&scope))
-        .expect("the issuer signs a token")
+    issuer.mint(&accepted_by(subject)).expect("the issuer signs a token")
 }
 
 // ----------------------------------------------------------------- the tests ----
@@ -317,9 +279,10 @@ async fn credential_unavailable_is_reachable_end_to_end() {
     // unchanged by this test - what changes is that the REQUEST PATH is now shown to reach the refusal
     // rather than only the mapper in `crate::wire::refusal` being shown to name it.
     let app = app_over_a_refusing_broker();
-    let (status, body) = ask(&app, None).await;
+    let refused = ask(&app, None).await;
+    let body = refused.body;
 
-    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{body}");
     let parsed: serde_json::Value = serde_json::from_str(&body).expect("a refusal is JSON");
     assert_eq!(parsed["outcome"], "refusal", "{body}");
     assert_eq!(parsed["reason"]["code"], "credential_unavailable", "{body}");
@@ -342,17 +305,17 @@ async fn two_subjects_drive_two_different_exchanged_credentials() {
     // that the subject leg 1 verified for THIS request, and that caller's own assertion, are what the
     // broker was asked about - and that what it minted is what the adapter was handed. A broker keyed
     // on anything process-wide passes at the broker and fails here.
-    let issuer = MockIssuer::generating(ISSUER, RESOURCE, KID).expect("a mock issuer generates a key pair");
+    let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, "exchange").expect("the key set publishes");
-    let (app, mut handed) = app_that_exchanges(&published);
+    let (app, mut handed) = app_that_exchanges(&issuer, &published);
 
     let first = accepted(&issuer, "ada@example.com");
     let second = accepted(&issuer, "grace@example.com");
     assert_ne!(first, second, "two subjects' tokens differ");
 
     for token in [&first, &second] {
-        let (status, body) = ask(&app, Some(token)).await;
-        assert_eq!(status, StatusCode::OK, "{body}");
+        let answered = ask(&app, Some(token)).await;
+        assert_eq!(answered.status, StatusCode::OK, "{}", answered.body);
     }
 
     let ada = handed
@@ -385,14 +348,15 @@ async fn an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_fi
     // selected, which is what stops a leg being reported as impersonated on the strength of a settings
     // file - so an answer from the fake above has to say `impersonation-at-source` because that is what
     // the fake declares, and no overlay anywhere in this file says so.
-    let issuer = MockIssuer::generating(ISSUER, RESOURCE, KID).expect("a mock issuer generates a key pair");
+    let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, "provenance").expect("the key set publishes");
-    let (app, _handed) = app_that_exchanges(&published);
+    let (app, _handed) = app_that_exchanges(&issuer, &published);
 
-    let (status, body) = ask(&app, Some(&accepted(&issuer, "ada@example.com"))).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
+    let answered = ask(&app, Some(&accepted(&issuer, "ada@example.com"))).await;
+    assert_eq!(answered.status, StatusCode::OK, "{}", answered.body);
     assert!(
-        body.contains(SourcePosture::ImpersonationAtSource.as_str()),
-        "an answer says which identity produced each of its legs: {body}"
+        answered.body.contains(SourcePosture::ImpersonationAtSource.as_str()),
+        "an answer says which identity produced each of its legs: {}",
+        answered.body
     );
 }

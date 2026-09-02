@@ -33,23 +33,20 @@
 //!
 //! `docs/where-identity-is-proven.md` carries the same split for the whole identity path.
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::body::Body;
 use axum::http::StatusCode;
-use sutura_config::{Environment, Settings, Sources};
 use sutura_dev::issuer::{Curve, MockIssuer, PublishedKeySet, Token};
-use tower::ServiceExt as _;
 
 use crate::inbound::gate::InboundGate;
 use crate::inbound::keys::{FileKeySet, KeySetCache, KeyUnavailable};
 use crate::inbound::token::TokenRejected;
-use crate::state::ServiceState;
-use crate::surface::LocalService;
-use crate::testing::{bundle, catalog_of, fake_warehouse, sink};
+use crate::testing::{
+    Answered, accepted_by, an_issuer, asked, broker, bundle, declared_inbound, direct_overlay, fake_warehouse, serving,
+    settings_with,
+};
 
-use super::{ISSUER, KID, RESOURCE, direct_over};
+use super::{KID, direct_over};
 
 /// The two windows every test here runs with, and they are the same value on purpose.
 ///
@@ -66,53 +63,11 @@ const WINDOW: Duration = Duration::from_secs(1);
 /// Comfortably past [`WINDOW`], for the two tests that want the window reopened.
 const PAST_THE_WINDOW: Duration = Duration::from_millis(1400);
 
-/// An issuer under this deployment's own names, holding one `P-256` key under [`KID`].
-fn an_issuer() -> MockIssuer {
-    MockIssuer::generating(ISSUER, RESOURCE, KID).expect("a mock issuer generates a key pair")
-}
-
-/// A token this deployment would accept, granting every capability the surface has.
-///
-/// Every capability, because leg 1 says who is asking and the capability gate says what they may
-/// invoke: a token with no `scope` reaches a handler for nothing, and this file is about the first of
-/// those two.
-fn accepted_by(subject: &str) -> Token {
-    Token::for_subject(subject).granting(&every_scope())
-}
-
-/// Every scope this surface has, space-delimited per RFC 6749.
-fn every_scope() -> String {
-    sutura_app::Capability::every()
-        .map(sutura_app::Capability::scope)
-        .collect::<Vec<&str>>()
-        .join(" ")
-}
-
 /// A router whose gate reads `published`, over the real file source and the shortened windows.
-fn app_reading(published: &PublishedKeySet) -> axum::Router {
-    let path = published.path().to_string_lossy().into_owned();
-    let overlay = format!(
-        "security:\n  inbound:\n    mode: \"direct\"\n    resource: \"{RESOURCE}\"\n    \
-         authorization_server: \"{ISSUER}\"\n    key_set_file: \"{path}\"\n    algorithms: [\"ES256\"]\n"
-    );
-    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
-        .expect("the published-key-set overlay loads");
-    let service = LocalService::start(
-        &catalog_of(bundle()),
-        fake_warehouse(),
-        sink(),
-        crate::testing::broker(),
-        1 << 30,
-    )
-    .expect("the test bundle validates");
-    let declaration = settings
-        .security()
-        .inbound()
-        .expect("this overlay declares an inbound identity")
-        .clone();
-    let gate = InboundGate::over(&declaration, cache_over(published));
-    let state = ServiceState::new(Arc::new(service), Arc::new(settings)).with_inbound_identity(Arc::new(gate));
-    crate::router(&state).expect("the test router assembles")
+fn app_reading(issuer: &MockIssuer, published: &PublishedKeySet) -> axum::Router {
+    let settings = settings_with(&direct_overlay(issuer, &published.path().to_string_lossy()));
+    let gate = InboundGate::over(&declared_inbound(&settings), cache_over(published));
+    serving(bundle(), fake_warehouse(), broker(), settings, Some(gate))
 }
 
 /// A cache over the published file, with both windows shortened to [`WINDOW`].
@@ -140,33 +95,8 @@ fn gate_reading(published: &PublishedKeySet) -> InboundGate {
 }
 
 /// One question through the real router, carrying `token` if there is one.
-async fn ask(app: &axum::Router, token: Option<&str>) -> (StatusCode, Option<String>) {
-    let mut builder = axum::http::Request::builder()
-        .method("POST")
-        .uri("/v1/query")
-        .header("content-type", "application/json");
-    if let Some(token) = token {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let mut request = builder
-        .body(Body::from(
-            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
-        ))
-        .expect("the test request is well formed");
-    let peer: std::net::SocketAddr = "203.0.113.9:44444".parse().expect("a test peer address is an address");
-    let _previous_peer = request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
-    let response = app
-        .clone()
-        .oneshot(request)
-        .await
-        .expect("the router is infallible as a service");
-    let status = response.status();
-    let challenge = response
-        .headers()
-        .get(axum::http::header::WWW_AUTHENTICATE)
-        .and_then(|value| value.to_str().ok())
-        .map(String::from);
-    (status, challenge)
+async fn ask(app: &axum::Router, token: Option<&str>) -> Answered {
+    asked(app, "POST", "/v1/query", token).await
 }
 
 /// A `HeaderMap` carrying a bearer token, for the two tests that drive the gate directly.
@@ -183,20 +113,24 @@ async fn a_deployment_declaring_inbound_identity_answers_a_caller_it_verified_an
     // the gate read a real file through the source that ships, and the router is the real router.
     let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, "accepts").expect("the key set publishes");
-    let app = app_reading(&published);
+    let app = app_reading(&issuer, &published);
 
     let token = issuer
         .mint(&accepted_by("someone@example.com"))
         .expect("the issuer signs a token");
-    let (status, _) = ask(&app, Some(&token)).await;
-    assert_eq!(status, StatusCode::OK, "a caller this deployment verified is answered");
+    let answered = ask(&app, Some(&token)).await;
+    assert_eq!(
+        answered.status,
+        StatusCode::OK,
+        "a caller this deployment verified is answered"
+    );
 
     // And a caller it did not: no token at all. A `401` with a challenge naming this deployment's own
     // realm, and NOT saying which check failed - that is the one thing a refused caller must not learn.
-    let (status, challenge) = ask(&app, None).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    let challenge = challenge.expect("a refused caller is told where to look");
-    assert!(challenge.contains(RESOURCE), "{challenge}");
+    let refused = ask(&app, None).await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    let challenge = refused.challenge.expect("a refused caller is told where to look");
+    assert!(challenge.contains(issuer.audience()), "{challenge}");
     assert!(!challenge.contains("error_description"), "{challenge}");
 }
 
@@ -216,7 +150,7 @@ async fn every_negative_this_issuer_can_mint_is_refused_and_none_of_them_says_wh
     published
         .rotate_to(&issuer.key_set_without("never-published"))
         .expect("the key set is republished");
-    let app = app_reading(&published);
+    let app = app_reading(&issuer, &published);
 
     let good = accepted_by("someone@example.com");
     let mut refused: Vec<String> = Vec::new();
@@ -249,9 +183,9 @@ async fn every_negative_this_issuer_can_mint_is_refused_and_none_of_them_says_wh
         ("an unknown key id", issuer.mint(&good.clone().signed_by("never-published"))),
     ] {
         let token = token.expect("the issuer mints every negative it is asked for");
-        let (status, challenge) = ask(&app, Some(&token)).await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "{name} established a caller");
-        refused.push(challenge.unwrap_or_default());
+        let answered = ask(&app, Some(&token)).await;
+        assert_eq!(answered.status, StatusCode::UNAUTHORIZED, "{name} established a caller");
+        refused.push(answered.challenge.unwrap_or_default());
     }
     // Every refusal said the same thing. Written as a set rather than pairwise so the failure message
     // names how many distinct answers there were.
@@ -377,8 +311,8 @@ async fn all_three_curves_this_issuer_can_generate_verify_off_a_published_set() 
         (Curve::P384, sutura_config::SigningAlgorithm::Es384),
         (Curve::Ed25519, sutura_config::SigningAlgorithm::EdDsa),
     ] {
-        let issuer = MockIssuer::generating(ISSUER, RESOURCE, KID)
-            .and_then(|issuer| issuer.also_holding("on-the-curve", curve))
+        let issuer = an_issuer()
+            .also_holding("on-the-curve", curve)
             .expect("a key pair generates on every curve this issuer offers");
         let published = PublishedKeySet::of(&issuer, curve.algorithm()).expect("the key set publishes");
         // Only the key under test, so a set holding a `P-256` key as well could not verify the token by
@@ -429,6 +363,8 @@ async fn a_published_set_this_deployment_cannot_use_starts_no_gate_at_all() {
     let declaration = direct_over(&published.path().to_string_lossy());
     let gate = InboundGate::from_declaration(&declaration).expect("a usable published set starts a gate");
     let (count, ids) = gate.describe_keys().await;
-    assert_eq!(count, 1);
-    assert_eq!(ids, vec![String::from(KID)]);
+    // Compared against what the ISSUER published rather than against a literal, so the assertion is
+    // that the gate adopted the set it was pointed at rather than that both happen to spell one name.
+    assert_eq!(count, issuer.key_ids().len());
+    assert_eq!(ids, issuer.key_ids());
 }
