@@ -170,10 +170,12 @@ catalogue or a different data system, there is not one yet.
 | `Warehouse` | `sutura-exec-duckdb` | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down | **No.** A development dependency of `sutura-app` |
 | `Warehouse` | `sutura-exec-bigquery` | A DATA SOURCE over the wire. Renders the plan into `GoogleSQL`, submits a bounded job and pushes the statement down | **No, and now for one reason rather than two.** Both `sutura-cli` and `sutura-serve` can open it, each behind a default-off `bigquery` feature; `nix/shipped.nix` publishes both with cargo's default features, so a source build is the only one that links it |
 
-So the supported combination today is **local markdown with YAML frontmatter for the metadata, and
-the in-process engine over the CSV or Parquet files in a directory**. `sutura query <catalog-dir>
-<question.yaml> [data-dir]` is the whole of it, and `sutura doctor` says the same thing in one line:
-`data systems : none - this build reads files, and pushes down to nothing`.
+So the combination a PUBLISHED binary supports is **local markdown with YAML frontmatter for the
+metadata, and the in-process engine over the CSV or Parquet files in a directory**. `sutura query
+<catalog-dir> <question.yaml> [data-dir]` is the whole of it there, and `sutura doctor` says the same
+thing in one line: `data systems : none - this build reads files, and pushes down to nothing`. A
+source build carrying `--features bigquery` supports one more, and the two paragraphs below say what
+that is and what has never been run.
 
 **The directory is optional because that command reads the same `sources:` tree the server does.** A
 catalog whose models name `warehouse` is answered when `sources.warehouse` declares a `files`
@@ -183,7 +185,11 @@ source called `local`, over the directory given, read as whoever ran the command
 source, is refused as two answers to one question.
 
 **And `kind: bigquery` is openable from that binary too, behind a default-off `bigquery` feature.**
-`sutura query` then renders the plan into `GoogleSQL`, pushes it down and answers from the dataset -
+`sutura query` then renders the plan into `GoogleSQL` and submits it to the dataset - **which no
+automated test in this repository has ever watched answer.** The furthest any of them reaches is
+reading the credential file, because the transport's host is a compile-time constant with no loopback
+to point at; what a real dataset HAS accepted is the corpus, on the adapter's own suite, through
+`just bigquery-acceptance`. So this is a composition that is tested and a path that is not -
 which is what makes the second half of the sentence above ("pushes down to nothing") a statement
 about the DEFAULT build rather than about the code. No published artefact carries the feature:
 `nix/shipped.nix` builds both binaries with cargo's default features, because `--features bigquery`

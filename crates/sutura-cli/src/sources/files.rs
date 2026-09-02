@@ -69,6 +69,7 @@ pub(super) fn from_the_built_in_declaration(
     pinned: &PinnedDefinitions,
     source: &SourceName,
     data: Option<&Path>,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<Opened, String> {
     if source.as_str() != BUILT_IN_SOURCE {
         return Err(format!(
@@ -92,7 +93,7 @@ pub(super) fn from_the_built_in_declaration(
     let posture = sutura_domain::source::SourcePosture::SharedServiceUser {
         declared: declared.clone(),
     };
-    let (engines, attached) = open(source, &posture, pinned, data)?;
+    let (engines, attached) = open(source, &posture, pinned, data, runtime)?;
     Ok(Opened::Files(OpenedWith {
         engines,
         attached: Some(attached),
@@ -122,6 +123,7 @@ pub(super) fn open(
     posture: &sutura_domain::source::SourcePosture,
     pinned: &PinnedDefinitions,
     data: &Path,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<OpenedFiles, String> {
     posture
         .deliverable_by(
@@ -129,7 +131,8 @@ pub(super) fn open(
             source,
         )
         .map_err(|cause| render(&cause))?;
-    let engine = DataFusionWarehouse::new(source.clone(), posture.clone(), working_set()?).map_err(|cause| render(&cause))?;
+    let engine =
+        DataFusionWarehouse::new(source.clone(), posture.clone(), working_set(runtime)).map_err(|cause| render(&cause))?;
     let mut attached: BTreeSet<TableName> = BTreeSet::new();
     for model in pinned
         .definitions()
@@ -198,7 +201,9 @@ mod tests {
 
     use sutura_exec_datafusion::DataFusionWarehouse;
 
-    use crate::sources::{BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, open_engine, timeout};
+    use crate::sources::{
+        BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, open_engine, runtime, timeout,
+    };
 
     /// The example deployment this suite reads its catalog and data from.
     fn example() -> PathBuf {
@@ -255,6 +260,7 @@ mod tests {
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_files("warehouse"),
+            runtime(),
             timeout(),
             Some(&example().join("catalog")),
         )
@@ -290,6 +296,7 @@ mod tests {
             open_engine(
                 &bundle_naming("warehouse"),
                 &declaring_files("warehouse"),
+                runtime(),
                 timeout(),
                 Some(&example().join("data")),
             )
@@ -321,7 +328,7 @@ mod tests {
             ),
             "impersonation-at-source",
         );
-        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &registry, timeout(), None)
+        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &registry, runtime(), timeout(), None)
             .map(|_| ())
             .expect_err("a posture the linked engine cannot carry must not open");
         assert!(error.contains(BUILT_IN_SOURCE), "the refusal must name the source: {error}");
@@ -353,6 +360,7 @@ mod tests {
         let error = open_engine(
             &bundle_over(&[("orders", BUILT_IN_SOURCE, "fct_order")]),
             &nothing_declared(),
+            runtime(),
             timeout(),
             Some(&example().join("data")),
         )

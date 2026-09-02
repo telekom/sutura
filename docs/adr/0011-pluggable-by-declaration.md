@@ -738,7 +738,14 @@ That is this record's decision arriving in the second place it applies, not a ne
   documented command-line workflow.
 
 **And the limit, because a registry reads like availability:** which KINDS a given binary can open is
-still a property of the build. `kind: bigquery` parses - the adapter exists - and the `sutura` command
-links none of it, so that is a refusal naming the kind and pointing at the binary and feature that
-can. Whether it gains a feature of its own is telekom/sutura#121's second step, and `nix/shipped.nix`
-is where a published artefact's feature set is decided.
+still a property of the build. `kind: bigquery` parses - the adapter exists - and a build without the
+default-off `bigquery` feature links none of it, so that is a refusal naming the FEATURE and not the
+kind.
+
+**Amended, because the sentence here named an open question that is now closed.** It read *"the
+`sutura` command links none of it … whether it gains a feature of its own is telekom/sutura#121's
+second step"*. That step landed: **both** composition roots now open `kind: bigquery`, each behind a
+default-off `bigquery` feature of its own, and `docs/adr/0017`'s fifth amendment is the decision.
+What is unchanged is the half that matters - `nix/shipped.nix` publishes both binaries with cargo's
+DEFAULT features, so no published artefact links the adapter, and `checks.shipped-features` reads
+`ureq`'s and `ring`'s absence off each shipped binary rather than off a manifest.

@@ -480,10 +480,29 @@ mod tests {
     }
 
     #[test]
-    fn query_is_listed_whether_or_not_its_adapter_is_compiled() {
-        // Both builds are real: the cross artifacts ship without a data-system adapter. A command
+    fn query_is_listed_identically_whichever_adapters_were_compiled() {
+        // Both builds are real: a published artifact ships without a networked adapter. A command
         // that vanished from `--help` in one of them would read as a packaging mistake, so the
         // absent case is a command that explains itself instead.
-        assert!(COMMANDS.iter().any(|c| c.name == "query"));
+        //
+        // **It asserts the ARGUMENT SPEC as well as the name, which is a review correction:** the
+        // old body checked only that `COMMANDS` contains `"query"`, so it would have passed
+        // identically if no feature existed at all and it said nothing about what the command takes.
+        // The spec is what `vet` derives its arity from and what `--help` prints, and it must not
+        // vary by build - a binary that accepted a different number of arguments depending on which
+        // adapters were linked is a worse surprise than a missing command.
+        let query = COMMANDS
+            .iter()
+            .find(|c| c.name == "query")
+            .expect("query is listed in every build");
+        assert_eq!(
+            query.args, "<catalog-dir> <question.yaml> [data-dir]",
+            "the argument spec is the same on every build, and it is what `vet` counts"
+        );
+        let mcp = COMMANDS
+            .iter()
+            .find(|c| c.name == "mcp")
+            .expect("mcp is listed in every build");
+        assert_eq!(mcp.args, "<catalog-dir> [data-dir]");
     }
 }

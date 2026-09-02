@@ -346,12 +346,13 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         match crate::sources::open_engine(
             &pinned,
             settings.sources(),
+            settings.runtime(),
             settings.server().request_timeout(),
             data.as_deref(),
         )? {
-            crate::sources::Opened::Files(opened) => answered(pinned, &question, &opened),
+            crate::sources::Opened::Files(opened) => answered(pinned, &question, &opened, settings.runtime()),
             #[cfg(feature = "bigquery")]
-            crate::sources::Opened::BigQuery(opened) => answered(pinned, &question, &opened),
+            crate::sources::Opened::BigQuery(opened) => answered(pinned, &question, &opened, settings.runtime()),
         }
     })())
 }
@@ -361,7 +362,12 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 /// Generic in the adapter, so the two arms above share every line after them. It takes the bundle by
 /// value because `verify_and_validate` consumes it: the only constructor of `Validated` is the one
 /// that re-ran every anchor, which is what stops an arrangement of these lines that skips the check.
-fn answered<W>(pinned: PinnedDefinitions, question: &Query, opened: &crate::sources::OpenedWith<W>) -> Result<(), String>
+fn answered<W>(
+    pinned: PinnedDefinitions,
+    question: &Query,
+    opened: &crate::sources::OpenedWith<W>,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse,
 {
@@ -379,12 +385,23 @@ where
     // under because ONE decision produced both.
     //
     // `into_outcome` because this command writes no audit record: the deadline `Answered` also
-    // carries is for a sink, and this binary answers one question on a terminal and exits. The
-    // working-set number is the config default: this command answers against one data system and
-    // never federates, so `answer` never reads it here.
-    let outcome = sutura_app::answer(&validated, question, &context, &opened.broker, &opened.engines, 1 << 30)
-        .map_err(|e| render(&e))?
-        .into_outcome();
+    // carries is for a sink, and this binary answers one question on a terminal and exits.
+    //
+    // **The working-set number is `runtime.working_set_max_bytes` and no longer a `1 << 30` literal**
+    // - a review correction, and the same one `sources::working_set` took. `answer` reads it only on
+    // the federated path, which this command refuses, so nothing observable changes today; what
+    // changes is that an operator who lowered that key has not been quietly ignored by the one number
+    // this call passes. A literal here was the duplicate that drifts, one accessor from the value.
+    let outcome = sutura_app::answer(
+        &validated,
+        question,
+        &context,
+        &opened.broker,
+        &opened.engines,
+        runtime.working_set().bytes().get() as u64,
+    )
+    .map_err(|e| render(&e))?
+    .into_outcome();
     print_outcome(&outcome)
 }
 

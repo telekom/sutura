@@ -171,6 +171,28 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
+# The lint and test lanes NO GATE WATCHES: `sutura-cli` on its DEFAULT feature set.
+#
+# **Every check in this repository passes `--all-features`**, so three things are invisible to all of
+# them: the `cfg(not(feature = "bigquery"))` refusal, the one-variant `Opened`, and any clippy finding
+# on a doc comment that only the feature-OFF build compiles. That last one is not hypothetical - a
+# `doc_markdown` failure lived on such a line in BOTH composition roots until a review ran this, and
+# `cargo check` cannot see a clippy lint however carefully somebody runs it.
+#
+# It is a recipe rather than a gate because making it one costs a second compile of the workspace in
+# CI. What it buys instead is that the claim "held by a developer's own command" names a command.
+
+# Lint and test `sutura-cli` with its default features, the lane --all-features hides.
+cli-default-features:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "cli-default-features: scope sutura-cli, DEFAULT features - the lane every gate's --all-features hides."
+    echo "cli-default-features: run \`just lint\` and \`just test\` for the all-features workspace gates."
+    cargo clippy -p sutura-cli --all-targets -- -D warnings
+    cargo nextest run -p sutura-cli
+
 # The DECLARED source, asked a question: `crates/sutura-cli/tests/declared_source.rs` copies the
 # example catalog with `source: warehouse` in place of `source: local`, writes a `sources.warehouse`
 # entry over the example's own data, and spawns `sutura query` with `SUTURA_CONFIG_DIR` pointing at

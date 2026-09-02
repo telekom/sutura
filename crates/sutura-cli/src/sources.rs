@@ -207,6 +207,7 @@ fn unservable(cause: &sutura_config::SettingsError) -> String {
 pub(crate) fn open_engine(
     pinned: &PinnedDefinitions,
     registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
     data: Option<&Path>,
 ) -> Result<Opened, String> {
@@ -234,9 +235,9 @@ pub(crate) fn open_engine(
     // `map_or_else` and the two closures it wants read as an expression where this reads as an order:
     // the deployment's declaration first, this command's own only if there was none.
     let Some(declared) = registry.get(&named) else {
-        return files::from_the_built_in_declaration(pinned, &named, data);
+        return files::from_the_built_in_declaration(pinned, &named, data, runtime);
     };
-    from_the_registry(pinned, &named, declared, data, registry, request_timeout)
+    from_the_registry(pinned, &named, declared, data, registry, runtime, request_timeout)
 }
 
 /// Opens a source the deployment declared, under the identity that declaration names.
@@ -250,6 +251,7 @@ fn from_the_registry(
     configured: &sutura_config::ConfiguredSource,
     data: Option<&Path>,
     registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
 ) -> Result<Opened, String> {
     let identity = configured
@@ -271,7 +273,7 @@ fn from_the_registry(
                 ));
             };
             files::refuse_a_second_directory(source, data_dir, data)?;
-            let (engines, attached) = files::open(source, identity.posture(), pinned, data_dir)?;
+            let (engines, attached) = files::open(source, identity.posture(), pinned, data_dir, runtime)?;
             Ok(Opened::Files(OpenedWith {
                 engines,
                 attached: Some(attached),
@@ -337,23 +339,19 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 
 /// The working-set ceiling this command bounds the engine with.
 ///
-/// **The embedded default, and not a flag.** A flag would be a second number an operator could set,
-/// disagreeing with `runtime.working_set_max_bytes` in the tree the service reads. It goes through
-/// `WorkingSetCeiling::parse` rather than constructing the wrapper from the constant directly, so this
-/// reads the same number through the same checks the service does; a test asserts the constant and
-/// `defaults.yaml` agree. `available_memory_bytes` is asked here too: a laptop with less memory than
-/// the default ceiling should be told so rather than dying inside a join.
+/// **`runtime.working_set_max_bytes` from the tree, not the embedded constant** - which is a review
+/// correction and an application of this module's own rule rather than a new idea. The old body read
+/// `WorkingSetCeiling::DEFAULT_BYTES` and ignored the key, so an operator who lowered it because
+/// their laptop is small got no effect from `sutura query`; the doc comment even named the key it was
+/// not reading. That is exactly the duplicate `bigquery::open` refuses to invent for the job
+/// deadline, and [`configured`] had already put the fix one accessor away.
 ///
-/// # Errors
-///
-/// A ceiling above the memory this process can reach.
-pub(crate) fn working_set() -> Result<sutura_exec_datafusion::WorkingSet, String> {
-    let ceiling = sutura_config::WorkingSetCeiling::parse(
-        sutura_config::WorkingSetCeiling::DEFAULT_BYTES,
-        sutura_config::available_memory_bytes(),
-    )
-    .map_err(|cause| render(&cause))?;
-    Ok(sutura_exec_datafusion::WorkingSet::of_bytes(ceiling.bytes()))
+/// A ceiling is still not a FLAG: a flag would be a second number an operator could set, disagreeing
+/// with the one the service reads. `available_memory_bytes` is asked by `Settings::load`'s own parse,
+/// so a laptop with less memory than the configured ceiling is told so at that point rather than
+/// dying inside a join.
+pub(crate) const fn working_set(runtime: sutura_config::RuntimeSettings) -> sutura_exec_datafusion::WorkingSet {
+    sutura_exec_datafusion::WorkingSet::of_bytes(runtime.working_set().bytes())
 }
 
 /// A one-source registry as a deployment would have declared it.
@@ -469,6 +467,17 @@ fn pin(definitions: sutura_domain::catalog::Definitions) -> PinnedDefinitions {
 /// than as a literal so a change to `defaults.yaml` reaches these tests.
 ///
 /// Module level for the reason [`bundle_naming`] gives.
+/// The runtime group every case hands in: the EMBEDDED defaults, read through `Settings::load`.
+///
+/// Written this way rather than as a literal for the reason [`timeout`] gives, and it is the same
+/// value `runtime.working_set_max_bytes` resolves to when nobody configured one.
+#[cfg(test)]
+fn runtime() -> sutura_config::RuntimeSettings {
+    sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
+        .expect("the embedded defaults are a servable development deployment")
+        .runtime()
+}
+
 #[cfg(test)]
 fn timeout() -> sutura_config::RequestTimeout {
     sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
@@ -521,7 +530,7 @@ mod tests {
 
     use super::{
         BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, declaring_bigquery, open_engine,
-        refuse_unattached, served_tables, timeout,
+        refuse_unattached, runtime, served_tables, timeout,
     };
 
     /// The files registry `open_engine` produced, or a failure saying which arm it took instead.
@@ -576,8 +585,14 @@ mod tests {
         // declared source against one constant and refused everything else, so the only catalog the
         // published binary could open was one that happened to call its data system `local`.
         let opened = files_of(
-            open_engine(&bundle_naming("warehouse"), &declaring_files("warehouse"), timeout(), None)
-                .expect("a declared files source opens"),
+            open_engine(
+                &bundle_naming("warehouse"),
+                &declaring_files("warehouse"),
+                runtime(),
+                timeout(),
+                None,
+            )
+            .expect("a declared files source opens"),
         );
         assert_eq!(
             opened
@@ -611,6 +626,7 @@ mod tests {
         let error = open_engine(
             &bundle_naming("production_warehouse"),
             &nothing_declared(),
+            runtime(),
             timeout(),
             Some(&example().join("data")),
         )
@@ -633,8 +649,14 @@ mod tests {
         // `crates/sutura-cli/tests/example.rs` and `docs/getting-started.md` both take.
         let pinned = crate::commands::load(&example().join("catalog")).expect("the example catalog loads");
         let opened = files_of(
-            open_engine(&pinned, &nothing_declared(), timeout(), Some(&example().join("data")))
-                .expect("the example catalog opens with nothing declared"),
+            open_engine(
+                &pinned,
+                &nothing_declared(),
+                runtime(),
+                timeout(),
+                Some(&example().join("data")),
+            )
+            .expect("the example catalog opens with nothing declared"),
         );
         assert_eq!(
             opened
@@ -675,7 +697,7 @@ mod tests {
         // `dim_customer.csv` does not have, which review also measured.
         let pinned = crate::commands::load(&example().join("catalog")).expect("the example catalog loads");
         let opened = files_of(
-            open_engine(&pinned, &declaring_files(BUILT_IN_SOURCE), timeout(), None)
+            open_engine(&pinned, &declaring_files(BUILT_IN_SOURCE), runtime(), timeout(), None)
                 .expect("the example catalog opens through a declared files source"),
         );
         let validated = sutura_app::verify_and_validate(pinned, &opened.engines).expect("every anchor reproduces");
@@ -721,6 +743,7 @@ mod tests {
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),
+            runtime(),
             timeout(),
             Some(&example().join("data")),
         )
@@ -738,9 +761,15 @@ mod tests {
         // The arm the argument being OPTIONAL created: `[data-dir]` may be absent because a fully
         // declared deployment needs none, so the case where it is absent AND nothing is declared has
         // to say which of the two to supply rather than failing on a path built from nothing.
-        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &nothing_declared(), timeout(), None)
-            .map(|_| ())
-            .expect_err("no declaration and no directory is nothing to read");
+        let error = open_engine(
+            &bundle_naming(BUILT_IN_SOURCE),
+            &nothing_declared(),
+            runtime(),
+            timeout(),
+            None,
+        )
+        .map(|_| ())
+        .expect_err("no declaration and no directory is nothing to read");
         assert!(error.contains("no data directory was given"), "{error}");
     }
 
@@ -760,6 +789,7 @@ mod tests {
                 ("products", "production_warehouse", "dim_product"),
             ]),
             &nothing_declared(),
+            runtime(),
             timeout(),
             Some(&example().join("data")),
         )
@@ -795,6 +825,7 @@ mod tests {
         let error = open_engine(
             &bundle_over(&[]),
             &nothing_declared(),
+            runtime(),
             timeout(),
             Some(&example().join("data")),
         )

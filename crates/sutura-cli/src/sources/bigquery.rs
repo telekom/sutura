@@ -95,12 +95,30 @@ pub(super) fn open(
     // under the credential the deployment declared - every row as this process while a reader believed
     // a subject's authorization was evaluated. Refused before the credential file is read, so an
     // operator fixes the posture rather than a file.
-    if identity.posture() == &sutura_domain::source::SourcePosture::ImpersonationAtSource {
-        return Err(format!(
-            "`sources.{source}` is `impersonation-at-source`, and the `sutura` command does not attach \
-             a broker that exchanges a subject's credential - refusing rather than reading every row \
-             as this process; no fallback"
-        ));
+    //
+    // **An exhaustive MATCH and not an `==`, which is a review correction rather than a rewrite.**
+    // `deliverable_by` above PASSES an impersonating entry - this adapter declares
+    // `PerSubjectCredential` - so this is the composition's whole refusal, and it was the one place in
+    // this file where *prefer unrepresentable to checked* was not applied. Two variants exist today,
+    // so the `==` was complete; a third would have fallen through it and been OPENED, where
+    // `deliverable_by`'s own two exhaustive matches force somebody to answer for it. Now a third
+    // posture is a compile error at this line, in both composition roots.
+    //
+    // **And this guard is doing DOUBLE DUTY for a check this root does not have.**
+    // `sutura-serve` runs `refuse_unverifiable_anchors` - a bundle declaring an anchor on a source
+    // with no identity to re-run it under does not boot - and `sutura-cli` has no equivalent. That is
+    // vacuous today only BECAUSE of the arm below: `AnchorIdentity::NoneDeclared` is reachable only
+    // for an `impersonation-at-source` source, and this refuses every one of those before an anchor
+    // is looked at. So the day a broker is attached here, that check has to arrive with it.
+    match *identity.posture() {
+        sutura_domain::source::SourcePosture::SharedServiceUser { .. } => {}
+        sutura_domain::source::SourcePosture::ImpersonationAtSource => {
+            return Err(format!(
+                "`sources.{source}` is `impersonation-at-source`, and the `sutura` command does not \
+                 attach a broker that exchanges a subject's credential - refusing rather than reading \
+                 every row as this process; no fallback"
+            ));
+        }
     }
     // `within_request_timeout` and NOT `parse`: an answer makes `QueryDeadline::CALLS_PER_ANSWER`
     // calls and each pays a connect margin, so the arithmetic lives in the adapter next to the
@@ -108,6 +126,18 @@ pub(super) fn open(
     // whose timeout a job could outlive, and it reads `server.request_timeout_seconds` anyway: that
     // key is the one place a deployment says how long a question may take, and a second number
     // invented here would be the duplicate that drifts.
+    //
+    // **THE LIMIT, and it is a number rather than a caveat.** `CALLS_PER_ANSWER` is 2 and the connect
+    // margin is 5s, so the shipped default of 30 gives a job **10 seconds**, and
+    // `RequestTimeout::MAX_SECONDS` (300) caps it at **145** - against a `QueryDeadline::MAX_SECONDS`
+    // of six hours. So on THIS binary that key bounds nothing that exists and imposes a ceiling
+    // designed to protect an HTTP connection the command does not have: a twelve-second question is
+    // cancelled by `jobTimeoutMs` with nobody waiting on any request, and no value of the key buys
+    // more than 145 seconds. `QueryDeadline::parse` is the adapter's own door for "a deployment
+    // stating a budget outright" and is deliberately NOT used here, because a second key on this
+    // binary alone is the duplicate this comment's first half refuses. What would change it is a
+    // settings key that means *how long a QUESTION may take* rather than how long a REQUEST may -
+    // one number both roots could read - and that is a settings decision rather than this file's.
     let deadline = QueryDeadline::within_request_timeout(request_timeout.seconds())
         .map_err(|cause| format!("`server.request_timeout_seconds` leaves no BigQuery job deadline: {cause}"))?;
     let ceiling = BytesBilledCeiling::parse(max_bytes_billed)
@@ -150,7 +180,7 @@ pub(super) fn open(
 ///
 /// It names the FEATURE and not just the kind, because the two things an operator can do are in two
 /// different files: change the `kind:`, or build with `--features bigquery`. A message that only said
-/// "this binary links no BigQuery adapter" sent them to the first when they wanted the second.
+/// "this binary links no `BigQuery` adapter" sent them to the first when they wanted the second.
 #[cfg(not(feature = "bigquery"))]
 pub(super) fn open(
     source: &SourceName,
@@ -171,7 +201,7 @@ mod tests {
     // not this file's - can be tested beside the arm that makes it. One entry builder, two suites.
     #[cfg(feature = "bigquery")]
     use crate::sources::wif;
-    use crate::sources::{bundle_naming, declaring_bigquery, open_engine, timeout};
+    use crate::sources::{bundle_naming, declaring_bigquery, open_engine, runtime, timeout};
 
     #[test]
     #[cfg(not(feature = "bigquery"))]
@@ -183,6 +213,7 @@ mod tests {
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),
+            runtime(),
             timeout(),
             None,
         )
@@ -211,6 +242,7 @@ mod tests {
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),
+            runtime(),
             timeout(),
             None,
         )
@@ -253,6 +285,7 @@ mod tests {
                 "impersonation-at-source",
                 &format!("{}    verification_identity: \"sutura_anchor_reader\"\n", wif()),
             ),
+            runtime(),
             timeout(),
             None,
         )

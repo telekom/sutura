@@ -238,14 +238,19 @@ the directory on the command line.
 
 `kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries do
 not, because the outbound TLS stack it links compiles C and assembly for four release triples. Build
-one and the same command answers from a dataset:
+one, and the same command submits the plan to a dataset:
 
 ```bash
 cargo build --release -p sutura-cli --features bigquery
 ```
 
+**The `security:` block above is still required** - the snippet below replaces the `sources:` block
+and nothing else. Any non-empty `sources:` with no `security.identity` is refused at startup, naming
+that key; it is the same refusal a deployment gets, which is the point of there being one settings
+tree.
+
 ```yaml
-# conf/base.yaml
+# conf/base.yaml - the `security:` block from above, plus:
 sources:
   warehouse:
     kind: bigquery
@@ -261,6 +266,15 @@ everybody who asks. `impersonation-at-source` parses and is **refused** - the ad
 subject's credential, and no binary attaches a broker that exchanges one, so serving it would read
 every row as the process while the declaration promised otherwise. `sutura doctor` says which build
 you have on its `data systems` line.
+
+**Two limits worth knowing before you rely on this.** No automated test in this repository has ever
+run a query from this command against a real dataset - the furthest any of them reaches is reading
+the credential file, because the transport's host is a compile-time constant with no loopback to
+point at. What HAS been accepted by a real dataset is the corpus, through
+`just bigquery-acceptance`, on the adapter's own suite. And the job's deadline comes off
+`server.request_timeout_seconds`: the default 30 leaves a job **10 seconds** and the maximum 300
+leaves it **145**, because an answer makes two calls and each pays a connect margin. A slow question
+is cancelled by that bound with nothing waiting on any request.
 
 `table:` may also name where the table lives, when that is more than the connection's own default:
 

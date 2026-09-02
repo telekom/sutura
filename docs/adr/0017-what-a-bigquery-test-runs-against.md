@@ -819,7 +819,7 @@ this record's acceptance legs establish - four dialects, pushdown, a real datase
 was reachable only from a source checkout. That is a documentation and tutorial problem before it is
 a capability one.
 
-**What is built.** `crates/sutura-cli/src/sources.rs`'s `open_bigquery` composes the same three
+**What is built.** `crates/sutura-cli/src/sources/bigquery.rs`'s `open` composes the same three
 layers `sutura-serve`'s `build_bigquery` composes, through the same public constructors:
 `BigQueryWarehouse::new` over `BigQueryWire::new` over `Credential::read`, with one `WireAgent`
 cloned so the token exchange and the job share a pool. It is a **copy and not a shared function**,
@@ -834,6 +834,36 @@ answering would read every row as the process while the declaration promised oth
 `QueryDeadline::within_request_timeout`, even though this binary has no listener a job could outlive.
 The alternative was a number invented in the composition root, which is the drifting duplicate the
 settings tree exists to prevent.
+
+**The limit that buys, stated as a number rather than a caveat, because review measured it:**
+`CALLS_PER_ANSWER` is 2 and the connect margin is 5 seconds, so the shipped default of 30 gives a job
+**10 seconds** and `RequestTimeout::MAX_SECONDS` of 300 caps it at **145** - against a
+`QueryDeadline::MAX_SECONDS` of six hours. On the command-line tool that key therefore bounds nothing
+that exists and imposes a ceiling designed to protect an HTTP connection the command does not have: a
+twelve-second question is cancelled by `jobTimeoutMs` with nobody waiting on any request. The
+adapter's own `QueryDeadline::parse` exists for "a deployment stating a budget outright" and is
+deliberately not used, because a second key on one binary is the duplicate the first half of this
+paragraph refuses. What would lift it is a settings key meaning *how long a QUESTION may take* rather
+than how long a REQUEST may - one number both roots read - and that is a settings decision rather
+than this record's.
+
+**Three more things no test observes on the command-line root**, listed because a composition that is
+tested reads as a path that is exercised. `OpenedWith::attached` is `None` for a dataset and no test
+sees that value, because every one of them stops at the credential read - what it feeds is `mcp`'s
+`if let Some(attached)`, and the files arm is what exercises that branch. The `mcp` command's
+`Opened::BigQuery` arm is instantiated by no test either: all three go through `open_engine` directly,
+and reaching it by hand gives the same `credential_file` refusal. And the credential refusal prints
+the operator's own absolute path out of their own settings - inherited unchanged from
+`sutura-exec-bigquery` and identical on the served path, noted only because *Design Principles* says
+an error is not a place for a path.
+
+**And what no gate watches, said at the sharper end than "a behaviour that differs by build":**
+`just test`, `just mcp-e2e` and `checks.nextest` all pass `--all-features`, so the
+`cfg(not(feature = "bigquery"))` refusal and the test that provokes it are **run by nothing in CI** -
+and `cargo check` cannot see a clippy lint, which is how a `doc_markdown` failure lived on that
+line in both roots until review ran `cargo clippy` on the default feature set. `just cli-default-features`
+is that lane as a cited task rather than a remembered command; making it a gate costs a second
+compile of the workspace in CI and has not been taken.
 
 **The measurement this record's own rule asks for, taken 2026-09-02.** `cargo check -p sutura-cli
 --all-targets` on the default feature set touches neither `ring` nor `ureq`; the same command with
