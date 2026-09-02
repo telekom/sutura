@@ -93,7 +93,7 @@ The rules, now that there are ports to apply them to:
 | --- | --- |
 | No framework type reaches the domain - no `tokio`, `axum`, `rmcp`, `datafusion`, `arrow` in its tree | `check-boundaries` - a transitive **allowlist**, so a framework arriving through an innocuous crate fails too. The strongest of the three: a type cannot appear without its crate |
 | A **driven** port is declared by the domain, named for what the domain needs | *review* |
-| A **driving** port is declared by the application, never by one of its callers | *review*. `AGENTS.md` carries this one as an invariant and says plainly that it is not gated: `check-boundaries` reads dependency direction, not which crate declares a trait |
+| A **driving** port is declared by the application, never by one of its callers | `check-boundaries` - no `pub trait` in a crate that declares a normal dependency on `sutura-app`, except one allowlisted in `boundaries/ports.rs` with a reason. `AGENTS.md` carried this as an invariant and said plainly that it was not gated; that sentence is now spent |
 | A port's methods take and return domain types and domain errors only | *review*. `Surface` is where that costs something: erasing the warehouse's generic parameter erases the adapter's error TYPE, so `SurfaceFailure` keeps the error itself, owned, as a `#[source]` - the reasoning is under *Design Principles* in `AGENTS.md` |
 | A port's methods stay synchronous for as long as `Warehouse` is | *review*. The engine drives its own runtime and blocks on it, so an `async` port would hide the requirement that a transport move the call onto a blocking pool - a runtime cannot be entered from within a runtime |
 | The adapter wraps the third-party library and maps its errors to the domain's at the boundary | *review* |
@@ -172,7 +172,7 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask unused-deps` | a declared dependency nothing references, and a `[workspace.dependencies]` entry nobody inherits |
 | `cargo xtask line-endings` | CRLF. `fmt` fixes it |
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
-| `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; a normal dependency between two adapters of the same class; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
+| `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; a normal dependency between two adapters of the same class; a `pub trait` in a crate that declares `sutura-app`; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
 | `cargo xtask check-serde-parse` | a derived `Deserialize` on a type with a fallible constructor and no `#[serde(try_from = ..)]`; and a `try_from` whose derived `Serialize` writes a different shape |
 | `cargo xtask check-refusal-coverage` | a `RefusalReason` variant no test names and no snapshot records - a file naming EVERY variant is a census and counts for none of them |
 | `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |

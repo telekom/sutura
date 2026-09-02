@@ -1,10 +1,12 @@
-//! The architecture-boundary gate. Four halves - three of them about which way dependencies
-//! point, one about what the crossing looks like:
+//! The architecture-boundary gate. FIVE halves - three about which way dependencies point, one
+//! about who DECLARES a port, and one about what the crossing looks like:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
 //! * no adapter reaches an adapter of its own kind ([`adapter_classes`], and `adapters` for the
 //!   definition, which is the whole of the work in that rule)
+//! * a driving port is not declared by one of its callers ([`declared_ports`], and `ports`) - the
+//!   one half that reads which crate declares a TRAIT rather than which crate depends on which
 //! * a library's types and errors are a typed contract, not a struct with public fields
 //!   returning `Result<_, String>` (`api_shape`)
 //!
@@ -32,6 +34,7 @@
 
 mod adapters;
 mod api_shape;
+mod ports;
 
 use std::collections::BTreeSet;
 
@@ -310,11 +313,53 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let direction = dependency_direction();
     let edges = forbidden_edges();
     let classes = adapter_classes();
+    let declared = declared_ports();
     let surface = typed_surface();
-    if direction == Verdict::Pass && edges == Verdict::Pass && classes == Verdict::Pass && surface == Verdict::Pass {
+    let halves = [direction, edges, classes, declared, surface];
+    if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass
     } else {
         Verdict::Fail
+    }
+}
+
+/// Who DECLARES a port, which is the one question dependency direction cannot answer.
+fn declared_ports() -> Verdict {
+    // `--no-deps` on purpose, and for `api_shape`'s reason inverted: this half needs workspace
+    // members and their DECLARED dependencies, not the resolve graph. A transitive reach into the
+    // application is not what makes a crate a caller of its port.
+    let meta = match crate::cargo_metadata(&["--no-deps", "--all-features"]) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            return Verdict::Fail;
+        }
+    };
+    match ports::check(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - no driving port declared by a caller ({} file(s) in {})",
+                report.files,
+                report.callers.join(", ")
+            );
+            for entry in &report.permitted {
+                println!("  permitted, and here is the argument: {entry}");
+            }
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - a caller of the driving port declares a trait:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            ports::explain();
+            Verdict::Fail
+        }
     }
 }
 
