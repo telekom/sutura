@@ -179,6 +179,18 @@
         # So this is not tidiness: the two source roots have to agree, and the cheapest way to keep
         # them agreeing is for there to be one place that says so. `filter` is the trivial one, so
         # nothing is dropped - the whole point of these four is that nothing is.
+        #
+        # **TWO LIMITS, and the first is the one to read before believing this bought anything
+        # else.** It is NOT what makes these four checks reuse `sutura-deps`: they decompress that
+        # artifact and then compile the closure anyway - `tokio`, `ring`, `rustls`, `arrow`,
+        # `parquet` - and the green run after this change still compiles 80 crates, now under
+        # `/build/source`. Whatever discards the artifact is something else and is untouched here,
+        # so the `nextest spent 57 minutes compiling` note further down is NOT explained by this.
+        # What changed is only that a recompile of a crate with a baked path now succeeds.
+        # **Second:** a darwin build directory is `/nix/var/nix/builds/nix-<pid>-<random>/`, unique
+        # per derivation, so the roots cannot be made to agree there at all - the local
+        # `nix build .#checks.aarch64-darwin.nextest` fails identically before and after, measured
+        # both ways. Linux is `/build` for every derivation, which is where the gate runs.
         wholeTree = pkgs.lib.cleanSourceWith {
           src = ./.;
           name = "source";
