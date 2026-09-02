@@ -723,3 +723,188 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
     )
     .expect("the test definitions hash")
 }
+
+// ------------------------------------------------------ assembling the router ----
+
+/// The real router over a bundle, a data system, a broker and - where a deployment declares one - a
+/// gate.
+///
+/// **Five parameters, and each one is something a test varies.** Four modules had grown their own
+/// copy of these two statements, differing only in which of the five they held fixed, so a bundle
+/// that stopped validating in one of them would have gone on validating in the others. What none of
+/// them may vary is the two statements themselves: the service is started through the real
+/// `LocalService::start`, so every anchor is re-executed, and the router is the real one.
+///
+/// Generic in the adapter AND the broker, because the tests that need this need both: an impersonating
+/// fake declares its own error type, and a broker that refuses is a different type from one that
+/// grants. `ServiceState` erases the surface behind a `dyn Surface` one line later, so there is
+/// nothing downstream for either parameter to reach.
+pub(crate) fn serving<W, B>(
+    pinned: PinnedDefinitions,
+    warehouses: sutura_app::Warehouses<W>,
+    broker: B,
+    settings: sutura_config::Settings,
+    gate: Option<crate::inbound::InboundGate>,
+) -> axum::Router
+where
+    W: Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+    B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
+{
+    let service = crate::surface::LocalService::start(&catalog_of(pinned), warehouses, sink(), broker, 1 << 30)
+        .expect("the test bundle validates");
+    let mut state = crate::state::ServiceState::new(Arc::new(service), Arc::new(settings));
+    if let Some(gate) = gate {
+        state = state.with_inbound_identity(Arc::new(gate));
+    }
+    crate::router(&state).expect("the test router assembles")
+}
+
+/// The settings a test deployment loads, over one overlay.
+pub(crate) fn settings_with(overlay: &str) -> sutura_config::Settings {
+    sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect("the test settings load")
+}
+
+/// The inbound declaration an overlay carries, for a test that has to build the gate itself.
+pub(crate) fn declared_inbound(settings: &sutura_config::Settings) -> sutura_config::InboundIdentity {
+    settings
+        .security()
+        .inbound()
+        .expect("this overlay declares an inbound identity")
+        .clone()
+}
+
+// ---------------------------------------------------- driving the real router ----
+
+/// A well formed question the fakes above answer.
+///
+/// One literal, because four test modules were each carrying their own copy and a question that
+/// stopped being answerable in one of them would have gone on passing in the other three.
+pub(crate) const A_QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+
+/// A request with a peer address attached.
+///
+/// **The peer address is the part that cannot be left out.** The limiter keys on the connection's
+/// address, which `axum::serve` attaches via `into_make_service_with_connect_info`; a `oneshot` has no
+/// connection, so this inserts one. Without it the limiter reports that it cannot extract a key and
+/// limits nothing - which is also the failure mode in production if that call is ever dropped from
+/// [`crate::server::serve`].
+///
+/// Here rather than in `crate::harness`, which is where it was, because four test modules had grown
+/// four copies of it - and a copy that forgot the peer address would have looked like a passing test
+/// of an unlimited surface.
+pub(crate) fn request(method: &str, path: &str, token: Option<&str>, body: axum::body::Body) -> axum::extract::Request {
+    let mut builder = axum::http::Request::builder().method(method).uri(path);
+    if let Some(token) = token {
+        builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    let mut request = builder
+        .header("content-type", "application/json")
+        .body(body)
+        .expect("the test request is well formed");
+    let peer: std::net::SocketAddr = "203.0.113.7:44444".parse().expect("a test peer address is an address");
+    let _previous_peer = request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+    request
+}
+
+/// Calls the router once and reads the whole response.
+pub(crate) async fn call(app: &axum::Router, request: axum::extract::Request) -> (axum::http::StatusCode, String) {
+    let answered = answer(app, request).await;
+    (answered.status, answered.body)
+}
+
+/// Everything a test asks of one response: the status, the challenge and the body.
+///
+/// A named struct rather than a three-tuple, because the three modules that need it each wanted a
+/// different two of the three and a tuple made every call site restate which.
+pub(crate) struct Answered {
+    pub(crate) status: axum::http::StatusCode,
+    /// The RFC 6750 challenge, where the response carried one.
+    pub(crate) challenge: Option<String>,
+    pub(crate) body: String,
+}
+
+/// Asks [`A_QUESTION`] and reads everything back.
+pub(crate) async fn asked(app: &axum::Router, method: &str, path: &str, token: Option<&str>) -> Answered {
+    answer(app, request(method, path, token, axum::body::Body::from(A_QUESTION))).await
+}
+
+/// One call through the real router.
+async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered {
+    use tower::ServiceExt as _;
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("the router is infallible as a service");
+    let status = response.status();
+    let challenge = response
+        .headers()
+        .get(axum::http::header::WWW_AUTHENTICATE)
+        .and_then(|value| value.to_str().ok())
+        .map(String::from);
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("the test response body is readable");
+    Answered {
+        status,
+        challenge,
+        body: String::from_utf8_lossy(&bytes).into_owned(),
+    }
+}
+
+// --------------------------------------------------- the deployment's identity ----
+
+/// What this deployment calls itself. The value an `aud` claim has to equal, byte for byte.
+pub(crate) const RESOURCE: &str = "https://sutura.example.com";
+/// Who mints tokens for it.
+pub(crate) const ISSUER: &str = "https://issuer.example.com";
+/// The key id the issuer publishes.
+pub(crate) const KID: &str = "the-current-key";
+
+/// A mock authorization server under this deployment's own names, holding one `P-256` key.
+///
+/// `sutura_dev::issuer` and not a fixture of this crate's own, which is the whole point of that
+/// module: leg 1 is verified in the transport, minted-for in a broker and composed in a root, and a
+/// fixture inside any one of those three cannot be driven from the other two.
+pub(crate) fn an_issuer() -> sutura_dev::issuer::MockIssuer {
+    sutura_dev::issuer::MockIssuer::generating(ISSUER, RESOURCE, KID).expect("a mock issuer generates a key pair")
+}
+
+/// Every scope this surface has, space-delimited per RFC 6749.
+///
+/// Read off `sutura_app::Capability` rather than written out, so a new capability widens what a test
+/// token grants instead of leaving one route quietly unreachable.
+pub(crate) fn every_scope() -> String {
+    sutura_app::Capability::every()
+        .map(sutura_app::Capability::scope)
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+/// A token this deployment would accept, granting every capability the surface has.
+///
+/// Every capability, because leg 1 says who is asking and the capability gate says what they may
+/// invoke: a token with no `scope` claim reaches a handler for nothing.
+pub(crate) fn accepted_by(subject: &str) -> sutura_dev::issuer::Token {
+    sutura_dev::issuer::Token::for_subject(subject).granting(&every_scope())
+}
+
+/// A `direct` inbound declaration for `issuer`, reading its key set at `key_set_path`.
+///
+/// **Built from the issuer rather than from constants**, which is a property worth having and not
+/// only less repetition: the deployment is configured with the issuer under test's own names, so a
+/// test cannot verify against an issuer it did not configure.
+pub(crate) fn direct_overlay(issuer: &sutura_dev::issuer::MockIssuer, key_set_path: &str) -> String {
+    format!(
+        "security:\n  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
+         authorization_server: \"{}\"\n    key_set_file: \"{key_set_path}\"\n    algorithms: [\"ES256\"]\n",
+        issuer.audience(),
+        issuer.issuer(),
+    )
+}

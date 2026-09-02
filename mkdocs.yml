@@ -152,6 +152,7 @@ nav:
     - Architecture: architecture.md
     - Serving over HTTP: serving.md
     - Verifying a release: verifying-a-release.md
+    - Where each identity claim is proven: where-identity-is-proven.md
     - The implementation plan: implementation-plan.md
     - The plan, BigQuery: implementation-plan-bigquery.md
     - The plan, identity and services: implementation-plan-identity-and-services.md

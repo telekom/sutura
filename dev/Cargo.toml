@@ -22,9 +22,31 @@ path = "src/main.rs"
 name = "sutura_dev"
 path = "src/lib.rs"
 
+[features]
+# The mock authorization server in `src/issuer.rs`: a generated key pair, a JWK set it publishes, and
+# a token minter every claim of which is a parameter.
+#
+# **Default-off, and the reason is who else links this crate.** `xtask` depends on it for the compose
+# project name and `sutura-app` for the discovery file - neither of them mints a token, and neither
+# should have to compile a crypto backend to learn a port number. The crates that want the issuer ask
+# for it by name; every gate here passes `--all-features`, so the module is compiled, linted and
+# tested on every run.
+mock-issuer = ["dep:base64", "dep:jsonwebtoken", "dep:rcgen"]
+
 [dependencies]
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+
+# The three the mock issuer needs, all behind the feature above. `optional` is what makes them ABSENT
+# from `xtask`'s build rather than merely unused.
+#
+# `rcgen` generates the key pair, `jsonwebtoken` signs the claim set and `base64` writes the JWK's
+# coordinates. All three are already in this workspace's dev graph for exactly this purpose - see the
+# workspace manifest - so the feature adds no crate to `Cargo.lock` and no licence to `deny.toml`'s
+# allowlist.
+base64 = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+rcgen = { workspace = true, optional = true }
 
 [lints]
 workspace = true

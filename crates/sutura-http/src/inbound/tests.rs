@@ -37,12 +37,13 @@ use crate::inbound::keys::{
 };
 use crate::inbound::token::{MAX_TOKEN_BYTES, TokenRejected, TokenValidator};
 
-/// What this deployment calls itself. The value an `aud` claim has to equal, byte for byte.
-const RESOURCE: &str = "https://sutura.example.com";
-/// Who mints tokens for it.
-const ISSUER: &str = "https://issuer.example.com";
-/// The key id the issuer publishes, and the one the tokens below name.
-const KID: &str = "the-current-key";
+/// The deployment's own names, and the key id the tokens below name.
+///
+/// **Imported rather than declared**, because `crate::testing` is where the mock issuer builds its
+/// own from - so a fixture here and a fixture there cannot disagree about which audience this
+/// deployment answers to. Private, and reachable from the child modules through `super::`.
+use crate::testing::{ISSUER, KID, RESOURCE};
+
 /// The header a gateway deployment reads its assertion out of.
 const TRANSIT_HEADER: &str = "x-transit-proof";
 
@@ -81,22 +82,13 @@ fn jwk(kid: &str, pair: &rcgen::KeyPair) -> String {
     format!(r#"{{"kty":"EC","crv":"{curve}","use":"sig","alg":"{algorithm}","kid":"{kid}","x":"{x}","y":"{y}"}}"#)
 }
 
-/// A JWK set holding one RSA key, for the family mismatch.
+/// The two key set documents a deployment must refuse: one of the wrong FAMILY, and one holding a
+/// shared secret.
 ///
-/// **The modulus is not a real key and does not need to be**: what is being asserted is that a key set
-/// of the wrong FAMILY is refused at load, which happens before anything verifies a signature. The
-/// exponent and modulus only have to be base64url the library will decode.
-fn rsa_jwks(kid: &str) -> String {
-    let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let modulus = engine.encode([0xC5_u8; 256]);
-    let exponent = engine.encode([0x01_u8, 0x00, 0x01]);
-    format!(r#"{{"keys":[{{"kty":"RSA","use":"sig","alg":"RS256","kid":"{kid}","n":"{modulus}","e":"{exponent}"}}]}}"#)
-}
-
-/// A JWK set holding one symmetric key, which is what must never be accepted.
-fn symmetric_jwks() -> String {
-    r#"{"keys":[{"kty":"oct","kid":"shared","alg":"HS256","k":"c2VjcmV0LXNoYXJlZC13aXRoLWV2ZXJ5Ym9keQ"}]}"#.to_owned()
-}
+/// `sutura_dev::issuer` writes both, and they are re-exported here rather than written twice. Neither
+/// needs a real key: what is asserted with them is a refusal *at load*, before anything verifies a
+/// signature.
+use sutura_dev::issuer::MockIssuer;
 
 /// A claim set as JSON, so each test writes exactly the claims it is about.
 fn claims(subject: &str, audience: &str, issuer: &str, extra: &str) -> serde_json::Value {
@@ -797,7 +789,8 @@ fn a_symmetric_key_in_a_key_set_is_refused_at_load() {
     // The second place algorithm confusion dies. A pinned list cannot NAME `HS256` - the config enum
     // has no such variant - and a key set holding an `oct` key would still hand the library a key of
     // the HMAC family whose secret the issuer published. Both halves have to be closed.
-    let refused = KeySet::parse(&symmetric_jwks()).expect_err("a published shared secret is not a verifying key");
+    let refused =
+        KeySet::parse(&MockIssuer::key_set_of_symmetric_keys()).expect_err("a published shared secret is not a verifying key");
     assert!(matches!(refused, InvalidKeySet::SymmetricKey), "{refused:?}");
     let rendered = refused.to_string();
     assert!(rendered.contains("mint a token"), "{rendered}");
@@ -993,5 +986,7 @@ fn nothing_in_this_module_is_sendable_by_accident() {
 /// are the ones a reviewer should be able to find, run and delete-if-wrong as a group.
 mod review;
 
+/// Leg 1 against an issuer that PUBLISHES its key set, so the rotation bound faces a source that changes.
+mod published;
 /// Leg 1 through the assembled router, which is what says the layer is installed at all.
 mod router;

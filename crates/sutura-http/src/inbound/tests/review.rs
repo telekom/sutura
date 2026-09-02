@@ -30,9 +30,9 @@ use crate::inbound::keys::{
 use crate::inbound::token::{PresentedType, TokenRejected, TokenValidator};
 
 use super::{
-    ISSUER, KID, RESOURCE, StubSource, a_token, assertion_living, bearer, cache_of_family, claims, direct, direct_pinning,
-    expiry_in, gate_over, gateway_declaring, jwk, jwks, key_pair, rsa_jwks, scheme_and_token, short_lived_assertion, signed,
-    signed_as, transit,
+    ISSUER, KID, MockIssuer, RESOURCE, StubSource, a_token, assertion_living, bearer, cache_of_family, claims, direct,
+    direct_pinning, expiry_in, gate_over, gateway_declaring, jwk, jwks, key_pair, scheme_and_token, short_lived_assertion,
+    signed, signed_as, transit,
 };
 #[tokio::test]
 async fn an_id_token_from_the_same_issuer_for_the_same_audience_establishes_nobody() {
@@ -279,7 +279,7 @@ fn a_key_set_whose_keys_are_the_wrong_kind_for_the_pinned_algorithms_is_refused_
     // list whose family disagrees with it, so an RSA key set under `algorithms: ["ES256"]` cannot verify
     // anything - and every request would be a `401` with nothing in the log connecting the two.
     let now = Instant::now();
-    let source = Arc::new(StubSource::serving(&[rsa_jwks("an-rsa-key")]));
+    let source = Arc::new(StubSource::serving(&[MockIssuer::key_set_of_rsa_keys("an-rsa-key")]));
     let refused = KeySetCache::primed_with_window(
         Box::new(Arc::clone(&source)),
         KeyFamily::EllipticCurve,
@@ -297,7 +297,7 @@ fn a_key_set_whose_keys_are_the_wrong_kind_for_the_pinned_algorithms_is_refused_
 
     // And the same document under an RSA pin is fine, so the refusal is about the disagreement rather
     // than about the fixture. `holds` is at-least-one, because an issuer legitimately publishes both.
-    let set = KeySet::parse(&rsa_jwks("an-rsa-key")).expect("an RSA JWK is a JWK");
+    let set = KeySet::parse(&MockIssuer::key_set_of_rsa_keys("an-rsa-key")).expect("an RSA JWK is a JWK");
     assert!(set.holds(KeyFamily::Rsa));
     assert!(!set.holds(KeyFamily::EllipticCurve));
 }
