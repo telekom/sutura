@@ -259,6 +259,11 @@ gates: hygiene
     # reason `check-api-docs` is not a hygiene gate. `check-attribution` in the sweep only sees that
     # a licence cell is non-empty, so without this the main content of a generated file is trusted.
     cargo run -q -p xtask -- check-attribution-current
+    # The DEFAULT-feature lane, and it is here for the line above's reason: it shells out to cargo.
+    # Every other compiling gate in this repo passes `--all-features`, and `nix/shipped.nix`
+    # publishes cargo's default set - so a `#[cfg(feature = ...)]` compiled only with the feature on
+    # can be a hard error in exactly the configuration a release builds. That shipped once.
+    cargo run -q -p xtask -- check-default-features
     bash nix/run-gate.sh crap
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
@@ -327,6 +332,12 @@ causality base="origin/main":
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
+    # The SAME tier `test` provisions, for the same reason and it was missing here: this gate's
+    # first step is *are the tests green on HEAD*, and the postgres corpus and differential cells
+    # are fail-closed - so without the tier the gate fails its own precondition and reports nothing
+    # about the change. Measured on a real run before this pair was added.
+    trap 'sutura-postgres-tier stop' EXIT
+    sutura-postgres-tier start
     cargo run -q -p xtask -- test-causality --since {{ base }}
 
 # ---------------------------------------------------------------- artifacts ---

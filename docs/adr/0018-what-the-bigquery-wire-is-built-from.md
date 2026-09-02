@@ -452,3 +452,64 @@ remove the property the test would be checking around.
   is a process invocation and a JSON parser in a crate with one dependency. That absence is written
   in the gate's own header, because a gate that reads as if it covered something it does not is the
   failure this repository names as its canonical example.
+
+## Amendment, 2026-09-02: a second call at the socket, and it is not a job
+
+*What is built* above enumerates the wire as `submit` / `validate` / `run` - three names over one
+endpoint, `jobs.query`. Issue #120 added a fourth call and it is a different KIND of call, so this
+record says so rather than letting a reader infer that everything here submits a job.
+
+**What was added.** `wire::tables::list`, reached through `JobTransport::list_tables`, is a paged
+`GET` on `tables.list`: it issues no statement, reads no rows, and is billed for nothing. It exists
+because `sutura-serve` needs to know at boot whether a dataset holds the tables a bundle names - a
+`files` deployment already refuses that case and a `bigquery` one did not - and because asking per
+DATASET rather than per MODEL is what makes the check affordable at all.
+
+**What it inherits without re-arguing:** the host is the same `const`, the agent is the same pinned
+`WireAgent`, redirects are refused, the answer is read under `MAX_ANSWER_BYTES`, and the bearer comes
+from the same credential source through the same expiry guard - factored into `source_bearer` when
+this became its second caller.
+
+**What it decides for itself, and each is a decision rather than a default:**
+
+- **One absolute deadline for the whole listing**, not one per page. `CallDeadline` is opened once
+  and each page reads what is left, so a dataset that pages slowly shortens the pages after it. A
+  budget spent before the next page is `DeadlineSpent` and never a partial listing, because a partial
+  listing is a wrong ANSWER rather than a slow one - this call's output is *these tables are absent*.
+- **A page bound that fails rather than truncates.** `MAX_PAGES` pages of `PAGE_SIZE` is 64,000
+  tables; past it the call is `ListingDidNotFinish`, for the same reason.
+- **A page token is VALIDATED and never filtered.** A token is opaque, so a stripped character
+  addresses a different page rather than a safe one. It is checked against the URL-unreserved set
+  plus `=`, and bounded - review had to point out that *validated* named the alphabet and not a
+  length, and that the only bound on it was the 32 MiB answer cap.
+- **The quota project is the SOURCE's billing project and not the dataset's.** This is the one live
+  bug review found here, and it is worth the paragraph: a cross-project model at
+  `partner-data.shared.dim_region` on a source declared `billing_project: acme-analytics` had its
+  listing attributed to `partner-data`, which the caller holds no `serviceusage.services.use` on - so
+  the listing would have `403`'d while a QUERY against the same table worked. `DatasetAddress` carries
+  the two projects in two accessors named for their roles, because a newtype per id prevents an
+  argument-ORDER mistake and permits a ROLE mistake, and the role mistake is the one that happened.
+- **A refusal is told apart from an outage, and that is a port method rather than a status check at
+  the call site.** `JobTransport::listing_was_refused` answers `true` for `401` and `403` only; the
+  adapter forwards it as `Warehouse::preflight_was_refused`, and `sutura-serve` refuses the boot
+  naming the grant. Everything else - unreachable, unreadable, a document that would not decode, a
+  `404` - stays a warning and the deployment serves. Without that split, a missing
+  `bigquery.tables.list` grant and a momentarily dead endpoint were the same permanent warning, which
+  turned the check off in the deployment least likely to read a startup log. **A `404` is deliberately
+  in the warning half:** a dataset that is not there cannot be told from a name somebody is about to
+  fix, and the endpoint answers `404` for an invisible project too.
+
+**Three limits, in this record's own tradition of stating them next to the claim:**
+
+- **No live dataset has answered a listing.** The three response documents this suite decodes were
+  written here, which is this record's existing limit restated for a second endpoint - and the
+  acceptance leg does not cover the pre-flight either, so issue #120's own *Verification* bullet
+  about a `just bigquery-acceptance` run is outstanding.
+- **A document whose shape the service changes decodes to an EMPTY listing**, because every field is
+  `#[serde(default)]` - and an empty listing means *every table is absent*. That fails toward
+  refusing a deployment rather than serving one, which is the right direction, and a test pins the
+  behaviour so the direction is a measured property rather than a hope. It cannot be told from an
+  empty dataset, which really does answer with no `tables` array.
+- **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
+  whether the identity that will ask a question may read the rows: a listing grant and a read grant
+  are two grants. An anchor is what covers both, for the metrics that have one.

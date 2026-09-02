@@ -18,6 +18,8 @@
 //! **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 //! this crate rendered from a plan, and there is no entry point a caller could hand SQL to.
 
+use std::collections::BTreeSet;
+
 use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::ParamValue;
 
@@ -154,12 +156,93 @@ impl<'job> JobRequest<'job> {
 /// the crate whose transport interpolates it into a request path, and a check belongs where the risk
 /// is. The two are not one copy of one rule: an adapter may not depend on the settings tree, so
 /// sharing the type would be an adapter reaching into another adapter.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// **`Ord` is derived so the pre-flight can group by it**, and the ordering it derives is the inner
+/// string's: `parse` neither trims into a different value nor folds case, so the wrapper compares
+/// exactly as the text it holds does and there is no invariant for the derive to disagree with.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProjectId(String);
 
 /// The dataset unqualified table names resolve in, as this adapter holds it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Ord` for the reason [`ProjectId`]'s is derived, plus one of its own: this type PRESERVES case, so
+/// the derived ordering and the derived equality are the case-sensitive comparison a dataset id
+/// really wants.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DatasetId(String);
+
+/// One dataset, addressed the way a metadata read needs it: who pays, where it lives, and its id.
+///
+/// **A named struct rather than loose arguments**, for the reason [`ProjectId`] is a wrapper at all:
+/// a call taking ids of the same shape in the wrong order compiles and is wrong. It is also the
+/// grouping key the pre-flight uses, which is what the derived `Ord` is for.
+///
+/// **THREE fields and not two, and the third one is a review finding rather than symmetry.** The
+/// first shape of this type carried the dataset's project only, and the listing then sent that as
+/// the quota project - so a source declared `billing_project: acme-analytics` reading a model at
+/// `partner-data.shared.dim_region` attributed the listing to `partner-data`, which the caller holds
+/// no `serviceusage.services.use` on. It would have 403'd and become a permanent warning, while a
+/// QUERY against the same table attributed to `acme-analytics` and worked. `docs/adr/0018` states
+/// the rule as *carrying the source's declared billing project*.
+///
+/// **What that says about the newtype, written down because it is the interesting half:** a wrapper
+/// per id prevents an argument-ORDER mistake and permits a ROLE mistake - *where the dataset lives*
+/// against *who pays* - and the role mistake is the one that happened. Two accessors named for their
+/// roles is the fix that a single `project` field could not be.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DatasetAddress {
+    billed_to: ProjectId,
+    project: ProjectId,
+    dataset: DatasetId,
+}
+
+/// Every table one dataset holds, by the id it knows each under.
+///
+/// A name rather than the type, because `Result<BTreeSet<String>, _>` is over the `type_complexity`
+/// threshold this workspace tightened - the same reason [`crate::BigQueryWarehouse`]'s `Mapped`
+/// exists - and because *table ids* is what the set means where `BTreeSet<String>` is not.
+pub type HeldTables = BTreeSet<String>;
+
+impl DatasetAddress {
+    /// Addresses a dataset: the source's billing project, the dataset's own project, and its id.
+    ///
+    /// The first two are equal for an unqualified model and differ for a cross-project one, which is
+    /// exactly the case the role distinction exists for.
+    #[must_use]
+    pub const fn of(billed_to: ProjectId, project: ProjectId, dataset: DatasetId) -> Self {
+        Self {
+            billed_to,
+            project,
+            dataset,
+        }
+    }
+
+    /// The project whose quota and billing this read is attributed to: the SOURCE's, always.
+    ///
+    /// Read into `x-goog-user-project` where the credential requires that header, which is the one
+    /// place the distinction from [`Self::project`] bites - see this type's own documentation.
+    #[inline]
+    #[must_use]
+    pub const fn billed_to(&self) -> &ProjectId {
+        &self.billed_to
+    }
+
+    /// The project the dataset LIVES in, which is the one written into the request path.
+    ///
+    /// Not the one the read is attributed to - [`Self::billed_to`] is.
+    #[inline]
+    #[must_use]
+    pub const fn project(&self) -> &ProjectId {
+        &self.project
+    }
+
+    /// The dataset's own id.
+    #[inline]
+    #[must_use]
+    pub const fn dataset(&self) -> &DatasetId {
+        &self.dataset
+    }
+}
 
 /// Why a resource name this adapter was handed is not usable.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -380,10 +463,12 @@ impl JobRows {
 /// uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
 /// `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
 ///
-/// **Two more members are not that, and the count is spelled out because it has been wrong twice.**
-/// `result_did_not_fit` asks the implementor about a failure it already has and sends nothing; and
-/// `apply`, behind the `fixtures` feature, is the third statement-issuing method - present only in a
-/// build that loads fixtures, so no deployment can reach it.
+/// **Three more members are not that, and the count is spelled out because it has been wrong
+/// twice.** `result_did_not_fit` asks the implementor about a failure it already has and sends
+/// nothing; `list_tables` sends a metadata read rather than a statement, which is what makes it
+/// cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
+/// statement-issuing method - present only in a build that loads fixtures, so no deployment can
+/// reach it.
 pub trait JobTransport {
     /// Why the endpoint could not answer. The adapter wraps it and never lets it reach a caller of
     /// the domain port raw.
@@ -397,6 +482,50 @@ pub trait JobTransport {
     /// Returns nothing on success: what a caller may conclude is *the endpoint accepted this*, and a
     /// dry run's byte estimate is not something any decision above here reads.
     fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
+
+    /// Every table one dataset holds, by the id the dataset knows it under.
+    ///
+    /// **The one member of this trait that issues no statement and reads no rows**, which is what
+    /// makes it cheap enough to run at boot: it is a metadata read over a whole dataset, so a bundle
+    /// naming forty models costs one call rather than forty. `crate::BigQueryWarehouse::preflight` is
+    /// the only caller, and `sutura_domain::warehouse::Warehouse::preflight` is the port above it that
+    /// says why a boot check exists at all.
+    ///
+    /// **Required, with no default, and the two defaults available are the reason.** An empty set
+    /// would report every table in the bundle as absent and refuse a correct deployment; a set that
+    /// claimed to hold everything asked for would be the lie the port above forbids. A transport that
+    /// cannot list has to say so as an `Err`, which is the outcome the port keeps separate from *this
+    /// table is absent* precisely so an operator is not sent to fix the wrong thing.
+    ///
+    /// **It takes a [`DatasetAddress`] rather than reading one off a [`JobRequest`]**, because there
+    /// is no job: a bundle whose models name a second dataset is one call per dataset, and a request
+    /// carries exactly one default dataset. The project is the one the dataset lives in, which for an
+    /// unqualified model is the source's billing project and for a qualified one is whatever the path
+    /// names.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the implementor's own failure is: a credential with no permission to list, a dataset
+    /// that is not there, an endpoint that did not answer. What it must NOT do is report any of those
+    /// as an empty listing.
+    fn list_tables(&self, at: &DatasetAddress) -> Result<HeldTables, Self::Error>;
+
+    /// Was that listing failure the endpoint REFUSING, rather than failing to answer?
+    ///
+    /// **The `Warehouse::preflight_was_refused` question one port further down**, and it has to be
+    /// asked here for the reason [`Self::result_did_not_fit`] does: the HTTP status is a fact about
+    /// the wire, and `Self::Error` is the implementor's own type, so the adapter above - which holds
+    /// the failure as `BigQueryError::Endpoint` - cannot read it.
+    ///
+    /// `true` for an authorization failure: the identity may not list this dataset, which will fail
+    /// identically on every boot and is fixed by one grant. `false` for everything else, including an
+    /// endpoint that did not answer - a condition that passes.
+    ///
+    /// Defaulted to `false`, which is the answer a fake gives unless a test is about this split, and
+    /// which is the direction that keeps a deployment serving.
+    fn listing_was_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
 
     /// Was this failure the endpoint declining to return the whole result at once?
     ///

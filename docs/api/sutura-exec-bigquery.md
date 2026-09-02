@@ -24,7 +24,10 @@ What it contains is everything this adapter DECIDES:
 - the rendering, through `sutura-sql` in `Dialect::BigQuery`, so no second set of quoting and
   placeholder decisions exists here;
 - the refusal of a federated leg, because there is no combiner above it;
-- the value mapping, which is where a wrong number would come from.
+- the value mapping, which is where a wrong number would come from;
+- the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
+  tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
+  on a `files` deployment rather than a failed answer for whoever asks first.
 
 **A limit of that mapping, stated because it decides what a time column on this source is:**
 `transport::FieldType` reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
@@ -326,6 +329,10 @@ the crate whose transport interpolates it into a request path, and a check belon
 is. The two are not one copy of one rule: an adapter may not depend on the settings tree, so
 sharing the type would be an adapter reaching into another adapter.
 
+**`Ord` is derived so the pre-flight can group by it**, and the ordering it derives is the inner
+string's: `parse` neither trims into a different value nor folds case, so the wrapper compares
+exactly as the text it holds does and there is no invariant for the derive to disagree with.
+
 #### Methods
 
 ```rust
@@ -347,7 +354,7 @@ request, and a too-short id is a diagnostic the settings tree already gives.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
 
 ### `struct DatasetId`
 
@@ -356,6 +363,10 @@ pub struct DatasetId
 ```
 
 The dataset unqualified table names resolve in, as this adapter holds it.
+
+`Ord` for the reason `ProjectId`'s is derived, plus one of its own: this type PRESERVES case, so
+the derived ordering and the derived equality are the case-sensitive comparison a dataset id
+really wants.
 
 #### Methods
 
@@ -376,7 +387,70 @@ a working declaration into a dataset that does not exist.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
+
+### `struct DatasetAddress`
+
+```rust
+pub struct DatasetAddress
+```
+
+One dataset, addressed the way a metadata read needs it: who pays, where it lives, and its id.
+
+**A named struct rather than loose arguments**, for the reason `ProjectId` is a wrapper at all:
+a call taking ids of the same shape in the wrong order compiles and is wrong. It is also the
+grouping key the pre-flight uses, which is what the derived `Ord` is for.
+
+**THREE fields and not two, and the third one is a review finding rather than symmetry.** The
+first shape of this type carried the dataset's project only, and the listing then sent that as
+the quota project - so a source declared `billing_project: acme-analytics` reading a model at
+`partner-data.shared.dim_region` attributed the listing to `partner-data`, which the caller holds
+no `serviceusage.services.use` on. It would have 403'd and become a permanent warning, while a
+QUERY against the same table attributed to `acme-analytics` and worked. `docs/adr/0018` states
+the rule as *carrying the source's declared billing project*.
+
+**What that says about the newtype, written down because it is the interesting half:** a wrapper
+per id prevents an argument-ORDER mistake and permits a ROLE mistake - *where the dataset lives*
+against *who pays* - and the role mistake is the one that happened. Two accessors named for their
+roles is the fix that a single `project` field could not be.
+
+#### Methods
+
+```rust
+pub const fn billed_to(&self) -> &ProjectId
+```
+
+The project whose quota and billing this read is attributed to: the SOURCE's, always.
+
+Read into `x-goog-user-project` where the credential requires that header, which is the one
+place the distinction from `Self::project` bites - see this type's own documentation.
+
+```rust
+pub const fn dataset(&self) -> &DatasetId
+```
+
+The dataset's own id.
+
+```rust
+pub const fn of(billed_to: ProjectId, project: ProjectId, dataset: DatasetId) -> Self
+```
+
+Addresses a dataset: the source's billing project, the dataset's own project, and its id.
+
+The first two are equal for an unqualified model and differ for a cross-project one, which is
+exactly the case the role distinction exists for.
+
+```rust
+pub const fn project(&self) -> &ProjectId
+```
+
+The project the dataset LIVES in, which is the one written into the request path.
+
+Not the one the read is attributed to - `Self::billed_to` is.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
 
 ### `enum UnusableResourceName`
 
@@ -553,10 +627,20 @@ endpoint really does distinguish them - its request body carries a dry-run flag,
 uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
 `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
 
-**Two more members are not that, and the count is spelled out because it has been wrong twice.**
-`result_did_not_fit` asks the implementor about a failure it already has and sends nothing; and
-`apply`, behind the `fixtures` feature, is the third statement-issuing method - present only in a
-build that loads fixtures, so no deployment can reach it.
+**Three more members are not that, and the count is spelled out because it has been wrong
+twice.** `result_did_not_fit` asks the implementor about a failure it already has and sends
+nothing; `list_tables` sends a metadata read rather than a statement, which is what makes it
+cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
+statement-issuing method - present only in a build that loads fixtures, so no deployment can
+reach it.
+
+### `type_alias HeldTables`
+
+Every table one dataset holds, by the id it knows each under.
+
+A name rather than the type, because `Result<BTreeSet<String>, _>` is over the `type_complexity`
+threshold this workspace tightened - the same reason `crate::BigQueryWarehouse`'s `Mapped`
+exists - and because *table ids* is what the set means where `BTreeSet<String>` is not.
 
 ## Module `wire`
 
@@ -1003,6 +1087,9 @@ every other variant and `clippy::result_large_err` is on.
 - `NotATotal` - The total was not a number.
 - `NoSchema` - A complete job with rows and no schema to read them against.
 - `NotAScalar` - A cell that is neither a string nor a null.
+- `NotAListing` - The answer to a table listing was not one. Distinct from `Self::NotADocument`, the same failure for a query answer: two documents, two shapes, and one message per request.
+- `UnusablePageToken` - The service handed back a page token this transport will not write into a URL. **Refused rather than filtered**, and `tables::usable_token` carries the argument; the token travels through `bounded`, which keeps a foreign string out of a log unbounded.
+- `ListingDidNotFinish` - A dataset that did not finish listing inside the page bound. **A failure rather than a short listing**: this feeds *these tables are absent*, so a cut-off listing reports a table that is there as missing.
 
 #### Implements
 

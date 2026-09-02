@@ -15,7 +15,10 @@
 //! - the rendering, through `sutura-sql` in [`Dialect::BigQuery`], so no second set of quoting and
 //!   placeholder decisions exists here;
 //! - the refusal of a federated leg, because there is no combiner above it;
-//! - the value mapping, which is where a wrong number would come from.
+//! - the value mapping, which is where a wrong number would come from;
+//! - the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
+//!   tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
+//!   on a `files` deployment rather than a failed answer for whoever asks first.
 //!
 //! **A limit of that mapping, stated because it decides what a time column on this source is:**
 //! [`transport::FieldType`] reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
@@ -85,12 +88,15 @@
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and this
 //! is the first adapter where there would be row-level security to leak through.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::SourceName;
 #[cfg(feature = "fixtures")]
 use sutura_domain::model::TableName;
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -111,7 +117,7 @@ pub use crate::importer::{FixtureNotLoaded, FixtureNotUsable, Loaded};
 mod sts;
 pub use sts::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
 
-use crate::transport::{Cell, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ProjectId};
+use crate::transport::{Cell, DatasetAddress, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.
 ///
@@ -119,6 +125,12 @@ use crate::transport::{Cell, DatasetId, Field, FieldType, JobRequest, JobRows, J
 /// workspace tightened, and because the generic error is the point: erasing it would lose which
 /// transport failed.
 type Mapped<V, E> = Result<V, BigQueryError<E>>;
+
+/// The bundle's tables, grouped by the dataset each resolves in.
+///
+/// Named for the reason [`Mapped`] is: the map is over the `type_complexity` threshold this
+/// workspace tightened, and *by dataset* is what it means where the spelled-out type is not.
+type ByDataset<'bundle> = BTreeMap<DatasetAddress, Vec<&'bundle QualifiedTable>>;
 
 /// Why this data system could not answer.
 ///
@@ -503,6 +515,40 @@ where
         Ok(())
     }
 
+    /// Which dataset one model's table path resolves in, or `None` if this adapter cannot address it.
+    ///
+    /// **The unqualified case is the connection's own pair and not a guess**, which is the same
+    /// decision the request body's `defaultDataset` carries: a bare table name resolves in the
+    /// dataset the source was opened against, inside the project the job is billed to. A qualified
+    /// path overrides one or both, and each part is re-parsed by the type for its position - the
+    /// second parse `build_bigquery` already makes for the source's own two names, for the same
+    /// reason: the value written into a request path is this crate's to accept or refuse.
+    ///
+    /// **`None` rather than an `Err`, and review is why.** It used to return
+    /// `BigQueryError::UnusableTablePath`, which [`Self::preflight`] propagated out of the grouping
+    /// loop **before any dataset was listed** - so one mixed-case project id in a forty-model bundle
+    /// turned the whole check off for that source, as a single `WARN`, which is precisely the
+    /// issue-120 failure the check exists to remove. A path this adapter cannot write into a request
+    /// is a **definite negative and not an unknown**: no question against that model could ever be
+    /// answered, whatever the dataset holds. So it is an ABSENCE, it reaches the operator as a
+    /// refusal naming the model, and it costs no round trip.
+    fn addressed(&self, table: &QualifiedTable) -> Option<DatasetAddress> {
+        let billed_to = self.billing_project.clone();
+        let Some(qualifier) = table.qualifier() else {
+            return Some(DatasetAddress::of(
+                billed_to,
+                self.billing_project.clone(),
+                self.default_dataset.clone(),
+            ));
+        };
+        let project = match qualifier.project() {
+            None => self.billing_project.clone(),
+            Some(project) => ProjectId::parse(project.as_str()).ok()?,
+        };
+        let dataset = DatasetId::parse(qualifier.dataset().as_str()).ok()?;
+        Some(DatasetAddress::of(billed_to, project, dataset))
+    }
+
     /// A job's result, as a domain result set.
     fn rows(answered: &JobRows) -> Mapped<RowSet, T::Error> {
         // The schema first, because it is the one check whose answer does not depend on the rows -
@@ -604,6 +650,98 @@ where
             .run(&self.request(&query, None))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered).map(AnchorRows::of)
+    }
+
+    /// Asks the dataset which of the bundle's tables it holds.
+    ///
+    /// **One call per DATASET and not per model, which is what makes this affordable at boot.** The
+    /// tables asked about are grouped by the pair they resolve in - the connection's own project and
+    /// dataset for an unqualified path, whatever the path names otherwise - and each group costs one
+    /// metadata read. A bundle on one dataset is therefore one call however many models it declares,
+    /// and a bundle spanning two datasets is two.
+    ///
+    /// **The comparison is case-SENSITIVE, deliberately.** `GoogleSQL` folds the case of an alias and
+    /// a result column and does not fold a table name, so a model naming `Dim_Customer` where the
+    /// dataset holds `dim_customer` is a model whose questions really would fail - reporting it
+    /// present because a case-folded comparison matched would put the failure back on the first
+    /// caller, which is the whole defect this method exists to remove.
+    ///
+    /// **A path this adapter cannot ADDRESS is an absence and never an error**, which is a review
+    /// correction rather than the original shape - [`Self::addressed`] carries the measurement of
+    /// what the original cost. It is a definite negative: no question against such a model could be
+    /// answered whatever the dataset holds, so it belongs in the absent set beside a table that is
+    /// simply not there, and it costs no round trip.
+    ///
+    /// # Errors
+    ///
+    /// [`BigQueryError::Endpoint`] where a dataset could not be listed - no permission, no such
+    /// dataset, no answer - which the port keeps distinct from a table that is absent so an operator
+    /// is not sent to fix the wrong thing. Which of those it was is
+    /// [`Self::preflight_was_refused`]'s question, because only a permission failure is worth
+    /// stopping a boot for.
+    fn preflight(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
+        // **`NotAsked` and not `All` for an empty set**, which is a review nit worth taking: `All`
+        // means *asked, nothing missing*, and nothing was asked. The composition root guards this
+        // case, so what the arm buys is that any other caller gets the honest answer.
+        if tables.is_empty() {
+            return Ok(TablesPresent::NotAsked);
+        }
+        let mut grouped: ByDataset<'_> = BTreeMap::new();
+        let mut absent: BTreeSet<QualifiedTable> = BTreeSet::new();
+        for table in tables {
+            // Partitioned BEFORE anything is listed, so an unaddressable path can neither skip the
+            // loop nor cost a call: it is already an answer.
+            match self.addressed(table) {
+                Some(at) => grouped.entry(at).or_default().push(table),
+                None => {
+                    absent.insert(table.clone());
+                }
+            }
+        }
+        for (at, asked) in grouped {
+            let held = self
+                .transport
+                .list_tables(&at)
+                .map_err(|cause| BigQueryError::Endpoint { cause })?;
+            absent.extend(
+                asked
+                    .into_iter()
+                    .filter(|table| !held.contains(table.name().as_str()))
+                    .cloned(),
+            );
+        }
+        Ok(TablesPresent::of(absent))
+    }
+
+    /// Whether the endpoint REFUSED to list a dataset, rather than failing to answer about one.
+    ///
+    /// **The split a review asked for, and the reason is in the port's own documentation:** a `403`
+    /// on `tables.list` is a grant an operator can add and will fail identically on every boot, while
+    /// a `503` from the endpoint is a condition that passes - and before this they were the same
+    /// permanent warning in the deployment least likely to read a startup log.
+    ///
+    /// It asks the TRANSPORT, for [`Self::result_did_not_fit`]'s reason: the HTTP status is a fact
+    /// about the wire and `T::Error` is the transport's own type. Every other variant is `false`
+    /// exhaustively rather than through a wildcard, so a variant added to [`BigQueryError`] has to be
+    /// decided here - and `false` is the reading that keeps a deployment serving, which is the safe
+    /// direction the port states.
+    fn preflight_was_refused(&self, error: &Self::Error) -> bool {
+        match *error {
+            BigQueryError::Endpoint { ref cause } => self.transport.listing_was_refused(cause),
+            BigQueryError::Render { .. }
+            | BigQueryError::LegWithoutCombiner { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::PresentedDisagreesWithPosture { .. }
+            | BigQueryError::UnmappedType { .. }
+            | BigQueryError::NotAnInteger { .. }
+            | BigQueryError::NotADouble { .. }
+            | BigQueryError::NotABool { .. }
+            | BigQueryError::NotFinite { .. }
+            | BigQueryError::NotADate { .. }
+            | BigQueryError::RowWidth { .. }
+            | BigQueryError::Incomplete { .. }
+            | BigQueryError::Shape { .. } => false,
+        }
     }
 
     // `working_set_exhausted` is deliberately NOT overridden. The port's default is `None`, and that

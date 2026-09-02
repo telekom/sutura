@@ -16,11 +16,24 @@
 //! [`crate::query`] is the *tool* surface, where SQL must be unrepresentable because the text would
 //! come from a caller; here there is no text for a value to reach at all.
 
+use std::collections::BTreeSet;
+
 use crate::calendar::Date;
 use crate::identity::Presented;
-use crate::model::SourceName;
+use crate::model::{QualifiedTable, SourceName};
 use crate::plan::{AnchorPlan, Executable};
 use crate::source::{ImpersonationCapability, SourcePosture};
+
+/// The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
+///
+/// **`pub mod` with no re-export beside it, and that is a documentation decision rather than a
+/// style one.** The domain's usual shape is a private submodule plus a `pub use`, which rustdoc
+/// inlines into the parent - and it did NOT inline here: `just api` generated three
+/// `### use None` stubs and no content for these three types, so the published reference would have
+/// carried a port method returning a type it does not describe. A public module gets documented.
+pub mod preflight;
+
+use crate::warehouse::preflight::TablesPresent;
 
 /// A value bound to a placeholder.
 ///
@@ -703,6 +716,88 @@ pub trait Warehouse {
     /// is no reply for a size bound to refuse there, and the boot path's `verify_anchor` runs one
     /// certified scalar.
     fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Does this data system hold the tables the bundle names?
+    ///
+    /// **Asked once, at boot, before a listener is bound**, and it exists to close an asymmetry
+    /// between two kinds of deployment rather than to add a check. A file engine is GIVEN one file
+    /// per model, so a catalog naming a table with nothing behind it is already a refusal naming the
+    /// model. A networked data system has no such step: the tables live in the dataset, and without
+    /// this the process learns a table is absent when a question reaches it - a green startup, a
+    /// healthy liveness probe, and a failure for whoever asked first.
+    ///
+    /// **Defaulted to [`TablesPresent::NotAsked`], and the default is the whole reason this is a
+    /// defaulted method rather than a required one.** An adapter that has no cheap way to ask must
+    /// not be forced to answer, and the only answers available to one that cannot look are *nothing
+    /// to report* and a lie. That is `working_set_exhausted`'s and `result_did_not_fit`'s precedent
+    /// pointed at a boot check: the default is the reading that costs least when it is wrong.
+    /// [`TablesPresent`] says at length why the default is not readable as *verified*.
+    ///
+    /// **A SET rather than a table, deliberately.** A networked data system can usually answer this
+    /// for a whole dataset in one call, and a method taking one table would make that a call per
+    /// model - which is the cost that kept this check from existing. An adapter reading more than
+    /// one dataset makes one call per dataset, which is still a set rather than a model.
+    ///
+    /// It takes no credential, for [`verify_anchor`](Warehouse::verify_anchor)'s reason: there is no
+    /// caller at boot. So what it establishes is what the identity this adapter was configured with
+    /// can see, which is the same limit an anchor carries.
+    ///
+    /// # Errors
+    ///
+    /// **A data system that could not be ASKED is an `Err` and never a variant of the answer** - a
+    /// credential with no permission to list, a dataset that is not there, an endpoint that did not
+    /// reply. That separation is the contract: *could not verify* and *this table is absent* must
+    /// reach an operator as two different sentences, because the fix for each is in a different
+    /// place. A composition root is free to treat the first as a warning and the second as a refusal,
+    /// and it cannot make that choice if the adapter collapsed them.
+    fn preflight(&self, _tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
+        Ok(TablesPresent::NotAsked)
+    }
+
+    /// Was this pre-flight failure the data system REFUSING, rather than failing to answer?
+    ///
+    /// **Added because the first version of the pre-flight could not tell those apart, and a review
+    /// found what that cost.** [`preflight`](Warehouse::preflight)'s `Err` is *could not verify*, and
+    /// a composition root's reasonable response to that is a warning rather than a refusal - a
+    /// deployment whose data system is briefly unreachable at boot still has to be able to serve.
+    /// But a data system that refused because the identity lacks the permission to LIST is a
+    /// different thing entirely: it will refuse again on every boot, forever, and the fix is one
+    /// grant. Collapsed into the warning, the check silently does nothing in exactly the deployment
+    /// least likely to read a startup log.
+    ///
+    /// `true` means *this identity may not ask*, and a composition root is expected to refuse and
+    /// name the grant. `false` is every other failure, including one whose text happens to mention
+    /// permissions.
+    ///
+    /// **A predicate rather than a conversion, and a `bool` rather than a reason**, for
+    /// [`result_did_not_fit`](Warehouse::result_did_not_fit)'s reasons exactly: `Self::Error` is the
+    /// adapter's own type so nothing above this port can read it, and the refusal vocabulary stays
+    /// the domain's. The adapter's error already carries the detail an operator needs, and it travels
+    /// as the cause.
+    ///
+    /// Defaulted to `false`, which is the honest answer for an adapter that cannot tell the two apart
+    /// and for one whose [`preflight`](Warehouse::preflight) never fails. **The default is the safe
+    /// direction here, and it is the opposite direction from the other two predicates on this
+    /// trait:** a refusal reported as a transport hiccup leaves a deployment serving unverified,
+    /// which is where this whole check started; a transport hiccup reported as a refusal stops a
+    /// deployment that would have worked. Answering `false` picks the first, because it is the
+    /// status quo rather than a new failure mode - and an adapter that knows better says so.
+    ///
+    /// **WHAT THE DEFAULT COSTS, beside the direction it argues, because review pointed out that the
+    /// argument above had no risk stated next to it.** This trait's own rule is *required with no
+    /// default where the absence changes what a caller may believe*, and here the absence does: the
+    /// next adapter that overrides [`preflight`](Warehouse::preflight) - so it really asks - and
+    /// forgets this predicate gets *never a refusal*, silently, which is the permanent-`WARN`
+    /// collapse this pair was added to remove. Nothing catches that; a defaulted method has no
+    /// `compile_fail` twin to write. It is defaulted anyway, and the price of the other direction is
+    /// what decided it: three adapters that cannot fail a pre-flight at all would each have to write
+    /// `false`, and a required method whose only honest answer is a constant is how a port teaches
+    /// its implementors to answer without reading. So this is a JUDGEMENT with a live risk under it
+    /// rather than a property - the pairing is held by review, and an adapter that overrides one of
+    /// the two and not the other is what a reviewer of that adapter has to look for.
+    fn preflight_was_refused(&self, _error: &Self::Error) -> bool {
         false
     }
 }
