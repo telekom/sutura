@@ -41,7 +41,10 @@ use crate::Verdict;
 use crate::repo;
 
 mod diff;
-mod regions;
+// `pub(crate)` rather than private: `crate::refusals` reads the same test regions this gate does,
+// because "which lines of this file are test code" is one question and a second implementation of
+// it would be a second thing to keep in step. Nothing else about the module moved.
+pub(crate) mod regions;
 
 use diff::{ChangedFile, changed_with_additions};
 use regions::{AddedLine, PostImage, has_non_test_additions, scope};

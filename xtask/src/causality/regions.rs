@@ -69,7 +69,7 @@ pub(crate) enum TestScope {
 
 impl TestScope {
     /// Is the line at `number` test code?
-    fn covers(&self, number: usize) -> bool {
+    pub(crate) fn covers(&self, number: usize) -> bool {
         match *self {
             Self::WholeFile => true,
             Self::Regions(ref regions) => regions.iter().any(|region| region.contains(&number)),

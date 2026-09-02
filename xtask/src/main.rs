@@ -25,6 +25,7 @@ mod hooks;
 mod line_endings;
 mod max_lines;
 mod pins;
+mod refusals;
 mod repo;
 mod serde_parse;
 mod shared_client;
@@ -177,6 +178,15 @@ const TASKS: &[Task] = &[
         description: "a validated newtype's serde goes through its constructor, both ways",
         kind: Kind::Hygiene,
         run: serde_parse::run,
+    },
+    Task {
+        // Beside `check-serde-parse` because it is the third rule from the same page held by the
+        // same kind of check - and this one is about the ERROR principle rather than the newtype
+        // one. `AGENTS.md`: a variant no test can provoke is what that enum refuses to carry.
+        name: "check-refusal-coverage",
+        description: "every RefusalReason variant is provoked, or excused in devco/refusals-unprovoked-allow",
+        kind: Kind::Hygiene,
+        run: refusals::run,
     },
     Task {
         name: "line-endings",

@@ -49,7 +49,7 @@ chore, the type is doing too much.
 | `Err(MyError::Invalid(format!("digest has {n} chars")))` | `MyError::WrongLength { value, len, expected }` - typed fields, not a sentence | *review*. The variant and its fields are the contract; the `#[error(..)]` text may be reworded, and a caller that parsed it was never promised anything |
 | one umbrella `Error` for a whole module | one enum per fallible operation, carrying only what that operation can produce | *review*. Ten variants where two apply makes the caller filter noise |
 | `.map_err(\|_\| MyError::Bad)` | `#[from]` or `#[source]`, so the cause survives the boundary | `clippy::map_err_ignore` - the `restriction` category is on |
-| an expected outcome returned as `Err` | a variant of the result. A governance refusal is `ToolOutcome::Refusal { reason }`, never an error | *review*, plus the per-variant test each `RefusalReason` requires |
+| an expected outcome returned as `Err` | a variant of the result. A governance refusal is `ToolOutcome::Refusal { reason }`, never an error | *review* for the CHOICE of `Ok` over `Err`. What is gated is the consequence: `cargo xtask check-refusal-coverage` fails a `RefusalReason` variant no test provokes, unless `devco/refusals-unprovoked-allow` excuses it with a date and a reason |
 
 Two local deviations from the guide, both deliberate: `#[non_exhaustive]` is **not** used
 (`exhaustive_enums` is allowed in the lint table - nothing is published, so the compatibility
@@ -174,6 +174,7 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
 | `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
 | `cargo xtask check-serde-parse` | a derived `Deserialize` on a type with a fallible constructor and no `#[serde(try_from = ..)]`; and a `try_from` whose derived `Serialize` writes a different shape |
+| `cargo xtask check-refusal-coverage` | a `RefusalReason` variant no test names and no snapshot records - a file naming EVERY variant is a census and counts for none of them |
 | `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |
 | `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles nothing, and a push-stage clippy invocation that is not the commit stage's own |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
