@@ -80,6 +80,21 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   `EXECUTES_LEGS`, which only the dev-only DuckDB vehicle sets true. So the shipped binary refuses a
   two-source question rather than letting a typed leg refusal surface as a retryable `503`. A full
   two-DuckDB differential is not written, which is exactly why this stays here.
+- **The DataHub catalog adapter decides a whole metric, and nothing reads or serves it.**
+  `sutura-catalog-datahub` provides `Structure`, `Descriptions` and `Relationships` unconditionally
+  and declares the metric kinds as **declared-and-empty may-provide** kinds
+  (`DefinitionCapabilities::of_may_provide`) - so a DataHub that defines no metric content still
+  loads, models and prose and joins, no metrics. Where the deployment defines a string-valued
+  `sutura` structured property, that ONE scalar JSON document carries the whole metric - measure,
+  time column, grains, required filters, dimensions with their allowlists, anchor and prose -
+  certified over the domain's closed vocabularies, with `deny_unknown_fields` at every depth.
+  `docs/adr/0016`'s 2026-09-02 amendment is the record. **The two halves that do not exist:** a real
+  `AspectReader` over DataHub's versioned OpenAPI v3 entity surface - the only implementor is the
+  recorded fixture source, so the read path's cost is unmeasured and the decisions are proven against
+  recorded documents rather than a live instance - and a composition root, because `sutura-serve`
+  refuses `catalog.kind: datahub` by name and the crate's only dependant is `sutura-app`, as a
+  dev-dependency. **Do not read the declaration as availability:** what is proved is that the adapter
+  decides correctly against a fake reader.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
   Everything above the wire is decided and tested against a fake; the wire exists behind a
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green

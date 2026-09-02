@@ -10,7 +10,9 @@ scheduled has since landed as `sutura-catalog-datahub` - a `declaring` `Semantic
 recorded entity aspects and declares it provides structure, descriptions and the join columns and no
 metric layer. Everything it decides is tested against a fake reader over recorded aspects; the HTTP
 client over the versioned OpenAPI entity surface is the open read-path-cost measurement this record
-leaves to a provisioned instance.
+leaves to a provisioned instance. **Issue #202 changed the *no metric layer* half of that sentence,
+and the *Amendment, 2026-09-02* at the foot of this page is where the change is recorded - read it
+before citing `provides no measure` above.**
 
 **Reframed after review, and the reframe is recorded rather than smoothed over.** The measurements
 below are unchanged and were independently verified. What changed is the conclusion drawn from one of
@@ -566,11 +568,15 @@ branch, in the same diff as this record, because an overstated claim is itself t
   DataHub's structure *and* certified metrics in one bundle, which is a real want and a separate step.
   0011's own sentence still applies to those two: *"a decision whose record is accepted and whose branch
   does not exist is a decision, not progress."*
-- **No committed digest moves.** The first version of this record priced a manifest that would have
-  moved every one of them. Under this framing nothing is hashed differently, because the adapter's
-  capability declaration is a property of the code rather than of the bundle - the same distinction
-  0011 draws between `IMPERSONATION` and `posture`. **The knowledge capabilities already under the
-  digest are unaffected**; they travel with the bundle as they do now.
+- **No committed digest moves from the narrow declaration, and a correction to the claim it made.**
+  The first version of this record priced a manifest that would have moved every pin. Under the
+  narrow declaration nothing the reference adapters hash is hashed differently, because the physical
+  content is unchanged - and the declaration ITSELF now travels in each contributor's
+  `ContributionManifest` under the digest (0011's later amendment), which means an adapter that
+  WIDENS its declaration moves its own pins, and one that does not keeps them. The `datahub`
+  amendment's widening is exactly such a move; `sutura-catalog-local`'s example digest moving would
+  be the failure signal. **The knowledge capabilities already under the digest are unaffected**; they
+  travel with the bundle as they do now.
 - **A narrow source is servable, and the prompt has to say so honestly.** A bundle with zero metrics
   loads. What the prompt says about it is derived from the bundle rather than authored, which 0011
   already decided, so a deployment reading only DataHub is told there is no certified metric layer
@@ -579,7 +585,9 @@ branch, in the same diff as this record, because an overstated claim is itself t
   schema version 4 in the release and 5 on the development branch; `SemanticModelInfo.datasets` is
   deprecated on the branch and not in the release; membership moved from the model side to the member
   side within one cycle. An adapter built against the metric entity this quarter would be revised.
-  **Under decision 3 the adapter does not read the metric entity at all**, so the moving part of
+  **Under decision 3 the adapter does not read the metric entity at all - a statement the `sutura`
+  amendment narrows, because the certified path reads `MetricInfo.expression` BESIDE the deployment's
+  own property.** The moving part of
   DataHub's model is outside what this connector depends on - `schemaMetadata`, the dataset property
   aspects and the glossary are the long-established part, and `schemaMetadata` even carries a deprecated
   foreign-key field superseded by a newer one, which is what an aspect that has been through a migration
@@ -681,3 +689,96 @@ that nobody proposes it as the cheap version of decision 6. That test is the rea
 written statements of one catalog can be compared at all, and a version of it that tolerated missing
 measures would pass a golden adapter that had silently stopped reading them. The golden adapters keep
 the strict test; a declaring adapter gets a different one.
+
+## Amendment, 2026-09-02 (revised): a deployment-defined `sutura` structured property carries a certified metric, and it carries the WHOLE of one
+
+**Status of the amendment: accepted, and this revision corrects its own first version.** The finding -
+*DataHub's own measure surface is a raw expression string in a dialect that does not intersect ours* -
+is unchanged and was re-verified. The first version of this amendment put the certified content in a
+plurality of scalar structured properties under a `sutura.*` namespace carrying just the measure, and
+argued from the shape that a measure is flat-expressible where a filter is not. **Both halves of that
+were wrong, and a review measured them wrong:**
+
+- **The transport is one string-valued property, not a namespace of granules.** `DataHub`'s
+  `structuredProperty` has no nested or record value type, so a deployment cannot define a nested
+  object under `sutura.*` at all. What it CAN define is **one structured property named `sutura`
+  whose single scalar value is a JSON document**. `document::SuturaProperty` is that scalar and
+  `SuturaProperty::assemble` is the scalar-to-nested decode - the issue #202 mechanism, implemented
+  and exercised rather than described. This also collapses the old *"a structured property cannot
+  carry the shape of a predicate"* argument: the scalar is a string, a JSON string carries anything
+  closed, and the namespace is closed by `deny_unknown_fields` over the decoded document, not by what
+  a scalar can hold.
+- **The scope is the whole metric, not the measure.** The first version deferred `required_filters`,
+  `dimensions`, `anchor` and a value allowlist to "the composition story in 0011". That route is
+  CLOSED by 0011 itself: all four are fields on the one `Metric`, and 0011's `MetricCollision` rule
+  means a second source can never attach them to a metric DataHub defines - "for metrics there is no
+  precedence at all, declared or otherwise". So the `sutura` property is the ONLY channel, and issue
+  #202's scope is closed past the measure: `required_filters`, `dimensions` (with `via` and
+  `allowed_values`), `anchor` and `description` all ride it, over the same closed vocabularies a
+  markdown metric uses.
+
+### The transport, as defined
+
+A deployment defines, on a metric entity, one string-valued structured property named `sutura` whose
+value is the canonical `SuturaContent` document as JSON text: a `model`, a `measure` (the domain
+`Measure` type, written exactly as a markdown metric writes its `measure:` key), a `time_column`,
+non-empty `grains`, and optionally `description`, `required_filters`, `dimensions` and `anchor`.
+The measure, filter operators, grains and allowed values are the domain's closed vocabularies
+verbatim, and `deny_unknown_fields` at every depth - on the decoded document, on the measure, on a
+filter, on a dimension and on an anchor - refuses a property this adapter does not define rather than
+guessing. **A metric that carries the property becomes a certified `Metric`; a metric that does not
+stays the promotion candidate decision 4 describes, read and never converted.** The two halves are
+the same `MetricAspect` and the distinction is an `Option` - the deployment's declaration, not an
+adapter's inference.
+
+### What this does to the decision
+
+- **Decision 3's rows change from *does NOT provide* to a conditional provide.** The adapter's
+  capability declaration provides `Structure`, `Descriptions` and `Relationships` unconditionally, and
+  declares `Metrics`, `Grains`, `RequiredFilters`, `AllowedValues`, `Anchors` - and `Cardinality` -
+  as **declared-and-empty may-provide kinds** (`DefinitionCapabilities::of_may_provide`, 0011's
+  *declared-and-empty* state, built for this). `Cardinality` belongs among them because it is observed
+  only as *a dimension reached through a relationship*, which happens exactly when a deployment
+  declares a dimension with a `via`. Because undeclared-and-empty marks absence lawful, **a DataHub
+  deployment that defined no metric content still loads** - models, prose and joins, no metrics -
+  which is decision 3's original narrow deployment rather than the boot failure an unconditional
+  declaration would have produced. That is what made the first version of this amendment a
+  correctness defect: it widened the declaration unconditionally, so any DataHub deployment without
+  the namespace (the ordinary one) failed its own fidelity check.
+- **Decision 4's *never converted* is narrowed to *never converted where the property is absent*.**
+  The raw `expression` string is still never executed, never translated and never certified against;
+  the certified content comes from the structured property, not from the string. The two are both
+  carried and are not reconciled - the string remains the promotion-candidate half, which is 0016's
+  *"reconcile, never assume"* applied rather than abandoned.
+- **The declaration moves a digest, and the *Consequences* bullet that said otherwise is corrected.**
+  The first version of this amendment claimed *no committed digest moves*. Since 0011's manifest
+  amendment the declaration travels in the `ContributionManifest` under the digest, so widening it
+  moves EVERY digest this adapter produces - which is what happened and is expected; the definitions
+  and digest pins for the `datahub` cell moved with it. Adapters whose declaration is unchanged keep
+  their pins, which is why the test of the preservation is that `sutura-catalog-local`'s example
+  digest did not move.
+
+### What still has no source
+
+**A real `AspectReader` and a served composition.** The adapter is a dev-dependency of `sutura-app`,
+no composition root links it, and `sutura-serve` refuses `catalog.kind: datahub` by name. The only
+reader is the recorded fixture source, so the flat form and its assembly are proven against recorded
+documents - and against a live instance nothing is: the read path's cost remains the open measurement
+this record leaves, and `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired*
+register records that nothing serves it.
+
+### How it is proven
+
+- The unit half is a fake reader over recorded documents carrying the property in its flat,
+  scalar form - the simple aggregate, a ratio and a `count_if` all load as domain `Measure` shapes; a
+  definitional filter, a dimension with its allowlist, an anchor and prose all load as the certified
+  metric's fields; a metric without the property stays read-only; a metric that does not hold together
+  is refused by the exact inner defect (`UnknownModel`, `UnknownMeasureColumn`, `NoGrains`); an
+  unknown key at the content's top level is refused BY NAME; and a relationship this adapter cannot
+  vouch for is refused. `crates/sutura-catalog-datahub`'s suite.
+- The conformance matrix's `datahub` cell - already a `declaring` registration - expands the
+  universal cells over the richer bundle: the pinned digest and definitions moved with it and the
+  declaration-fidelity cell holds, over a declaration that mixes unconditional and may-provide kinds.
+- The read path against a provisioned instance is **still** the open measurement this record leaves;
+  nothing here reaches a network. `sutura-catalog-datahub` still has one `AspectReader` implementor,
+  the recorded fixture source.

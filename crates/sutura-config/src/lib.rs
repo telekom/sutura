@@ -40,7 +40,7 @@
 //! the part that matters: **no adapter in this build can carry a per-subject credential.** Every
 //! question executes with a credential a broker minted, and what that credential says is *the identity
 //! this process holds for that source*. `AGENTS.md` records which half is mechanised, and
-//! `examples/multi-player/README.md` explains why single-player makes "every query runs as the calling
+//! `examples/README.md` explains why single-player makes "every query runs as the calling
 //! principal" trivially true and worth nothing.
 //!
 //! That is a property of the runtime, so it is a property of every deployment this crate

@@ -452,6 +452,59 @@ fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind() {
 }
 
 #[test]
+fn a_conditional_kind_absent_from_the_bundle_is_faithful() {
+    // `of_may_provide` is 0011's *declared-and-empty* state, and it is what a source whose content
+    // the deployment authors writes (datahub's `sutura.*` namespace is the first). A kind may be
+    // declared and lawfully absent from a given bundle - the deployment decided to author none of it
+    // - so absence is faithful. The *undeclared* direction is untouched, so presence is still
+    // covered by the declared half, and the unconditional form of the same kinds still fails an
+    // absent bundle: the marking, not the kinds, is what this loosens.
+    let no_metric = definitions(&[]);
+    let produced_empty = MetadataCapabilities::produced(&no_metric, &Knowledge::none());
+    let may_provide = MetadataCapabilities::of(
+        DefinitionCapabilities::of_may_provide([
+            DefinitionKind::Structure,
+            DefinitionKind::Descriptions,
+            DefinitionKind::Metrics,
+            DefinitionKind::Grains,
+        ]),
+        KnowledgeCapabilities::none(),
+    );
+    assert_eq!(
+        may_provide.checked_against(&produced_empty),
+        Ok(()),
+        "a declared kind a bundle is lawfully without is faithful"
+    );
+
+    // A metric is always carried with its grains (`assemble` has no grainless metric), so `produced`
+    // observes both; the same may-provide declaration must cover them.
+    let with_metric = definitions(&[DefinitionKind::Metrics]);
+    let produced_with = MetadataCapabilities::produced(&with_metric, &Knowledge::none());
+    assert_eq!(
+        may_provide.checked_against(&produced_with),
+        Ok(()),
+        "a conditional kind the bundle carries is covered by the declared half"
+    );
+
+    let unconditional = MetadataCapabilities::of(
+        DefinitionCapabilities::of([
+            DefinitionKind::Structure,
+            DefinitionKind::Descriptions,
+            DefinitionKind::Metrics,
+            DefinitionKind::Grains,
+        ]),
+        KnowledgeCapabilities::none(),
+    );
+    assert_eq!(
+        unconditional.checked_against(&produced_empty),
+        Err(UnfaithfulDeclaration::Unprovided {
+            kind: DeclarableKind::Definition(DefinitionKind::Descriptions),
+        }),
+        "the same kinds, declared unconditionally, still fail an absent bundle"
+    );
+}
+
+#[test]
 fn declaring_nothing_is_faithful_only_to_a_bundle_that_carries_nothing() {
     // `nothing()` is a legitimate declaration and not a default: nothing reaches it by omission,
     // because the port requires the declaration.

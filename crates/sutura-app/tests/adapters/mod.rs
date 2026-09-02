@@ -475,10 +475,11 @@ macro_rules! registered {
         // YAML frontmatter. Golden - it defines the model here, so it is held to the whole of it.
         $cell!(markdown, golden, sutura_catalog_local::LocalCatalog);
         // `sutura-catalog-datahub`, the first narrow adapter: a DECLARING source that supplies the
-        // physical model, the descriptions and the join columns and no metric layer. It gets the
-        // universal cells and no golden-only cell, and is measured against its own declaration -
-        // `docs/adr/0016`. Its corpus is the crate's recorded aspects rather than the example
-        // markdown, which is what a metadata service over HTTP reads.
+        // physical model, the descriptions, the join columns and - for a metric carrying the
+        // deployment-defined `sutura.*` namespace - a certified measure. It gets the universal cells
+        // and no golden-only cell, and is measured against its own declaration - `docs/adr/0016`.
+        // Its corpus is the crate's recorded aspects rather than the example markdown, which is what
+        // a metadata service over HTTP reads.
         $cell!(
             datahub,
             declaring,

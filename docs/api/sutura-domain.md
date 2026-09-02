@@ -621,6 +621,24 @@ carries nothing but tables is a real source, and 0016 checked that a bundle of m
 metrics assembles, pins and validates. What is not legitimate is a bundle that disagrees with the
 declaration, and that is `MetadataCapabilities::checked_against`'s to report.
 
+**`conditional` is 0011's *declared-and-empty* state, and it is separate from `declared` on
+purpose.** A source maps a schema the deployment authors (datahub's `sutura.*` namespace is the
+first), so whether a KIND is produced is a property of the deployment rather than of the code:
+the adapter declares the kind, and a bundle that carries none is a faithful bundle rather than an
+aspirational declaration. `Self::of_may_provide` is what such an adapter writes. Everything
+else - the reference adapter, the goldens, an adapter over a fixed external schema - declares
+unconditionally through `Self::of`, which is why the serialized form below carries only the
+declared set and why no existing digest moves.
+
+**The conditional marking is a property of the CODE, not of the serialized declaration.** It is
+deliberately absent from the `Serialize`/`Deserialize` below, which emit and read the declared
+set exactly as the previous newtype did - the contribution manifest's digest therefore records
+which kinds a source declared (so widening any declaration moves the digest) and not whether a
+kind was conditional (a property `sutura-app`'s assembler and the conformance suite read off the
+adapter's own `capabilities()`, never off a wire). A value that round-trips through serde loses
+the marking and reads as unconditionally declared, which is the stricter direction and the honest
+one: nothing in this repository deserializes a live declaration to serve with.
+
 #### Methods
 
 ```rust
@@ -635,6 +653,16 @@ of a catalog format defined in this repository and is not true of anything mappi
 somebody else owns.
 
 ```rust
+pub fn and_may_provide(self, kinds: impl IntoIterator<Item>) -> Self
+```
+
+Adds kinds a bundle may lawfully omit to this declaration, leaving the rest unchanged.
+
+What a source writes whose kinds split by whether the deployment authors them: structure,
+prose and joins are per-instance unconditional, while the deployment-authored content is
+declared-and-empty until a bundle carries any of it.
+
+```rust
 pub const fn declared(&self) -> &BTreeSet<DefinitionKind>
 ```
 
@@ -645,6 +673,12 @@ pub fn declares(&self, kind: DefinitionKind) -> bool
 ```
 
 Does this provider supply that kind at all?
+
+```rust
+pub fn is_conditional(&self, kind: DefinitionKind) -> bool
+```
+
+Is a declared kind one a bundle may lawfully omit?
 
 ```rust
 pub fn is_empty(&self) -> bool
@@ -662,10 +696,21 @@ A provider with none of them.
 pub fn of(kinds: impl IntoIterator<Item>) -> Self
 ```
 
-The kinds a provider says it supplies.
+The kinds a provider says it supplies, unconditionally.
 
 **What an adapter over a fixed external schema writes**, so that a tenth kind added here
 leaves its declaration alone rather than silently widening it.
+
+```rust
+pub fn of_may_provide(kinds: impl IntoIterator<Item>) -> Self
+```
+
+The kinds a provider may supply, where the deployment decides which a bundle carries.
+
+**What a source whose content is deployment-authored writes** - datahub's `sutura.*`
+namespace - where the adapter can carry a kind but every given bundle may carry none of it.
+The kinds are declared (the *not declared* direction still catches content), and absent from
+a bundle is a faithful bundle rather than an aspirational declaration.
 
 #### Implements
 
@@ -746,6 +791,14 @@ The assertion a **declaring** adapter gets in place of the golden adapters' orac
 two claims rather than one: everything declared was produced, so a declaration is not
 aspirational; and nothing of an undeclared kind appears, so a declared absence is visibly
 absent rather than silently missing.
+
+**One exemption, and it is the point of`DefinitionCapabilities::of_may_provide`.** A kind
+an adapter marks conditional - declared, yet absent from a bundle is lawful because whether a
+bundle carries it is the deployment's decision - does not fail the *unprovided* direction. The
+*undeclared* direction is unaffected, so a bundle carrying a conditional kind is still
+checked against the declared half of it. A declaration that lost its marking (one that
+round-tripped through the wire) reads as unconditional, which fails on an absent kind - the
+stricter and therefore safe direction.
 
 **The undeclared direction is checked first, and the order is not cosmetic.** That one is the
 safety failure - a caller was told an absence that is not one - and reporting it first means a

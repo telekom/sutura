@@ -20,6 +20,7 @@ models:
       - customer_id
       - order_date
       - order_id
+      - status
     description: "Net revenue orders, in minor units."
 relationships:
   orders_to_customer:
@@ -29,4 +30,33 @@ relationships:
     target_model: customers
     target_column: customer_id
     join_type: many_to_one
-metrics: {}
+metrics:
+  revenue:
+    name: revenue
+    model: orders
+    measure:
+      simple:
+        aggregate: sum
+        column: amount_cents
+    required_filters:
+      - equals:
+          column: status
+          value: active
+    time_column: order_date
+    grains:
+      - month
+    dimensions:
+      segment:
+        name: segment
+        column: segment
+        via: orders_to_customer
+        allowed_values:
+          - retail
+          - wholesale
+        description: "The customer's segment."
+    anchor:
+      range:
+        start: 2026-06-01
+        end: 2026-07-01
+      value: "412345"
+    description: "Net revenue in minor units, from active orders."

@@ -233,6 +233,30 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        name: "a served DataHub deployment",
+        // The wording that would be FALSE today: no binary in this repository can open
+        // `catalog.kind: datahub` (the crate is a `sutura-app` dev-dependency and `sutura-serve`
+        // refuses the kind by name), so a README or record that presents the DataHub deployment
+        // shape as a SERVED deployment contradicts the tree. The entry is a RATCHET rather than a
+        // repair: it forbids the availability wording wherever it appears, and it deliberately does
+        // NOT forbid the shape wording, which is the honest way to describe a deployment nothing
+        // can open. `docs/adr/0016` and the *Built and not wired* register carry the limit itself.
+        wordings: &[
+            "a served deployment with per-caller identities",
+            "a served deployment whose semantic catalog is DataHub",
+        ],
+        evidence: &[Evidence {
+            path: "crates/sutura-serve/src/catalog.rs",
+            holds: "CatalogKind::Datahub =>",
+        }],
+        instead: "write the deployment SHAPE, whose runnable proof is test code over a recorded \
+                  fixture: no binary links the adapter and `sutura-serve` refuses the kind by name, \
+                  which the *Built and not wired* register in \
+                  `.agents/skills/sutura/query-surface/SKILL.md` records",
+        only: &[],
+        except: &[],
+    },
 ];
 
 /// A number in prose that counts something in the tree.
@@ -512,7 +536,7 @@ mod tests {
     fn every_live_rule_still_has_its_evidence() {
         // A rule whose evidence has gone is SILENT - right behaviour, and a failure mode nobody
         // notices. This is the tell: either the claim became true, in which case delete the row
-        // the way the invariants skill's deletion rule says, or its anchor was renamed and needs replacing.
+        // the way the invariants table says, or its anchor was renamed and needs replacing.
         let root = crate::repo::root().expect("the repo root");
         for rule in CONTRADICTED {
             for evidence in rule.evidence {
