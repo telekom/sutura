@@ -2,214 +2,218 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://telekom.github.io/sutura/main/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/agent-prompt/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/architecture/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/changelog/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/concepts/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/contributing/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/crap/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/enterprise-mirrors/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/getting-started/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/implementation-plan-bigquery/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/implementation-plan-identity-and-services/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/implementation-plan/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/publishing/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/qa/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/serving/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/verifying-a-release/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/where-identity-is-proven/</loc>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0001-first-party-semantic-models/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0002-a-closed-vocabulary-for-measures/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0003-datafusion-for-local-execution/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0004-a-named-escape-hatch-for-authored-sql/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0005-a-refusal-carries-a-status/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0006-several-databases-behind-one-data-system/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0007-federating-across-different-data-systems/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0008-a-credential-per-leg-for-the-calling-subject/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0009-the-plan-from-one-source-to-many/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0010-transport-security-for-a-source/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0011-pluggable-by-declaration/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0012-conformance-packs-for-inputs-and-adapters/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0013-a-raw-sql-tool-off-by-default/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0014-how-a-caller-proves-who-it-is/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0015-an-authenticated-metrics-endpoint/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0016-what-datahub-can-carry/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0017-what-a-bigquery-test-runs-against/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0018-what-the-bigquery-wire-is-built-from/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0019-a-table-outside-the-connections-dataset/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0020-a-credential-the-compiler-refuses-to-print/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0021-how-a-published-artefact-proves-where-it-came-from/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0022-untrusted-content-marking/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-app/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-catalog-local/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-config/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-dev/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-domain/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-exec-bigquery/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-exec-datafusion/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-exec-duckdb/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-exec-postgres/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-http/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-mcp/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-runtime/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-semantic/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-sql/</loc>
-         <lastmod>2026-09-01</lastmod>
+         <lastmod>2026-09-02</lastmod>
     </url>
 </urlset>
