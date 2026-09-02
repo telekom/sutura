@@ -2264,7 +2264,7 @@ the crate root because it is this crate's output rather than any one module's de
 <code>generate_leg</code> renders one leg of a federated question from a <code>LegPlan</code>. They share every
 decision that could drift - the quoting, the placeholder style, the bucket, the joins, how a term
 renders - and differ in the four ways <code>generate_leg</code>'s own documentation lists. Nothing in a
-binary calls the second one yet: there is no splitter, so <code>AGENTS.md</code>'s <em>Built And Not Wired</em>
+binary calls the second one yet: there is no splitter, so <code>.agents/skills/sutura/query-surface</code>'s built-and-not-wired
 section is where its state is recorded.</p>
 <h1 id="why-this-is-its-own-crate-and-not-the-compilers-last-stage">Why this is its own crate and not the compiler's last stage<a class="headerlink" href="#why-this-is-its-own-crate-and-not-the-compilers-last-stage" title="Permanent link">&para;</a></h1>
 <p>It used to be <code>sutura_semantic::generate</code> and <code>sutura_semantic::dialect</code>, and rendering was
