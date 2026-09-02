@@ -437,3 +437,13 @@ no header for a token to arrive in. Nothing in `sutura_http::inbound` is reachab
 adapter never calls another adapter - so wiring that surface means first deciding how it is reached
 at all, and then which crate the validator moves to. **That is an architecture decision, not a
 refactor**, and it is the same decision that leaves `serve_stdio` without a binary.
+
+## Amendment, 2026-09-01: `serve_stdio` has a binary, and this section's decision is unchanged
+
+**Status of the amendment: accepted.** The sentence this amendment amends - "the same decision that
+leaves `serve_stdio` without a binary" - stopped being true when the single-player binary linked the
+agent surface as `sutura mcp <catalog-dir> <data-dir>` (#110). What the sentence was pointing at is
+unaffected: the agent surface still answers `Subject::TheDeploymentItself`, nothing in
+`sutura_http::inbound` is reachable from it, and wiring a caller identity to it still needs the two
+decisions this section names. Only the "without a binary" half is spent, so the sentence is amended
+rather than the section rewritten.
