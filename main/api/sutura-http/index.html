@@ -4257,10 +4257,27 @@ says about it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-133-1"><a id="__codelineno-133-1" name="__codelineno-133-1" href="#__codelineno-133-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogBody</span>
 </span></code></pre></div>
 <p>What this catalog defines.</p>
+<h1 id="why-a-structured-surface-reads-the-prose-setting-at-all">Why a structured surface reads the prose setting at all<a class="headerlink" href="#why-a-structured-surface-reads-the-prose-setting-at-all" title="Permanent link">&para;</a></h1>
+<p><code>prompt.catalog_prose: omitted</code> is not a mitigation for the forgery <code>docs/adr/0022</code> is about -
+<code>serde</code> owns the field boundary here, so a description cannot cross one whatever it spells, and
+this body escapes nothing. It is a decision about <strong>who may put words in front of an agent</strong>: an
+operator whose catalog authors are not the people who decide what their agents are told drops the
+prose, and a description that still reached an agent through a second transport would make that
+setting a statement about one surface rather than about the deployment. So the omission is
+honoured wherever the prose is carried, and the escaping stays where the delimiter is.</p>
+<h4 id="methods_20">Methods<a class="headerlink" href="#methods_20" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-134-1"><a id="__codelineno-134-1" name="__codelineno-134-1" href="#__codelineno-134-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The reader's view of a pinned bundle, under the prose setting this deployment was started
+with.</p>
+<p><strong>A named constructor rather than a <code>From</code>, and the argument is the reason.</strong>
+<code>CatalogProse::default()</code> is <code>Quoted</code>, so a conversion reachable without the setting fails
+OPEN: it ships the prose of a deployment that asked for none, which is the defect this
+function exists to close. A second argument cannot be left out.</p>
 <h4 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-metricbody"><code>struct MetricBody</code><a class="headerlink" href="#struct-metricbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-134-1"><a id="__codelineno-134-1" name="__codelineno-134-1" href="#__codelineno-134-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-135-1"><a id="__codelineno-135-1" name="__codelineno-135-1" href="#__codelineno-135-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
 </span></code></pre></div>
 <p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <p>Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
@@ -4269,7 +4286,7 @@ bundle rather than an input to one.</p>
 <h4 id="implements_45">Implements<a class="headerlink" href="#implements_45" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-dimensionbody"><code>struct DimensionBody</code><a class="headerlink" href="#struct-dimensionbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-135-1"><a id="__codelineno-135-1" name="__codelineno-135-1" href="#__codelineno-135-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-136-1"><a id="__codelineno-136-1" name="__codelineno-136-1" href="#__codelineno-136-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
 <h4 id="implements_46">Implements<a class="headerlink" href="#implements_46" title="Permanent link">&para;</a></h4>

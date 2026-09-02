@@ -2315,12 +2315,15 @@
 
 
 <h1 id="untrusted-content-and-what-marks-it">Untrusted content, and what marks it<a class="headerlink" href="#untrusted-content-and-what-marks-it" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted, and partly built.</strong> The text-half forgery #128 describes is fixed: cells are
-escaped in <code>OutcomeContent::as_text</code>, catalog prose is quoted per line in
+<p>Status: <strong>accepted, amended, and partly built.</strong> The text-half forgery #128 describes is fixed: cells
+are escaped in <code>OutcomeContent::as_text</code>, catalog prose is quoted per line in
 <code>CatalogContent::as_text</code> or omitted under <code>catalog_prose: omitted</code>, and the trust boundary is named
 in each render. The shared injection corpus both transports walk lives in <code>sutura_app::untrusted</code>.
-What is decided here and NOT yet built is one half of Decision 3 - the raw SQL tool's failure text -
-because the raw tool itself (<code>#129</code>) does not exist yet.</p>
+The amendment at the foot of this record extends <code>catalog_prose: omitted</code> to the HTTP catalog body,
+which this record's first version reasoned its way out of needing - see <em>Decision 1</em> and the
+amendment for why the encoder argument does not reach that question. What is decided here and NOT yet
+built is one half of Decision 3 - the raw SQL tool's failure text - because the raw tool itself
+(<code>#129</code>) does not exist yet.</p>
 <p>This record exists because <code>docs/adr/0009</code> asked for it to be <strong>decided before an envelope exists</strong>:
 retrofitting a field boundary afterwards is the expensive half, and the question "what marks a value
 as untrusted" is one you answer twice - once for the boundary you already have and once for the one
@@ -2348,6 +2351,12 @@ character inside one JSON string; <code>sutura_app::untrusted::CELLS</code> roun
 denies the only escape the marker would describe. <code>sutura-http</code>'s answer and catalog bodies therefore
 carry descriptions and cells as ordinary fields, and a test walks the same corpus to prove they
 survive as one opaque string each.</p>
+<p><strong>One correction to that sentence, and it is a different question wearing the same word.</strong> This
+record's first version reasoned from <em>nothing needs escaping here</em> to <em>the catalog body carries every
+description</em>, and the amendment below is why the second does not follow from the first:
+<code>catalog_prose: omitted</code> is not a mitigation for a delimiter, so an encoder that owns the boundary
+does not answer it. <strong>What is carried and what is escaped are two decisions</strong>, and only the second is
+the encoder's.</p>
 <p><strong>The text half is marked by construction, never by a field.</strong> The transported text names the
 boundary once (the <code>UNTRUSTED_CATALOG_NOTICE</code>), and each value is either escaped (<code>OutcomeContent</code>)
 or quoted per line or omitted (<code>CatalogContent</code>). The marking that matters is the escaping, not a
@@ -2415,6 +2424,40 @@ would be the overstated control the issue must not close on.</p>
 </ul>
 <p>The structured surface (<code>sutura-http</code>) needs none of the escaping: <code>serde</code> owns the boundary, and a
 test asserts the corpus stays opaque there. That asymmetry is the record in two lines.</p>
+<h2 id="amendment-the-prose-setting-is-a-property-of-the-deployment-not-of-one-transport">Amendment: the prose setting is a property of the deployment, not of one transport<a class="headerlink" href="#amendment-the-prose-setting-is-a-property-of-the-deployment-not-of-one-transport" title="Permanent link">&para;</a></h2>
+<p><code>#128</code> asked for <code>catalog_prose_omitted_omits_it_from_every_surface</code> and this record accepted it as
+two tests on the agent tool. <strong>A review of the closed issue found the third surface</strong>:
+<code>sutura_http::wire::CatalogBody</code> was built by a <code>From&lt;&amp;PinnedDefinitions&gt;</code> that could not see the
+settings, so a deployment which had dropped its catalog prose from the prompt and from the MCP tool
+served every description over HTTP - and an agent reading <code>GET /v1/catalog</code> is the same reader the
+setting was turned off for.</p>
+<p><strong>Why the escaping argument does not cover it, which is the part worth carrying:</strong> the two mechanisms
+answer two questions. <em>Who owns the delimiter</em> is the encoder's question, and on a JSON surface the
+answer is serde, which is why nothing here escapes anything. <em>Whose words reach an agent</em> is the
+operator's question, and no encoder answers it. Reading "the encoder owns the boundary" as "this
+surface needs nothing" collapsed the two - the same shape of mistake as the original defect, one
+level up: a control described as covering more than it does.</p>
+<p>So the decision is stated positively rather than per transport: <strong>a surface that carries the
+catalog's prose honours <code>prompt.catalog_prose</code>, and a surface that renders it into text also escapes
+or quotes it.</strong> The second obligation is the text half's alone; the first is every surface's.</p>
+<p>What is built for it:</p>
+<ul>
+<li><code>CatalogBody::of(pinned, prose)</code> replaces the <code>From</code>. A named constructor, because
+  <code>CatalogProse::default()</code> is <code>Quoted</code>: a conversion reachable without the setting fails OPEN, and
+  that is exactly how the defect arrived. The argument cannot be forgotten.</li>
+<li><code>description</code> on both body types is an <code>Option</code>, skipped when the operator omits prose, and the
+  body carries <code>catalog_prose</code> as the operator's own spelling - so <em>this deployment ships no prose</em>
+  is a fact a client reads rather than one it infers from a missing field, and it cannot be confused
+  with <em>this catalog has no description</em>. It is an additive, documented change to the generated
+  OpenAPI document, which is built from the handlers and never hand-written.</li>
+<li>Three tests. Two over the body, for each setting and for the shared <code>PROSE</code> corpus through a real
+  <code>Description</code>; one over the assembled ROUTER
+  (<code>the_catalog_route_honours_the_prose_setting_it_was_started_with</code>), because the defect was the
+  WIRING and a test over the body alone passes with a handler that still defaults the setting.</li>
+</ul>
+<p><strong>The limit, unchanged and restated because this amendment is about not overstating:</strong> an omission
+narrows what an agent is <em>told</em>, never what it may <em>ask</em>, and it stops no prose that persuades
+without escaping. A deployment that trusts its catalog authors is the default and is unaffected.</p>
 
 
 
