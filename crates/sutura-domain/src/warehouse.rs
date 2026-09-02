@@ -784,6 +784,19 @@ pub trait Warehouse {
     /// which is where this whole check started; a transport hiccup reported as a refusal stops a
     /// deployment that would have worked. Answering `false` picks the first, because it is the
     /// status quo rather than a new failure mode - and an adapter that knows better says so.
+    ///
+    /// **WHAT THE DEFAULT COSTS, beside the direction it argues, because review pointed out that the
+    /// argument above had no risk stated next to it.** This trait's own rule is *required with no
+    /// default where the absence changes what a caller may believe*, and here the absence does: the
+    /// next adapter that overrides [`preflight`](Warehouse::preflight) - so it really asks - and
+    /// forgets this predicate gets *never a refusal*, silently, which is the permanent-`WARN`
+    /// collapse this pair was added to remove. Nothing catches that; a defaulted method has no
+    /// `compile_fail` twin to write. It is defaulted anyway, and the price of the other direction is
+    /// what decided it: three adapters that cannot fail a pre-flight at all would each have to write
+    /// `false`, and a required method whose only honest answer is a constant is how a port teaches
+    /// its implementors to answer without reading. So this is a JUDGEMENT with a live risk under it
+    /// rather than a property - the pairing is held by review, and an adapter that overrides one of
+    /// the two and not the other is what a reviewer of that adapter has to look for.
     fn preflight_was_refused(&self, _error: &Self::Error) -> bool {
         false
     }
