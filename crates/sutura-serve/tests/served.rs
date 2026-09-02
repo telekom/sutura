@@ -403,35 +403,55 @@ mod tests {
             .unwrap_or_else(|| panic!("no event says `{message}`:\n{}", log.join("\n")))
     }
 
-    /// A question as it arrives on the wire.
-    fn question(metric: &str, start: &str, end: &str) -> String {
-        format!(r#"{{"metric":"{metric}","grain":"month","range":{{"start":"{start}","end":"{end}"}}}}"#)
+    /// The grain every question in this file asks at.
+    ///
+    /// One constant rather than a parameter because all three fixtures below ask at it, and it is
+    /// checked against each of them - so this is a fact about the corpus rather than a default.
+    const GRAIN: &str = "month";
+
+    /// A question as it arrives on the wire, mirrored from the example's own fixture.
+    ///
+    /// **The fixture is READ rather than cited in a comment, and that is the difference between a
+    /// claim and a mechanism.** `stem` names the file under `examples/single-player/questions/`
+    /// that holds this question, and the metric, the grain and both dates have to appear in it - so
+    /// a fixture renamed, deleted or re-ranged goes red HERE instead of leaving this suite quietly
+    /// asserting a question the example no longer asks. That is the property #117 wants out of this
+    /// file: the example a reader is told to run is the example CI runs.
+    ///
+    /// A substring check and not a parse, deliberately: parsing the YAML would mean a second
+    /// dev-dependency for four fields, and what is guarded here is a fixture that MOVED rather than
+    /// one that is subtly mis-shaped - `crates/sutura-cli/tests/example.rs` parses every question in
+    /// that directory and pins what each one compiles to.
+    fn question(stem: &str, metric: &str, start: &str, end: &str) -> String {
+        let path = example_root().join("questions").join(format!("{stem}.yaml"));
+        let fixture = std::fs::read_to_string(&path).unwrap_or_else(|cause| {
+            panic!(
+                "{} is the example question this body mirrors, and it is not readable: {cause}",
+                path.display()
+            )
+        });
+        for expected in [metric, GRAIN, start, end] {
+            assert!(
+                fixture.contains(expected),
+                "{} no longer mentions `{expected}`, so this suite asks something the example does \
+                 not:\n{fixture}",
+                path.display()
+            );
+        }
+        format!(r#"{{"metric":"{metric}","grain":"{GRAIN}","range":{{"start":"{start}","end":"{end}"}}}}"#)
     }
 
     /// The one question this file asserts numbers for.
-    ///
-    /// `examples/single-player/questions/recurring-revenue-june.yaml` as a body - which is the point:
-    /// the corpus a reader is told to run is the corpus this asks over HTTP.
     fn recurring_revenue_june() -> String {
-        question("recurring_revenue", "2026-06-01", "2026-07-01")
+        question("recurring-revenue-june", "recurring_revenue", "2026-06-01", "2026-07-01")
     }
 
-    /// The versioned query route, composed the way the router composes it.
-    fn query_path() -> String {
-        format!(
-            "{}{}",
-            sutura_http::constants::API_V1_PREFIX,
-            sutura_http::constants::base_paths::QUERY
-        )
-    }
-
-    /// The versioned catalog route.
-    fn catalog_path() -> String {
-        format!(
-            "{}{}",
-            sutura_http::constants::API_V1_PREFIX,
-            sutura_http::constants::base_paths::CATALOG
-        )
+    /// A route inside the version prefix, composed the way the router composes it.
+    ///
+    /// One helper over both routes rather than one per route: the composition is the part worth
+    /// having in a single place, and `base_paths` already owns each half.
+    fn v1(base: &str) -> String {
+        format!("{}{base}", sutura_http::constants::API_V1_PREFIX)
     }
 
     // ------------------------------------------------------------------- the harness itself ---
@@ -501,8 +521,12 @@ mod tests {
         // the harness test above.
         let served = start("no-token");
         for reply in [
-            served.post(&query_path(), None, &recurring_revenue_june()),
-            served.get(&catalog_path(), None),
+            served.post(
+                &v1(sutura_http::constants::base_paths::QUERY),
+                None,
+                &recurring_revenue_june(),
+            ),
+            served.get(&v1(sutura_http::constants::base_paths::CATALOG), None),
             served.get(sutura_http::constants::OPENAPI_JSON_PATH, None),
         ] {
             assert_eq!(reply.status, 401, "{}", reply.body);
@@ -523,7 +547,11 @@ mod tests {
         // than snapshotted: it is one row of two cells, and a second copy of the CLI's snapshot
         // would be a file to keep in step rather than a claim.
         let served = start("answer");
-        let reply = served.post(&query_path(), Some(TOKEN), &recurring_revenue_june());
+        let reply = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            &recurring_revenue_june(),
+        );
         assert_eq!(reply.status, 200, "{}", reply.body);
         let body = reply.json();
         assert_eq!(body["outcome"], "answer", "{}", reply.body);
@@ -553,7 +581,7 @@ mod tests {
         // into the answer test because the two routes are two capabilities, and a route that stopped
         // being mounted is a different failure from one that stopped answering.
         let served = start("catalog");
-        let reply = served.get(&catalog_path(), Some(TOKEN));
+        let reply = served.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "{}", reply.body);
         let body = reply.json();
         assert_eq!(body["provenance"]["definition_version"], VERSION);
@@ -580,17 +608,22 @@ mod tests {
         let served = start("refusal");
         for (body, status, code) in [
             (
-                question("customer_lifetime_value", "2026-06-01", "2026-07-01"),
+                question(
+                    "refused-metric-unknown",
+                    "customer_lifetime_value",
+                    "2026-06-01",
+                    "2026-07-01",
+                ),
                 404_u16,
                 "metric_unknown",
             ),
             (
-                question("recurring_revenue", "0001-01-01", "9999-12-31"),
+                question("refused-range-too-long", "recurring_revenue", "0001-01-01", "9999-12-31"),
                 422_u16,
                 "time_range_too_long",
             ),
         ] {
-            let reply = served.post(&query_path(), Some(TOKEN), &body);
+            let reply = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), &body);
             assert_eq!(reply.status, status, "{}", reply.body);
             let json = reply.json();
             assert_eq!(json["outcome"], "refusal", "{}", reply.body);

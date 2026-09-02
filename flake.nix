@@ -128,7 +128,7 @@
           # both directions. What reads the filtered copy: `ciArtifacts`, the native and cross
           # release packages, `packages.xtask`, `checks.clippy`, `checks.doctest` and
           # `checks.fmt`. What does not: `checks.nextest`, `checks.hygiene`, `checks.crap` and
-          # `checks.api-docs` each set `src = ./.` and read the whole tree, so this filter never
+          # `checks.api-docs` each take `wholeTree` and read the whole tree, so this filter never
           # protected them and a prose edit re-runs all four by design.
           #
           # It does NOT reach the dependency closure, which is the expensive half. crane builds
@@ -145,7 +145,7 @@
             || (builtins.match "crates/[^/]+/src(/.*)?" rel != null)
             || (builtins.match "examples(/.*)?" rel != null)
             # `xtask` is a repo-inspection tool, so its tests read repo files by design - and it
-            # is `checks.nextest` that runs them, on `src = ./.`, so this arm is not what carries
+            # is `checks.nextest` that runs them, on `wholeTree`, so this arm is not what carries
             # them. It is here for `nix/*.nix` itself. `docs/` stays out by the file: it holds the
             # generated API pages and churns, and matching all of it would put every prose edit in
             # the derivation hash of each filtered-src check - see the blast radius above, which is
@@ -154,6 +154,35 @@
             || (builtins.match "nix(/.*)?" rel != null)
             || (builtins.match "docs/crap\\.md" rel != null)
             || (craneLibFor system).filterCargoSources path type;
+        };
+
+        # The WHOLE tree, for the four checks that judge every file rather than the Rust ones -
+        # `nextest`, `hygiene`, `crap` and `api-docs`. Each used to write `src = ./.` for itself.
+        #
+        # **It is a binding rather than four literals because of the NAME, and the name is
+        # load-bearing.** `src` above is `lib.cleanSourceWith` with no `name`, which defaults to
+        # `source`, so every filtered-src derivation unpacks into `/build/source`. A bare `./.` is
+        # the flake source, whose store path already carries its own hash in the name, so those
+        # derivations unpacked into `/build/<hash>-source` instead - a DIFFERENT absolute path for
+        # the same tree.
+        #
+        # That mattered because a build script may bake an absolute path into generated code, and
+        # one here does: `utoipa-swagger-ui` unzips its asset bundle into `$OUT_DIR` and writes a
+        # `rust-embed` `#[folder = "/build/source/target/ci/build/.../dist/"]`. `target/` arrives
+        # in these checks by decompressing `sutura-deps`, which was built under `/build/source`, so
+        # in a check rooted anywhere else that folder does not exist - and the derive then expands
+        # to a `SwaggerUiDist` with no `Embed` impl. **Measured rather than reasoned:**
+        # `checks.nextest` failed with `E0599: no associated function named get found for struct
+        # SwaggerUiDist`, in a THIRD-PARTY crate, while `checks.clippy` compiled the same tree
+        # cleanly on the filtered source - the difference being only which `/build/...` it sat in.
+        #
+        # So this is not tidiness: the two source roots have to agree, and the cheapest way to keep
+        # them agreeing is for there to be one place that says so. `filter` is the trivial one, so
+        # nothing is dropped - the whole point of these four is that nothing is.
+        wholeTree = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          name = "source";
+          filter = _path: _type: true;
         };
 
         # The same pin as a package, for the tools that need `cargo` on PATH rather than a
@@ -383,7 +412,7 @@
             # closure. This only widens what the cheap half sees: our own crates, and the tests.
             # `checks.hygiene` has been doing exactly this since it was written, for the same
             # reason, and the filter clauses stay because clippy and the release build read them.
-            src = ./.;
+            src = wholeTree;
             cargoNextestExtraArgs = "--workspace --all-features";
             # `insta` writes a `.snap.new` beside a snapshot that did not match and then fails. In
             # a sandbox that file goes nowhere anybody will read, so this turns the failure into a
@@ -549,7 +578,7 @@
           # dependency the pipeline does not otherwise need. It runs the same xtask binary
           # a developer runs, so the two cannot drift.
           #
-          # `src = ./.` and not the filtered source: these gates judge every file in the
+          # `wholeTree` and not the filtered source: these gates judge every file in the
           # repo - workflows, Nix files, docs - and crane's filter keeps only Cargo inputs.
           # There is no `.git` in the sandbox, which is why `repo::all_files()` falls back
           # to walking the tree instead of failing.
@@ -570,7 +599,7 @@
           # compiling into it.
           hygiene = craneLib.mkCargoDerivation (ciArgs // {
             cargoArtifacts = ciArtifacts;
-            src = ./.;
+            src = wholeTree;
             pnameSuffix = "-hygiene";
             doCheck = false;
             buildPhaseCargoCommand = ''
@@ -609,7 +638,7 @@
           # target directory invalidates every artifact in it; and `SUTURA_API_DOCS_PROFILE`, since
           # cargo's default `dev` optimises every dependency and build script at `opt-level = 3`.
           # NAMED IN THE COMMAND both times - see above `hygiene`; a spawned child is the
-          # worse half, as crane does not even export `CARGO_PROFILE`. `src = ./.` for `hygiene`'s
+          # worse half, as crane does not even export `CARGO_PROFILE`. `wholeTree` for `hygiene`'s
           # reason, and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
           # PRIVATE phases became 2m10 cold, floored by 482 rustdoc units - 291 of them `rmeta`.
           # Those two were 484 and 293 and are now what `cargo rustdoc -p <lib> --all-features
@@ -618,7 +647,7 @@
           # and exactly 10 are the `doc` units themselves.
           api-docs = craneLib.mkCargoDerivation (ciArgs // {
             cargoArtifacts = ciArtifacts;
-            src = ./.;
+            src = wholeTree;
             pnameSuffix = "-api-docs";
             doCheck = false;
             nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.python3 ];
@@ -656,14 +685,14 @@
           # serde and thiserror. 11 s cold, measured. `SCOPE` in xtask/src/crap.rs carries the
           # cost of every wider option and docs/crap.md says why this one.
           #
-          # `src = ./.` rather than the filtered source: the gate reads `.cargo-crap.toml` and
+          # `wholeTree` rather than the filtered source: the gate reads `.cargo-crap.toml` and
           # `docs/crap.md`, and crane's filter keeps only Cargo inputs.
           #
           # `HOME` because cargo-llvm-cov writes there and a build sandbox has no home directory -
           # without it the run fails on a path it cannot create.
           crap = craneLib.mkCargoDerivation (ciArgs // {
             cargoArtifacts = ciArtifacts;
-            src = ./.;
+            src = wholeTree;
             pnameSuffix = "-crap";
             doCheck = false;
             nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
