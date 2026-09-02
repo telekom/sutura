@@ -9,17 +9,24 @@
 //! engine over the caller's data directory, the shared single-user identity those files are read
 //! under. The difference is the driving port - the service answers questions for a peer on the other
 //! end of a pipe instead of one taken from a path on the command line.
+//!
+//! Kept in its own module rather than inlined into `commands.rs` because it is a composition of its
+//! own - the driving port over a pipe, with an async runtime the other commands do not want - and
+//! because inlining it would push `commands.rs` over the 1000-line gate. `main.rs`'s command table
+//! names it directly.
 
 use std::path::Path;
 use std::process::ExitCode;
 
 use sutura_app::prompt::CatalogProse;
-use sutura_app::surface::LocalService;
+use sutura_app::surface::{LocalService, Surface as _};
 use sutura_domain::pinned::SemanticCatalog as _;
 use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_runtime::TracingAuditSink;
 
-use crate::commands::{arg, catalog_reader, open_engine, render, report, single_user_broker, working_set};
+use crate::commands::{
+    arg, catalog_reader, open_engine, refuse_unattached, render, report, served_tables, single_user_broker, working_set,
+};
 
 /// The service this command serves, over the one adapter this binary links.
 ///
@@ -51,13 +58,17 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
         );
         let runtime = tokio::runtime::Runtime::new().map_err(|e| format!("no async runtime: {e}"))?;
         // The service is shared rather than moved in, and the reason is the one `serve_stdio`
-        // documents: rmcp keeps the engine alive inside a task of this runtime, and if this scope
-        // held no `Arc`, that task's shutdown would release the engine on a worker thread - where
-        // dropping a runtime is not allowed, and the process aborts. This handle releases it, on the
-        // main thread, once `shutdown_timeout` has let those tasks finish.
+        // documents: the engine's own `Drop` makes releasing it safe anywhere once a question is not
+        // in flight, but a peer can disconnect while one IS answering on a pool thread - and
+        // releasing the engine then would abort this process. The outer handle below releases it on
+        // the main thread, once `shutdown_timeout` has let that in-flight answer finish.
         let service = std::sync::Arc::new(service);
         let served = runtime
-            .block_on(sutura_mcp::serve_stdio(std::sync::Arc::clone(&service), prose))
+            .block_on(sutura_mcp::serve_stdio(
+                std::sync::Arc::clone(&service),
+                sutura_app::Permitted::every_capability(),
+                prose,
+            ))
             .map_err(|e| render(&e));
         // Bound the teardown the way `sutura-serve`'s `stop` does: dropping a runtime with a
         // question still answering would wait for it however long it takes, and nothing here can
@@ -73,20 +84,27 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
 /// The same answer path `query` exercises, wrapped in the service an agent client speaks to. The
 /// one difference worth stating is the audit sink: [`LocalService::start`] requires one (a service
 /// with no sink does not exist), and `TracingAuditSink` is it. A locally launched process installs
-/// no subscriber, so those records go nowhere until a composition does - the same posture the
-/// `query` command takes when it declines to write any.
+/// no subscriber, so those records go nowhere for the whole session - a different weight than
+/// `query`, where one person's own terminal loses nothing, but the same honest default: nothing
+/// claims a record was kept when none was. The sink is only the writer, so any composition that
+/// does install a subscriber must send it to standard error - on this transport standard output is
+/// the protocol channel, which is why the startup notice is an `eprintln!`.
 fn mcp_service(root: &Path, data: &Path) -> Result<Served, String> {
     let catalog = catalog_reader(root)?;
     let pinned = catalog.load().map_err(|e| render(&e))?;
-    let engine = open_engine(&pinned, data)?;
+    let (engine, attached) = open_engine(&pinned, data)?;
     let broker = single_user_broker()?;
     let working_set = working_set()?.bytes() as u64;
     // `LocalService::start` loads the catalog again and re-runs every anchor - that is its contract,
     // the constructor that returns a service only if the bundle is fit to serve. `catalog` is handed
     // over rather than the `pinned` rebuilt, so the two loads cannot disagree about the version or
-    // the source name.
+    // the source name - and `refuse_unattached` closes the one gap that remains: a model added to the
+    // catalog directory between `load()` above and the load inside `start` would otherwise be served
+    // with no table registered behind it, failing its first question at query time. The same check
+    // `sutura-serve` runs at boot, so a served surface refuses to start in the same cases.
     let service = LocalService::start(&catalog, engine, TracingAuditSink::new(), broker, working_set)
         .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
+    refuse_unattached(&served_tables(service.definitions()), &attached)?;
     // The default treatment of catalog descriptions: quoted in, as the other commands render them.
     Ok((service, CatalogProse::Quoted))
 }
@@ -109,10 +127,10 @@ mod tests {
     /// the real engine and the documented example, rather than a fake warehouse.
     ///
     /// Takes an `Arc<S>` rather than an owned `S`, and the caller keeps another handle to the same
-    /// value out of `block_on`. The engine behind the service holds a nested `tokio` runtime, and
-    /// that runtime may only be dropped on a non-async thread - so the async server task must only
-    /// ever decrement an `Arc`, never release the engine. The caller's outer handle releases it, on
-    /// the main thread, after the runtime is gone.
+    /// value out of `block_on`. The engine's `Drop` makes releasing the service safe anywhere once
+    /// it is idle, so the async server task only ever decrements an `Arc`; the caller's own handle
+    /// releases it after its runtime is gone, which keeps the one remaining edge - an engine
+    /// released mid-answer - from being the path this suite exercises as it shuts down.
     async fn connected<S>(service: std::sync::Arc<S>) -> rmcp::service::RunningService<rmcp::RoleClient, ()>
     where
         S: sutura_app::surface::Surface,
@@ -144,16 +162,14 @@ mod tests {
     /// called from within a runtime, exactly as `sutura-serve`'s `run` documents. So the service is
     /// built before any runtime exists, and the runtime is entered only for the handshake.
     ///
-    /// The service is kept in this scope, NOT created inside the async block: the engine's nested
-    /// runtime may only be dropped on a non-async thread, so the outer handle releases it after the
-    /// `Runtime` is gone, while every path inside `block_on` only holds an `Arc` clone.
+    /// The service is kept in this scope, NOT created inside the async block, so the caller's own
+    /// handle releases it after its runtime is gone - the same shape the `mcp` command's shutdown
+    /// takes, where a main-thread handle frees the engine once blocking work has settled.
     #[test]
     fn the_mcp_composition_serves_every_tool_the_surface_declares() {
         let (service, prose) =
             mcp_service(&example().join("catalog"), &example().join("data")).expect("the example catalog validates and opens");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
-        // Declared before `runtime`, so it is dropped after it: reverse declaration order. The
-        // runtime has to be fully gone before the engine is released.
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 

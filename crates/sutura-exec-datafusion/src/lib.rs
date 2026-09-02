@@ -284,7 +284,15 @@ pub struct DataFusionWarehouse {
     /// *Not bounded here: this runtime has its own blocking pool, at `tokio`'s default of 512
     /// threads. Nothing in this crate sizes it, and the transport's admission bound does not reach
     /// it.*
-    runtime: tokio::runtime::Runtime,
+    ///
+    /// **An `Option`, and the reason is the `Drop` below.** A nested `tokio` runtime can only be
+    /// dropped where blocking is allowed - dropping one inside an async context panics, and this
+    /// workspace builds with `panic = "abort"`. The adapter is owned by callers that may release it
+    /// on an async worker thread while it is idle (the agent surface does), so the runtime is taken
+    /// out of this field and shut down by the `Drop` rather than dropped in place. Construction
+    /// always sets it, and [`Self::runtime`] is the only reader - `None` is reachable only during
+    /// `Drop`, which no caller reaches.
+    runtime: Option<tokio::runtime::Runtime>,
     /// The pool every operator in this session reserves against, kept rather than derived.
     ///
     /// Retained for two reasons. It is what an operator watching a deployment reads - reserved bytes
@@ -320,6 +328,24 @@ impl core::fmt::Debug for DataFusionWarehouse {
     }
 }
 
+impl Drop for DataFusionWarehouse {
+    /// A warehouse is safe to drop where its runtime alone is not.
+    ///
+    /// Tokio's `Runtime::drop` panics when called in a context where blocking is not allowed, which
+    /// is exactly where an agent surface is torn down: the peer's session ends on a worker thread of
+    /// the CALLER's runtime, and the last handle to this adapter can be that task. Under this
+    /// workspace's `panic = "abort"` that is process death, so the adapter cannot hand the runtime
+    /// out raw. `shutdown_background` is tokio's documented way to drop a runtime from inside an
+    /// async context: it stops the workers and returns at once, abandoning no work this adapter
+    /// keeps outstanding - a question answers synchronously under `block_on`, so by the time the
+    /// adapter is dropped the runtime is idle and whatever it had in flight has completed.
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
+    }
+}
+
 impl DataFusionWarehouse {
     /// Builds an adapter with nothing registered.
     ///
@@ -346,7 +372,7 @@ impl DataFusionWarehouse {
             // current-thread runtime has no width to pin - see `with_worker_threads` for the site
             // where it does.
             context: SessionContext::new_with_config_rt(SessionConfig::new(), environment),
-            runtime,
+            runtime: Some(runtime),
             pool,
             working_set,
         })
@@ -402,9 +428,21 @@ impl DataFusionWarehouse {
             // that stops following the width silently builds sixteen-way plans on a two-worker
             // runtime.
             context: SessionContext::new_with_config_rt(SessionConfig::new().with_target_partitions(workers.get()), environment),
-            runtime,
+            runtime: Some(runtime),
             pool,
             working_set,
+        })
+    }
+
+    /// The tokio runtime this adapter executes on.
+    ///
+    /// An `Option` so the `Drop` can take it out, and the only path to `None` is during that `Drop`,
+    /// which nothing reaches. Answered as an error rather than unwrapped, because this workspace
+    /// allows neither `unwrap` nor `expect`; the error is the one construction itself reports, and
+    /// carrying it keeps a second variant nobody can provoke out of the enum.
+    fn runtime(&self) -> Result<&tokio::runtime::Runtime, DataFusionError> {
+        self.runtime.as_ref().ok_or_else(|| DataFusionError::Runtime {
+            cause: std::io::Error::other("the runtime was already taken out by the warehouse's drop"),
         })
     }
 
@@ -444,7 +482,7 @@ impl DataFusionWarehouse {
     /// read options' default.
     pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
         let located = path.display().to_string();
-        self.runtime
+        self.runtime()?
             .block_on(
                 self.context
                     .register_csv(table_reference(table), located.as_str(), CsvReadOptions::new()),
@@ -463,7 +501,7 @@ impl DataFusionWarehouse {
     /// manifest's comment records which.
     pub fn attach_parquet(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
         let located = path.display().to_string();
-        self.runtime
+        self.runtime()?
             .block_on(
                 self.context
                     .register_parquet(table_reference(table), located.as_str(), ParquetReadOptions::default()),
@@ -652,7 +690,7 @@ impl Warehouse for DataFusionWarehouse {
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })?;
         match executable {
-            Executable::Query(plan) => self.runtime.block_on(self.rows(plan)),
+            Executable::Query(plan) => self.runtime()?.block_on(self.rows(plan)),
             // Stated rather than defaulted. This adapter is the engine and it belongs ABOVE the
             // port once federation lands, so a leg arriving here would mean the composition is
             // wrong - not that the leg is unanswerable. Nothing reaches this today: there is no
@@ -670,7 +708,7 @@ impl Warehouse for DataFusionWarehouse {
     /// available: one process, one operating-system identity, nowhere for a subject to arrive.
     /// [`AnchorRows`] is what keeps the result from being handed back to a caller as an answer.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.runtime.block_on(self.rows(plan.plan())).map(AnchorRows::of)
+        self.runtime()?.block_on(self.rows(plan.plan())).map(AnchorRows::of)
     }
 
     /// The one question the domain asks about this adapter's error, answered from the one variant
@@ -732,6 +770,8 @@ pub(crate) fn test_leg() -> Presented {
     }
 }
 
+#[cfg(test)]
+mod drop_tests;
 /// The adapter's own suite - attaching a file, executing a plan, and the translation helpers - in
 /// its own file for the same reason.
 #[cfg(test)]

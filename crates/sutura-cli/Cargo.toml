@@ -42,7 +42,10 @@ sutura-mcp = { workspace = true }
 # subscriber, so records go nowhere until a composition installs one - the same posture the `query`
 # command takes when it writes none.
 sutura-runtime = { workspace = true }
-# The runtime `serve_stdio` runs in. `rt-multi-thread` because `Runtime::new()` is what there is.
+# The runtime `serve_stdio` runs in. `rt-multi-thread` is on in this binary regardless - the engine
+# drives its own current-thread runtime but the workspace resolves the feature through it - so this
+# feature line is what the direct call to `Runtime::new()` compiles under, not a decision about how
+# wide to run. One peer on one pipe: width buys nothing here.
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 # A question arrives as a file a person wrote, so it is read the same way a catalog document is.
 serde_norway = { workspace = true }

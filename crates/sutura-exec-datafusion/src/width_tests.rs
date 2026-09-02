@@ -134,7 +134,14 @@ fn the_configured_width_is_what_the_engine_gets_and_the_plan_is_partitioned_to_m
     // exists for, because a CPU quota does not change what `available_parallelism` reports.
     let wide = DataFusionWarehouse::with_worker_threads(source(), crate::test_posture(), width(3), roomy())
         .expect("a wide runtime builds");
-    assert_eq!(wide.runtime.handle().metrics().num_workers(), 3);
+    assert_eq!(
+        wide.runtime()
+            .expect("a wide runtime is present")
+            .handle()
+            .metrics()
+            .num_workers(),
+        3
+    );
     assert_eq!(wide.context.copied_config().target_partitions(), 3);
 }
 
@@ -144,7 +151,15 @@ fn the_command_line_constructor_is_still_one_thread() {
     // and nothing else, and has no settings to read a width from - so a wide runtime there would be
     // sixteen threads spawned to answer one question, in all four cross-built artifacts.
     let narrow = DataFusionWarehouse::new(source(), crate::test_posture(), roomy()).expect("a current-thread runtime builds");
-    assert_eq!(narrow.runtime.handle().metrics().num_workers(), 1);
+    assert_eq!(
+        narrow
+            .runtime()
+            .expect("a narrow runtime is present")
+            .handle()
+            .metrics()
+            .num_workers(),
+        1
+    );
 }
 
 #[test]

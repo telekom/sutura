@@ -166,7 +166,7 @@ const COMMANDS: &[Cmd] = &[
         name: "mcp",
         args: "<catalog-dir> <data-dir>",
         description: "serve the agent surface over stdin/stdout",
-        run: commands::mcp,
+        run: mcp::mcp,
     },
 ];
 
