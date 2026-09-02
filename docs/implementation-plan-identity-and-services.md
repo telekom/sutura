@@ -777,11 +777,11 @@ one is built:
 - **The OpenAPI document, which ships today.** `crates/sutura-http/src/openapi.rs` generates it from
   the handlers, so it is always current and needs nothing committed. A chat UI that can call an
   OpenAPI tool server talks to sutura over it with no new code on our side. This is the cheap route.
-- **An MCP server, and the crate EXISTS now - what is absent is a binary that links it.**
-  `sutura-mcp` is built: two tools, one per `Surface` operation, each schema generated from a wire type
-  and committed as a snapshot. `serve_stdio` is the entry point and **no composition root calls it**,
-  which is #110. So this is the better route the moment that decision lands - MCP is the surface agents
-  actually speak - and the demo must still not wait for it.
+- **An MCP server, and the crate now SHIPS in the binary.** `sutura-mcp` is built: two tools, one per
+  `Surface` operation, each schema generated from a wire type and committed as a snapshot.
+  `serve_stdio`'s composition root is the single-player binary's `mcp` subcommand -
+  `sutura mcp <catalog-dir> <data-dir>` - which is what #110 asked for. So this is the better route,
+  and the demo must still not wait for it.
 
 **And the part that cannot be waved away: a chat interface needs a MODEL.** Either a hosted provider,
 which means a key and egress from the demo environment, or a local one, which is heavy. Say which the

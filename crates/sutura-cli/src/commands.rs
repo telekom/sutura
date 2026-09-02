@@ -66,14 +66,22 @@ fn render_filters(filters: &[RequiredFilter]) -> String {
 /// [`ENGINE_SOURCE`] is for the data side.
 const CATALOG_SOURCE: &str = "local";
 
-/// Reads a catalog directory into a pinned bundle.
-fn load(root: &Path) -> Result<PinnedDefinitions, String> {
+/// The catalog a command reads, built from its directory on the command line.
+///
+/// Split out of [`load`] so a command that must serve a `LocalService` - the `mcp` one - has the
+/// catalog itself to hand to the service's constructor, which loads and validates it, rather than
+/// rebuilding it. Named `catalog_reader` because `catalog` is already this module's listing
+/// subcommand. Everything else keeps using `load`.
+pub(crate) fn catalog_reader(root: &Path) -> Result<LocalCatalog, String> {
     let version =
         DefinitionVersion::parse(DEFAULT_VERSION).map_err(|e| format!("the built-in default version is not a version: {e}"))?;
     let name = SourceName::parse(CATALOG_SOURCE).map_err(|e| format!("the built-in catalog name is not a name: {e}"))?;
-    LocalCatalog::new(name, PathBuf::from(root), version)
-        .load()
-        .map_err(|e| render(&e))
+    Ok(LocalCatalog::new(name, PathBuf::from(root), version))
+}
+
+/// Reads a catalog directory into a pinned bundle.
+fn load(root: &Path) -> Result<PinnedDefinitions, String> {
+    catalog_reader(root)?.load().map_err(|e| render(&e))
 }
 
 /// A typed error and every cause beneath it, on one line each.
@@ -81,7 +89,7 @@ fn load(root: &Path) -> Result<PinnedDefinitions, String> {
 /// Written out rather than relying on `Display`, which shows only the outermost message. The causes
 /// are where the useful part is: "could not read the frontmatter of x.md as a metric" is a location,
 /// and its source is the reason.
-fn render(error: &dyn core::error::Error) -> String {
+pub(crate) fn render(error: &dyn core::error::Error) -> String {
     let mut out = error.to_string();
     let mut cursor = error.source();
     while let Some(cause) = cursor {
@@ -99,7 +107,7 @@ fn read_question(path: &Path) -> Result<Query, String> {
 }
 
 /// Turns a `Result` into an exit code, printing the message on failure.
-fn report(outcome: Result<(), String>) -> ExitCode {
+pub(crate) fn report(outcome: Result<(), String>) -> ExitCode {
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
@@ -110,7 +118,7 @@ fn report(outcome: Result<(), String>) -> ExitCode {
 }
 
 /// The next argument, or a usage message.
-fn arg(args: &[String], index: usize, name: &str, usage: &str) -> Result<String, String> {
+pub(crate) fn arg(args: &[String], index: usize, name: &str, usage: &str) -> Result<String, String> {
     args.get(index)
         .cloned()
         .ok_or_else(|| format!("missing <{name}>\nusage: sutura {usage}"))
@@ -324,7 +332,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let data = arg(args, 2, "data-dir", usage)?;
 
         let pinned = load(Path::new(&root))?;
-        let engine = open_engine(&pinned, Path::new(&data))?;
+        let (engine, _attached) = open_engine(&pinned, Path::new(&data))?;
 
         // The governance is not an order this function has to remember any more. One call runs the
         // anchors against the engine it was handed and hands back a bundle only if every one
@@ -355,7 +363,16 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
     })())
 }
 
-/// Starts the engine and registers one file per model.
+/// The engine this build can open, with the set of tables it attached.
+///
+/// Named because the two-element tuple stays over `clippy::type_complexity` once the generic
+/// warehouse is spelled out - the same reason `mcp.rs` aliases the service it composes.
+pub(crate) type Opened = (
+    sutura_app::Warehouses<DataFusionWarehouse>,
+    std::collections::BTreeSet<TableName>,
+);
+
+/// Starts the engine and registers one file per model, returning it with the set of tables attached.
 ///
 /// The engine reads the files itself, so there is no database to create and nothing to keep in step
 /// with the CSVs. A `.parquet` beside a model's table name is preferred over a `.csv` because it
@@ -370,10 +387,17 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 /// there is no `sources:` entry for an operator to write. What replaces it is a declaration this file
 /// makes and a reviewer can see: `sutura` is a single-user tool by construction. It reads the files
 /// the person running it already has access to, as that person's own operating-system identity, and
-/// there is no second caller for that identity to be wrong for. `ImpersonationCapability` on the
+/// there is no second caller for that identity to be wrong for. For the `mcp` command the answers are
+/// for a peer on a pipe rather than for the person who typed the command, which does not change the
+/// identity the files are read under - it stays whoever launched the process. `ImpersonationCapability` on the
 /// adapter says the same thing from the other side, so the two agree by construction rather than by a
 /// check this command could skip.
-fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Warehouses<DataFusionWarehouse>, String> {
+///
+/// **The table set comes back with the engine because it is evidence rather than bookkeeping.**
+/// [`refuse_unattached`] compares it against the bundle the service re-loads in
+/// `LocalService::start` - the two bundles are two loads, and the comparison is what stops a model
+/// added to the catalog directory between them from being served with no table behind it.
+pub(crate) fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<Opened, String> {
     let sources = sutura_app::sources(pinned);
     let declared = match sources.as_slice() {
         [only] => (*only).clone(),
@@ -395,6 +419,7 @@ fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Wa
         ));
     }
     let engine = DataFusionWarehouse::new(engine_source, single_user_posture()?, working_set()?).map_err(|e| render(&e))?;
+    let mut attached: std::collections::BTreeSet<TableName> = std::collections::BTreeSet::new();
     for model in pinned.definitions().models().values() {
         // Refused here rather than at query time, so a catalog this build cannot serve fails the
         // command instead of failing the question. This tool registers one file per model in the
@@ -409,9 +434,51 @@ fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Wa
             ));
         }
         attach(&engine, model.name(), model.table_name(), data)?;
+        // Collected AFTER the successful attach, like `sutura-serve`'s `open_files`: `attach` fails
+        // the command on a missing file, so this set is what the engine holds rather than what was
+        // asked for.
+        attached.insert(model.table_name().clone());
     }
     // One data system, registered under its own name - which is what `answer` looks a plan up in.
-    Ok(sutura_app::Warehouses::of(engine))
+    Ok((sutura_app::Warehouses::of(engine), attached))
+}
+
+/// Every table the served bundle's models sit behind.
+pub(crate) fn served_tables(served: &PinnedDefinitions) -> std::collections::BTreeSet<TableName> {
+    served
+        .definitions()
+        .models()
+        .values()
+        .map(|model| model.table_name().clone())
+        .collect()
+}
+
+/// The tables the served bundle names, against the tables the engine actually holds.
+///
+/// Copied from `sutura-serve`'s function of the same name, because the two composition roots are
+/// separate binaries and neither may depend on the other. The two sets come from two `load()` calls
+/// on the same directory; a model added between them is refused here rather than served with no
+/// table behind it, which would fail the first question against it at query time.
+pub(crate) fn refuse_unattached(
+    serving: &std::collections::BTreeSet<TableName>,
+    attached: &std::collections::BTreeSet<TableName>,
+) -> Result<(), String> {
+    let missing = names(serving.difference(attached));
+    let extra = names(attached.difference(serving));
+    if missing.is_empty() && extra.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "the catalog changed while this process was starting: the engine was opened for the bundle \
+         loaded first, and the bundle being served names different tables. Served with no table \
+         attached: [{missing}]. Attached and no longer served: [{extra}]. Refusing to serve a model \
+         whose questions would fail at query time"
+    ))
+}
+
+/// One line of table names, for a message an operator has to act on.
+fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
+    tables.map(TableName::as_str).collect::<Vec<&str>>().join(", ")
 }
 
 /// The posture this command runs its one data system under.
@@ -435,9 +502,12 @@ fn single_user_posture() -> Result<sutura_domain::source::SourcePosture, String>
 /// The static one, holding the one source this build can open under the same acknowledgement
 /// [`single_user_posture`] declares - so what the leg presents and what the adapter was opened with
 /// come from one sentence rather than two. A `SharedServiceUser` posture is the only shape the engine
-/// can execute with, and it is the honest one here: there is no second caller for this identity to be
-/// wrong for.
-fn single_user_broker() -> Result<sutura_config::StaticCredentialBroker, String> {
+/// can execute with. The "one identity, no wrong caller" claim that used to sit here was written when
+/// the caller was the person who typed the command; for the `mcp` command the answers are for a peer
+/// on a pipe, and the premise that survives is the declaration itself rather than who reads the
+/// answer: the files are still read under whoever launched the process, so a `SharedServiceUser`
+/// posture is still the honest shape, and a peer gets whatever rows that one identity can see.
+pub(crate) fn single_user_broker() -> Result<sutura_config::StaticCredentialBroker, String> {
     let source = SourceName::parse(ENGINE_SOURCE).map_err(|e| format!("the built-in engine source name is not a name: {e}"))?;
     let sutura_domain::source::SourcePosture::SharedServiceUser { declared } = single_user_posture()? else {
         return Err(String::from("this command opens its engine shared, one function above"));
@@ -447,17 +517,17 @@ fn single_user_broker() -> Result<sutura_config::StaticCredentialBroker, String>
 
 /// The working-set ceiling this command bounds the engine with.
 ///
-/// **The embedded default, and not a flag.** This command answers one question and exits, and it has
-/// no settings tree in scope - `sutura prompt` is the only subcommand that loads one, deliberately, so
-/// the prompt an operator pipes into an agent is rendered from the configuration the service would
-/// read. Giving the query path a flag would be a second number an operator could set, disagreeing with
-/// the one the service uses.
+/// **The embedded default, and not a flag.** There is no settings tree in scope on either caller's
+/// path - `sutura prompt` is the only subcommand that loads one, deliberately, so the prompt an
+/// operator pipes into an agent is rendered from the configuration the service would read. `query`
+/// answers one question and exits; `mcp` serves for as long as the peer does. For both, a flag
+/// would be a second number an operator could set, disagreeing with the one the service uses.
 ///
 /// It goes through `WorkingSetCeiling::parse` rather than constructing the wrapper from the constant
 /// directly, so this reads the same number through the same checks the service does; a test asserts the
 /// constant and `defaults.yaml` agree. `available_memory_bytes` is asked here too: a laptop with less
 /// memory than the default ceiling should be told so rather than dying inside a join.
-fn working_set() -> Result<sutura_exec_datafusion::WorkingSet, String> {
+pub(crate) fn working_set() -> Result<sutura_exec_datafusion::WorkingSet, String> {
     let ceiling = sutura_config::WorkingSetCeiling::parse(
         sutura_config::WorkingSetCeiling::DEFAULT_BYTES,
         sutura_config::available_memory_bytes(),
@@ -562,7 +632,7 @@ mod tests {
 
     use sutura_domain::query::{MAX_RANGE_DAYS, RefusalReason};
 
-    use super::{ENGINE_SOURCE, load, open_engine, prompt_inputs, render_refusal};
+    use super::{ENGINE_SOURCE, load, open_engine, prompt_inputs, refuse_unattached, render_refusal, served_tables};
 
     fn example() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
@@ -636,7 +706,7 @@ mod tests {
         // tells a reader to run. This is the one test that exercises `open_engine`'s own happy path,
         // which the example suite reaches only through the libraries.
         let pinned = load(&example().join("catalog")).expect("the example catalog loads");
-        let engine = open_engine(&pinned, &example().join("data")).expect("the example catalog opens");
+        let (engine, attached) = open_engine(&pinned, &example().join("data")).expect("the example catalog opens");
         assert_eq!(
             engine
                 .postures()
@@ -646,6 +716,40 @@ mod tests {
             "the engine answers to its own name, not to the catalog's - and this command declares what \
              identity it reads under rather than leaving it at a default"
         );
+        // The second value is the evidence the two-load check compares against, and it must be EXACTLY
+        // the tables `pinned` names - the same assertion `sutura-serve`'s `open_files` makes of its
+        // own engine.
+        assert_eq!(
+            attached.iter().map(TableName::as_str).collect::<Vec<&str>>(),
+            served_tables(&pinned).iter().map(TableName::as_str).collect::<Vec<&str>>(),
+            "the attached set is what the served bundle names"
+        );
+    }
+
+    #[test]
+    fn a_catalog_that_changed_between_two_loads_is_refused() {
+        // The check the `mcp` command runs after `LocalService::start` re-loads the catalog: the two
+        // loads are two `read_all()` calls over one directory, and a model added between them would
+        // be served with no table behind it and fail its first question at query time. `sutura-serve`
+        // closes the same gap at boot with the same comparison.
+        let set = |tables: &[&str]| -> BTreeSet<TableName> {
+            tables
+                .iter()
+                .map(|raw| TableName::parse(raw).expect("a test table is a table"))
+                .collect()
+        };
+        let serving = set(&["orders", "customers"]);
+        let attached = set(&["orders"]);
+        let error = refuse_unattached(&serving, &attached)
+            .expect_err("a table served but never attached is the whole point of the check");
+        assert!(error.contains("customers"), "the missing table is named: {error}");
+        // Both directions, so a silently dropped model is caught too - the "extra" arm exists because
+        // whatever else drifted is the part nobody has looked at.
+        let error =
+            refuse_unattached(&attached, &serving).expect_err("an attached table no longer served is a bundle that changed");
+        assert!(error.contains("customers"), "the extra table is named: {error}");
+        // And the two agreeing is not an error.
+        refuse_unattached(&serving, &serving).expect("matching sets are fine");
     }
 
     /// One model as a catalog document names it: the model, its data system, its table.

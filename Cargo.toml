@@ -94,9 +94,10 @@ sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }
 sutura-http = { path = "crates/sutura-http" }
-# NO `sutura-mcp` entry, and `cargo xtask unused-deps` is why: nothing links the agent surface yet,
-# so a workspace pin for it would be a declaration no member inherits. It comes back with the
-# composition root that needs it.
+# The agent surface, now that a composition root links it: `sutura mcp` on `sutura-cli` is what the
+# earlier absence of this entry deferred, and the absent-crate comment below it records the previous
+# state rather than deleting it. `cargo xtask unused-deps` keeps this line honest in either direction.
+sutura-mcp = { path = "crates/sutura-mcp" }
 # Not shipped and not under `crates/`: the developer workflow. A LIBRARY as well as a binary,
 # because a test harness has to be able to learn where a provisioned service is listening and
 # `xtask` has to name the same compose project the harness sees.

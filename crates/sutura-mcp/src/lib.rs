@@ -50,9 +50,10 @@
 //! `serde_derive_internals` - counted by diffing the package names against the base branch rather
 //! than read off a dependency tree. Everything else it wants was already in the lock: `tokio-util`,
 //! `uuid`, `chrono` and `futures` arrive here through this crate for the first time, but they are
-//! nobody's new supply-chain surface. No shipped artifact grows, because **no binary links this
-//! crate yet**. `macros` is off, so no attribute of theirs writes code into this crate, and the
-//! handler is three methods written by hand.
+//! nobody's new supply-chain surface. The only shipped artifact that grows is `sutura` itself,
+//! which links this crate behind its `mcp` subcommand - and the dependency is pure Rust, so nothing
+//! about the two musl triples changes. `macros` is off, so no attribute of theirs writes code into
+//! this crate, and the handler is three methods written by hand.
 //!
 //! # What is deliberately absent
 //!
@@ -73,9 +74,10 @@
 //! * **Resources and prompts.** A gateway of the shape this product runs behind surfaces tools and
 //!   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
 //!   where they are - in `sutura_app::prompt`, advisory, for a cooperative client.
-//! * **A composition root.** Nothing links this crate yet: [`serve_stdio`] is the entry point a
-//!   binary would call, and which binary gets it - and how a deployment configures it - is a
-//!   composition decision this slice does not take.
+//! * **A composition root.** Nothing below `serve_stdio` cares about transport, and the binary that
+//!   calls it is `sutura`'s `mcp` subcommand - the single-player answer to *which binary gets it*,
+//!   composed in `sutura-cli` the way `query` is. This crate deliberately does not decide that; it
+//!   is the transport a composition root calls.
 
 mod principal;
 mod refusal;
@@ -96,28 +98,43 @@ use sutura_app::surface::Surface;
 /// authentication here - the process boundary is the boundary, and a deployment that needs a
 /// network-reachable agent surface needs the identity leg `docs/adr/0014` designs first.
 ///
-/// Consumes the service, wraps it in an `Arc`, and returns when the peer closes or is cancelled.
+/// Takes [`std::sync::Arc<S>`] rather than an owned `S`, for the one edge the engine's own drop
+/// cannot cover. The service's engine shuts its nested runtime down through `shutdown_background`, so
+/// releasing it is safe on any thread once no question is in flight - and the rmcp task ending is
+/// normally that state. What would still abort is releasing the engine in the middle of an answer,
+/// while its runtime is inside a `block_on` on a pool thread and this process aborts on a panic. The
+/// composition root's outer handle defers that release until its own `shutdown_timeout` has let the
+/// in-flight answer finish.
+///
+/// **`permitted` is required for the same reason it is on [`AgentSurface::new`]: a pipe has no
+/// header a token could arrive in, so this transport alone cannot choose who the peer is. The
+/// composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability`
+/// and prints that at startup - so the value lives next to the notice that states it rather than
+/// hidden in this function.
+///
+/// rmcp serves requests concurrently - one task per request, unbounded - so several questions from
+/// one peer answer against the same `S` at once. The surface has no state a question mutates, so the
+/// concurrency is free; what it does mean is that the engine's working-set ceiling, not any
+/// transport bound, is what an agent flooding its one pipe cannot exceed.
+///
+/// Returns when the peer closes or is cancelled.
 ///
 /// # Errors
 ///
 /// [`NotServed::Handshake`] if the client never completes `initialize`, and
 /// [`NotServed::Interrupted`] if the task driving the session did not finish - a panic, or a runtime
 /// shutting down underneath it.
-pub async fn serve_stdio<S>(service: S, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(
+    service: std::sync::Arc<S>,
+    permitted: sutura_app::Permitted,
+    prose: sutura_app::prompt::CatalogProse,
+) -> Result<(), NotServed>
 where
     S: Surface,
 {
-    // Every capability, and the reason is the transport rather than a preference: there is no header a
-    // token could arrive in on a pipe, so there is no verified claim to narrow by - and a filter over
-    // an unverified claim looks like a control and is not one. `AgentSurface::new` requires the value
-    // so that this line is where the decision is visible, rather than a default nobody reads.
-    let permitted = sutura_app::Permitted::every_capability();
-    let running = rmcp::serve_server(
-        AgentSurface::new(std::sync::Arc::new(service), permitted, prose),
-        rmcp::transport::stdio(),
-    )
-    .await
-    .map_err(|cause| NotServed::Handshake { cause: Box::new(cause) })?;
+    let running = rmcp::serve_server(AgentSurface::new(service, permitted, prose), rmcp::transport::stdio())
+        .await
+        .map_err(|cause| NotServed::Handshake { cause: Box::new(cause) })?;
     running
         .waiting()
         .await

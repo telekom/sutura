@@ -220,6 +220,19 @@ from the same declaration, so the two transports cannot describe different tool 
 standard input and output, where there is no header a token could arrive in, so nothing narrows the set
 there today.
 
+It is served by the `sutura` binary's `mcp` command, not by this one, and that is the point of the
+split: MCP-over-stdio is a locally launched, single-player surface, so it belongs with the command-line
+tool that composes the in-process engine over a data directory rather than with the HTTP service.
+
+```bash
+sutura mcp examples/single-player/catalog examples/single-player/data
+```
+
+An agent client launches that process and speaks the protocol on its pipes - the same two tools this
+page describes, from the same `sutura_app::Capability` declaration. The command prints at startup, on
+standard error, that it grants every capability to whoever can reach the process: a pipe has no header
+a token could arrive in, which is the limit stated beside the mode rather than left as a default.
+
 ## The endpoints
 
 | Method and path | Token | What it is |

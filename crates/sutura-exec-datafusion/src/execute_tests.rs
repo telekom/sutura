@@ -410,7 +410,8 @@ fn the_engine_asks_for_one_row_past_the_cap_exactly_as_the_sql_path_does() {
     ));
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
     let logical = adapter
-        .runtime
+        .runtime()
+        .expect("a test runtime is present")
         .block_on(adapter.logical_plan(&query))
         .expect("the plan resolves");
     let rendered = format!("{}", logical.display_indent());

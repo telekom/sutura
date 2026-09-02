@@ -11,7 +11,7 @@
 //! for. It could not be a comparison between the two transports - `sutura-mcp` and `sutura-http`
 //! cannot see each other - so it is one source in the crate that owns the driving port, plus a test
 //! in each transport asserting it did not deviate from that source. Two tests, one source, and
-//! [`tests::both_transports_describe_the_same_tools`] is this crate's half.
+//! `tests::both_transports_describe_the_same_tools` is this crate's half.
 //!
 //! **The prose is deliberately NOT shared.** A tool description is written for a model choosing
 //! whether to call it; an `OpenAPI` summary is written for a person reading an interface description.
@@ -30,13 +30,13 @@
 //! # The dump, and why it is a gate rather than a convenience
 //!
 //! `AGENTS.md`'s *changing the query path or the tool surface* table wants a widened tool input to be
-//! caught by something a reviewer cannot miss. [`tests::the_advertised_tool_schemas_are_the_committed_ones`]
+//! caught by something a reviewer cannot miss. `tests::the_advertised_tool_schemas_are_the_committed_ones`
 //! is that byte-compare: **every** capability's generated schema is snapshotted, so a new or widened
 //! field changes a snapshot and the test fails until somebody re-accepts it. That puts the new surface
 //! in the diff, which is the whole mechanism - `deny_unknown_fields` stops an *undeclared* field from
 //! being answered, and this stops a *declared* one from arriving unreviewed.
 //!
-//! Beside it, [`tests::the_question_tool_takes_exactly_the_five_fields_a_question_has`] asserts the
+//! Beside it, `tests::the_question_tool_takes_exactly_the_five_fields_a_question_has` asserts the
 //! property rather than the bytes: a field named `sql`, `table`, `where`, `predicate` or `rows` is not
 //! merely a snapshot change but a named failure. A snapshot can be re-accepted without thought; that
 //! one cannot.

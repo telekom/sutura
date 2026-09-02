@@ -198,7 +198,7 @@ ceiling ratio an operator actually wants cannot be computed.
 
 ### Implements
 
-`Debug`, `Warehouse`
+`Debug`, `Drop`, `Warehouse`
 
 ## `use None`
 

@@ -59,9 +59,10 @@ of evidence that says an agent client can actually ask.
 `serde_derive_internals` - counted by diffing the package names against the base branch rather
 than read off a dependency tree. Everything else it wants was already in the lock: `tokio-util`,
 `uuid`, `chrono` and `futures` arrive here through this crate for the first time, but they are
-nobody's new supply-chain surface. No shipped artifact grows, because **no binary links this
-crate yet**. `macros` is off, so no attribute of theirs writes code into this crate, and the
-handler is three methods written by hand.
+nobody's new supply-chain surface. The only shipped artifact that grows is `sutura` itself,
+which links this crate behind its `mcp` subcommand - and the dependency is pure Rust, so nothing
+about the two musl triples changes. `macros` is off, so no attribute of theirs writes code into
+this crate, and the handler is three methods written by hand.
 
 # What is deliberately absent
 
@@ -82,9 +83,10 @@ handler is three methods written by hand.
 * **Resources and prompts.** A gateway of the shape this product runs behind surfaces tools and
   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
   where they are - in `sutura_app::prompt`, advisory, for a cooperative client.
-* **A composition root.** Nothing links this crate yet: `serve_stdio` is the entry point a
-  binary would call, and which binary gets it - and how a deployment configures it - is a
-  composition decision this slice does not take.
+* **A composition root.** Nothing below `serve_stdio` cares about transport, and the binary that
+  calls it is `sutura`'s `mcp` subcommand - the single-player answer to *which binary gets it*,
+  composed in `sutura-cli` the way `query` is. This crate deliberately does not decide that; it
+  is the transport a composition root calls.
 
 ## `enum NotServed`
 
@@ -113,7 +115,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: S, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -123,7 +125,26 @@ protocol on its pipes. There is no socket, no port and no listener, which is als
 authentication here - the process boundary is the boundary, and a deployment that needs a
 network-reachable agent surface needs the identity leg `docs/adr/0014` designs first.
 
-Consumes the service, wraps it in an `Arc`, and returns when the peer closes or is cancelled.
+Takes `std::sync::Arc<S>` rather than an owned `S`, for the one edge the engine's own drop
+cannot cover. The service's engine shuts its nested runtime down through `shutdown_background`, so
+releasing it is safe on any thread once no question is in flight - and the rmcp task ending is
+normally that state. What would still abort is releasing the engine in the middle of an answer,
+while its runtime is inside a `block_on` on a pool thread and this process aborts on a panic. The
+composition root's outer handle defers that release until its own `shutdown_timeout` has let the
+in-flight answer finish.
+
+**`permitted` is required for the same reason it is on `AgentSurface::new`: a pipe has no
+header a token could arrive in, so this transport alone cannot choose who the peer is. The
+composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability`
+and prints that at startup - so the value lives next to the notice that states it rather than
+hidden in this function.
+
+rmcp serves requests concurrently - one task per request, unbounded - so several questions from
+one peer answer against the same `S` at once. The surface has no state a question mutates, so the
+concurrency is free; what it does mean is that the engine's working-set ceiling, not any
+transport bound, is what an agent flooding its one pipe cannot exceed.
+
+Returns when the peer closes or is cancelled.
 
 # Errors
 
@@ -233,10 +254,9 @@ default here would be a posture chosen by this file for every deployment that ev
 the wrong answer the moment this surface is reachable over a network, and only a composition
 root knows which it is building. See the module documentation for what the value then gates.
 
-**`prose` is required for the same reason, and it is a review-only value until a composition
-root links this surface** - `serve_stdio` is the only caller today and it passes what the
-operator configured. A `CatalogProse` with no default keeps `quoted` from being a posture
-chosen here for a deployment that meant something else.
+**`prose` is required for the same reason, and it is a composition-root value.** `sutura`'s
+`mcp` subcommand passes what this deployment renders; a `CatalogProse` with no default keeps
+`quoted` from being a posture chosen here for a deployment that meant something else.
 
 #### Implements
 

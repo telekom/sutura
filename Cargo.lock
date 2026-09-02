@@ -3712,14 +3712,19 @@ version = "0.4.1"
 dependencies = [
  "insta",
  "mimalloc",
+ "rmcp",
+ "serde_json",
  "serde_norway",
  "sutura-app",
  "sutura-catalog-local",
  "sutura-config",
  "sutura-domain",
  "sutura-exec-datafusion",
+ "sutura-mcp",
+ "sutura-runtime",
  "sutura-semantic",
  "sutura-sql",
+ "tokio",
 ]
 
 [[package]]
