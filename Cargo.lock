@@ -3692,9 +3692,11 @@ version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
+ "sutura-dev",
  "sutura-domain",
  "sutura-semantic",
  "thiserror 2.0.20",
+ "ureq",
 ]
 
 [[package]]

@@ -701,10 +701,42 @@ dev-up:
     cargo run -q -p xtask -- dev-up
 
 # The same, plus the identity provider. Off by default because nothing here can use one yet:
-# `CredentialBroker` does not exist, and keycloak is the slowest of the three to become ready. The
-# reasoning lives beside the service in compose.services.yaml.
+# `CredentialBroker` does not exist. It is no longer the slowest thing in this tier - the DataHub
+# stack below is - but that was never the argument for the profile. The reasoning lives beside the
+# service in compose.services.yaml.
 dev-up-identity:
     cargo run -q -p xtask -- dev-up --with identity
+
+# The same, plus the DataHub metadata platform: five containers, of which one - `datahub`, its GMS -
+# is the endpoint the discovery file carries. Off by default because it COSTS: three JVMs and a
+# migration job that creates the topics, the schema and the indices before GMS will start. This is
+# what `crates/sutura-catalog-datahub` is read against when a test wants a real instance rather than
+# the recorded fixture; the reasoning lives beside the stack in compose.services.yaml.
+dev-up-datahub:
+    cargo run -q -p xtask -- dev-up --with datahub
+
+# The provisioned DataHub, asked whether it serves the surface a reader would call.
+#
+# A named task rather than a cell in the default suite, and NOT because a network is missing - the
+# `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers:
+# `xtask dev-up` writes the docker services, and `sutura-postgres-tier start` - which `just test`
+# runs - rewrites the file with `postgres` as its only entry. So a docker service is invisible to the
+# discovery file for the whole of `just test`, which also sets the fail-closed direction, and a cell
+# over one would be unconditionally red there. The clobbering is a defect in that seam and is
+# recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than papered over here.
+#
+# It brings the profile up first, because a task that asked for the fail-closed direction against a
+# tier nobody started would just be a confusing way to spell an error.
+datahub-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, the provisioned instance's"
+    echo "datahub-acceptance: reachability. It proves the VENUE and not the adapter's read path."
+    echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
+    cargo run -q -p xtask -- dev-up --with datahub
+    SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture
 
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:

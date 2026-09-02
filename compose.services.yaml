@@ -47,16 +47,25 @@
 # address or anything identifying one belongs in it - not in a value, not in a comment, not in an
 # example. The default is the public upstream; the override is a value an operator fills in locally.
 #
-# All three images resolve on ONE registry, which is what lets a single variable work: Keycloak
-# publishes `keycloak/keycloak` to Docker Hub with the same tags as its own registry, so nothing here
-# needs a second prefix. An image that existed on only one other registry would need its own
-# variable, and that is a reason to prefer one that does not.
+# EVERY image resolves on ONE registry, which is what lets a single variable work: Keycloak
+# publishes `keycloak/keycloak` to Docker Hub with the same tags as its own registry, and `DataHub`
+# publishes `acryldata/*` there beside `confluentinc/cp-kafka`, `mysql` and
+# `opensearchproject/opensearch` - so nothing here needs a second prefix. An image that existed on
+# only one other registry would need its own variable, and that is a reason to prefer one that does
+# not.
 #
 # ## Tags
 #
 # Pinned to a minor series, checked against the registries on 2026-08-29 rather than assumed:
-# ClickHouse 26.7 (`26.7-alpine`), Keycloak 26.7. A tag is mutable, so
-# this is a development fixture and not a supply-chain position. Nothing here ships.
+# ClickHouse 26.7 (`26.7-alpine`), Keycloak 26.7. The `DataHub` stack is pinned to the exact patch
+# release the adapter was measured against - `v1.7.0`, which is `docs/adr/0016`'s version - with its
+# three stores at the versions upstream's own quickstart names for that release, read off
+# `docker/quickstart/docker-compose.quickstart-profile.yml` at that tag on 2026-09-02 rather than
+# chosen here: `confluentinc/cp-kafka:8.2.2`, `mysql:8.2`, `opensearchproject/opensearch:2.19.3`.
+# **`latest` and `quickstart` are both mutable tags this file may not use**, and `DataHub` publishes
+# both - a tier that followed either would change what the adapter is measured against without a
+# diff. A tag is still mutable, so this is a development fixture and not a supply-chain position.
+# Nothing here ships.
 
 # ONE definition of the fixture credential, aliased everywhere it is needed. Two definitions is how
 # they drift and one service silently gets a different password - so the anchor is the definition and
@@ -153,6 +162,216 @@ services:
       retries: 40
       start_period: 15s
 
+  # ## The metadata platform: five containers behind one profile
+  #
+  # `docs/adr/0016` measured what `DataHub` can carry against DataHub 1.7.0, and
+  # `crates/sutura-catalog-datahub` is the adapter that reads it - decided and tested against a
+  # recorded fixture, with the read path against a PROVISIONED instance named as the thing that
+  # fixture cannot answer. This is that instance.
+  #
+  # **Only `datahub` is a service anything discovers.** The four below it are its stores and its
+  # migration job: nothing in this repository speaks to Kafka, `MySQL` or `OpenSearch`, so none of
+  # them publishes a host port and none is a row in `sutura_dev::scope::SERVICES`. Waiting on the
+  # one that IS registered waits on all five, because `datahub` is healthy only after
+  # `datahub-system-update` completed successfully and that job is gated on all three stores being
+  # healthy - which is the dependency chain doing the work a list of five readiness probes would
+  # otherwise have to.
+  #
+  # ## What is reproduced from upstream, and the four things deliberately dropped
+  #
+  # The environment below is `docker/quickstart/docker-compose.quickstart-profile.yml` at tag
+  # `v1.7.0`, read rather than remembered. Four departures, each because this tier's rules are
+  # narrower than a quickstart's:
+  #
+  #   * **No `${HOME}/.datahub` bind mounts.** Upstream binds a host directory into GMS and into the
+  #     migration job. A host path is shared between every worktree on the machine, which is the one
+  #     thing this file exists to prevent - so the plugin and search-config mounts are dropped, and
+  #     nothing here loads a plugin.
+  #   * **No frontend and no actions container.** The adapter reads GMS's entity surface; the React
+  #     UI and the actions framework are two more JVMs nothing in this repository would call. A
+  #     container with no reader is cost with no coverage, which is the argument the deferral note at
+  #     the foot of this file makes about a whole platform and which applies just as well inside one.
+  #   * **No `neo4j`.** `GRAPH_SERVICE_IMPL: elasticsearch` means the graph lives in `OpenSearch`, so
+  #     the `NEO4J_*` keys upstream sets are read by nothing on this configuration and are not
+  #     written here.
+  #   * **`METADATA_SERVICE_AUTH_ENABLED: "false"`, as upstream's quickstart has it - and that is a
+  #     STATED LIMIT rather than a convenience.** A real reader carries a personal access token as a
+  #     bearer, so what this tier can prove is the read path and the decoding, and NOT that the
+  #     adapter authenticates. A tier that proved the second would have to mint a token through the
+  #     token service, and nothing reads one yet.
+  #
+  # ## Why it is behind a profile, where `clickhouse` is not
+  #
+  # Five containers, three of them JVMs, and a migration job that reindexes on every cold start.
+  # `clickhouse` is one alpine container that is ready in seconds, so paying for it on every
+  # `just dev-up` is not a decision anybody notices; paying for this one is. The profile is what
+  # makes "only when a test needs it" a mechanism rather than a note.
+  datahub-kafka:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/confluentinc/cp-kafka:8.2.2
+    profiles:
+      - datahub
+    hostname: broker
+    # KRaft: no zookeeper. The cluster id is generated on first boot into the data volume, which is
+    # per-worktree, so two worktrees' brokers are two clusters rather than one confused one.
+    command:
+      - /bin/bash
+      - -c
+      - |
+        file_path="/var/lib/kafka/data/clusterID"
+        if [ ! -f "$$file_path" ]; then
+           /bin/kafka-storage random-uuid > $$file_path
+           kafka-storage format --ignore-formatted -t $$(cat "$$file_path") -c /etc/kafka/kafka.properties
+        fi
+        export CLUSTER_ID=$$(cat "$$file_path")
+        /etc/confluent/docker/run
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_BROKER_ID: "1"
+      KAFKA_PROCESS_ROLES: controller, broker
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@broker:39092
+      KAFKA_LISTENERS: BROKER://broker:29092,CONTROLLER://broker:39092
+      KAFKA_ADVERTISED_LISTENERS: BROKER://broker:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,BROKER:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_MESSAGE_MAX_BYTES: "5242880"
+      KAFKA_MAX_MESSAGE_BYTES: "5242880"
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
+      KAFKA_LOG4J_LOGGERS: org.apache.kafka.image.loader.MetadataLoader=WARN
+    volumes:
+      - datahub-kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server broker:29092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 30s
+
+  datahub-mysql:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/mysql:8.2
+    profiles:
+      - datahub
+    hostname: mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_bin
+      - --default-authentication-plugin=caching_sha2_password
+    environment:
+      MYSQL_DATABASE: datahub
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_USER: *fixture-user
+      MYSQL_PASSWORD: *fixture-password
+      MYSQL_ROOT_PASSWORD: *fixture-password
+    volumes:
+      - datahub-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h mysql -u root --password=$$MYSQL_ROOT_PASSWORD"]
+      interval: 2s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  datahub-opensearch:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/opensearchproject/opensearch:2.19.3
+    profiles:
+      - datahub
+    hostname: search
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms768m -Xmx1024m -Dlog4j2.formatMsgNoLookups=true
+    volumes:
+      - datahub-opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS --fail 'http://search:9200/_cluster/health?wait_for_status=yellow&timeout=0s'"]
+      interval: 5s
+      timeout: 15s
+      retries: 24
+      start_period: 30s
+
+  # The migration job: it creates the Kafka topics, the `MySQL` schema and the `OpenSearch` indices,
+  # then exits. GMS gates on it having exited SUCCESSFULLY, so a failed migration is a GMS that never
+  # starts rather than a GMS answering out of an empty index.
+  datahub-system-update:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/acryldata/datahub-upgrade:v1.7.0
+    profiles:
+      - datahub
+    hostname: datahub-system-update
+    command: ["-u", "SystemUpdate"]
+    depends_on:
+      datahub-kafka:
+        condition: service_healthy
+      datahub-mysql:
+        condition: service_healthy
+      datahub-opensearch:
+        condition: service_healthy
+    environment: &datahub-backend-environment
+      DATAHUB_GMS_HOST: datahub-gms
+      DATAHUB_GMS_PORT: "8080"
+      DATAHUB_PRECREATE_TOPICS: "true"
+      DATAHUB_SQL_SETUP_ENABLED: "true"
+      # FIXTURES, and the same argument as the credential anchors above: nothing outside this host
+      # can reach these containers, because the one published port is ephemeral. A deployment's
+      # signing key is a secret; a throwaway container's is a value that has to be non-empty.
+      DATAHUB_TOKEN_SERVICE_SALT: sutura-dev-salt
+      DATAHUB_TOKEN_SERVICE_SIGNING_KEY: sutura-dev-signing-key
+      EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
+      EBEAN_DATASOURCE_HOST: mysql:3306
+      EBEAN_DATASOURCE_USERNAME: root
+      EBEAN_DATASOURCE_PASSWORD: *fixture-password
+      EBEAN_DATASOURCE_URL: jdbc:mysql://mysql:3306/datahub?verifyServerCertificate=false&useSSL=true&useUnicode=yes&characterEncoding=UTF-8&enabledTLSProtocols=TLSv1.2
+      ELASTICSEARCH_HOST: search
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_PROTOCOL: http
+      ELASTICSEARCH_USE_SSL: "false"
+      ELASTICSEARCH_IMPLEMENTATION: opensearch
+      ELASTICSEARCH_INDEX_BUILDER_MAPPINGS_REINDEX: "true"
+      ELASTICSEARCH_INDEX_BUILDER_SETTINGS_REINDEX: "true"
+      ENTITY_REGISTRY_CONFIG_PATH: /datahub/datahub-gms/resources/entity-registry.yml
+      ENTITY_VERSIONING_ENABLED: "true"
+      GRAPH_SERVICE_IMPL: elasticsearch
+      KAFKA_BOOTSTRAP_SERVER: broker:29092
+      KAFKA_SCHEMAREGISTRY_URL: http://datahub-gms:8080/schema-registry/api/
+      SCHEMA_REGISTRY_TYPE: INTERNAL
+      DATAHUB_TELEMETRY_ENABLED: "false"
+
+  # The one service anything discovers: `sutura_dev::scope::SERVICES` names `datahub`, this
+  # publishes 8080 ephemerally, and `xtask dev-up` writes back whatever it landed on.
+  datahub:
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/acryldata/datahub-gms:v1.7.0
+    profiles:
+      - datahub
+    hostname: datahub-gms
+    depends_on:
+      datahub-system-update:
+        condition: service_completed_successfully
+    environment:
+      <<: *datahub-backend-environment
+      DATAHUB_SERVER_TYPE: quickstart
+      # No token, and the note at the head of this block says what that costs: a real reader sends a
+      # personal access token as a bearer, so this tier proves the read path and NOT the auth half.
+      METADATA_SERVICE_AUTH_ENABLED: "false"
+      MAE_CONSUMER_ENABLED: "true"
+      MCE_CONSUMER_ENABLED: "true"
+      PE_CONSUMER_ENABLED: "true"
+      ENTITY_SERVICE_ENABLE_RETENTION: "true"
+      ES_BULK_REFRESH_POLICY: NONE
+      JAVA_OPTS: -Xms1g -Xmx1g
+      DATAHUB_UPGRADE_HISTORY_KAFKA_CONSUMER_GROUP_ID: generic-duhe-consumer-job-client-gms
+    ports:
+      - 8080
+    healthcheck:
+      # GMS's OWN documented probe, quoted from upstream's quickstart rather than invented. The
+      # image ships `curl`, unlike Keycloak's.
+      test: ["CMD-SHELL", "curl -sS --fail http://datahub-gms:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 45s
+
 # ## Services the plan names that are NOT here, and why - stated rather than left as an omission
 #
 # The compose-tier section of `docs/implementation-plan-identity-and-services.md` names Oracle,
@@ -166,16 +385,19 @@ services:
 #     Docker Hub option is a community rebuild, which is not what a governance boundary should be
 #     certified against. And `docs/adr/0008` records Oracle's impersonation as DEFERRED anyway: the
 #     capability is in the database and no Rust driver exposes it, so there is nothing to test yet.
-#   * **Datahub** and **OpenMetadata.** Neither is one image: each is a stack - its own store, a
-#     search index, a scheduler - so the two together roughly quadruple the container count. That
-#     cost is the whole of the reason now, and the SECOND half of it is spent: this cell used to say
+#   * **OpenMetadata.** Not one image: a stack - its own store, a search index, a scheduler. There
+#     is no OpenMetadata crate at all, so nothing would read from it, and the cost is real for zero
+#     coverage gained.
+#   * **`Datahub` was in the bullet above and has LEFT it, and which half of the argument was spent
+#     when is the part worth reading.** The first half went earlier: this cell used to say
 #     `sutura-datahub` was planned and non-existent, and `sutura-catalog-datahub` exists - the first
-#     DECLARING catalog adapter, `docs/adr/0016`. So something WOULD read from a Datahub instance,
-#     and what it would buy is exactly the measurement 0016 leaves open: the only `AspectReader`
-#     implementor is `fixture::FixtureReader` over recorded aspects, so the HTTP read path's cost has
-#     never been measured against a real one. There is still no OpenMetadata crate at all. Deferred
-#     on container count, then, not on "nothing would read from either" - and the day somebody wants
-#     that measurement, this is the registration below rather than a rewrite.
+#     DECLARING catalog adapter, `docs/adr/0016` - so something WOULD read from an instance, and the
+#     deferral was restated as resting on CONTAINER COUNT alone. That is the half this change pays,
+#     and it pays it the way this file's own rules allow rather than by revisiting the cost: the
+#     stack is above, five containers behind a `datahub` profile, so a run that does not ask for it
+#     costs nothing. What it buys is exactly the measurement 0016 leaves open - the only
+#     `AspectReader` implementor is `fixture::FixtureReader` over recorded aspects, so the HTTP read
+#     path has never been asked of a real instance.
 #
 # Each arrives as a REGISTRATION when its adapter does: a row in `sutura_dev::scope::SERVICES` and a
 # block here, plus a profile if it should be off by default. That is the property the plan asks for -
@@ -184,3 +406,6 @@ services:
 
 volumes:
   clickhouse-data:
+  datahub-kafka-data:
+  datahub-mysql-data:
+  datahub-opensearch-data:

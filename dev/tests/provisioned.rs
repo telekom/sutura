@@ -194,4 +194,49 @@ mod tests {
         stream.read_to_end(&mut response)?;
         Ok(String::from_utf8_lossy(&response).into_owned())
     }
+
+    #[test]
+    fn the_skip_notice_names_every_profile_and_not_one_of_them() {
+        // A DECLARATION test with no docker in it, in the one file the causality gate holds while
+        // it reverts `dev/src/provisioned.rs` - which is why it is here and not beside the code it
+        // is about. The assertion and the string it asserts on cannot live in one file and also be
+        // provable, because that file is the implementation.
+        //
+        // The property: a harness told that its service was not provisioned is pointed at the
+        // profiles this tier ACTUALLY declares. That line used to cite `just dev-up-identity`,
+        // which was correct while `identity` was the only profile and became advice that starts the
+        // wrong stack the day a second one arrived - a reader whose missing service was `datahub`
+        // was being told to bring up Keycloak. Derived from `SERVICES`, so a third profile cannot
+        // leave the message behind.
+        let profiled = SERVICES
+            .iter()
+            .find(|service| service.profile().is_some())
+            .expect("the tier declares a profiled service");
+
+        // The case has to be a worktree that HAS a discovery file and does not have this service:
+        // that is the branch carrying the profile advice. Nothing provisioned at all is a different
+        // diagnostic - measured, by writing this test the short way first and watching it fail on
+        // the wrong branch. No docker in either, so this runs everywhere and this file's skip does
+        // not reach it.
+        let root = std::env::temp_dir().join(format!("sutura-advice-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("temp dirs are creatable");
+        let scope = Scope::from_root(&root).expect("the directory exists");
+        let started = SERVICES
+            .iter()
+            .find(|service| service.is_default())
+            .expect("the tier declares a default service");
+        sutura_dev::discovery::publish(&scope, &[(started.name(), String::from("127.0.0.1:47214"))])
+            .expect("the discovery file is writable");
+
+        let problem = provisioned::in_worktree(&root, profiled.name()).expect_err("it was not started");
+        let message = problem.to_string();
+        std::fs::remove_dir_all(&root).expect("cleanup");
+
+        for profile in sutura_dev::scope::profiles() {
+            assert!(
+                message.contains(profile),
+                "`{profile}` is declared and the skip notice does not name it: {message}"
+            );
+        }
+    }
 }

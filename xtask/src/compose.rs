@@ -54,7 +54,16 @@ use crate::Verdict;
 use crate::repo;
 
 /// How long to wait for every service to report healthy, unless overridden.
-const READY_TIMEOUT_SECS: u64 = 180;
+///
+/// **This is a DEADLINE and not a sleep, which is what makes a generous value cheap.** The gate
+/// returns the moment every expected service reports healthy, so raising this costs nothing on a
+/// tier that comes up and only changes how long a BROKEN one takes to say so. It was 180, which was
+/// the whole budget for one alpine container; the `DataHub` stack spends more than that before GMS
+/// is asked its first question - three stores to become healthy, then a migration job that creates
+/// the topics, the schema and the indices and has to EXIT, then a JVM with a 45-second start period.
+/// A budget that expired mid-migration would report the platform as never ready when it was still
+/// arriving, which is the failure mode a reader trusts least.
+const READY_TIMEOUT_SECS: u64 = 900;
 
 /// How often to ask. Not a readiness mechanism: the GATE is the health report, and this is only how
 /// often it is read. A fixed sleep instead of a gate is what produces a connection refused inside a
@@ -573,6 +582,10 @@ mod tests {
         // `--with` for exactly this reason.
         let every = sutura_dev::scope::profiles();
         assert!(every.contains(&"identity"), "{every:?}");
+        // Named as well as walked: the `DataHub` stack carries three NAMED VOLUMES, so a destroy
+        // that ran without its profile would leave a MySQL data directory and an OpenSearch index
+        // behind - and the next `dev-up` would come back onto another branch's migration.
+        assert!(every.contains(&"datahub"), "{every:?}");
 
         let args = super::docker::scoped_args(std::path::Path::new("/repo"), "sutura-dev-aaaa1111", &every);
         for profile in &every {
@@ -722,11 +735,20 @@ mod tests {
 
         // And no service writes the value directly. `_USER`/`_PASSWORD` keys must alias.
         for line in text.lines().map(str::trim) {
+            // Every key in the tier that carries a credential VALUE, per service. A key added by a
+            // new service and not added here is the drift this cannot see, which is why the list is
+            // grown by the change that adds the service - the `MYSQL_*` and `EBEAN_*` keys arrived
+            // with `DataHub`, whose GMS reaches the same database the store declares, so a literal
+            // in either place is two definitions of one password.
             let is_credential = line.starts_with("POSTGRES_PASSWORD:")
                 || line.starts_with("CLICKHOUSE_PASSWORD:")
                 || line.starts_with("KC_BOOTSTRAP_ADMIN_PASSWORD:")
+                || line.starts_with("MYSQL_PASSWORD:")
+                || line.starts_with("MYSQL_ROOT_PASSWORD:")
+                || line.starts_with("EBEAN_DATASOURCE_PASSWORD:")
                 || line.starts_with("POSTGRES_USER:")
                 || line.starts_with("CLICKHOUSE_USER:")
+                || line.starts_with("MYSQL_USER:")
                 || line.starts_with("KC_BOOTSTRAP_ADMIN_USERNAME:");
             if is_credential {
                 assert!(
@@ -769,6 +791,108 @@ mod tests {
                 !trimmed.starts_with("container_name:"),
                 "{}:{number}: a literal container name collides between worktrees",
                 path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn the_datahub_platform_starts_only_when_it_is_asked_for() {
+        // Five containers, three of them JVMs, and a reindexing migration. The profile is what keeps
+        // that off the runs that do not want it, and this is that claim read off the registry rather
+        // than off the compose file - the two agree because `--profile` is derived from `SERVICES`.
+        let default_set = super::expected_services(&[]);
+        assert!(
+            !default_set.contains(&"datahub"),
+            "the default set must not include the metadata platform: {default_set:?}"
+        );
+
+        let with_datahub = super::expected_services(&["datahub"]);
+        assert!(with_datahub.contains(&"datahub"), "{with_datahub:?}");
+        // And asking for one profile must not drag the other in: the two are independent costs.
+        assert!(!with_datahub.contains(&"keycloak"), "{with_datahub:?}");
+    }
+
+    #[test]
+    fn every_service_that_publishes_a_port_is_a_registered_service() {
+        // THE seam this whole tier keys off, checked in the one direction nothing else covers.
+        // `read_back_ports` walks `SERVICES` and asks docker for a host port; a compose service that
+        // publishes a port and is NOT registered is an endpoint no discovery file ever carries, so a
+        // test reaching for it gets a missing key rather than an address - and the provision reports
+        // success, because nothing asked. The other direction fails loudly already: a registered
+        // service publishing nothing fails the provision at the read-back.
+        //
+        // Written when the `DataHub` stack arrived, because that block is the first one where a
+        // service publishing a port and a service merely EXISTING stopped being the same thing:
+        // four of its five containers publish nothing on purpose.
+        let Some(text) = compose_text() else { return };
+        let registered: Vec<&str> = sutura_dev::scope::SERVICES
+            .iter()
+            .map(sutura_dev::scope::Service::name)
+            .collect();
+
+        // A service block is a two-space key under `services:`; a `ports:` key is four-space, so the
+        // service a `ports:` belongs to is the last two-space key seen above it.
+        let mut current: Option<&str> = None;
+        let mut publishing: Vec<&str> = Vec::new();
+        for line in text.lines() {
+            if let Some(name) = line.strip_prefix("  ")
+                && !name.starts_with(' ')
+                && !name.starts_with('#')
+                && let Some(name) = name.strip_suffix(':')
+                && !name.contains(' ')
+            {
+                current = Some(name);
+            }
+            if line.trim() == "ports:"
+                && let Some(name) = current
+                && !publishing.contains(&name)
+            {
+                publishing.push(name);
+            }
+        }
+
+        assert!(
+            !publishing.is_empty(),
+            "no service in the tier publishes a port - this scan broke"
+        );
+        for name in &publishing {
+            assert!(
+                registered.contains(name),
+                "`{name}` publishes a host port and is not in `sutura_dev::scope::SERVICES`, so \
+                 nothing writes its address into the discovery file: {registered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_service_in_the_tier_mounts_a_host_directory() {
+        // A named volume is prefixed with the compose project name, so it belongs to one worktree. A
+        // HOST PATH belongs to the machine, and is therefore shared by every worktree on it - which
+        // is the one failure this whole tier exists to prevent, arriving through the volume list
+        // instead of through a port.
+        //
+        // Not hypothetical, and that is why it is a check: upstream `DataHub`'s quickstart binds
+        // `${HOME}/.datahub/plugins` and `${HOME}/.datahub/search` into two of its containers. Both
+        // were dropped when that stack was reproduced here, and a check is what stops the next
+        // faithful copy of an upstream compose file bringing them back.
+        let Some(text) = compose_text() else { return };
+        for (index, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            let Some(entry) = trimmed.strip_prefix("- ") else { continue };
+            let value = entry.trim().trim_matches('"');
+            // A bind mount's source is a path: it starts with `/`, `.` or `~`, or interpolates one.
+            let is_host_path = value.starts_with('/')
+                || value.starts_with("./")
+                || value.starts_with("../")
+                || value.starts_with('~')
+                || value.starts_with("${HOME")
+                || value.starts_with("${PWD");
+            assert!(
+                !(is_host_path && value.contains(':')),
+                "{}:{}: `{value}` mounts a host path, which every worktree on this machine shares \
+                 - use a named volume, which compose prefixes with the project name",
+                super::docker::COMPOSE_FILE,
+                index + 1
             );
         }
     }

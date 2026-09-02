@@ -160,11 +160,32 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         // OFF unless asked for. The reasoning lives beside the service in `compose.services.yaml`:
-        // it is only needed for the two-subject test, nothing here can use it yet, and it is the
-        // slowest of the three to become ready.
+        // it is only needed for the two-subject test and nothing here can use it yet. It used to be
+        // the slowest thing in this tier and no longer is - the `DataHub` stack below is - which
+        // changes nothing about the profile, because readiness was never the argument for it.
         name: "keycloak",
         container_port: 8080,
         profile: Some("identity"),
+    },
+    Service {
+        // The metadata platform, and the FIRST row here whose compose block is a stack rather than a
+        // container: five containers, of which this is the only one anything discovers. The other
+        // four - Kafka, `MySQL`, `OpenSearch` and the migration job - are its stores, nothing in
+        // this repository speaks to them, and a row here would promise an endpoint no test wants.
+        //
+        // Waiting on this one waits on all five, and that is a property of the compose file rather
+        // than of this list: `datahub` is healthy only after the migration job COMPLETED
+        // SUCCESSFULLY, and that job is gated on all three stores being healthy. So the dependency
+        // chain is the readiness gate, and adding the four here would only make provisioning
+        // re-derive what it already waits for.
+        //
+        // OFF unless asked for, and unlike `keycloak` the reason is cost rather than absence: there
+        // IS a reader - `sutura-catalog-datahub` - so this is not a service with nothing to test.
+        // It is three JVMs and a reindexing migration, where `clickhouse` is one alpine container
+        // ready in seconds.
+        name: "datahub",
+        container_port: 8080,
+        profile: Some("datahub"),
     },
 ];
 
@@ -404,21 +425,62 @@ mod tests {
     }
 
     #[test]
-    fn the_identity_provider_is_off_unless_it_is_asked_for() {
+    fn the_expensive_services_are_off_unless_they_are_asked_for() {
         // The reviewer's question - "for what cases do we use keycloak? can we mock it in CI?" -
-        // answered as a mechanism rather than a paragraph. Nothing here can use an identity provider
-        // yet, so a tier that starts it on every run pays for it on every run and tests nothing.
-        let identity: Vec<&str> = SERVICES
+        // answered as a mechanism rather than a paragraph, and now answered for TWO services whose
+        // reasons are NOT the same. Pinned by value, because the whole point is that a service
+        // gaining or losing a profile is a decision somebody reads in a diff.
+        //
+        //   * `keycloak` is opt-in because nothing here can use an identity provider yet, so a tier
+        //     that started it on every run would pay for it on every run and test nothing.
+        //   * `datahub` is opt-in because it COSTS - five containers, three of them JVMs, and a
+        //     reindexing migration. There IS a reader for it, which is precisely why the argument
+        //     had to be restated rather than reused: "nothing reads it" does not apply.
+        let opt_in: Vec<&str> = SERVICES
             .iter()
             .filter(|service| !service.is_default())
             .map(super::Service::name)
             .collect();
-        assert_eq!(identity, vec!["keycloak"]);
+        assert_eq!(opt_in, vec!["keycloak", "datahub"]);
 
-        // And the data sources are NOT behind a profile: those are what an adapter is tested
-        // against, so making them opt-in would be the tier failing at its own job.
-        for service in SERVICES.iter().filter(|s| s.name() != "keycloak") {
-            assert!(service.is_default(), "{} must start by default", service.name());
+        // And a CHEAP data source is not behind a profile: that is what an adapter is tested
+        // against, so making it opt-in would be the tier failing at its own job. `clickhouse` is
+        // named rather than derived, because "every service that is not one of the two above" would
+        // make this test agree with whatever the list said.
+        let started_by_default: Vec<&str> = SERVICES
+            .iter()
+            .filter(|service| service.is_default())
+            .map(super::Service::name)
+            .collect();
+        assert_eq!(started_by_default, vec!["clickhouse"]);
+    }
+
+    #[test]
+    fn a_stack_contributes_one_row_and_not_one_row_per_container() {
+        // `datahub` is five containers in `compose.services.yaml` and ONE row here, because the four
+        // it depends on publish no port and nothing in this repository speaks to them. A row per
+        // container would make provisioning read back a host port for a service that publishes none,
+        // which fails the provision over containers that are behaving correctly.
+        //
+        // What keeps that safe is in the compose file rather than here - GMS is healthy only after
+        // the migration job completed and that job is gated on all three stores - so this asserts
+        // the SHAPE: one registered name, and no row for a store.
+        let names: Vec<&str> = SERVICES.iter().map(super::Service::name).collect();
+        assert!(
+            names.contains(&"datahub"),
+            "the platform is registered under its GMS service name"
+        );
+        for store in [
+            "datahub-kafka",
+            "datahub-mysql",
+            "datahub-opensearch",
+            "datahub-system-update",
+        ] {
+            assert!(
+                !names.contains(&store),
+                "`{store}` is infrastructure with no published port - registering it would make \
+                 provisioning read back a port that does not exist"
+            );
         }
     }
 
@@ -428,7 +490,7 @@ mod tests {
         // ACTIVE profiles - so a profile missing from this walk leaves a container and a named
         // volume behind while the destroy reports success. Derived from `SERVICES`, so adding a
         // profile cannot forget to update it.
-        assert_eq!(super::profiles(), vec!["identity"]);
+        assert_eq!(super::profiles(), vec!["identity", "datahub"]);
         for service in SERVICES {
             if let Some(profile) = service.profile() {
                 assert!(
