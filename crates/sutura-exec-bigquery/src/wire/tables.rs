@@ -141,7 +141,11 @@ const MAX_TABLE_ID_BYTES: usize = 1024;
 /// rather than a slow one.
 ///
 /// The quota-project header is asked of the CREDENTIAL exactly as `submit` asks it, and the project
-/// it names is the one whose dataset is being listed.
+/// it names is the SOURCE's declared billing project - never the one the dataset lives in. **This
+/// sentence read the other way round until review corrected it a second time:** the code below was
+/// already right and the doc still stated the rule the fix had reversed, which is the cheapest
+/// available way to reintroduce the bug. The dataset's own project goes in the request PATH, and
+/// [`DatasetAddress`] names its two accessors after their roles for exactly this reason.
 pub(super) fn list<C>(wire: &BigQueryWire<C>, at: &DatasetAddress) -> Wired<HeldTables, C::Error>
 where
     C: AccessTokens,
@@ -213,22 +217,50 @@ where
 /// **A free function here rather than a method in `wire.rs`, for the reason `document.rs` exists:**
 /// that file was at the length gate, and everything about the listing belongs together anyway.
 ///
-/// A `401` or a `403` on `tables.list` means the identity this source was opened with may not list
-/// the dataset - which fails identically on every boot, and which one IAM grant fixes. Everything
-/// else is `false`, exhaustively rather than through a wildcard: an unreachable host, an unreadable
-/// body, a listing that would not decode, a page token this transport will not send, a dataset that
-/// did not finish listing. Each of those is a condition that can pass, so telling a composition root
-/// to stop would refuse a deployment that would have worked.
+/// A `401` means the identity this source was opened with could not authenticate at all, and a `403`
+/// USUALLY means it may not list the dataset - which fails identically on every boot, and which one
+/// IAM grant fixes. Everything else is `false`, exhaustively rather than through a wildcard: an
+/// unreachable host, an unreadable body, a listing that would not decode, a page token this transport
+/// will not send, a dataset that did not finish listing. Each of those is a condition that can pass,
+/// so telling a composition root to stop would refuse a deployment that would have worked.
 ///
 /// **A `404` is deliberately NOT this.** A dataset that is not there is indistinguishable from one
 /// whose name a deployment is about to fix, and the endpoint answers `404` for a project the caller
 /// cannot see either - so it is left to the warning, which is where an ambiguous status belongs.
-pub(super) const fn was_refused<C>(error: &WireError<C>) -> bool
+///
+/// **Nor is every `403`, which is a review finding and the reason this reads `named` at all.** The
+/// status alone was the whole decision, and [`crate::wire::document::refusal`] fills `named` from the
+/// per-error `reason` precisely so 403s can be told apart. `BigQuery` documents six reasons at that
+/// status, and two of them are not a grant: `rateLimitExceeded` - *"your project exceeds a short-term
+/// rate limit by sending too many requests too quickly"*, whose own remedy is *"slow down the request
+/// rate"* - and `quotaExceeded`, a project or custom quota rather than a permission. So three
+/// replicas restarting together could be told to add a grant they already hold, and refuse, where a
+/// `503` in the same position warned and served. Both go with the `404`: ambiguous belongs in the
+/// warning half.
+///
+/// **Documentation rather than measurement, said out loud because the two spellings are load-bearing
+/// and nothing here can provoke them.** They are `BigQuery`'s own published reason vocabulary,
+/// re-read against `cloud.google.com/bigquery/docs/error-messages` on 2026-09-02, where
+/// `rateLimitExceeded` is the only 403 that document calls retryable. `quotaExceeded` is documented
+/// as needing intervention rather than as transient, and it is in the warning half anyway on the
+/// argument this predicate actually makes: what a refusal here tells an operator is *grant
+/// `bigquery.tables.list`*, and a quota is not that - a quota also resets, so the next boot can
+/// succeed, which is exactly the *condition that can pass* test every `false` arm below meets.
+///
+/// **What is deliberately left in the refusal half, so the judgement is visible rather than
+/// implied:** `blocked` (*"temporarily denylisted ... contact support"*), `billingNotEnabled` and
+/// `responseTooLarge`. The first reads transient and its remedy is not self-service; the other two
+/// fail identically on every boot. None of the three is fixed by the grant a refusal here names, so
+/// refusing on them costs an operator a startup message pointing at the wrong permission - which is
+/// the limit of this split rather than a case it answers.
+pub(super) fn was_refused<C>(error: &WireError<C>) -> bool
 where
     C: core::error::Error + 'static,
 {
     match *error {
-        WireError::Refused { status, .. } => status == 401 || status == 403,
+        WireError::Refused { status, ref named, .. } => {
+            (status == 401 || status == 403) && !matches!(named.as_str(), "rateLimitExceeded" | "quotaExceeded")
+        }
         WireError::Credential { .. }
         | WireError::Expired { .. }
         | WireError::NoClock { .. }
@@ -257,11 +289,17 @@ mod tests {
     };
     use crate::transport::{DatasetAddress, DatasetId, ProjectId};
 
+    /// A CROSS-PROJECT address, and the two projects differ on purpose.
+    ///
+    /// **They used to be the same value in both roles, which is what review found:** the fix that
+    /// made [`list`] send `billed_to` in the quota header and `project` in the path was then
+    /// unobservable here, because every fixture read the same string whichever accessor it went
+    /// through. A source declared `billing_project: acme-analytics` reading `partner-data.Warehouse.*`
+    /// is the case the third field exists for, so it is the case the fixture is.
     fn at() -> DatasetAddress {
-        let project = ProjectId::parse("acme-analytics").expect("a project id parses");
         DatasetAddress::of(
-            project.clone(),
-            project,
+            ProjectId::parse("acme-analytics").expect("the source's billing project parses"),
+            ProjectId::parse("partner-data").expect("the dataset's own project parses"),
             DatasetId::parse("Warehouse").expect("a dataset id parses"),
         )
     }
@@ -271,9 +309,10 @@ mod tests {
         assert_eq!(
             page_url(&at(), None),
             format!(
-                "https://bigquery.googleapis.com/bigquery/v2/projects/acme-analytics/datasets/Warehouse/tables?maxResults={PAGE_SIZE}"
+                "https://bigquery.googleapis.com/bigquery/v2/projects/partner-data/datasets/Warehouse/tables?maxResults={PAGE_SIZE}"
             ),
-            "the path carries the project and the dataset, and the page size is stated rather than defaulted"
+            "the path carries the DATASET's own project - never the one the read is billed to - and \
+             the page size is stated rather than defaulted"
         );
     }
 
@@ -404,6 +443,40 @@ mod tests {
             !was_refused(&WireError::<FakeCause>::ListingDidNotFinish { pages: MAX_PAGES }),
             "a dataset that did not finish listing can finish on the next boot"
         );
+    }
+
+    #[test]
+    fn a_403_the_service_documents_as_a_rate_limit_is_not_read_as_a_missing_grant() {
+        // **The status alone was the whole decision until review, and this is the case that broke
+        // it:** three replicas restart together, `tables.list` answers `403 rateLimitExceeded` on
+        // two, and both refuse to start with a message telling the operator to add a grant they
+        // already hold - where a `503` in the same position warned and served.
+        //
+        // One assertion per reason rather than a loop, so a failure names which reason regressed.
+        assert!(
+            !was_refused(&refused(403, "rateLimitExceeded")),
+            "the service's own documented retryable 403 warns rather than refusing"
+        );
+        assert!(
+            !was_refused(&refused(403, "quotaExceeded")),
+            "a quota is not the `bigquery.tables.list` grant a refusal here names, and it resets"
+        );
+        // **THE control, and it is what stops the fix from being a hole.** Reading `named` at all
+        // only pays if the ordinary permission refusal still refuses.
+        assert!(
+            was_refused(&refused(403, "accessDenied")),
+            "a plain permission refusal is still a refusal"
+        );
+        // A body that is not the envelope leaves `named` empty - `document::refusal` says so - and an
+        // unnamed 403 has to stay a refusal, or a shape change at the service would silently turn the
+        // whole split off.
+        assert!(
+            was_refused(&crate::wire::document::refusal::<FakeCause>(403, "not the envelope")),
+            "a 403 this crate could name no reason for is still a refusal"
+        );
+        // And the two reasons are not a status-blind allowlist: the same word at 503 was already a
+        // warning and stays one, so the arm reads the PAIR rather than the reason alone.
+        assert!(!was_refused(&refused(503, "rateLimitExceeded")), "still not a refusal");
     }
 
     #[test]

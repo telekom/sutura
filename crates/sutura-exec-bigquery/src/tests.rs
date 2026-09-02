@@ -580,8 +580,8 @@ fn one_call_per_dataset_and_not_one_per_model() {
     assert_eq!(
         *warehouse.transport.listed.borrow(),
         vec![
-            String::from("acme-analytics/reference"),
-            String::from("acme-analytics/warehouse")
+            String::from("acme-analytics:acme-analytics/reference"),
+            String::from("acme-analytics:acme-analytics/warehouse")
         ],
         "two datasets are two calls, whatever the model count"
     );
@@ -607,7 +607,7 @@ fn an_unqualified_model_is_looked_for_in_the_dataset_the_source_was_opened_again
     );
     assert_eq!(
         *warehouse.transport.listed.borrow(),
-        vec![String::from("acme-analytics/warehouse")]
+        vec![String::from("acme-analytics:acme-analytics/warehouse")]
     );
 }
 
@@ -680,8 +680,41 @@ fn a_table_path_this_adapter_cannot_address_is_reported_absent_and_stops_nothing
     );
     assert_eq!(
         *warehouse.transport.listed.borrow(),
-        vec![String::from("acme-analytics/warehouse")],
+        vec![String::from("acme-analytics:acme-analytics/warehouse")],
         "the addressable tables are still looked for - one bad path does not skip the source"
+    );
+}
+
+#[test]
+fn a_cross_project_model_is_listed_in_its_own_project_and_billed_to_the_source() {
+    // **The mechanism the quota-project fix did not have, and review is why it is here.** That fix
+    // made the listing send the SOURCE's billing project in `x-goog-user-project` and the DATASET's
+    // own project in the request path; nothing could observe it, because `billed_to()` is read in one
+    // place no test can call and every fixture passed the same string in both roles.
+    //
+    // A source declared `billing_project: acme-analytics` reading `partner-data.shared.dim_region`
+    // is the whole case: the caller holds `serviceusage.services.use` on its own project and not on
+    // the partner's, so attributing the read to `partner-data` would `403` a listing whose QUERY
+    // works - a permanent warning on exactly the deployment shape this field was added for. Reverting
+    // `list`'s header to `at.project()` cannot be caught here (that line is inside the untestable
+    // wire call), but a `DatasetAddress` built with the roles swapped now is.
+    let warehouse = open(
+        Recording::empty()
+            .holding("acme-analytics/warehouse", &["dim_customer"])
+            .holding("partner-data/shared", &["dim_region"]),
+        shared_posture(),
+    );
+    let answered = warehouse
+        .preflight(&asked(&["dim_customer", "partner-data.shared.dim_region"]))
+        .expect("both datasets answered");
+    assert_eq!(answered, TablesPresent::All, "both tables are where the bundle says");
+    assert_eq!(
+        *warehouse.transport.listed.borrow(),
+        vec![
+            String::from("acme-analytics:acme-analytics/warehouse"),
+            String::from("acme-analytics:partner-data/shared")
+        ],
+        "the dataset's own project is the one looked in; the source's is the one billed, for BOTH"
     );
 }
 

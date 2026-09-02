@@ -65,7 +65,14 @@ pub(super) struct Recording {
     /// A map rather than one set, because the pre-flight's whole claim is that it makes ONE call PER
     /// DATASET: a single set could not tell a bundle read with two calls from one read with one.
     holding: BTreeMap<String, BTreeSet<String>>,
-    /// Which pairs were listed, in order, so a test can count the calls rather than trust them.
+    /// Which addresses were listed, in order, so a test can count the calls rather than trust them.
+    ///
+    /// **`billed_to:project/dataset` and not the `project/dataset` [`Self::holding`] is keyed on,
+    /// which is a review finding rather than a formatting choice.** The quota-project fix made
+    /// `list` send `billed_to()` in the header and `project()` in the path, and no test could see
+    /// it: this vector recorded two of the three fields, so a cross-project listing looked exactly
+    /// like a same-project one. Recording all three makes the ROLE each project resolves to an
+    /// assertion - see `a_cross_project_model_is_listed_in_its_own_project_and_billed_to_the_source`.
     pub(super) listed: RefCell<Vec<String>>,
 }
 
@@ -81,6 +88,9 @@ impl Recording {
     }
 
     /// The same fake, told which tables one dataset holds. Chainable, so two datasets are two calls.
+    ///
+    /// Keyed by `project/dataset`, because that is WHERE a table lives - the project a read is billed
+    /// to cannot change which tables a dataset holds, and a key that carried it would say it could.
     pub(super) fn holding(mut self, pair: &str, tables: &[&str]) -> Self {
         self.holding
             .insert(String::from(pair), tables.iter().map(|table| String::from(*table)).collect());
@@ -137,7 +147,10 @@ impl JobTransport for Recording {
     /// outcomes the port keeps apart.
     fn list_tables(&self, at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
         let pair = format!("{}/{}", at.project().as_str(), at.dataset().as_str());
-        self.listed.borrow_mut().push(pair.clone());
+        // All THREE fields recorded, and only the last two used to look the answer up: which project
+        // pays is not a fact about which tables a dataset holds, and it is the one this fake was
+        // blind to. See `Self::listed`.
+        self.listed.borrow_mut().push(format!("{}:{pair}", at.billed_to().as_str()));
         Ok(self.holding.get(&pair).cloned().unwrap_or_default())
     }
 
