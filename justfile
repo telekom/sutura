@@ -127,12 +127,16 @@ test:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    # Bring up the SAME nixpkgs Postgres `checks.nextest` runs in the sandbox and tear it down
-    # afterwards, so the postgres corpus and differential cells RUN here rather than skip. `start`
-    # writes `.sutura-dev/endpoints.json`; a start failure aborts the recipe before any test runs.
-    trap 'sutura-postgres-tier stop' EXIT
-    sutura-postgres-tier start
-    SUTURA_DEV_REQUIRE_TIER=1 cargo nextest run --workspace --all-features
+    # Bring up the SAME nixpkgs Postgres `checks.nextest` runs in the sandbox, so the postgres
+    # corpus and differential cells RUN here rather than skip. Through `nix/with-tier.sh` rather
+    # than a `start` plus an unconditional `stop` trap, which is what this recipe had and what tore
+    # down a tier a developer had started by hand - see that file.
+    # shellcheck source=nix/with-tier.sh
+    source nix/with-tier.sh
+    # `SUTURA_DEV_REQUIRE_TIER` is exported by `sutura_tier_up` when a tier is up, rather than
+    # asserted on this line - see that file: two statements about one fact can disagree.
+    sutura_tier_up
+    cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
 # The served deployment, asked a question: `crates/sutura-serve/tests/served.rs` writes a settings
@@ -293,6 +297,12 @@ gates: hygiene
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
+    # The tier, for the reason `just test` gives - and this recipe did NOT have it, which is why
+    # `just gates` failed the two postgres cells on any machine where nothing else had started a
+    # server. It claims to be what CI runs, and CI's `checks.nextest` provisions one.
+    # shellcheck source=nix/with-tier.sh
+    source nix/with-tier.sh
+    sutura_tier_up
     cargo run -q -p xtask -- fmt --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo nextest run --workspace --all-features

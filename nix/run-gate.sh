@@ -45,7 +45,17 @@ nix_check() {
 case "$gate" in
 tests)
     if cargo nextest --version >/dev/null 2>&1; then
-        exec cargo nextest run --workspace --all-features
+        # The Postgres tier, which this arm did NOT bring up - so the two fail-closed postgres
+        # cells failed and BLOCKED EVERY COMMIT on a machine where nothing else had started a
+        # server. Measured 2026-09-02. Tier 2 below has always provisioned it, through
+        # `checks.nextest`'s own `preCheck`, so this was the one venue running the suite bare.
+        #
+        # NOT `exec`, and that is load-bearing rather than tidy: `exec` replaces this shell, so the
+        # EXIT trap `sutura_tier_up` arms would never fire and the server would outlive the hook.
+        # shellcheck source=nix/with-tier.sh
+        . nix/with-tier.sh
+        sutura_tier_up
+        cargo nextest run --workspace --all-features
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: cargo-nextest absent, using nix (same pin as CI)"
         nix_check nextest
