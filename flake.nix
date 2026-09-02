@@ -274,6 +274,21 @@
         ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
         ciArtifacts = craneLib.buildDepsOnly ciArgs;
 
+        # `utoipa-swagger-ui`'s build script embeds an ABSOLUTE `OUT_DIR` path into the rust-embed
+        # `#[folder]` attribute it generates (`target/ci/build/utoipa-swagger-ui-*/out/embed.rs`).
+        # A `src = ./.` check like `nextest` or `doctest` reuses `ciArtifacts` - the dependency
+        # closure built from the FILTERED source, whose sandbox unpacks that source to `/build/source`
+        # - and when cargo recompiles the crate in a sandbox whose source root (and so `OUT_DIR`)
+        # differs, it reuses the stale `embed.rs`, whose folder points at a source root that is not
+        # present there, and the compile fails with `#[derive(RustEmbed)] folder ... does not exist`.
+        # Removing the crate's build output after crane has populated the reused target dir forces
+        # `build.rs` to rerun and regenerate `embed.rs` against the current source root.
+        cleanStaleSwaggerUi = ''
+          rm -rf -- "''${CARGO_TARGET_DIR:-target}/ci/build/utoipa-swagger-ui-"* \
+                    "''${CARGO_TARGET_DIR:-target}/ci/.fingerprint/utoipa-swagger-ui-"* \
+                    2>/dev/null || true
+        '';
+
         # What a BARE cargo needs before it can build this workspace, as shell lines: the linker
         # and the libraries an app inherits from nothing, plus the warm start that lets it reuse
         # the dependency closure the checks already built. In `nix/cargo-env.nix` because this
@@ -385,6 +400,7 @@
             # reason, and the filter clauses stay because clippy and the release build read them.
             src = ./.;
             cargoNextestExtraArgs = "--workspace --all-features";
+            postConfigure = cleanStaleSwaggerUi;
             # `insta` writes a `.snap.new` beside a snapshot that did not match and then fails. In
             # a sandbox that file goes nowhere anybody will read, so this turns the failure into a
             # diff in the log and nothing else. It is also the setting that makes a MISSING
