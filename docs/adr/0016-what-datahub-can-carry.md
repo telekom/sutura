@@ -5,8 +5,12 @@ description: A research spike, measured against the SemanticCatalog port rather 
 
 # What DataHub can carry, and the measure it cannot
 
-Status: **accepted as a finding. No adapter is written, no crate exists, and no dependency was added.**
-The finding is the deliverable; the decision it forces is about what an adapter declares.
+Status: **accepted as a finding, and now acted on.** The finding was the deliverable; the adapter it
+scheduled has since landed as `sutura-catalog-datahub` - a `declaring` `SemanticCatalog` that reads
+recorded entity aspects and declares it provides structure, descriptions and the join columns and no
+metric layer. Everything it decides is tested against a fake reader over recorded aspects; the HTTP
+client over the versioned OpenAPI entity surface is the open read-path-cost measurement this record
+leaves to a provisioned instance.
 
 **Reframed after review, and the reframe is recorded rather than smoothed over.** The measurements
 below are unchanged and were independently verified. What changed is the conclusion drawn from one of

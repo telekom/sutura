@@ -1,0 +1,32 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.definitions()
+---
+models:
+  customers:
+    name: customers
+    source: local
+    table: dim_customer
+    columns:
+      - customer_id
+      - segment
+    description: The customer dimension.
+  orders:
+    name: orders
+    source: local
+    table: fct_order
+    columns:
+      - amount_cents
+      - customer_id
+      - order_date
+      - order_id
+    description: "Net revenue orders, in minor units."
+relationships:
+  orders_to_customer:
+    name: orders_to_customer
+    origin_model: orders
+    origin_column: customer_id
+    target_model: customers
+    target_column: customer_id
+    join_type: many_to_one
+metrics: {}

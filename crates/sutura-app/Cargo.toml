@@ -19,6 +19,10 @@ thiserror = { workspace = true }
 # it is the one place a corpus can be run against a real adapter and a fake without either of them
 # depending on the other.
 sutura-catalog-local = { workspace = true }
+# A second CATALOG, and the first one that supplies part of a model: it is a DECLARING source and this
+# suite expands the three universal catalog cells over it, measured against its own declaration
+# rather than the oracle. `docs/adr/0016`.
+sutura-catalog-datahub = { workspace = true }
 # A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
 # to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
 # adapter today. The binary links the engine and nothing else.

@@ -3674,6 +3674,7 @@ dependencies = [
  "insta",
  "polyglot-sql",
  "serde_norway",
+ "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-dev",
  "sutura-domain",
@@ -3682,6 +3683,16 @@ dependencies = [
  "sutura-exec-postgres",
  "sutura-semantic",
  "sutura-sql",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "sutura-catalog-datahub"
+version = "0.4.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sutura-domain",
  "thiserror 2.0.20",
 ]
 
