@@ -338,23 +338,39 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let pinned = load(Path::new(&root))?;
         let question = read_question(Path::new(&question_path))?;
         let settings = crate::sources::configured()?;
-        let opened = crate::sources::open_engine(&pinned, settings.sources(), settings.runtime(), data.as_deref())?;
-        answered(pinned, &question, &opened, settings.runtime())
+        // **The exhaustive match is the caller's, and that is what erasing later would have cost.**
+        // `sutura_app::Warehouses<W>` is generic in ONE adapter, so the answer path is monomorphised
+        // per kind; naming both arms here is what makes a third linked adapter a compile error at
+        // this line rather than a `SourceUnavailable` on the first question. On a build without the
+        // `bigquery` feature the enum has one variant and this reads as it always did.
+        match crate::sources::open_engine(
+            &pinned,
+            settings.sources(),
+            settings.runtime(),
+            settings.server().request_timeout(),
+            data.as_deref(),
+        )? {
+            crate::sources::Opened::Files(opened) => answered(pinned, &question, &opened, settings.runtime()),
+            #[cfg(feature = "bigquery")]
+            crate::sources::Opened::BigQuery(opened) => answered(pinned, &question, &opened, settings.runtime()),
+        }
     })())
 }
 
 /// Verifies the bundle against the data system that was opened, answers the question, and prints it.
 ///
-/// Its own function rather than the tail of [`query`], so the order is stated once: it takes the
-/// bundle by value because `verify_and_validate` consumes it - the only constructor of `Validated` is
-/// the one that re-ran every anchor, which is what stops an arrangement of these lines that skips the
-/// check.
-fn answered(
+/// Generic in the adapter, so the two arms above share every line after them. It takes the bundle by
+/// value because `verify_and_validate` consumes it: the only constructor of `Validated` is the one
+/// that re-ran every anchor, which is what stops an arrangement of these lines that skips the check.
+fn answered<W>(
     pinned: PinnedDefinitions,
     question: &Query,
-    opened: &crate::sources::Opened,
+    opened: &crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    W: sutura_domain::warehouse::Warehouse,
+{
     // The governance is not an order this function has to remember. One call runs the anchors against
     // the engine it was handed and hands back a bundle only if every one reproduced its number;
     // `sutura_app::answer` takes nothing else. A corrupted anchor stops here rather than answering.
@@ -363,7 +379,7 @@ fn answered(
     // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller, and
     // the identity the data system is reached under is the process's own.
     let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
-    // The broker comes off the same value the engines did, which is the whole point of `Opened`
+    // The broker comes off the same value the engines did, which is the whole point of `OpenedWith`
     // carrying it: there is no path here that executes without a credential - `Warehouse::execute`
     // has no signature for it - and what the leg presents agrees with what the adapter was opened
     // under because ONE decision produced both.

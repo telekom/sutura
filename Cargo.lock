@@ -3722,6 +3722,7 @@ dependencies = [
  "sutura-catalog-local",
  "sutura-config",
  "sutura-domain",
+ "sutura-exec-bigquery",
  "sutura-exec-datafusion",
  "sutura-mcp",
  "sutura-runtime",

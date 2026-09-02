@@ -721,12 +721,17 @@ fn build_bigquery(
     // the deployment declared - every row as this process while a reviewer believed a subject's
     // authorization was evaluated - which is the confusion `docs/adr/0014` names. Refuse it before
     // the credential file is read, so an operator fixes the posture rather than a file.
-    if identity.posture() == &sutura_domain::source::SourcePosture::ImpersonationAtSource {
-        return Err(format!(
-            "`sources.{source}` is `impersonation-at-source`, and this build does not attach a broker \
-             that exchanges a subject's credential to a served `BigQuery` source - refusing rather than \
-             reading every row as this process; no fallback"
-        ));
+    // **An exhaustive MATCH and not an `==`**, for the reason `sutura-cli`'s copy states at length:
+    // a third `SourcePosture` would fall through an `==` and be OPENED. Both roots, one edit.
+    match *identity.posture() {
+        sutura_domain::source::SourcePosture::SharedServiceUser { .. } => {}
+        sutura_domain::source::SourcePosture::ImpersonationAtSource => {
+            return Err(format!(
+                "`sources.{source}` is `impersonation-at-source`, and this build does not attach a \
+                 broker that exchanges a subject's credential to a served `BigQuery` source - \
+                 refusing rather than reading every row as this process; no fallback"
+            ));
+        }
     }
     // **`within_request_timeout` and NOT `parse`, and the difference is a bug that would only show up
     // under load.** What a job may spend is not the request timeout: an answer makes

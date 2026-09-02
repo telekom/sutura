@@ -164,9 +164,10 @@ Closing the gap is a separate change, and it is a build change rather than a rep
 crate graph belongs in the artefact rather than beside it, which means `cargo auditable` on the four
 cross builds and a CycloneDX document scoped to the shipped package rather than to the workspace.
 **Scoped, because the workspace graph is not the binary's graph and saying so would be the exact
-overstatement this section is about** - `sutura-cli` links the engine only, while `libduckdb-sys`
-and the BigQuery wire put `ureq`, rustls and `ring` in the resolve graph for a binary that links
-none of them. `deny.toml` has carried that argument for longer than this record has existed.
+overstatement this section is about** - `sutura-cli` AS PUBLISHED links the engine only (its
+`bigquery` feature is default-off, and `nix/shipped.nix` passes no `--features`), while
+`libduckdb-sys` and the BigQuery wire put `ureq`, rustls and `ring` in the resolve graph for a binary
+that links none of them. `deny.toml` has carried that argument for longer than this record has existed.
 
 ## What this costs, measured where it can be
 
@@ -268,8 +269,9 @@ repository's own rule is *prefer unrepresentable to checked*, and `Secret` and `
 rule applied to values; this is the same move applied to provenance.
 
 **And it would be the wrong list.** `Cargo.lock` records what cargo RESOLVED, not what the linker
-KEPT. `sutura-cli` links the engine only, while `libduckdb-sys` and the BigQuery `wire` feature put
-`ureq`, rustls and `ring` into the resolve graph for a binary that links none of them - an argument
+KEPT. `sutura-cli` as published links the engine only, while `libduckdb-sys` and both composition roots'
+default-off `bigquery` features put `ureq`, rustls and `ring` into the resolve graph for a binary
+that links none of them - an argument
 `deny.toml` has carried at length for longer than this record has existed. A workspace-wide document
 names all three, and errs in the direction that matters: it overstates what ships. Scoping it to
 `--package sutura-cli` narrows that and does not fix it, because a feature-gated dependency is still
