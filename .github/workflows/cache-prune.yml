@@ -1,19 +1,18 @@
-# Delete the build caches belonging to CLOSED pull requests, weekly and on request.
+# Delete unreachable pull-request and merge-queue build caches, daily and on request.
 #
-# GitHub already prunes: an entry idle for 7 days is evicted, and past the 10 GB repository
-# limit it evicts least-recently-used until the total fits. So this file is not here because
-# nothing collects the garbage - it is here because LRU is the wrong policy for this repo.
+# GitHub already prunes an entry idle for 7 days and evicts least-recently-used entries when the
+# repository allocation fills. The allocation is 100 GB as of 2026-09-01, so capacity is not the
+# immediate constraint: 32.95 GB was active when this was measured. This file exists because LRU
+# cannot know that a ref has become unreachable and will never read its cache again.
 #
 # The Actions cache is scoped by ref. A cache written by a pull request lands under
 # `refs/pull/<n>/merge` and can only ever be restored by a run on that same ref, so once the
-# pull request is closed it is dead weight - nothing will read it again. LRU does not know
-# that, so a dead entry from a merged branch competes for the quota with the
-# `refs/heads/main` entries that every future pull request restores from, and evicts them by
-# being touched more recently.
+# pull request is closed it is dead weight. A merge-queue cache under
+# `refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>` has the same lifetime. LRU does not know that,
+# so both compete with the `refs/heads/main` entries every future pull request can restore.
 #
-# Measured before this file existed: 4.31 GB across 2120 entries - 43% of the quota - held by
-# eight closed pull requests, against a total of 10.73 GB that was already OVER the limit and
-# evicting continuously. The largest single dead entry was 139 MB.
+# Measured on 2026-09-01: 18,688 entries used 32.95 GB. Closed pull requests held 2.63 GB and
+# closed merge-queue refs another 3.27 GB; `main` held 11.17 GB and stays explicitly out of scope.
 #
 # What it costs when it is wrong: re-running CI on an already-closed pull request rebuilds
 # from scratch instead of restoring. That is slower and still correct, and it is rare enough
@@ -29,13 +28,12 @@ name: cache-prune
 
 on:
   schedule:
-    # Monday 04:23 UTC, before the week's work and off the hour: scheduled jobs on the hour
-    # queue behind everyone else's.
-    - cron: "23 4 * * 1"
+    # Daily at 04:23 UTC and off the hour: scheduled jobs on the hour queue behind everyone else's.
+    - cron: "23 4 * * *"
   workflow_dispatch:
     inputs:
       budget:
-        description: "Maximum caches to delete in one run"
+        description: "Maximum caches to delete when the API budget allows"
         required: false
         default: "800"
       dry_run:
@@ -59,7 +57,7 @@ jobs:
       actions: write        # delete cache entries
       pull-requests: read   # decide which pull requests are still open
     steps:
-      - name: Delete caches belonging to closed pull requests
+      - name: Delete caches belonging to closed pull requests and queue refs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -71,6 +69,25 @@ jobs:
 
           # A non-numeric budget would reach `head -n` and abort there with a worse message.
           case "$BUDGET" in ''|*[!0-9]*) echo "::error::budget must be a number, got '$BUDGET'"; exit 1 ;; esac
+
+          pr_number_for_ref() {
+            case "$1" in
+              refs/pull/*/merge)
+                number="${1#refs/pull/}"; number="${number%/merge}"
+                ;;
+              refs/heads/gh-readonly-queue/*/pr-*-*)
+                number="${1##*/pr-}"; number="${number%%-*}"
+                ;;
+              *) return 1 ;;
+            esac
+            case "$number" in ''|*[!0-9]*) return 1 ;; esac
+            printf '%s\n' "$number"
+          }
+
+          # ponytail: the parser lives here; these three shapes are its whole contract.
+          test "$(pr_number_for_ref refs/pull/123/merge)" = 123
+          test "$(pr_number_for_ref refs/heads/gh-readonly-queue/main/pr-456-deadbeef)" = 456
+          test -z "$(pr_number_for_ref refs/heads/main || true)"
 
           # OPEN pull requests first, and the run ABORTS if this fails. Fail closed: an empty
           # list read as "nothing is open" would mark every cache dead and delete the lot. The
@@ -93,34 +110,23 @@ jobs:
             [ -s page.tsv ] || break
             cat page.tsv >> all.tsv
             page=$((page + 1))
-            # A guard, not a limit: 200 pages is 20000 entries, far past anything real.
-            # `if` and not `&& break`: under `set -e` a failing test as the loop body's last
-            # command exits the script instead of continuing the loop.
-            if [ "$page" -gt 200 ]; then
-              echo "::warning::stopped paging at 200 pages"
-              break
-            fi
           done
           total=$(wc -l < all.tsv)
           echo "cache entries: ${total}"
 
-          # DEAD = scoped to a pull-request merge ref whose pull request is not open. The ref
-          # pattern is an anchored allowlist: `refs/heads/main` and every tag scope can never
-          # match it, so no rule elsewhere has to protect them.
+          # DEAD = scoped to a pull-request or merge-queue ref whose pull request is not open.
+          # The parser is an allowlist: `refs/heads/main` and every tag scope return no number,
+          # so no rule elsewhere has to protect them.
           : > dead.tsv
           while IFS=$'\t' read -r id ref size key; do
-            case "$ref" in
-              refs/pull/*/merge) ;;
-              *) continue ;;
-            esac
-            n="${ref#refs/pull/}"; n="${n%/merge}"
-            case "$n" in ''|*[!0-9]*) continue ;; esac
+            n="$(pr_number_for_ref "$ref" || true)"
+            [ -n "$n" ] || continue
             if grep -qx "$n" open.txt; then continue; fi
             printf '%s\t%s\t%s\t%s\n' "$size" "$id" "$ref" "$key" >> dead.tsv
           done < all.tsv
 
           if [ ! -s dead.tsv ]; then
-            echo "nothing to prune: no cache belongs to a closed pull request"
+            echo "nothing to prune: no cache belongs to a closed pull request or queue ref"
             exit 0
           fi
 
@@ -131,7 +137,19 @@ jobs:
           dead_bytes=$(awk -F'	' '{s+=$1} END{print s+0}' dead.tsv)
           echo "dead: ${dead_count} entr(ies), $((dead_bytes / 1000000)) MB"
 
-          head -n "$BUDGET" dead.tsv > batch.tsv
+          limit="$BUDGET"
+          if [ "$DRY_RUN" != "true" ]; then
+            # Listing is one request per 100 entries and deletion is one request per entry. Read
+            # the remaining allowance AFTER listing, then leave room for other repository jobs.
+            remaining="$(gh api rate_limit --jq '.resources.core.remaining')"
+            case "$remaining" in ''|*[!0-9]*) echo "::error::invalid API allowance '$remaining'"; exit 1 ;; esac
+            available=$((remaining > 100 ? remaining - 100 : 0))
+            if [ "$limit" -gt "$available" ]; then
+              echo "::notice::capping ${limit} requested deletions at ${available} to reserve 100 API calls"
+              limit="$available"
+            fi
+          fi
+          head -n "$limit" dead.tsv > batch.tsv
           batch_bytes=$(awk -F'	' '{s+=$1} END{print s+0}' batch.tsv)
 
           {
@@ -139,7 +157,7 @@ jobs:
             echo
             echo "| | entries | size |"
             echo "| --- | --- | --- |"
-            echo "| dead (closed pull requests) | ${dead_count} | $((dead_bytes / 1000000)) MB |"
+            echo "| dead (closed pull requests and queue refs) | ${dead_count} | $((dead_bytes / 1000000)) MB |"
             echo "| this run | $(wc -l < batch.tsv) | $((batch_bytes / 1000000)) MB |"
           } >> "$GITHUB_STEP_SUMMARY"
 
