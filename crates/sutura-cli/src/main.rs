@@ -1,7 +1,7 @@
 //! The sutura binary.
 //!
-//! The composition root, and nothing else. Every command lives in [`commands`], which is the one
-//! place an adapter is named; this file holds the allocator, the command table and `doctor`.
+//! The composition root, and nothing else. Every command lives in [`commands`] and every adapter is
+//! named in [`sources`]; this file holds the allocator, the command table and `doctor`.
 //!
 //! `Result<_, String>` is used freely below the surface here. The boundary gate exempts a binary
 //! on purpose: the audience for these errors is a person reading stderr, not code matching on a
@@ -63,6 +63,7 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
 
 mod commands;
 mod mcp;
+mod sources;
 
 use std::process::ExitCode;
 
@@ -158,13 +159,13 @@ const COMMANDS: &[Cmd] = &[
     },
     Cmd {
         name: "query",
-        args: "<catalog-dir> <question.yaml> <data-dir>",
+        args: "<catalog-dir> <question.yaml> [data-dir]",
         description: "check the anchors, then answer",
         run: commands::query,
     },
     Cmd {
         name: "mcp",
-        args: "<catalog-dir> <data-dir>",
+        args: "<catalog-dir> [data-dir]",
         description: "serve the agent surface over stdin/stdout",
         run: mcp::mcp,
     },
@@ -379,6 +380,20 @@ mod tests {
                 argv: &["query", "cat", "q.yaml", "data"],
                 code: None,
                 says: "query cat q.yaml data",
+            },
+            // The data directory is OPTIONAL since the source registry landed - a deployment that
+            // declares its data system has already said where the data is - so a vector without one
+            // has to ROUTE rather than be refused here. `commands::query` is what then says which of
+            // the two declarations was missing; argv's job is only to stop counting it as required.
+            Case {
+                argv: &["query", "cat", "q.yaml"],
+                code: None,
+                says: "query cat q.yaml",
+            },
+            Case {
+                argv: &["mcp", "cat"],
+                code: None,
+                says: "mcp cat",
             },
             // `--help` in a later position is a value, not a request. There is no position but the
             // first in which it is unambiguous, and a command that wanted a file called `--help`

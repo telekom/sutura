@@ -5,10 +5,10 @@
 //! surface used to be reachable only from its own crate's tests. An agent client launches this
 //! process and speaks the Model Context Protocol on its pipes.
 //!
-//! It shares the `query` command's composition, in [`crate::commands`]: one catalog, the in-process
-//! engine over the caller's data directory, the shared single-user identity those files are read
-//! under. The difference is the driving port - the service answers questions for a peer on the other
-//! end of a pipe instead of one taken from a path on the command line.
+//! It shares the `query` command's composition, in [`crate::sources`]: one catalog, one data system
+//! opened from whichever of the two declarations names it, and the identity that declaration
+//! carries. The difference is the driving port - the service answers questions for a peer on the
+//! other end of a pipe instead of one taken from a path on the command line.
 //!
 //! Kept in its own module rather than inlined into `commands.rs` because it is a composition of its
 //! own - the driving port over a pipe, with an async runtime the other commands do not want - and
@@ -24,9 +24,8 @@ use sutura_domain::pinned::SemanticCatalog as _;
 use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_runtime::TracingAuditSink;
 
-use crate::commands::{
-    arg, catalog_reader, open_engine, refuse_unattached, render, report, served_tables, single_user_broker, working_set,
-};
+use crate::commands::{arg, catalog_reader, render, report};
+use crate::sources::{declared, open_engine, refuse_unattached, served_tables, working_set};
 
 /// The service this command serves, over the one adapter this binary links.
 ///
@@ -40,13 +39,16 @@ type McpSurface = LocalService<DataFusionWarehouse, TracingAuditSink, sutura_con
 /// `clippy::type_complexity` once the alias is expanded.
 type Served = (McpSurface, CatalogProse);
 
-/// `mcp <catalog-dir> <data-dir>`: serve the agent surface over standard input and output.
+/// `mcp <catalog-dir> [data-dir]`: serve the agent surface over standard input and output.
+///
+/// The data directory is optional for the reason [`crate::commands::query`] states: a deployment that
+/// declares its data system in the `sources:` tree has already said where the data is.
 pub(crate) fn mcp(args: &[String]) -> ExitCode {
     report((|| {
-        let usage = "mcp <catalog-dir> <data-dir>";
+        let usage = "mcp <catalog-dir> [data-dir]";
         let root = arg(args, 0, "catalog-dir", usage)?;
-        let data = arg(args, 1, "data-dir", usage)?;
-        let (service, prose) = mcp_service(Path::new(&root), Path::new(&data))?;
+        let data = args.get(1).map(std::path::PathBuf::from);
+        let (service, prose) = mcp_service(Path::new(&root), data.as_deref())?;
         // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
         // class: a pipe has no header a token could arrive in, so this surface grants every
         // capability to whoever can reach the process. Stated at startup, not left as a default
@@ -89,11 +91,10 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
 /// claims a record was kept when none was. The sink is only the writer, so any composition that
 /// does install a subscriber must send it to standard error - on this transport standard output is
 /// the protocol channel, which is why the startup notice is an `eprintln!`.
-fn mcp_service(root: &Path, data: &Path) -> Result<Served, String> {
+fn mcp_service(root: &Path, data: Option<&Path>) -> Result<Served, String> {
     let catalog = catalog_reader(root)?;
     let pinned = catalog.load().map_err(|e| render(&e))?;
-    let (engine, attached) = open_engine(&pinned, data)?;
-    let broker = single_user_broker()?;
+    let opened = open_engine(&pinned, &declared()?, data)?;
     let working_set = working_set()?.bytes() as u64;
     // `LocalService::start` loads the catalog again and re-runs every anchor - that is its contract,
     // the constructor that returns a service only if the bundle is fit to serve. `catalog` is handed
@@ -102,9 +103,15 @@ fn mcp_service(root: &Path, data: &Path) -> Result<Served, String> {
     // catalog directory between `load()` above and the load inside `start` would otherwise be served
     // with no table registered behind it, failing its first question at query time. The same check
     // `sutura-serve` runs at boot, so a served surface refuses to start in the same cases.
-    let service = LocalService::start(&catalog, engine, TracingAuditSink::new(), broker, working_set)
+    let service = LocalService::start(&catalog, opened.engines, TracingAuditSink::new(), opened.broker, working_set)
         .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
-    refuse_unattached(&served_tables(service.definitions()), &attached)?;
+    // Skipped for a data system nothing was attached to, which is the narrowing `Opened::attached`
+    // documents: the check compares the tables the served bundle names against the tables the engine
+    // HOLDS, and it holds them because the attach step put them there. Nothing to compare is not the
+    // same as nothing missing.
+    if let Some(attached) = opened.attached {
+        refuse_unattached(&served_tables(service.definitions()), &attached)?;
+    }
     // The default treatment of catalog descriptions: quoted in, as the other commands render them.
     Ok((service, CatalogProse::Quoted))
 }
@@ -167,8 +174,8 @@ mod tests {
     /// takes, where a main-thread handle frees the engine once blocking work has settled.
     #[test]
     fn the_mcp_composition_serves_every_tool_the_surface_declares() {
-        let (service, prose) =
-            mcp_service(&example().join("catalog"), &example().join("data")).expect("the example catalog validates and opens");
+        let (service, prose) = mcp_service(&example().join("catalog"), Some(&example().join("data")))
+            .expect("the example catalog validates and opens");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");

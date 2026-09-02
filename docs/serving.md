@@ -519,7 +519,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `telemetry.format` | follows the environment | `bunyan` in production, `pretty` elsewhere |
 | `api.docs` | follows the environment | Off in production, on elsewhere |
 | `catalog.dir` | `catalog` | |
-| `catalog.data_dir` | `data` | Read by the `sutura` command. **Not read by the service** - a served source's files come from its own `sources.<alias>.data_dir` |
+| `catalog.data_dir` | `data` | **Printed by the startup banner and read by nothing that opens a data system.** A served source's files come from its own `sources.<alias>.data_dir`, and the `sutura` command reads that same entry or else the directory on its command line |
 | `catalog.version` | `unversioned` | A commit id or a build number. What identifies the snapshot |
 | `sources.<alias>.kind` | absent | `files` is the only kind this build has an adapter for. Required, with no default |
 | `sources.<alias>.data_dir` | absent | Where that source's files are. Required, and absolute |

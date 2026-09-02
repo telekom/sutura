@@ -200,6 +200,31 @@ columns: [month, subscription_key, customer_key, status, mrr_cents, churned_in_m
 One row per subscription per month. Money in minor units, so a total is exact.
 ```
 
+`source:` is the data system this model's table lives in, and `local` above is not a keyword - it is
+the name of the one data system the `sutura` command declares for itself: a directory of CSV or
+Parquet files, the one you pass as the last argument, read as whoever ran the command. **Any other
+name works, and it works by being declared.** Put a configuration directory beside your catalogue:
+
+```yaml
+# conf/base.yaml, reached with SUTURA_CONFIG_DIR=conf
+security:
+  identity: single-user
+  single_user_because: "one analyst, one laptop, the files they already have"
+sources:
+  warehouse:
+    kind: files
+    data_dir: "/absolute/path/to/data"
+    posture: shared-service-user
+```
+
+Then `source: warehouse` is answered, and the data directory comes off that entry rather than off the
+command line - so `sutura query catalog/ question.yaml` takes no third argument, and passing one
+anyway is refused as two answers to one question. It is the same `sources:` tree
+[the service](serving.md) reads, which is the point: one declaration, whichever surface asks.
+
+Only `kind: files` is openable from this binary. `kind: bigquery` parses - that adapter exists - and
+the `sutura` command links none of it, so it is refused by name and points at the binary that can.
+
 `table:` may also name where the table lives, when that is more than the connection's own default:
 
 ```markdown

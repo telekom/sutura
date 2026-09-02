@@ -170,10 +170,18 @@ catalogue or a different data system, there is not one yet.
 | `Warehouse` | `sutura-exec-duckdb` | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down | **No.** A development dependency of `sutura-app` |
 
 So the supported combination today is **local markdown with YAML frontmatter for the metadata, and
-the in-process engine over the CSV or Parquet files in the directory you name on the command
-line**. `sutura query <catalog-dir> <question.yaml> <data-dir>` is the whole of it, and
-`sutura doctor` says the same thing in one line: `data systems : none - this build reads files, and
-pushes down to nothing`.
+the in-process engine over the CSV or Parquet files in a directory**. `sutura query <catalog-dir>
+<question.yaml> [data-dir]` is the whole of it, and `sutura doctor` says the same thing in one line:
+`data systems : none - this build reads files, and pushes down to nothing`.
+
+**The directory is optional because that command reads the same `sources:` tree the server does.** A
+catalog whose models name `warehouse` is answered when `sources.warehouse` declares a `files`
+directory beside it, so the name a catalog uses is no longer required to be `local`; a caller with no
+configuration at all passes the directory instead, and that is the built-in declaration - a `files`
+source called `local`, over the directory given, read as whoever ran the command. Both, for one
+source, is refused as two answers to one question. What has NOT changed is which kinds that binary can
+open: `kind: bigquery` parses, because the adapter exists, and the `sutura` command links none of it -
+so it is a refusal naming the kind and pointing at `sutura-serve --features bigquery`.
 
 **Two things are easy to read as more than they are, and both are worth being exact about.**
 
@@ -690,8 +698,11 @@ And one thing that was absent here and is now half present, because the two port
 is *for*: **runtime selection of a data system.** `sutura-serve` reads a `sources:` tree, opens one
 adapter per source the catalog names, and hands each the posture its entry declared - so a `SourceName`
 now *selects* a warehouse out of a registry rather than being compared for equality against the one
-adapter that was linked, and a source with no entry is a startup refusal naming it. `sutura-cli` is
-unchanged: it takes one data directory on the command line and reads no registry.
+adapter that was linked, and a source with no entry is a startup refusal naming it. `sutura-cli` reads
+the same tree now: a declared source is opened under its own name and its own posture, an undeclared
+one falls back to that binary's own built-in `files` declaration, and a declared kind it linked no
+adapter for is refused by name. What it still will not do is answer a question spanning two data
+systems - it answers one question against one, and federation is the HTTP surface's.
 
 **Half, and the honest half is the one that is missing:** which *kind* of data system a source may be
 is still decided at compile time, because `files` is the only kind an adapter ships for. So a

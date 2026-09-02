@@ -699,3 +699,34 @@ deployment this amendment enables therefore composes a narrow structural source 
 source that is self-contained, and the cross-source-reference case - the literal "DataHub's model,
 metrics certified here" - lands with the raw-contribution port, which is a separate decision and not
 this amendment's.
+
+## Amendment: the second composition root reads the tree too
+
+**One line of this record was left behind by the code and is corrected here rather than left to be
+re-derived.** *The composition roots already name the adapters* was written when `sutura-cli` compared
+a catalog's declared source name against one constant and refused everything else. Since
+telekom/sutura#121 it reads the same `sources:` tree `sutura-serve` reads, dispatches the declared
+`SourceKind` through an exhaustive match of its own, and hands the adapter the posture that entry
+declared - so *pluggable by declaration* is now true of both binaries rather than of the server alone.
+That is this record's decision arriving in the second place it applies, not a new one.
+
+**Two differences are the command-line tool's own, and both are stated where the code is.**
+
+- **An absent entry is a fallback there and a refusal on the server.** `sutura` is a tool a person
+  runs against a directory they name, so a source the tree does not declare gets that binary's own
+  built-in declaration: a `files` source called `local`, over the directory on the command line, read
+  as whoever ran the command. It is a declaration in code rather than an absence treated as
+  permission, and it is why `[data-dir]` is optional now - a fully declared deployment needs none, and
+  supplying both for one source is refused as two answers to one question.
+- **The built-in declaration keeps its NAME**, which is the control the registry did not replace. The
+  old comparison existed for a real defect: an engine named after whatever the catalog declared
+  satisfied `sutura-app`'s `plan.source() != warehouse.source()` guard by construction, so a bundle
+  certifying a metric against a real data system got that metric answered out of the caller's CSV
+  files under the real bundle's digest. A DECLARED source replaces that comparison with the
+  declaration; an UNDECLARED one replaces it with nothing, so the name still has to match.
+
+**And the limit, because a registry reads like availability:** which KINDS a given binary can open is
+still a property of the build. `kind: bigquery` parses - the adapter exists - and the `sutura` command
+links none of it, so that is a refusal naming the kind and pointing at the binary and feature that
+can. Whether it gains a feature of its own is telekom/sutura#121's second step, and `nix/shipped.nix`
+is where a published artefact's feature set is decided.

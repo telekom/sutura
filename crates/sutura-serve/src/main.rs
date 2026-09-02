@@ -49,7 +49,6 @@
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -84,12 +83,6 @@ mod catalog;
 /// rule and is a string.
 #[cfg(test)]
 const ENGINE_SOURCE: &str = "local";
-
-/// The variable that points at a configuration directory.
-///
-/// Optional: the defaults embedded in `sutura-config` are complete, so a deployment with no files at
-/// all is a loopback development service rather than a failure.
-const CONFIG_DIR_VARIABLE: &str = "SUTURA_CONFIG_DIR";
 
 fn main() -> ExitCode {
     match run() {
@@ -133,7 +126,11 @@ fn run() -> Result<(), String> {
     banner::print(env!("CARGO_PKG_VERSION"), environment);
 
     // 3. The configuration. A posture refusal lands here.
-    let settings = Settings::load(&Sources::from_process_environment(environment, config_dir())).map_err(flatten)?;
+    let settings = Settings::load(&Sources::from_process_environment(
+        environment,
+        sutura_config::config_dir_from_process(),
+    ))
+    .map_err(flatten)?;
 
     // 4. The log, then the panic hook.
     telemetry::install(settings.telemetry()).map_err(flatten)?;
@@ -407,12 +404,18 @@ fn usage() {
     println!("configuration, layered in this order, later beating earlier.");
     println!();
     println!("  1. the defaults compiled into this binary");
-    println!("  2. <dir>/base.yaml, if {CONFIG_DIR_VARIABLE} names a directory holding one");
+    println!(
+        "  2. <dir>/base.yaml, if {} names a directory holding one",
+        sutura_config::CONFIG_DIR_VARIABLE
+    );
     println!("  3. <dir>/<environment>.yaml");
     println!("  4. one variable per key, such as SUTURA__SERVER__PORT");
     println!();
     println!("  {:<22} one of: {}", sutura_config::ENVIRONMENT_VARIABLE, environments());
-    println!("  {CONFIG_DIR_VARIABLE:<22} a directory of YAML overrides, optional");
+    println!(
+        "  {:<22} a directory of YAML overrides, optional",
+        sutura_config::CONFIG_DIR_VARIABLE
+    );
     println!(
         "  {:<22} overrides telemetry.filter",
         sutura_runtime::telemetry::FILTER_VARIABLE
@@ -426,13 +429,6 @@ fn usage() {
 
 fn environments() -> String {
     Environment::NAMES.join(", ")
-}
-
-/// The configuration directory, if one was named.
-fn config_dir() -> Option<PathBuf> {
-    std::env::var_os(CONFIG_DIR_VARIABLE)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
 }
 
 /// The open data systems, and the tables they actually hold.

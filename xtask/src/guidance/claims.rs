@@ -107,7 +107,7 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
                 holds: "",
             },
             Evidence {
-                path: "crates/sutura-cli/src/commands.rs",
+                path: "crates/sutura-cli/src/sources.rs",
                 holds: "DataFusionWarehouse::new",
             },
         ],
@@ -225,7 +225,7 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
         name: "query builds a database",
         wordings: &["the database is built in memory"],
         evidence: &[Evidence {
-            path: "crates/sutura-cli/src/commands.rs",
+            path: "crates/sutura-cli/src/sources.rs",
             holds: "attach_parquet",
         }],
         instead: "there is no database. The engine registers one file per model in process, \
