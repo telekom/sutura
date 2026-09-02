@@ -168,6 +168,7 @@ catalogue or a different data system, there is not one yet.
 | `SemanticCatalog` | `sutura-catalog-local` | A directory of markdown documents with YAML frontmatter, read off disk | **Yes.** The only catalogue adapter there is |
 | `Warehouse` | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL | **Yes**, and it is what `sutura query` runs |
 | `Warehouse` | `sutura-exec-duckdb` | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down | **No.** A development dependency of `sutura-app` |
+| `Warehouse` | `sutura-exec-bigquery` | A DATA SOURCE over the wire. Renders the plan into `GoogleSQL`, submits a bounded job and pushes the statement down | **No, and now for one reason rather than two.** Both `sutura-cli` and `sutura-serve` can open it, each behind a default-off `bigquery` feature; `nix/shipped.nix` publishes both with cargo's default features, so a source build is the only one that links it |
 
 So the supported combination today is **local markdown with YAML frontmatter for the metadata, and
 the in-process engine over the CSV or Parquet files in a directory**. `sutura query <catalog-dir>
@@ -179,9 +180,16 @@ catalog whose models name `warehouse` is answered when `sources.warehouse` decla
 directory beside it, so the name a catalog uses is no longer required to be `local`; a caller with no
 configuration at all passes the directory instead, and that is the built-in declaration - a `files`
 source called `local`, over the directory given, read as whoever ran the command. Both, for one
-source, is refused as two answers to one question. What has NOT changed is which kinds that binary can
-open: `kind: bigquery` parses, because the adapter exists, and the `sutura` command links none of it -
-so it is a refusal naming the kind and pointing at `sutura-serve --features bigquery`.
+source, is refused as two answers to one question.
+
+**And `kind: bigquery` is openable from that binary too, behind a default-off `bigquery` feature.**
+`sutura query` then renders the plan into `GoogleSQL`, pushes it down and answers from the dataset -
+which is what makes the second half of the sentence above ("pushes down to nothing") a statement
+about the DEFAULT build rather than about the code. No published artefact carries the feature:
+`nix/shipped.nix` builds both binaries with cargo's default features, because `--features bigquery`
+compiles `ring` from C and assembly and two of the four release triples are musl. On a build without
+it, a `kind: bigquery` source is a refusal naming the feature; `sutura doctor` prints which of the
+two builds you are holding.
 
 **Two things are easy to read as more than they are, and both are worth being exact about.**
 
@@ -658,7 +666,7 @@ dialect's SQL for whoever asks, and is the only crate that names the dialect lay
 `sutura-exec-datafusion` is the engine, executing a plan over Arrow and rendering no SQL at all;
 `sutura-exec-duckdb` is a data source, rendering the plan into DuckDB SQL through `sutura-sql` and
 pushing it down; `sutura-app` is the service, generic over both ports, and holds the `Surface`
-driving port a transport consumes; `sutura-cli` composes them, and links the engine only. `xtask`
+driving port a transport consumes; `sutura-cli` composes them, and links the engine only unless it was built `--features bigquery`. `xtask`
 holds the repo gates and `sutura-dev` the local development CLI.
 
 What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and

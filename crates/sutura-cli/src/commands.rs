@@ -329,34 +329,56 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let data = args.get(2).map(PathBuf::from);
 
         let pinned = load(Path::new(&root))?;
-        let opened = crate::sources::open_engine(&pinned, &crate::sources::declared()?, data.as_deref())?;
-
-        // The governance is not an order this function has to remember any more. One call runs the
-        // anchors against the engine it was handed and hands back a bundle only if every one
-        // reproduced its number; `sutura_app::answer` takes nothing else. A corrupted anchor stops
-        // here rather than answering, and there is no arrangement of these lines that skips it.
-        let validated = sutura_app::verify_and_validate(pinned, &opened.engines)
-            .map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
-
         let question = read_question(Path::new(&question_path))?;
-        // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller,
-        // and the identity the data system is reached under is the process's own.
-        let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
-        // The broker comes off the same value the engines did, which is the whole point of `Opened`
-        // carrying it: there is no path here that executes without a credential -
-        // `Warehouse::execute` has no signature for it - and what the leg presents agrees with what
-        // the adapter was opened under because ONE decision produced both.
-        //
-        // `into_outcome` because this command writes no audit record: the deadline `Answered` also
-        // carries is for a sink, and this binary answers one question on a terminal and exits. The
-        // working-set number is the config default: this command answers against one data system and
-        // never federates, so `answer` never reads it here.
-        let outcome = sutura_app::answer(&validated, &question, &context, &opened.broker, &opened.engines, 1 << 30)
-            .map_err(|e| render(&e))?
-            .into_outcome();
-        print_outcome(&outcome)?;
-        Ok(())
+        let settings = crate::sources::configured()?;
+        // **The exhaustive match is the caller's, and that is what erasing later would have cost.**
+        // `sutura_app::Warehouses<W>` is generic in ONE adapter, so the answer path is monomorphised
+        // per kind; naming both arms here is what makes a third linked adapter a compile error at
+        // this line rather than a `SourceUnavailable` on the first question. On a build without the
+        // `bigquery` feature the enum has one variant and this reads as it always did.
+        match crate::sources::open_engine(
+            &pinned,
+            settings.sources(),
+            settings.server().request_timeout(),
+            data.as_deref(),
+        )? {
+            crate::sources::Opened::Files(opened) => answered(pinned, &question, &opened),
+            #[cfg(feature = "bigquery")]
+            crate::sources::Opened::BigQuery(opened) => answered(pinned, &question, &opened),
+        }
     })())
+}
+
+/// Verifies the bundle against the data system that was opened, answers the question, and prints it.
+///
+/// Generic in the adapter, so the two arms above share every line after them. It takes the bundle by
+/// value because `verify_and_validate` consumes it: the only constructor of `Validated` is the one
+/// that re-ran every anchor, which is what stops an arrangement of these lines that skips the check.
+fn answered<W>(pinned: PinnedDefinitions, question: &Query, opened: &crate::sources::OpenedWith<W>) -> Result<(), String>
+where
+    W: sutura_domain::warehouse::Warehouse,
+{
+    // The governance is not an order this function has to remember. One call runs the anchors against
+    // the engine it was handed and hands back a bundle only if every one reproduced its number;
+    // `sutura_app::answer` takes nothing else. A corrupted anchor stops here rather than answering.
+    let validated = sutura_app::verify_and_validate(pinned, &opened.engines)
+        .map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
+    // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller, and
+    // the identity the data system is reached under is the process's own.
+    let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
+    // The broker comes off the same value the engines did, which is the whole point of `OpenedWith`
+    // carrying it: there is no path here that executes without a credential - `Warehouse::execute`
+    // has no signature for it - and what the leg presents agrees with what the adapter was opened
+    // under because ONE decision produced both.
+    //
+    // `into_outcome` because this command writes no audit record: the deadline `Answered` also
+    // carries is for a sink, and this binary answers one question on a terminal and exits. The
+    // working-set number is the config default: this command answers against one data system and
+    // never federates, so `answer` never reads it here.
+    let outcome = sutura_app::answer(&validated, question, &context, &opened.broker, &opened.engines, 1 << 30)
+        .map_err(|e| render(&e))?
+        .into_outcome();
+    print_outcome(&outcome)
 }
 
 /// A refused question, for a person: what it means, what to do about it, and the refusal's own

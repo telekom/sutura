@@ -55,19 +55,35 @@ let
   # list rather than naming a package itself.
   #
   # **FEATURES ARE ABSENT FROM THIS RECORD ON PURPOSE, and that absence IS the decision issue #111
-  # asks to be stated rather than discovered.** Both shipped binaries are built with cargo's
-  # DEFAULT feature set. For `sutura-serve` that means the published server carries the HTTP
+  # asks to be stated rather than discovered - and, since issue #121, the decision for BOTH binaries
+  # rather than for the server alone.** Both shipped binaries are built with cargo's DEFAULT feature
+  # set, and `sutura-cli` now has a `bigquery` feature of its own to leave off. So no published
+  # artefact of either binary can open a dataset: an operator who wants one builds from source with
+  # `--features bigquery`, and `sutura doctor` prints which of the two they are holding.
+  #
+  # **That is issue #121's step 3, decided as its own recommendation had it:** the CLI ships without
+  # the feature, and a deployment that needs a dataset runs a build that carries it. The alternative
+  # priced there - a second CLI asset with the feature on, for the two gnu triples only - is two more
+  # assets to sign, attest and SBOM plus a musl answer stated rather than discovered, and nothing
+  # asks for it yet. When a tutorial chapter does, it is a `features` field here and a paragraph
+  # beside this one.
+  #
+  # For `sutura-serve` the default set means the published server carries the HTTP
   # surface, leg 1, the rate limiter and the generated interface description, and carries neither
   # `tls` nor `bigquery`:
   #
   #   * The cost is the four cross builds. `--features tls` and `--features bigquery` each pull an
   #     outbound or inbound rustls closure, `ring` included, which compiles C and assembly; two of
-  #     the four release triples are musl. A published server would pay for that on every target.
+  #     the four release triples are musl. A published server would pay for that on every target,
+  #     and so would a published CLI - measured on 2026-09-02 by compiling
+  #     `sutura-cli --all-targets` both ways: the default set touches neither `ring` nor `ureq`, and
+  #     `--features bigquery` compiles `ring` from C and assembly.
   #   * The failure is loud rather than silent, which is what makes the choice defensible instead
   #     of merely cheap. `security.tls_termination: in-process` on a build without `tls` is a
   #     startup refusal naming the feature, and so is a `kind: bigquery` source on a build without
-  #     `bigquery` - `sutura_config` and `sutura-serve` both refuse rather than degrade. An
-  #     operator who needs either builds from source and knows it.
+  #     `bigquery` - `sutura_config`, `sutura-serve` and `sutura-cli` all refuse rather than
+  #     degrade, each naming the feature that would link it. An operator who needs either builds
+  #     from source and knows it.
   #   * A gateway in front is the deployment shape leg 1 already assumes: `security.inbound`
   #     verifies a caller's token behind a component that terminated TLS.
   #

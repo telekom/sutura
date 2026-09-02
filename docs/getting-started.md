@@ -222,8 +222,31 @@ command line - so `sutura query catalog/ question.yaml` takes no third argument,
 anyway is refused as two answers to one question. It is the same `sources:` tree
 [the service](serving.md) reads, which is the point: one declaration, whichever surface asks.
 
-Only `kind: files` is openable from this binary. `kind: bigquery` parses - that adapter exists - and
-the `sutura` command links none of it, so it is refused by name and points at the binary that can.
+`kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries do
+not, because the outbound TLS stack it links compiles C and assembly for four release triples. Build
+one and the same command answers from a dataset:
+
+```bash
+cargo build --release -p sutura-cli --features bigquery
+```
+
+```yaml
+# conf/base.yaml
+sources:
+  warehouse:
+    kind: bigquery
+    billing_project: "your-project"
+    dataset: "marts"
+    credential_file: "/absolute/path/to/key.json"
+    max_bytes_billed: 1073741824
+    posture: shared-service-user
+```
+
+`posture: shared-service-user` is the honest declaration for a service-account key: one identity for
+everybody who asks. `impersonation-at-source` parses and is **refused** - the adapter can carry a
+subject's credential, and no binary attaches a broker that exchanges one, so serving it would read
+every row as the process while the declaration promised otherwise. `sutura doctor` says which build
+you have on its `data systems` line.
 
 `table:` may also name where the table lives, when that is more than the connection's own default:
 

@@ -287,7 +287,19 @@ fn doctor() {
     println!("  target       : {}", std::env::consts::ARCH);
     println!("  allocator    : {ALLOCATOR_NAME}");
     println!("  engine       : datafusion (arrow, in process)");
-    println!("  data systems : none - this build reads files, and pushes down to nothing");
+    // **A `cfg!` and not a probe, and it says what was LINKED rather than what is reachable.** A
+    // published artefact is built with cargo's default features, so this line reads `none` there;
+    // a source build passing `--features bigquery` is the only one that can open a dataset, and
+    // `sutura doctor` is where somebody holding a binary finds out which they have. It is the
+    // command the release workflow smoke-tests, which is why it is worth being exact here.
+    println!(
+        "  data systems : {}",
+        if cfg!(feature = "bigquery") {
+            "bigquery, over the wire - declare `sources.<alias>.kind: bigquery`"
+        } else {
+            "none - this build reads files, and pushes down to nothing"
+        }
+    );
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
     println!("  redaction    : {probe:?}");

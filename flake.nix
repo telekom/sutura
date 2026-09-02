@@ -529,6 +529,11 @@
               # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
               # variant of, while `ring` is the one that compiles C and assembly and is therefore
               # the one the cross builds actually pay for.
+              #
+              # **Both binaries have a `bigquery` feature to leave off since issue #121, and this
+              # list is what says they left it off** - an assertion about the ARTIFACT rather than
+              # about a manifest, which is the whole reason it reads the embedded dependency list.
+              # A `bigquery` that stopped being optional on either crate fails here.
               forbidden = [ "ring" "ureq" ];
               quoted = name: "'\"" + name + "\"'";
               wantOne = bin: name: ''
