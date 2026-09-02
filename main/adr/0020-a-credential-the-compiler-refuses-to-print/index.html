@@ -1689,6 +1689,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-02: the expose_secret limit is now a lint
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2416,6 +2427,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-02: the expose_secret limit is now a lint
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2627,6 +2649,28 @@ drop.</p>
   none, so a derive on the wrapper cannot produce one</em>. A row being restated is the moment to pin it;
   calling either one red-before-green would not be true.</li>
 </ul>
+<h2 id="amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint">Amendment, 2026-09-02: the <code>expose_secret</code> limit is now a lint<a class="headerlink" href="#amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint" title="Permanent link">&para;</a></h2>
+<p>The bullet above - <em>"a call site can still write <code>token.expose_secret()</code> into a log, which is why
+that method is named to be conspicuous in a grep rather than relied upon to be absent"</em> - is the one
+limit in this record that a mechanism could close, and #145 closed it. <code>clippy.toml</code> disallows
+<code>sutura_domain::identity::Secret::expose_secret</code>, so an exposure is an error under <code>-D warnings</code>
+until somebody writes an <code>#[expect]</code> beside it saying what the exposed value is for. That is the
+<code>Warehouse::verify_anchor</code> and <code>tokio::task::spawn_blocking</code> shape, and it was <strong>verified to resolve</strong>
+the way this repository's <code>clippy.toml</code> header demands: the entry was added and clippy rejected the
+existing call sites by file and line - twenty-one diagnostics across eleven files, answered by
+eighteen expectations, because <code>#[expect]</code> is per item and three functions expose twice.</p>
+<p><strong>What changed is the DEFAULT, not the possibility.</strong> The exposures that were legitimate are still
+there and still legitimate - a constant-time compare of the deployment token, the bearer header a job
+is submitted with, the RFC 8693 subject token, a <code>PKCS#8</code> key handed to <code>ring</code>, an assertion handed to
+a broker, and the tests that read a minted credential in order to say whose it was. None of them
+reaches a log. What is new is that a twenty-second one cannot arrive without a diff a reviewer sees.</p>
+<p><strong>Three limits, and the first is the one to read.</strong> A lint is not a type: it reaches this workspace,
+an <code>#[allow]</code> walks past it, and clippy does not lint doctests at all - the three doctests in
+<code>sutura_domain::identity</code> that call the method are outside it. <code>#[expect]</code> is per ITEM rather than per
+call, so a function carrying one expectation may make two exposures; the reason text is what a
+reviewer reads, and <code>#[expect]</code> at least fails when the last one goes away. And the ban says nothing
+about what the exposed <code>&amp;str</code> is then <em>used</em> for - that is still review, which is why every reason
+here names the destination.</p>
 
 
 
