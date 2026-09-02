@@ -183,6 +183,7 @@ nav:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
       - sutura-catalog-local: api/sutura-catalog-local.md
+      - sutura-catalog-datahub: api/sutura-catalog-datahub.md
       - sutura-semantic: api/sutura-semantic.md
       - sutura-sql: api/sutura-sql.md
       - sutura-exec-datafusion: api/sutura-exec-datafusion.md
