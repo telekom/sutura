@@ -140,8 +140,8 @@ pub use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings, TlsMaterial,
 };
 pub use crate::settings::{
-    ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, Sources, VARIABLE_PREFIX, VARIABLE_SEPARATOR,
-    environment_from_process,
+    CONFIG_DIR_VARIABLE, ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, Sources, VARIABLE_PREFIX,
+    VARIABLE_SEPARATOR, config_dir_from_process, environment_from_process,
 };
 pub use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
 pub use crate::sources::{

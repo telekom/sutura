@@ -167,10 +167,19 @@ mod tests {
     /// assertion, waits on the child.
     fn spawn() -> Agent {
         let example = example_root();
+        // **The two variables are REMOVED, not merely unset by convention.** This command reads the
+        // deployment's settings tree since #121, so a developer's exported `SUTURA_CONFIG_DIR` - the
+        // one an operator running `sutura-serve` on the same machine has - reached this child and
+        // turned six passing tests red on "two answers to one question", and
+        // `SUTURA_ENVIRONMENT=production` turned them red on an access token. Found by review.
+        // `env_remove` because `std::env::set_var` is `unsafe` in this edition and the workspace
+        // forbids it: what a test can do is decide what the CHILD sees.
         let mut child = Command::new(env!("CARGO_BIN_EXE_sutura"))
             .arg("mcp")
             .arg(example.join("catalog"))
             .arg(example.join("data"))
+            .env_remove(sutura_config::CONFIG_DIR_VARIABLE)
+            .env_remove(sutura_config::ENVIRONMENT_VARIABLE)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

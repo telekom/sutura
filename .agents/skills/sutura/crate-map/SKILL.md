@@ -23,8 +23,12 @@ Rules that are not visible from a manifest:
   a heterogeneous set - or a catalog naming two KINDS of source - is an architecture decision.
 - **A transport is transport-only.** It never reads a catalog directory and never opens a data
   system; a composition root does both. `sutura-mcp` depends on nothing in `sutura-http`.
-- **`sutura-cli` reads no source registry.** It takes one data directory on the command line, so it
-  refuses a multi-source catalog where `sutura-serve` serves one.
+- **`sutura-cli` reads the same `sources:` tree `sutura-serve` does**, and dispatches the declared
+  `SourceKind` through an exhaustive match of its own - so a third kind is a compile error in both
+  composition roots. The two differ in what an ABSENT entry means: a startup refusal there, and a
+  fallback to that binary's own built-in `files` declaration - named `local`, over the directory on
+  the command line - here. It still answers one question against one data system, so a catalog
+  spanning two gets no engine where `sutura-serve` serves both.
 - **A *declaring* catalog adapter is measured against its own `capabilities`, a *golden* one against
   the oracle** (`docs/adr/0016`). `agrees_with_the_oracle` is the golden contract and is not weakened
   for anything; the split is in the type system, so a golden-only cell cannot be expanded for a

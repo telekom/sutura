@@ -170,10 +170,18 @@ catalogue or a different data system, there is not one yet.
 | `Warehouse` | `sutura-exec-duckdb` | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down | **No.** A development dependency of `sutura-app` |
 
 So the supported combination today is **local markdown with YAML frontmatter for the metadata, and
-the in-process engine over the CSV or Parquet files in the directory you name on the command
-line**. `sutura query <catalog-dir> <question.yaml> <data-dir>` is the whole of it, and
-`sutura doctor` says the same thing in one line: `data systems : none - this build reads files, and
-pushes down to nothing`.
+the in-process engine over the CSV or Parquet files in a directory**. `sutura query <catalog-dir>
+<question.yaml> [data-dir]` is the whole of it, and `sutura doctor` says the same thing in one line:
+`data systems : none - this build reads files, and pushes down to nothing`.
+
+**The directory is optional because that command reads the same `sources:` tree the server does.** A
+catalog whose models name `warehouse` is answered when `sources.warehouse` declares a `files`
+directory beside it, so the name a catalog uses is no longer required to be `local`; a caller with no
+configuration at all passes the directory instead, and that is the built-in declaration - a `files`
+source called `local`, over the directory given, read as whoever ran the command. Both, for one
+source, is refused as two answers to one question. What has NOT changed is which kinds that binary can
+open: `kind: bigquery` parses, because the adapter exists, and the `sutura` command links none of it -
+so it is a refusal naming the kind and pointing at `sutura-serve --features bigquery`.
 
 **Two things are easy to read as more than they are, and both are worth being exact about.**
 
@@ -219,11 +227,27 @@ refuses `datasets.create`.
 0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
 one target the parse check cannot see a function's argument order.
 
-The engine refuses a catalogue that declares any data system other than the one it is: naming the
-engine after whatever the catalogue said was a real bug, because it satisfied the composition root's
-own `plan.source() != warehouse.source()` guard by construction, and a catalogue naming a production
-warehouse then got its certified metric answered out of the caller's files under that bundle's digest.
-Today a catalogue that names something else gets an error saying there is no adapter for it.
+**A catalogue may name its data system anything, and an UNDECLARED name is still refused - both
+halves matter, and this paragraph said the opposite of each until #121.** A declared source is opened
+under its own name and its own posture; a source no `sources:` entry names falls back to the
+command-line tool's built-in `files` declaration, which answers to `local` only.
+
+Why the undeclared name is still checked: `sutura_app::answer` and `verify_anchors` both do
+`warehouses.get(plan.source())` - a LOOKUP keyed on the name the catalogue declared, not a
+comparison. (An earlier version of this paragraph named a `plan.source() != warehouse.source()`
+guard, which exists nowhere in the tree; `sutura-app`'s own source says *"The plan SELECTS its
+warehouse - it is not compared against one."*) So an engine registered under whatever the catalogue
+said makes that lookup succeed by construction, and a catalogue naming a production warehouse would
+get its certified metric answered out of the caller's files under that bundle's digest. An engine
+registered under a fixed name misses instead, and a miss is a refusal - `SourceUnavailable` from a
+question, `SourceNotConfigured` from an anchor.
+
+**The limit a declaration does NOT close**, stated next to the claim: an entry says where a data
+system is, never that the files there hold what the bundle certifies. The only thing that checks
+content is an ANCHOR, and `verify_anchors` walks the metrics that declare one - so a bundle of
+unanchored metrics is answered under its real digest out of whatever directory the entry points at.
+That is true of `sutura-serve` too and always was; #121 is the change that makes it the documented
+command-line workflow.
 
 **What it costs to add a fourth adapter.** A `Warehouse` or `SemanticCatalog` implementation, one line
 in the workspace manifest, one line in the composition root - and, in the test suite, one `impl` of
@@ -690,8 +714,11 @@ And one thing that was absent here and is now half present, because the two port
 is *for*: **runtime selection of a data system.** `sutura-serve` reads a `sources:` tree, opens one
 adapter per source the catalog names, and hands each the posture its entry declared - so a `SourceName`
 now *selects* a warehouse out of a registry rather than being compared for equality against the one
-adapter that was linked, and a source with no entry is a startup refusal naming it. `sutura-cli` is
-unchanged: it takes one data directory on the command line and reads no registry.
+adapter that was linked, and a source with no entry is a startup refusal naming it. `sutura-cli` reads
+the same tree now: a declared source is opened under its own name and its own posture, an undeclared
+one falls back to that binary's own built-in `files` declaration, and a declared kind it linked no
+adapter for is refused by name. What it still will not do is answer a question spanning two data
+systems - it answers one question against one, and federation is the HTTP surface's.
 
 **Half, and the honest half is the one that is missing:** which *kind* of data system a source may be
 is still decided at compile time, because `files` is the only kind an adapter ships for. So a

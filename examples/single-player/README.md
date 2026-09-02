@@ -621,8 +621,9 @@ player session over this same directory.
 sutura mcp examples/single-player/catalog examples/single-player/data
 ```
 
-Point the client at `sutura mcp <catalog-dir> <data-dir>` and it lists the catalog and answers
-certified questions exactly as `query` would. The process prints, on standard error, that it
+Point the client at `sutura mcp <catalog-dir> [data-dir]` - the directory is optional, because a
+deployment that declares its data system has already said where the data is - and it lists the
+catalog and answers certified questions exactly as `query` would. The process prints, on standard error, that it
 grants every capability to whoever can reach it: a pipe has no header a token could arrive in,
 so the limit is stated beside the mode rather than left as a default.
 
