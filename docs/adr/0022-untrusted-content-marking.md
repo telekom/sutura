@@ -5,12 +5,15 @@ description: Why #128's forgeries are a structured-versus-text difference rather
 
 # Untrusted content, and what marks it
 
-Status: **accepted, and partly built.** The text-half forgery #128 describes is fixed: cells are
-escaped in `OutcomeContent::as_text`, catalog prose is quoted per line in
+Status: **accepted, amended, and partly built.** The text-half forgery #128 describes is fixed: cells
+are escaped in `OutcomeContent::as_text`, catalog prose is quoted per line in
 `CatalogContent::as_text` or omitted under `catalog_prose: omitted`, and the trust boundary is named
 in each render. The shared injection corpus both transports walk lives in `sutura_app::untrusted`.
-What is decided here and NOT yet built is one half of Decision 3 - the raw SQL tool's failure text -
-because the raw tool itself (`#129`) does not exist yet.
+The amendment at the foot of this record extends `catalog_prose: omitted` to the HTTP catalog body,
+which this record's first version reasoned its way out of needing - see *Decision 1* and the
+amendment for why the encoder argument does not reach that question. What is decided here and NOT yet
+built is one half of Decision 3 - the raw SQL tool's failure text - because the raw tool itself
+(`#129`) does not exist yet.
 
 This record exists because `docs/adr/0009` asked for it to be **decided before an envelope exists**:
 retrofitting a field boundary afterwards is the expensive half, and the question "what marks a value
@@ -45,6 +48,13 @@ character inside one JSON string; `sutura_app::untrusted::CELLS` round-trips thr
 denies the only escape the marker would describe. `sutura-http`'s answer and catalog bodies therefore
 carry descriptions and cells as ordinary fields, and a test walks the same corpus to prove they
 survive as one opaque string each.
+
+**One correction to that sentence, and it is a different question wearing the same word.** This
+record's first version reasoned from *nothing needs escaping here* to *the catalog body carries every
+description*, and the amendment below is why the second does not follow from the first:
+`catalog_prose: omitted` is not a mitigation for a delimiter, so an encoder that owns the boundary
+does not answer it. **What is carried and what is escaped are two decisions**, and only the second is
+the encoder's.
 
 **The text half is marked by construction, never by a field.** The transported text names the
 boundary once (the `UNTRUSTED_CATALOG_NOTICE`), and each value is either escaped (`OutcomeContent`)
@@ -125,3 +135,42 @@ The accepted core is built and tested, per surface:
 
 The structured surface (`sutura-http`) needs none of the escaping: `serde` owns the boundary, and a
 test asserts the corpus stays opaque there. That asymmetry is the record in two lines.
+
+## Amendment: the prose setting is a property of the deployment, not of one transport
+
+`#128` asked for `catalog_prose_omitted_omits_it_from_every_surface` and this record accepted it as
+two tests on the agent tool. **A review of the closed issue found the third surface**:
+`sutura_http::wire::CatalogBody` was built by a `From<&PinnedDefinitions>` that could not see the
+settings, so a deployment which had dropped its catalog prose from the prompt and from the MCP tool
+served every description over HTTP - and an agent reading `GET /v1/catalog` is the same reader the
+setting was turned off for.
+
+**Why the escaping argument does not cover it, which is the part worth carrying:** the two mechanisms
+answer two questions. *Who owns the delimiter* is the encoder's question, and on a JSON surface the
+answer is serde, which is why nothing here escapes anything. *Whose words reach an agent* is the
+operator's question, and no encoder answers it. Reading "the encoder owns the boundary" as "this
+surface needs nothing" collapsed the two - the same shape of mistake as the original defect, one
+level up: a control described as covering more than it does.
+
+So the decision is stated positively rather than per transport: **a surface that carries the
+catalog's prose honours `prompt.catalog_prose`, and a surface that renders it into text also escapes
+or quotes it.** The second obligation is the text half's alone; the first is every surface's.
+
+What is built for it:
+
+- `CatalogBody::of(pinned, prose)` replaces the `From`. A named constructor, because
+  `CatalogProse::default()` is `Quoted`: a conversion reachable without the setting fails OPEN, and
+  that is exactly how the defect arrived. The argument cannot be forgotten.
+- `description` on both body types is an `Option`, skipped when the operator omits prose, and the
+  body carries `catalog_prose` as the operator's own spelling - so *this deployment ships no prose*
+  is a fact a client reads rather than one it infers from a missing field, and it cannot be confused
+  with *this catalog has no description*. It is an additive, documented change to the generated
+  OpenAPI document, which is built from the handlers and never hand-written.
+- Three tests. Two over the body, for each setting and for the shared `PROSE` corpus through a real
+  `Description`; one over the assembled ROUTER
+  (`the_catalog_route_honours_the_prose_setting_it_was_started_with`), because the defect was the
+  WIRING and a test over the body alone passes with a handler that still defaults the setting.
+
+**The limit, unchanged and restated because this amendment is about not overstating:** an omission
+narrows what an agent is *told*, never what it may *ask*, and it stops no prose that persuades
+without escaping. A deployment that trusts its catalog authors is the default and is unaffected.

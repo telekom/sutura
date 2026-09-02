@@ -2925,6 +2925,30 @@ pub struct CatalogBody
 
 What this catalog defines.
 
+# Why a structured surface reads the prose setting at all
+
+`prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
+`serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
+this body escapes nothing. It is a decision about **who may put words in front of an agent**: an
+operator whose catalog authors are not the people who decide what their agents are told drops the
+prose, and a description that still reached an agent through a second transport would make that
+setting a statement about one surface rather than about the deployment. So the omission is
+honoured wherever the prose is carried, and the escaping stays where the delimiter is.
+
+#### Methods
+
+```rust
+pub fn of(pinned: &PinnedDefinitions, prose: sutura_config::CatalogProse) -> Self
+```
+
+The reader's view of a pinned bundle, under the prose setting this deployment was started
+with.
+
+**A named constructor rather than a `From`, and the argument is the reason.**
+`CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
+OPEN: it ships the prose of a deployment that asked for none, which is the defect this
+function exists to close. A second argument cannot be left out.
+
 #### Implements
 
 `ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
