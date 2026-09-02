@@ -114,12 +114,13 @@
 //!
 use core::time::Duration;
 
-use crate::transport::{Cell, JobRequest, JobRows, JobTransport};
+use crate::transport::{Cell, DatasetAddress, HeldTables, JobRequest, JobRows, JobTransport};
 use crate::wire::credential::{AccessTokens, QuotaProject};
 
 pub mod credential;
 mod document;
 mod sts;
+mod tables;
 pub use sts::StsOverHttp;
 
 #[cfg(test)]
@@ -697,6 +698,27 @@ where
     /// vocabulary. It names the position rather than the value, because the value is a row.
     #[error("the cell at row {row}, column {column} is not a scalar")]
     NotAScalar { row: usize, column: usize },
+    /// The answer to a table listing was not one.
+    ///
+    /// Distinct from [`Self::NotADocument`], the same failure for a query answer: the two documents
+    /// are two shapes, and a boot check reporting *the query answer would not parse* sends an
+    /// operator to the wrong request.
+    #[error("the endpoint's answer was not a table listing")]
+    NotAListing {
+        #[source]
+        cause: serde_json::Error,
+    },
+    /// The service handed back a page token this transport will not write into a URL.
+    ///
+    /// **Refused rather than filtered**, and `tables::usable_token` carries the argument. The token
+    /// travels through [`bounded`], which keeps a foreign string out of a log unbounded.
+    #[error("the endpoint's next page token is not one this transport can send: {named}")]
+    UnusablePageToken { named: String },
+    /// A dataset that did not finish listing inside the page bound. **A failure rather than a short
+    /// listing**: the answer this feeds is *these tables are absent*, and a listing cut off reports
+    /// a table that is there as missing.
+    #[error("the dataset had not finished listing after {pages} pages")]
+    ListingDidNotFinish { pages: usize },
 }
 
 /// A short token another service sent us, bounded and filtered.
@@ -758,6 +780,29 @@ where
             .map_err(|cause| WireError::NoClock { cause })
     }
 
+    /// The header value this source's OWN credential authorizes a call with.
+    ///
+    /// **Factored out of [`Self::submit`] when a second call site arrived** - the pre-flight's
+    /// listing, which has no asking subject by construction, because it runs at boot. The expiry
+    /// guard is here rather than at either call site, so neither can forget it, and it is checked
+    /// BEFORE anything is sent, so an expired credential costs no round trip. A subject's own token
+    /// deliberately does NOT come through here: the broker that minted it already checked it.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a bearer has to reach the wire as text; the exposure here builds the one header \
+                  value the client parses, which is the whole reason the token exists"
+    )]
+    fn source_bearer(&self, now: u64, call: CallDeadline) -> Wired<String, C::Error> {
+        let bearer = self
+            .credentials
+            .bearer(now, call)
+            .map_err(|cause| WireError::Credential { cause })?;
+        if let Some(at) = bearer.not_after().passed_by(now) {
+            return Err(WireError::Expired { at, now });
+        }
+        Ok(format!("Bearer {}", bearer.token().expose_secret()))
+    }
+
     /// Sends one job and returns the endpoint's answer, checked as far as *the service accepted
     /// this*.
     ///
@@ -779,24 +824,12 @@ where
         // cross-subject leak this crate refuses.
         #[expect(
             clippy::disallowed_methods,
-            reason = "a bearer has to reach the wire as text; the two exposures here build the one \
+            reason = "a bearer has to reach the wire as text; the exposure here builds the one \
                       header value the client parses, which is the whole reason the token exists"
         )]
-        let sending_bearer: String = if let Some(subject) = request.subject_bearer() {
-            format!("Bearer {}", subject.expose_secret())
-        } else {
-            let bearer = self
-                .credentials
-                .bearer(now, call)
-                .map_err(|cause| WireError::Credential { cause })?;
-            // Checked BEFORE anything is built or sent, which is why an expired credential costs no
-            // round trip - and why it is the one guard in this function a test can reach with no
-            // socket. A subject's own token was already checked by the broker that minted it and by
-            // `Presented::agrees_with`; only the source's own credential needs this here.
-            if let Some(at) = bearer.not_after().passed_by(now) {
-                return Err(WireError::Expired { at, now });
-            }
-            format!("Bearer {}", bearer.token().expose_secret())
+        let sending_bearer: String = match request.subject_bearer() {
+            Some(subject) => format!("Bearer {}", subject.expose_secret()),
+            None => self.source_bearer(now, call)?,
         };
         // What the exchange left. Every number below reads THIS rather than the whole budget: the two
         // timeout fields in the request body and the socket the answer is waited for on.
@@ -899,6 +932,11 @@ where
         self.validate_job(request)
     }
 
+    /// The dataset's table ids, over `tables.list`, paged. `tables::list` is the whole of it.
+    fn list_tables(&self, at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
+        tables::list(self, at)
+    }
+
     /// One arm, and it is the wire's own reading of the endpoint's page contract.
     ///
     /// `MoreThanOnePage` is raised by `complete` when the answer carries a `pageToken`, which is the
@@ -944,7 +982,13 @@ where
             | WireError::NoTotal { .. }
             | WireError::NotATotal { .. }
             | WireError::NoSchema { .. }
-            | WireError::NotAScalar { .. } => false,
+            | WireError::NotAScalar { .. }
+            // The three listing failures. None of them is about a result: the pre-flight reads no
+            // rows, and it runs before a listener is bound - so there is no caller to tell anything
+            // about how much data came back.
+            | WireError::NotAListing { .. }
+            | WireError::UnusablePageToken { .. }
+            | WireError::ListingDidNotFinish { .. } => false,
         }
     }
 

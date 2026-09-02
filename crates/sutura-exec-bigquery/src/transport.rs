@@ -18,6 +18,8 @@
 //! **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 //! this crate rendered from a plan, and there is no entry point a caller could hand SQL to.
 
+use std::collections::BTreeSet;
+
 use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::ParamValue;
 
@@ -154,12 +156,60 @@ impl<'job> JobRequest<'job> {
 /// the crate whose transport interpolates it into a request path, and a check belongs where the risk
 /// is. The two are not one copy of one rule: an adapter may not depend on the settings tree, so
 /// sharing the type would be an adapter reaching into another adapter.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// **`Ord` is derived so the pre-flight can group by it**, and the ordering it derives is the inner
+/// string's: `parse` neither trims into a different value nor folds case, so the wrapper compares
+/// exactly as the text it holds does and there is no invariant for the derive to disagree with.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProjectId(String);
 
 /// The dataset unqualified table names resolve in, as this adapter holds it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Ord` for the reason [`ProjectId`]'s is derived, plus one of its own: this type PRESERVES case, so
+/// the derived ordering and the derived equality are the case-sensitive comparison a dataset id
+/// really wants.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DatasetId(String);
+
+/// One dataset, addressed the way a metadata read needs it: the project it lives in and its own id.
+///
+/// **A named pair rather than two arguments**, for the reason [`ProjectId`] is a wrapper at all: a
+/// call taking two ids in the wrong order compiles and is wrong, and here the two are the same
+/// shape. It is also the grouping key the pre-flight uses, which is what the derived `Ord` is for.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DatasetAddress {
+    project: ProjectId,
+    dataset: DatasetId,
+}
+
+/// Every table one dataset holds, by the id it knows each under.
+///
+/// A name rather than the type, because `Result<BTreeSet<String>, _>` is over the `type_complexity`
+/// threshold this workspace tightened - the same reason [`crate::BigQueryWarehouse`]'s `Mapped`
+/// exists - and because *table ids* is what the set means where `BTreeSet<String>` is not.
+pub type HeldTables = BTreeSet<String>;
+
+impl DatasetAddress {
+    /// Addresses a dataset.
+    #[must_use]
+    pub const fn of(project: ProjectId, dataset: DatasetId) -> Self {
+        Self { project, dataset }
+    }
+
+    /// The project the dataset lives in, which is also the one the metadata read is attributed to.
+    #[inline]
+    #[must_use]
+    pub const fn project(&self) -> &ProjectId {
+        &self.project
+    }
+
+    /// The dataset's own id.
+    #[inline]
+    #[must_use]
+    pub const fn dataset(&self) -> &DatasetId {
+        &self.dataset
+    }
+}
 
 /// Why a resource name this adapter was handed is not usable.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -380,10 +430,12 @@ impl JobRows {
 /// uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
 /// `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
 ///
-/// **Two more members are not that, and the count is spelled out because it has been wrong twice.**
-/// `result_did_not_fit` asks the implementor about a failure it already has and sends nothing; and
-/// `apply`, behind the `fixtures` feature, is the third statement-issuing method - present only in a
-/// build that loads fixtures, so no deployment can reach it.
+/// **Three more members are not that, and the count is spelled out because it has been wrong
+/// twice.** `result_did_not_fit` asks the implementor about a failure it already has and sends
+/// nothing; `list_tables` sends a metadata read rather than a statement, which is what makes it
+/// cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
+/// statement-issuing method - present only in a build that loads fixtures, so no deployment can
+/// reach it.
 pub trait JobTransport {
     /// Why the endpoint could not answer. The adapter wraps it and never lets it reach a caller of
     /// the domain port raw.
@@ -397,6 +449,33 @@ pub trait JobTransport {
     /// Returns nothing on success: what a caller may conclude is *the endpoint accepted this*, and a
     /// dry run's byte estimate is not something any decision above here reads.
     fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
+
+    /// Every table one dataset holds, by the id the dataset knows it under.
+    ///
+    /// **The one member of this trait that issues no statement and reads no rows**, which is what
+    /// makes it cheap enough to run at boot: it is a metadata read over a whole dataset, so a bundle
+    /// naming forty models costs one call rather than forty. `crate::BigQueryWarehouse::preflight` is
+    /// the only caller, and `sutura_domain::warehouse::Warehouse::preflight` is the port above it that
+    /// says why a boot check exists at all.
+    ///
+    /// **Required, with no default, and the two defaults available are the reason.** An empty set
+    /// would report every table in the bundle as absent and refuse a correct deployment; a set that
+    /// claimed to hold everything asked for would be the lie the port above forbids. A transport that
+    /// cannot list has to say so as an `Err`, which is the outcome the port keeps separate from *this
+    /// table is absent* precisely so an operator is not sent to fix the wrong thing.
+    ///
+    /// **It takes a [`DatasetAddress`] rather than reading one off a [`JobRequest`]**, because there
+    /// is no job: a bundle whose models name a second dataset is one call per dataset, and a request
+    /// carries exactly one default dataset. The project is the one the dataset lives in, which for an
+    /// unqualified model is the source's billing project and for a qualified one is whatever the path
+    /// names.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the implementor's own failure is: a credential with no permission to list, a dataset
+    /// that is not there, an endpoint that did not answer. What it must NOT do is report any of those
+    /// as an empty listing.
+    fn list_tables(&self, at: &DatasetAddress) -> Result<HeldTables, Self::Error>;
 
     /// Was this failure the endpoint declining to return the whole result at once?
     ///
