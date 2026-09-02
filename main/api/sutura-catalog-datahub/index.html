@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-exec-postgres/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-catalog-datahub/">
       
       
-        <link rel="prev" href="../sutura-exec-bigquery/">
+        <link rel="prev" href="../sutura-catalog-local/">
       
       
-        <link rel="next" href="../sutura-app/">
+        <link rel="next" href="../sutura-semantic/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>sutura-exec-postgres - sutura</title>
+        <title>sutura-catalog-datahub - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sutura-exec-postgres" class="md-skip">
+        <a href="#sutura-catalog-datahub" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              sutura-exec-postgres
+              sutura-catalog-datahub
             
           </span>
         </div>
@@ -1797,10 +1797,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1816,6 +1825,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -1965,37 +1975,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-exec-postgres
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -2011,115 +1994,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-postgreserror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum PostgresError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum PostgresError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-postgreswarehouse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct PostgresWarehouse
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct PostgresWarehouse">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2355,103 +2229,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-postgreserror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum PostgresError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum PostgresError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-postgreswarehouse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct PostgresWarehouse
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct PostgresWarehouse">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -2475,71 +2252,238 @@
      Edit the doc comments in the crate source instead, then regenerate.
      The commands are on the API reference landing page. -->
 
-<h1 id="sutura-exec-postgres">sutura-exec-postgres<a class="headerlink" href="#sutura-exec-postgres" title="Permanent link">&para;</a></h1>
-<p>The public API of <code>sutura-exec-postgres</code>, rendered from rustdoc JSON.</p>
-<p>A <code>Warehouse</code> adapter over PostgreSQL - one connection under the deployment's declared
-identity (<code>SharedServiceUser</code>). The static half of Postgres: no OAuth, no impersonation.</p>
-<p>The client is async and the <code>Warehouse</code> port is not, so this adapter owns a <code>tokio</code> runtime
-and <code>block_on</code>s each call. <code>tokio-postgres</code> is pure Rust and links nothing native. SQL renders
-through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here is compiled or translated.</p>
-<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
-<ul>
-<li><code>NoTls</code>, unconditional: a <code>hostssl</code>-only server refuses this connection.</li>
-<li>A <code>statement_timeout</code> is set at connect, so a slow server statement cannot hold a
-  blocking-pool thread past the caller's request deadline.</li>
-</ul>
-<h2 id="enum-postgreserror"><code>enum PostgresError</code><a class="headerlink" href="#enum-postgreserror" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PostgresError</span>
+<h1 id="sutura-catalog-datahub">sutura-catalog-datahub<a class="headerlink" href="#sutura-catalog-datahub" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-catalog-datahub</code>, rendered from rustdoc JSON.</p>
+<p>A <code>SemanticCatalog</code> over <code>DataHub</code>'s entity aspects: the canonical <strong>declaring</strong> source.</p>
+<p><code>docs/adr/0016-what-datahub-can-carry.md</code> is the measurement that decides what this adapter is.
+<code>DataHub</code> 1.7.0 holds a measure as a raw expression string in a dialect set that does not intersect
+this repository's, and its physical relationships default cardinality to many-to-many - so it
+supplies the physical model, the descriptions and the join columns, and supplies no measure this
+adapter will execute, no reliable cardinality, no definitional filter, no grain, no value
+allowlist and no anchor. That is the shape of a <strong>declaring</strong> adapter: it says which kinds it
+provides and which it does not, and it is measured against that declaration rather than against
+the golden adapters' oracle.</p>
+<h1 id="what-is-built-here-and-what-is-not">What is built here, and what is NOT<a class="headerlink" href="#what-is-built-here-and-what-is-not" title="Permanent link">&para;</a></h1>
+<p>This crate contains everything <code>DataHubCatalog</code> DECIDES about the aspects it reads, and it is
+tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
+HTTP. What it does not contain is an HTTP client: <code>AspectReader</code> is the seam a real reader over
+<code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity surface will implement (with a personal access token as a
+bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
+opening engineering question <code>docs/adr/0016</code> leaves open, to be measured against a provisioned
+instance the way <code>sutura-exec-bigquery</code>'s acceptance leg was. Until that lands, the only
+implementor of the port is the recorded fixture source in <code>fixture</code>.</p>
+<h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
+<p><code>SemanticCatalog::KIND</code> is <code>CatalogKind::Declaring</code> and <code>SemanticCatalog::capabilities</code>
+provides <code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code>, and no knowledge capability. A bundle a
+<code>DataHub</code>-only deployment loads therefore uses the physical model, the prose and the join columns,
+and carries no certified metric layer - which the prompt states as a fact derived from the bundle,
+exactly as <code>docs/adr/0011</code> decided. It loads and validates, because <code>Definitions::assemble</code> has no
+minimum-metric refusal.</p>
+<p><strong>The knowledge half is empty on purpose, and why is worth stating rather than glossed.</strong> <code>DataHub</code>
+does have glossary-like content, but every <code>Knowledge</code> referent names a metric, a dimension of one
+or a declared value of one - and this adapter provides no metrics, so there is no referent for a
+phrase or a caveat to attach to. <code>docs/adr/0016</code> decision 3 marks glossary and caveats <em>provides,
+conditionally, where the bundle already declares a metric for a Referent to name</em>; that condition
+is met only by the composition of a separately-authored metric layer, which <code>docs/adr/0011</code>'s
+assembler (not built) is what would supply. So the honest standalone declaration is no knowledge
+at all, and this crate says so rather than advertising a conditional it cannot satisfy alone.</p>
+<h1 id="the-two-absences-that-are-the-point">The two absences that are the point<a class="headerlink" href="#the-two-absences-that-are-the-point" title="Permanent link">&para;</a></h1>
+<p><code>Cardinality</code> and <code>Metrics</code> are both <em>present</em> in <code>DataHub</code> and both declared unsupported here,
+which is the interesting kind of absence <code>docs/adr/0016</code> calls out: reading them would be reading
+something the source does not guarantee. A relationship whose cardinality is absent or many-to-many
+is refused naming the relationship (not defaulted in either direction), because the <code>N_N</code> default
+makes an unconsidered relationship indistinguishable from a considered one. A metric whose measure
+is an expression string is read - <code>document::MetricAspect</code> is decoded - and never converted into
+a <code>Measure</code>, so it does not enter the certified bundle.</p>
+<h2 id="trait-aspectreader"><code>trait AspectReader</code><a class="headerlink" href="#trait-aspectreader" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">AspectReader</span>
 </span></code></pre></div>
-<p>Why this data system could not answer.</p>
+<p>Where a snapshot's aspects come from.</p>
+<p><strong>The fake seam.</strong> Everything above this trait is decided and tested against recorded documents;
+a real implementor speaks to <code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity surface, decodes into
+<code>document::Snapshot</code>, and maps its own failures into <code>DataHubError::Read</code>. The only
+implementor today is the recorded source in <code>fixture</code>, which is why the read path's cost is not
+measured here - see the crate header.</p>
+<p>A port rather than a method on <code>DataHubCatalog</code> for the same reason the warehouse port exists:
+a catalog that could be swapped for a live source without the conversion changing is the point.</p>
+<h2 id="enum-datahuberror"><code>enum DataHubError</code><a class="headerlink" href="#enum-datahuberror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DataHubError</span>
+</span></code></pre></div>
+<p>Why a record could not be read as a catalog.</p>
+<p>Every variant is a typed contract rather than a message; the message is for a human and the
+variant is what a caller can branch on. The mapping variants carry the entity name they were
+refused on, because a catalog is many entities and "invalid identifier" with no name sends a
+reader back to all of them.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>Runtime</code></li>
-<li><code>Connect</code></li>
-<li><code>Prepare</code></li>
-<li><code>Execute</code></li>
-<li><code>DivisionByZero</code> - The server refused a statement as <code>division by zero</code> (SQLSTATE <code>22012</code>).</li>
-<li><code>NumericNotCarryable</code> - A <code>NUMERIC</code> wider than this build can carry exactly. Refused, not rounded.</li>
-<li><code>UnsupportedType</code> - A column came back as a type this adapter does not map. An error, not a stringified value.</li>
-<li><code>NotFinite</code> - A floating-point (or <code>NUMERIC</code>) column came back as a value that is not a number.</li>
-<li><code>NotADate</code> - A day came back that is not a date this build can represent.</li>
-<li><code>Shape</code></li>
-<li><code>Render</code></li>
-<li><code>Fixture</code> - A fixture import failed.</li>
-<li><code>FixtureRead</code></li>
-<li><code>InvalidColumnName</code> - A CSV header named a column that is not a valid identifier. Refused, not interpolated.</li>
-<li><code>InvalidSchemaName</code> - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.</li>
-<li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
-<li><code>PresentedDisagreesWithPosture</code></li>
-<li><code>LegWithoutCombiner</code> - One leg of a federated answer, which nothing here can assemble above.</li>
+<li><code>Read</code> - The source did not produce a snapshot.</li>
+<li><code>UnknownPlatform</code> - A model named a platform this deployment declared no <code>sources.&lt;alias&gt;</code> for.</li>
+<li><code>CardinalityUnrepresentable</code> - A relationship carries no cardinality, or one this adapter cannot represent.</li>
+<li><code>Identifier</code> - A name on a snapshot did not parse as the identifier kind it claims to be.</li>
+<li><code>Description</code> - Prose on a snapshot is not a usable description.</li>
+<li><code>Inconsistent</code> - The models, relationships and columns did not hold together.</li>
+<li><code>Knowledge</code> - The bundle's knowledge does not hold together.</li>
+<li><code>Digest</code></li>
 </ul>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="struct-postgreswarehouse"><code>struct PostgresWarehouse</code><a class="headerlink" href="#struct-postgreswarehouse" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PostgresWarehouse</span>
+<h2 id="struct-datahubcatalog"><code>struct DataHubCatalog</code><a class="headerlink" href="#struct-datahubcatalog" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DataHubCatalog</span><span class="o">&lt;</span><span class="n">R</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>A <code>PostgreSQL</code> connection, behind the <code>Warehouse</code> port.</p>
+<p>A catalog read from <code>DataHub</code>'s entity aspects.</p>
+<p>Generic in its reader rather than holding a boxed one, matching the warehouse adapters: there is
+one per composition and a generic keeps the chosen reader visible. It carries the deployment's
+source mapping - which <code>dataPlatform</code> answers to which <code>SourceName</code> - and the declared name and
+version it is recorded under, the same way <code>sutura-catalog-local</code> carries its own.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">DefinitionVersion</span><span class="p">,</span><span class="w"> </span><span class="n">sources</span><span class="p">:</span><span class="w"> </span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">SourceName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">reader</span><span class="p">:</span><span class="w"> </span><span class="nc">R</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>Opens one connection under the supplied <code>tokio_postgres::Config</code> and keeps it for this
-adapter's life.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect_in_schema</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Like <code>connect</code>, but every unqualified table name resolves to a fresh,
-private schema - so several warehouses can share one Postgres without clobbering each other.
-The caller-supplied schema name is validated to a word before it reaches <code>CREATE SCHEMA</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Exposes a fixture CSV as a table: infers column types, recreates the table, then pushes the
-rows through <code>COPY ... FROM STDIN</code>. Re-inferring from the committed CSV each run cannot
-drift from it, and recreating makes a run idempotent.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">local_config</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span>
-</span></code></pre></div>
-<p>A connection config for the fixture tier, honouring the <code>SUTURA_DEV_*</code> overrides the
-compose file reads, so a host that objects to a weak default can change one value.</p>
+<p>Opens a catalog over a <code>DataHub</code> reader.</p>
+<p><code>sources</code> is the deployment's mapping from a data platform to the <code>sources.&lt;alias&gt;</code> a model
+on that platform reads from. A model on a platform with no entry is refused at load (see
+<code>DataHubError::UnknownPlatform</code>) rather than guessed, which is what makes opening the model's
+data system the deployment's decision rather than this adapter's.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>Warehouse</code></p>
+<p><code>Clone</code>, <code>Debug</code>, <code>SemanticCatalog</code></p>
+<h2 id="module-document">Module <code>document</code><a class="headerlink" href="#module-document" title="Permanent link">&para;</a></h2>
+<p>The ingestion shape a <code>super::AspectReader</code> returns: what this adapter needs from <code>DataHub</code>.</p>
+<p><strong>These are not literally <code>DataHub</code>'s wire documents, and saying which is the point.</strong> <code>DataHub</code>
+serves aspects inside an <code>OpenAPI</code> v3 envelope with more fields than any one consumer cares about,
+and a document that claims to be that envelope while refusing every field it does not name would
+be a false promise the moment a real response arrived. So the shapes here are the adapter's own
+canonical statement of the aspect CONTENT a reader must extract and decode - the decision side of
+<code>docs/adr/0016</code>'s transport note - and <code>deny_unknown_fields</code> holds over THIS shape and over the
+recorded fixtures a reader decodes, rather than over <code>DataHub</code>'s envelope. A real HTTP reader maps
+the service's document into one of these, exactly as <code>sutura-exec-bigquery</code>'s transport decodes
+into that crate's own <code>wire::document</code> shapes.</p>
+<p>The fields track the aspects <code>docs/adr/0016</code> measured: a <code>dataset</code>'s <code>schemaMetadata</code> and its
+description aspects, a <code>semanticModel</code>'s relationships with their cardinality, and a <code>metric</code>'s
+expression. Everything an adapter DECIDES below this shape is tested against a fake reader that
+serves recorded documents, which is the port's own rule.</p>
+<p><code>Cardinality</code> mirrors <code>DataHub</code>'s <code>ERModelRelationshipCardinality</code>, and <code>N_1</code>-to-<code>N_1</code> is refused by
+the conversion rather than carried, because <code>JoinType</code> has no many-to-many shape - the declaration
+says so (this adapter does NOT provide cardinality), and a relationship nobody vouched for
+licenses nothing.</p>
+<p>The fields are private with constructors and accessors, per the workspace's <code>check-boundaries</code>
+rule that a library crate's types are its contract: a <code>pub</code> field lets a struct literal build a
+value the constructor would have rejected. These carriers are decoded by <code>serde</code>, which writes
+private fields, and built by a reader through the constructor.</p>
+<h3 id="struct-snapshot"><code>struct Snapshot</code><a class="headerlink" href="#struct-snapshot" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Snapshot</span>
+</span></code></pre></div>
+<p>Everything a reader fetched, before any of it is converted.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">datasets</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">DatasetAspect</span><span class="p">]</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">MetricAspect</span><span class="p">]</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">datasets</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">DatasetAspect</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relationships</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">RelationshipAspect</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">metrics</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">MetricAspect</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A snapshot assembled from the three kinds of aspect a reader fetched.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">RelationshipAspect</span><span class="p">]</span>
+</span></code></pre></div>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-datasetaspect"><code>struct DatasetAspect</code><a class="headerlink" href="#struct-datasetaspect" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DatasetAspect</span>
+</span></code></pre></div>
+<p>What a <code>dataset</code> entity supplies a model: a table, its columns, the platform it lives on, and a
+description.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">platform</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A dataset aspect.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">platform</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-relationshipaspect"><code>struct RelationshipAspect</code><a class="headerlink" href="#struct-relationshipaspect" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RelationshipAspect</span>
+</span></code></pre></div>
+<p>What one <code>SemanticModelRelationship</code> supplies: the two endpoints and their columns, plus a
+cardinality this adapter may or may not be able to represent.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cardinality</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Cardinality</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">from_model</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">from_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">to_model</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">to_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">cardinality</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Cardinality</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A <code>SemanticModelRelationship</code> aspect.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">to_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">to_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-cardinality"><code>enum Cardinality</code><a class="headerlink" href="#enum-cardinality" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Cardinality</span>
+</span></code></pre></div>
+<p><code>DataHub</code>'s <code>ERModelRelationshipCardinality</code>, as a closed set.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>OneOne</code></li>
+<li><code>OneN</code></li>
+<li><code>NOne</code></li>
+<li><code>NN</code> - Many-to-many. Refused by the conversion: there is no <code>JoinType</code> for <code>N_1</code>-to-<code>N_1</code>, and a many-to-many relationship licenses no join.</li>
+</ul>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-metricaspect"><code>struct MetricAspect</code><a class="headerlink" href="#struct-metricaspect" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricAspect</span>
+</span></code></pre></div>
+<p>What a <code>metric</code> entity's <code>MetricInfo.expression</code> carries: a raw string in a dialect <code>DataHub</code>
+names. Never converted into a <code>Measure</code>.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dialect</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expression</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">expression</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A metric aspect, whose measure is a raw expression string.</p>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
+<p>The recorded fixture corpus and the fake reader that serves it.</p>
+<p>This is the only <code>AspectReader</code> implementor today, and it is the <strong>fake</strong> the port is tested
+against - recorded aspect documents, not mocked HTTP. <code>docs/adr/0016</code>'s transport note leaves the
+read path's cost open until a provisioned instance exists; until then this is what a
+<code>crate::DataHubCatalog</code> reads. The corpus is deliberately a <strong>bundle of models and no metrics</strong>:
+that is the requirement <code>docs/adr/0016</code> checks - a DataHub-only deployment loads, pins and
+validates with no certified metric layer - so the standalone declaration (<code>crate::DataHubCatalog</code>
+provides <code>Structure</code>, <code>Descriptions</code>, <code>Relationships</code> and nothing else) is faithful to it.</p>
+<p>The documents are embedded as text and decoded through <code>serde_json</code> at read time, so the same
+deserialization path a real reader would use is exercised, and <code>deny_unknown_fields</code> on the wire
+shapes holds over these recorded documents.</p>
+<h3 id="struct-fixturereader"><code>struct FixtureReader</code><a class="headerlink" href="#struct-fixturereader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
+</span></code></pre></div>
+<p>The fake <code>AspectReader</code> that serves the recorded corpus.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>AspectReader</code>, <code>Clone</code>, <code>Debug</code></p>
+<h3 id="fn-over_fixture_source"><code>fn over_fixture_source</code><a class="headerlink" href="#fn-over_fixture_source" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">DataHubCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>A <code>crate::DataHubCatalog</code> over the recorded corpus.</p>
+<p>The source mapping answers the one platform the corpus names - <code>bigquery</code> - with the deployment's
+declared source, which is what lets a model on that platform be opened. This is the constructor
+the conformance registry uses to register the adapter; it is <code>pub</code> because an integration suite is
+a separate crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
 
 
 
