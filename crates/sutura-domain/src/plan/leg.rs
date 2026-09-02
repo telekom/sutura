@@ -3,7 +3,7 @@
 //! **The shapes, their closure, and nothing that produces or executes one.** There is no splitter
 //! and no combiner in this workspace, so no production code constructs a [`LegPlan`]: what is here
 //! is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
-//! before anything runs it. `AGENTS.md`'s *Built And Not Wired* section carries that state, and this
+//! before anything runs it. `.agents/skills/sutura/query-surface` carries that state, and this
 //! module says it rather than leaving it to be discovered.
 //! `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 //! `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.

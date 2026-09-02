@@ -53,7 +53,7 @@ it costs; the two reasons it was absent are answered rather than repealed:
    `BigQueryWarehouse::load_fixture`, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 
-So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
+So this crate is still built and not wired - see `.agents/skills/sutura/query-surface` - and nothing here may be cited
 as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
 and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
 last one has changed rather than gone away.** It was *a cell that has never executed reads as
@@ -670,7 +670,7 @@ What the suite beside this module proves is separate and unchanged: that *this c
 request it says it builds and reads the answer it says it reads*, over documents that are not the
 service's.
 
-So: still *Built And Not Wired* in AGENTS.md, two lines further along. `sutura-serve` links no
+So: still built and not wired - `.agents/skills/sutura/query-surface` - two lines further along. `sutura-serve` links no
 `BigQuery` adapter and refuses `kind: bigquery` by name, and the `data_systems:` axis of the
 golden matrix still gains no entry - one live statement is not a registered data system.
 

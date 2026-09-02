@@ -1,1000 +1,127 @@
 # AGENTS.md
 
-sutura is an identity-aware semantic data runtime for AI agents.
-Given pluggable metadata and data sources it compiles a semantic query plan and even allows for
-(light) federated queries.
-Security is key! We support e2e impersonation.
+sutura is an identity-aware semantic data runtime: pluggable metadata and data sources, a compiled
+semantic query plan, light federation, e2e impersonation. Security is the product, not a layer.
 
-Guidance for coding agents; root of trust. `CLAUDE.md` and any other agent-specific file reference
-this one. Status: early - the plan is settled, the code is not.
+Root of trust. `CLAUDE.md` is `@AGENTS.md`. A skill refines *how* to work inside these rules and
+never overrides them. Early stage - the plan is settled, the code is not.
 
-## This Repository Is Public
 
-`origin` is `github.com/telekom/sutura`. Everything here is world-readable: docs, comments,
-fixtures, commit messages, branch names.
+## Public repository - `github.com/telekom/sutura`
 
-Do not commit: internal product/platform/service names · non-public hostnames, domains, wiki or
-tracker URLs and page ids · filesystem paths outside this repo, or other repo/directory names ·
-cloud project/account/tenant ids · people's names, usernames or emails (use `user@example.com`) ·
-internal classification schemes (use `internal` / `confidential` / `restricted`) · references to
-documents that live elsewhere.
+Docs, comments, fixtures, commit messages and branch names are world-readable. **Never commit:**
+internal product/platform/service names · non-public hostnames, domains, tracker URLs or page ids ·
+paths outside this repo, other repo names · cloud project/account/tenant ids · people's names,
+usernames or emails (use `user@example.com`) · internal classification schemes (use `internal` /
+`confidential` / `restricted`) · references to documents that live elsewhere.
 
-A description specific enough to identify any of the above is disclosure. Write the capability and
-its constraint generically - *"where a gateway enforces auth centrally and requires services to
-validate a short-lived token proving the request transited it"* - and the point usually improves.
-Automated pattern-matching for this lives OUTSIDE this repository, by design: a file
-enumerating what we avoid naming would itself be the disclosure. It is a backstop in any
-case - it cannot catch a paraphrase. **The control is not writing it down here.**
+A description specific enough to identify one of those **is** disclosure - write the capability and
+its constraint generically instead, and the point usually improves. The pattern backstop is
+deliberately outside this repo (a list of what we avoid naming would itself be the disclosure) and
+cannot catch a paraphrase. **The control is not writing it down here.**
 
-## Layout
 
-`sutura-domain` is the hexagon's interior. Everything else is an adapter, and nothing depends on an
-adapter. A port trait arrives with its first implementor.
+## Principles
 
-| Crate | Role |
+Hard breaking changes with clarity over legacy accumulation. Concise code, no AI-slop comments.
+Security by design *and* by verification. Hermetic build with nix. Test most things, E2E in CI per
+data source; a golden suite holds every adapter to conformance. Performance in mind - no clone or
+`Arc` to escape the borrow checker, both where they earn it. Push computation and impersonation
+down to the source system where the adapter can. Engage the ecosystem instead of monkeypatching:
+propose upstream, vendor only to move fast and record it in `VENDOR.md`.
+
+Use the compiler for communication - [newtypes that parse](https://www.howtocodeit.com/guides/ultimate-guide-rust-newtypes),
+[typed errors](https://www.howtocodeit.com/guides/the-definitive-guide-to-rust-error-handling#structured-error-handling-in-rust),
+[dependencies pointing inward](https://www.howtocodeit.com/guides/master-hexagonal-architecture-in-rust).
+Those three plus secure-by-design are the definition of *correct* in review here.
+
+
+## Non-negotiables
+
+- **`just validate` is the only thing that counts as verified**, and passes before a change is
+  done. Its nix checks build a GIT-DERIVED copy of the tree - so `git add -N` a new file at once,
+  or it compiles under cargo and does not exist in the sandbox.
+- **Never run a bare `cargo clippy` / `cargo nextest`. Run `just lint` / `just test`.** The task IS
+  the gate's invocation: a hand-written line loses `nix/stable-env.sh` (this shell's cargo is
+  nightly for cranelift and reports lints stable has not got) *and* `-D warnings`. Fixing only one
+  of those still fails the gate.
+- **A new or changed test is red against base and green with your change.** One that passes both
+  ways is worse than none, because it looks like coverage. `just causality` proves it mechanically;
+  `just ship-check` before saying done.
+- **Cite a `just` task, never a raw command line** - `check-guidance` fails a citation of a task
+  that does not exist, or a cited `cargo` line missing `--all-features`.
+- **Invariants are held by a type, a lint, a hook or a gate - never by recall.** Changing one is an
+  architecture decision; a rule that loses its mechanism gets deleted, not demoted to advice. A
+  change you cannot tie to a mechanism is unproven - say so rather than asserting it is fine, and
+  prefer adding the missing check to adding a sentence.
+- **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
+  who is asking) is built; leg 2 (a source executing AS them) is not, on anything published.
+- **Never commit or force-push unless asked.** Prefer stacked, individually reviewable PRs via stax.
+- **This shell's cargo env leaks into other checkouts** - `CARGO_*CODEGEN_BACKEND=cranelift` and
+  `DUCKDB_*_DIR` are unscoped, and a C++-linking crate built under them aborts. Unset them before
+  building any other repo; a red run there is unexplained until you have.
+
+
+## Working here
+
+Read the source, run the tests, check the pinned versions - prompt text, task notes and memory are
+routing context, not proof of current state. Verify external behaviour rather than asserting it: if
+you claim a system rejects something, reproduce it and paste the error. Keep changes scoped; a
+mechanical change repeated across files is one commit. Put a deterministic requirement in a task,
+hook, lint or generated contract - a rule with no mechanism is a wish. Prove completion with the
+command and its output; if tests fail say so, if you skipped a step say which, and correct a wrong
+claim plainly. Ports get **fakes**, not mocked HTTP - a test asserting on source text proves
+nothing. Rust 2024, conventional commits. If guidance here is wrong, fix this file - preferably by
+adding a check rather than a sentence.
+
+`ls crates/` is the layout, because the prefix is the role: `-domain` is the hexagon's interior,
+everything else is an adapter, nothing depends on an adapter, and a port trait arrives with its
+first implementor. `-semantic` query→plan · `-sql` plan→statement per dialect · `-app` service and
+driving port · `-catalog-*` metadata · `-exec-*` data systems · `-http`/`-mcp` transports ·
+`-config` settings and startup refusals · `-runtime` process globals · `-cli`/`-serve` composition
+roots · `xtask` gates. `just` with no argument lists every task.
+
+
+## Incremental discovery
+
+**This file is a router, not a manual.** Context is the scarce resource, so knowledge lives as far
+from the default path as it can while still being found. Guidance is a **tree**, never one blob:
+`.agents/skills/README.md` → that group's `README.md` → only the `SKILL.md` it routes to. Three small
+files, not the repo. A skill absent from `skill-router.json` is non-discoverable by policy, and
+`cargo xtask check-skills` holds both directions.
+
+What earns a place in the tree, and what does not:
+
+- **Do NOT write down what a command answers.** `ls crates/`, `just --list`, `cargo xtask --help`,
+  `cargo tree`, `grep` and the file itself are the source of truth for names, lists and structure. A
+  copy of them is a second thing to keep true, and it rots first.
+- **DO write down long-term value:** why a decision went the way it did, which way a mechanism fails,
+  what a control does **not** cover, and anything measured at cost. If a green run once meant less
+  than someone believed, that belongs in the tree.
+- **DO write down a repeated challenge** - a mistake made twice is cheaper as one paragraph than as a
+  third session. Name the trap and the fix, not the whole story.
+- **Keep it token-efficient.** No preamble, no restating the code, no history of how a sentence used
+  to read. Prefer a table row to a paragraph.
+- **Split by task, not by topic size.** If a file only ever gets half-read, it is two skills.
+
+Same rule applies to this file: if guidance here can be discovered in a second, delete it; if it is
+task-specific, route to it.
+
+This codebase's own reference is the `sutura/` group:
+
+| Before you… | Open |
 | --- | --- |
-| `sutura-domain` | Domain types and port traits. Deps: `serde`, `serde_json`, `sha2`, `secrecy`, `thiserror`. No framework - no tokio, axum, rmcp, datafusion, arrow. **`secrecy` is the newest and the only one taken for a COMPILE ERROR rather than for a value the domain computes** - `docs/adr/0020` - and it brings `zeroize`, which was already in `Cargo.lock` under `rustls`. Three names in `ALLOWED_IN_DOMAIN`: those two plus `zeroize_derive`, which nothing compiles and which that gate names anyway because it walks the resolve graph rather than the feature resolution |
-| `sutura-semantic` | `Query` → `QueryPlan`. Renders nothing and names no dialect; there is no SQL generator in its tree |
-| `sutura-sql` | `QueryPlan` → one statement in one dialect, and `LegPlan` → one leg's statement through `generate_leg`. The only crate that names `polyglot-sql` |
-| `sutura-app` | The service, generic over the ports. Holds the `Surface` driving port and `LocalService`, its one implementor, plus `Warehouses` - the data systems this process opened, keyed by the name a plan selects them with. **Every entry is the same adapter type**, so a heterogeneous set is an architecture decision rather than a change to that file |
-| `sutura-catalog-local` | `SemanticCatalog` over a directory of markdown documents with YAML frontmatter. THE metadata reference, and a **golden** adapter |
-| `sutura-catalog-datahub` | `SemanticCatalog` over DataHub's entity aspects: the first **declaring** adapter, `docs/adr/0016`. Supplies the physical model, the descriptions and the join columns and no metric layer, measured against its own declaration. Everything it DECIDES is tested against a fake reader over recorded aspects; the read path's cost - the HTTP client over the versioned OpenAPI entity surface - is the open measurement `docs/adr/0016` leaves to a provisioned instance, so the only `AspectReader` implementor today is the recorded fixture source |
-| `sutura-exec-duckdb` | `Warehouse` over DuckDB, in-process. Renders through `sutura-sql` and pushes down. A dev-dependency, not shipped |
-| `sutura-exec-bigquery` | `Warehouse` over BigQuery: renders through `sutura-sql` in the fourth dialect and pushes down. **Everything it DECIDES is built and tested against a fake, and the WIRE now exists too** - `wire`, behind a default-off `wire` feature, calling `jobs.query` over `ureq` with a second narrow port for the credential; `docs/adr/0018` is the dependency decision. **THE CORPUS has now reached a real project** - two `#[ignore]`d integration targets behind `just bigquery-acceptance`: a SMOKE leg over one hand-built `SUM`, first green on 2026-08-30 and at five tests on 2026-08-31 once a qualified read was added, and `tests/corpus.rs`, which loads the example fixtures into four tables through a default-off `fixtures` feature, runs the corpus questions and compares its rows against THE ENGINE's. `docs/adr/0017`'s THIRD amendment says which of its four acceptance bullets that answers and which limits stay. **And it is now REGISTERED:** `sutura-serve` opens `kind: bigquery`, behind a default-off `bigquery` feature that turns on this crate's `wire` - `docs/adr/0017`'s SECOND amendment is that decision, and the feature is default-off because the four cross builds share an unscoped dependency derivation. **And it now declares `PerSubjectCredential`:** a `Presented::SubjectToken` rides as the job's own bearer, so a leg can execute as the asker; the other subject shape - a principal for the data system to switch to - is refused as `NoPrincipalSwitch`, because `GoogleSQL` has no mechanism for it. `WorkloadIdentityBroker` beside it is the first broker that EXCHANGES rather than mints from configuration. **What has still never happened is a SHIPPED deployment, and the per-subject path is not served either:** no published artifact links this crate - and since #111 the REASON has changed while the fact has not. `sutura-serve` IS published now: a `nix` package, an image and four cross triples of its own. It is published with cargo's DEFAULT features, so `bigquery` is OFF in every published artefact and only a source build with `--features bigquery` links this crate; `checks.shipped-features` reads `ureq`'s and `ring`'s absence out of the shipped binary's own embedded dependency list rather than out of a manifest. And that root refuses an `impersonation-at-source` entry by name while no exchanging broker is attached to a served source. Still in *Built And Not Wired* for what it does not claim, and the `data_systems:` golden axis still gains no entry |
-| `sutura-exec-postgres` | `Warehouse` over Postgres on a static credential (the shared identity, no impersonation). Pure-Rust driver, so links nothing. `NoTls`, localhost tier only. A dev-dependency. Its corpus and differential cells are fail-closed: they run under nixpkgs' `postgresql_18` on a unix socket via `nix/postgres-tier.nix`, provisioned by `checks.nextest` in the sandbox AND by `just test` in the dev shell - the same script, so the two cannot drift |
-| `sutura-exec-datafusion` | THE engine. A plan becomes a logical plan over Arrow; no SQL is generated. Behind the `Warehouse` port today; belongs above it once federation lands |
-| `sutura-config` | The settings tree, the `Environment`, the startup refusals. No framework; reads paths, opens no socket. Also **`StaticCredentialBroker`**, the first implementor of the credential port - it is here because the identity provider it reads IS the settings tree: it mints what an operator declared per source and opens nothing |
-| `sutura-runtime` | Process-global concerns: tracing subscriber, panic hook, shutdown signal, banner |
-| `sutura-http` | Transport only. Versioned `v1` tree, liveness probe, generated interface description, rate limiting, bearer gate, optional TLS, and **leg 1** - `inbound`, which verifies a caller's own token where a deployment declares `security.inbound`. **The bearer token authenticates the deployment, not the caller; leg 1 authenticates the caller and still does not make a source execute as them** |
-| `sutura-mcp` | The agent-facing surface. Transport only, over the Model Context Protocol: **two tools, one per `Surface` operation**, each schema generated from a wire type and committed as a snapshot. Which tools exist is `sutura_app::Capability`'s to say, not this crate's. Depends on `sutura-app`'s driving port and on nothing in `sutura-http`. **Served by the `sutura` binary's `mcp` subcommand** - a locally launched single-player surface over a pipe, composed in `sutura-cli` the way `query` is. The HTTP server (`sutura-serve`) is deliberately not it: folding an agent transport into the HTTP composition would couple the two surfaces' lifecycle in one process |
-| `sutura-serve` | Composition root for the HTTP surface. Synchronous down to one `block_on`: the engine holds its own runtime. **PUBLISHED since #111** - `nix/shipped.nix` lists it beside `sutura-cli`, so a release carries `sutura-serve-<triple>.tar.gz` and a `:latest-serve` image, and its own module doc says which features that artefact does not carry. **And since #117 something ASKS IT A QUESTION**: `tests/served.rs` writes a settings file over `examples/single-player`, starts THIS BINARY (`CARGO_BIN_EXE_sutura-serve`, because the crate has no library target and a test that assembled its own router would prove the router) on a kernel-chosen port, and asks over HTTP - the bearer gate with and without a token, the example's own certified June number, two refusals arriving as their documented statuses rather than as a `500`, the generated document as SERVED, and `SIGTERM` producing a clean exit. It is in `checks.nextest` and needs no network, which is what makes it a gate rather than a `nix run` app; `just serve-e2e` runs that target alone. **The unit tests here are still all boot refusals, and that is the division of labour** - a refusal is a value `open_engine` returns, an answer needs a process. They live in TWO files since the pre-flight landed: `src/tests.rs` drives `open_engine` and the checks beside it, and `src/boot.rs` holds the refusals that read the BUNDLE - `refuse_absent_tables`, `refuse_unattached`, `refuse_unverifiable_anchors` - with its tests inline, because `main.rs` was at the file-length gate and the honest cut is at that seam. **No count is written here on purpose:** a bare figure with no command attached is one nobody can check, which is this file's own *Dependency Currency* rule pointed at a test tally - `grep -c '^[[:space:]]*#\[test\]$'` on those two files is the answer - the INDENT-TOLERANT form, because `boot.rs`'s tests live in an inline `mod tests` and the anchored command answers zero for it, which is the blind spot the `sutura-exec-bigquery` cell below already documents |
-| `sutura-cli` | The binary; composes adapters. **Also the composition root for the AGENT surface** - `sutura mcp <catalog-dir> <data-dir>` serves `sutura_mcp::serve_stdio` over this process's pipes, composed the way `query` is, and prints the every-capability limit at startup because a pipe has no header a token could arrive in. **And since #117 something SPEAKS THE PROTOCOL to it**: `tests/mcp.rs` spawns `CARGO_BIN_EXE_sutura mcp` over `examples/single-player` and drives it with a hand-written JSON-RPC client - the handshake, `tools/list` compared against the committed schema snapshots in `crates/sutura-mcp/src/snapshots/`, the example's own certified June number, a refusal arriving as a tool RESULT, an unknown tool arriving as a protocol error, and a closed pipe producing a clean exit. It is in `checks.nextest` and needs no network, no port and no credential; `just mcp-e2e` runs it alone. **What only the spawned process can answer, and the reason it is not a second copy of `src/mcp.rs`'s duplex test: standard output carries the protocol and nothing else.** Measured rather than argued - one `println!` in place of the startup notice's `eprintln!` turns all six of those tests red on a named assertion and leaves the in-crate duplex test green, because two in-memory buffers cannot see what a process writes to its own stdout. It says nothing about identity: every question there is answered under the one shared identity the example declares |
-| `xtask` | The repo gates |
-| `-postgres`, `-clickhouse`, `sutura-arrow` | Planned. None exists |
-
-`cargo check -p sutura-domain --no-default-features` is the inner loop; keep it under a second.
-**That width is the reason `just check` now prints what it covered:** cargo's own `Finished` line
-says nothing about scope, so a green run read as a green tree and a branch whose `sutura-config` did
-not compile was pushed on the strength of it. `cargo xtask check-scope` is what keeps the printed
-scope equal to the `-p` flags above it, so the notice cannot drift into a lie the way a comment
-would. **What no gate can do is know what a developer believed a task covered** - the honest output
-is the fix for that half, and `just check-changed` with no arguments is the cheap answer to "does
-what I touched compile".
-
-A data system's driver is a dev-dependency. `sutura-cli` links the engine only, which is what keeps
-the musl artifacts building - nixpkgs has no musl `libduckdb`. `nix/duckdb.nix` is the single path
-from nixpkgs to that library, imported by `flake.nix` and `devenv.nix` alike.
-
-**A networked adapter is a second way to reach the same musl constraint, and a release derivation's
-`--package` is NOT enough on its own.** `crane.buildDepsOnly` is deliberately unscoped so the checks
-can share one dependency derivation, so each cross build compiles the whole workspace's DEPENDENCY
-closure for its target even though it builds one binary out of it. That is why `sutura-serve`'s
-`bigquery` feature is default-off rather than merely narrow: with it non-optional, `ureq`, rustls and
-`ring` would be cross-compiled for two musl triples for a binary that links none of them. **The
-general rule, since it will come up again:** an adapter with a native or an outbound-TLS dependency
-arrives behind a default-off feature on whichever composition root wants it, and the four `cross` CI
-jobs are the gate that says whether that was necessary.
-
-**WHAT SHIPS is `nix/shipped.nix`'s `binaries` list, and since #111 it has TWO entries** -
-`sutura-cli` as `sutura` and `sutura-serve` - so a release publishes two tarballs and two images per
-triple. Both are built with cargo's DEFAULT features, which is the same decision one level out: no
-`tls` and no `bigquery` in a published server, because each costs a rustls closure across two musl
-triples and each is a startup refusal naming the feature rather than a silent degradation.
-
-**THREE gates hold it, and they answer three different questions - which is worth reading as a set,
-because two of them were added after a review found the first one alone could be believed to cover
-more than it does.**
-
-- `cargo xtask check-shipped-binaries` compares that list against **every literal that spells it
-  again**: `BINARIES` in `release.yml` and in `ci.yml`, and the input default in the two build
-  actions. It exists because the release path CANNOT derive the set - a `strategy.matrix` takes
-  literals and a job cannot evaluate a flake before installing nix - and because the arrival check
-  in `release.yml` reads like the mechanism and is not: both sides of its count come from
-  `BINARIES`, so a binary added to `nix/shipped.nix` and to nothing else leaves it green. That is
-  #111's own omission class, and finding it in the change that closed #111 is why this gate is
-  here.
-- `checks.one-binary` reads each shipped package's `bin/` and its runtime closure: one executable,
-  **named what the image entrypoint expects**, no toolchain baked in. The name half is the cheap
-  guard on a seam nothing else relates - `cargoExtraArgs` names a cargo package, the image names a
-  path.
-- `checks.shipped-features` reads the `cargo auditable` section out of the binary itself and
-  asserts `axum` present in the server, `ring` and `ureq` absent from both. An assertion about the
-  ARTIFACT rather than about a manifest, which is what makes it a mechanism instead of a comment.
-
-**The limit, stated because the first two are text scans:** `check-shipped-binaries` reads the
-release path only. The `justfile`'s `build`, `image` and `build-all` recipes write the same
-attribute names out and are held by review, on the argument that a subset there costs a developer a
-surprise rather than a release a binary.
-
-## Commands
-
-`direnv allow` once per clone. Then:
-
-```bash
-just validate       # THE gate. Run this before saying a change is done.
-just check          # fast inner loop, DOMAIN CRATE ONLY - and it says so on the way out
-just check-changed  # cargo check over what your working tree actually changes
-just test           # tests
-just lint           # clippy
-just fmt            # format
-just docs           # render the site
-just api            # regenerate the committed API pages
-just attribution    # regenerate the committed third-party attribution document
-just lint-actions   # shellcheck the shell inside every composite action
-just gates          # everything CI runs, the attribution byte-compare included
-just classify       # what does this change require?
-just causality      # red-before-green proof
-just update         # bump every lock
-just doctor         # is this machine set up
-```
-
-`just` with no argument lists the rest.
-
-**`just validate` is the only thing that counts as verified.** It runs the nix checks, which build
-their own copy of the tree - the only way to catch a file the build needs and that copy does not
-have. Every other command reads the real tree and cannot see that class of bug. The copy is
-GIT-DERIVED, and that is the mechanism: an untracked file is invisible to it, so a new module
-compiles under `cargo` and then does not exist in the sandbox. `git add -N` is enough to make it
-visible. **The source filter is a SECOND way to lose a file, and it now drops things.**
-`flake.nix`'s arms match a REPO-RELATIVE path; they used to match the absolute one, and that made
-the whole `||` chain short-circuit to true - a nix source root IS `/nix/store/<hash>-source`, so the
-arm written for our own `nix/` directory matched every path in the tree and the filter dropped
-nothing. What it keeps is the arms: the Rust sources and manifests crane recognises, plus `vendor/`,
-`examples/`, `crates/*/tests`, `crates/*/src`, `nix/`, `rust-toolchain.toml` and `docs/crap.md`.
-Everything else - `docs/`, `.github/`, `.agents/`, the top-level markdown, `flake.nix` itself - is
-now absent from the sandbox, so **the rule `flake.nix` states is live rather than theoretical: any
-directory a build or a test reads has to be named there.** **The blast radius is narrower than that
-sounds, and worth knowing before believing a green run:** `clippy`, `doctest`, `fmt`,
-`packages.xtask` and the release builds read the filtered copy, while `nextest`, `hygiene`, `crap`
-and `api-docs` each set `src = ./.` and read the whole tree - which is why the gates that inspect
-repo files are unaffected. It does not reach the dependency closure at all: crane synthesises
-`sutura-deps` from the manifests, so that derivation does not move whatever the filter does.
-
-Rules:
-
-- Cite a `just` task, never a raw command line. `cargo xtask check-guidance` fails on a citation of
-  a task that does not exist, and on a cited `cargo` line missing `--all-features`.
-- **Never run a bare `cargo clippy` or `cargo nextest` when a `just` task exists - run the task.**
-  `just lint` IS the gate's invocation, defined once: it sources `nix/stable-env.sh` and runs
-  `cargo clippy --workspace --all-targets --all-features -- -D warnings`. A hand-written cargo line
-  diverges from it in TWO ways, and naming only the first is how this rule gets complied with and still
-  fails. **One:** the dev shell's cargo is nightly for the cranelift backend and reports lints stable
-  has not got, so a bare run is red on lints CI does not have - `stable-env.sh` is the fix. **Two:**
-  the gate adds `-D warnings`, so a bare run makes a `restriction`-category finding a WARNING that a
-  grep for `^error` does not see - it passes locally and fails the gate. Both were hit in one session,
-  by two different agents, after reading the half of this rule that only named the first.
-  `just test` and `just check` stand in the same relation to their gates.
-- nix is the only pin for a tool whose version changes what it reports. pixi holds only `prek` and
-  `python`. `cargo xtask check-pins` fails if a tool appears in both.
-- If tooling is missing, report the exact install command and ask before installing it.
-- Hook tiers, commit format and the PR checklist: CONTRIBUTING.md.
-- The leak guard is not a hook here. Its pattern list lives in a private repo and runs from there.
-- **`just validate` does not render the site, so `just docs` is owed by any change that touches a doc
-  comment.** `cargo xtask check-docs` reads the `nav` and the assets; it does not build a page, and no
-  nix check does either - the site build lives in the `verify` workflow. So a rustdoc link the
-  api-docs generator copies through verbatim can pass `check`, `lint`, `test`, `hygiene`, `api` and
-  every nix check, and then fail `mkdocs build --strict`. **Measured rather than reasoned:** a doc
-  comment writing ``[`MAX_ROWS`](sutura_domain::plan::MAX_ROWS)`` - a link to another crate's path -
-  produced `Doc file 'api/sutura-sql.md' contains an unrecognized relative link` and aborted the
-  strict build, while the `crate::`-prefixed links already on four other generated pages did not
-  warn. The safe form for a cross-crate reference is plain backticks; **which shapes mkdocs accepts
-  was not established**, which is exactly why this is a rule to run the task rather than a gate that
-  would have to encode a boundary nobody has measured. It is not in `validate` because that recipe
-  would then fail on a clone whose pixi `docs` environment is not installed, and a gate that fails
-  for an environment reason gets disabled.
- . - **This shell's environment follows `cargo` into OTHER repositories, and it breaks builds there.**
-  `devenv` exports `CARGO_UNSTABLE_CODEGEN_BACKEND=true` and
-  `CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` for our own inner loop, plus `DUCKDB_LIB_DIR` and
-  `DUCKDB_INCLUDE_DIR` pointing at nix store paths. Nothing scopes those to this directory, so a
-  `cargo` invocation in an unrelated checkout inherits all four: it gets built by cranelift, and a
-  crate linking C++ gets OUR DuckDB. **Measured, not theorised** - a control build of `duckdb-rs`
-  from this shell aborted with `libc++abi: terminating due to uncaught foreign exception` behind
-  3.4 million `ld: could not create compact unwind` lines and a 1.7 GB log, because cranelift's
-  unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is green with
-  the four variables unset. So when working in a checkout outside this repository - upstreaming a
-  patch, reproducing a bug against a dependency - **unset them first, and treat a red run from this
-  shell as unexplained until you have.** There is deliberately no mechanism for this: a gate here
-  cannot see a build somewhere else, which is exactly why it is written down.
-## Canonical Sources And Generated Output
-
-One owner per artefact. Nothing here is hand-edited: each is regenerated from its source, and the
-regeneration is checked rather than trusted.
-
-| Artefact | Owner | Rule |
-| --- | --- | --- |
-| Metric definitions and anchors | the catalog | Arrive as `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. `docs/adr/0001` is the decision |
-| MCP tool schemas | a `schemars` derive on a WIRE type in the transport, never on a domain type | **Built, for every tool.** `sutura_mcp::wire::AskArgs` and `DescribeCatalogArgs` derive `JsonSchema`, and `TryFrom<AskArgs> for Query` is the only way to a question; `sutura_mcp::tool::input_schema` is `schema_for!` over one of them chosen by an exhaustive match on `sutura_app::Capability`, and nothing in that crate hand-writes a JSON object. The byte-compare is an `insta` snapshot **per capability**, named after the capability's own identifier, under `crates/sutura-mcp/src/snapshots/` - so a new or widened input is a failing test until somebody re-accepts it, and `the_question_tool_takes_exactly_the_five_fields_a_question_has` fails by NAME rather than by diff on a field called `sql`, `table` or `predicate`. **And since #117 those same files are read a SECOND time, off the wire**: `crates/sutura-cli/tests/mcp.rs` spawns `sutura mcp` and compares the `inputSchema` a served `tools/list` put on the pipe against them, as parsed JSON rather than as text - so what a client generator consumes is the document a reviewer accepted, and a transport that stopped putting the generated schema on the tool is a failure rather than a green snapshot. The snapshot header names the expression it pins (`input_schema(capability)`), which is what makes that a second reader of one file rather than a duplicate check. **The derive is on the wire type and not the domain because that is an architecture decision, not a convenience** - a macro crate on a domain type enters `ALLOWED_IN_DOMAIN` and `check-boundaries` walks the whole transitive tree. **A doc comment on a wire type is CALLER-FACING prose**, because `schemars` puts a root doc comment into the schema's `description` and a model reads it; reasoning about the type goes in a plain comment beside it |
-| Which tools the surface has, and the scope each needs | `sutura_app::Capability` | One declaration in the crate that owns the driving port, because `Surface`'s two operations *are* the tool set and the two transports cannot see each other. `sutura-mcp` renders it as tool names and `sutura-http` as routes plus `operation_id`s, and each has a `both_transports_describe_the_same_tools` test against that source - **two tests over one source, rather than a comparison between the transports, which an adapter may not make.** `id()` and `scope()` are separate literals so a tool rename cannot rename a scope, and both are pinned by value because an authorization server is configured with them by hand. **What is still kept equal by REVIEW and not by a test:** the field lists of the two wire types that do the same job - `sutura_mcp::wire::AskArgs` against `sutura_http::wire::QuestionBody`, and `CatalogContent` against `CatalogBody` - and the prose, deliberately, because a tool description and an OpenAPI summary are written for different readers |
-| The OpenAPI spec | `utoipa` derives on `sutura_http::wire` | Generated from the handlers, never hand-written. There is no `docs/generated/` and no dumping task: the document is built at startup and served, so a missing `#[utoipa::path]` fails to compile rather than producing a page with a gap |
-| The executed SQL | `sutura-sql` | Goldens per dialect, regenerated and reviewed as a diff, never typed. The plan's serialized form is pinned too. `differential.rs` runs one plan both ways and compares rows |
-| Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
-| Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Two narrow uses. Locally: the cranelift backend. In CI: `checks.api-docs` only, and only to EMIT RUSTDOC JSON - `--output-format json` is unstable and has no stable equivalent. It builds no artifact any gate reads: the `xtask` binary that drives the check is compiled by `rust-toolchain.toml` on the same `ci` closure the other five checks and `packages.xtask` reuse, and nightly is a command prefix around the `cargo rustdoc` child alone. THE REUSE IS CHECKABLE, and was checked rather than asserted: `nix-store -q --references` on each of those seven derivations names ONE `sutura-deps`, and the flake declares nightly as a PACKAGE - `nightlyToolchain` - so there is no second `crane.mkLib` for it to hang a second closure off. **Not "nightly never compiles first-party code":** it compiles the `cargo rustdoc` child's INPUTS, which are ~313 third-party crates PLUS six of our own libs as `rmeta` dependencies of the ten that get documented - `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`, `sutura-semantic`, `sutura-sql` - all at `--profile ci`. Re-measure with `cargo rustdoc -p <lib> --all-features --profile ci -Z unstable-options --unit-graph`, which lists the units WITHOUT building them: 482 distinct units over the ten crates, ten of which are the `doc` units themselves. None of it is linted, tested, linked, shipped or read by another gate, and the child gets its own `CARGO_TARGET_DIR` so the two channels never share artifacts. Every gate that lints, tests or ships is `rust-toolchain.toml`. `nix/toolchains.nix` is the single code path from either file to a compiler |
-| `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
-| Third-party attribution | `Cargo.lock` plus `cargo metadata` | `ATTRIBUTION.md` is GENERATED - `just attribution` writes one row per third-party crate with the SPDX expression its manifest declares. **TWO gates, split by the input each needs, and the second one exists because a review found the first insufficient**: `cargo xtask check-attribution` reads the lock and the document and invokes nothing, so it is in the hygiene sweep and holds the crate SET; `cargo xtask check-attribution-current` regenerates and byte-compares, so it holds the CONTENT, and it needs a resolvable registry - `just gates` and `ci.yml`, the `check-api-docs` precedent. Without the second, changing any row's licence to arbitrary text passed. **What selects a row is NOT being a workspace member, never the presence of a `source` line** - that was the other review finding: `source` means registry-or-git, so the two crates vendored under `vendor/` as PATH dependencies were omitted while `sutura-cli` links one of them. **Deliberately WIDER than any one binary**, which is the opposite of the SBOM's rule and for a stated reason: an SBOM overstating what is in an artefact is a false claim about it, while an attribution document naming a crate that did not ship discharges an obligation nobody had - so the two err in opposite directions on purpose. `docs/adr/0021`'s attribution amendment is the decision. **The limit that remains**: it does not carry the notice text an Apache-2.0 dependency's own `NOTICE` file holds, which needs a source scan that is deliberately absent |
-| Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate keeps the obligation from rotting: an exact allowlist, with `unused-allowed-license = "deny"` so an allowed licence nothing uses is itself a failure. **There is NO `NOTICE` check** - this row claimed one, and `NOTICE` appears in `xtask` only in `classify`'s docs-only path list, which checks nothing. "Inspired by" is not a licence position |
-| The leak-guard pattern list | a private repo | Deliberately not vendored here; the hook calls it by path and fails closed |
-
-## Dependency Currency
-
-**The target is the newest set of versions that resolve together on the day the work is done - not the
-newest of each crate, which is not a coherent set, and not whatever a record happened to name when it
-was written.**
-
-A version number in a design record is stale before anybody builds from it. So a record states the
-**constraint** - what the code needs to be true of a dependency - and where a number is unavoidable it
-carries the date it was checked and an instruction to re-check. `rust-toolchain.toml` is the one place a
-version is authoritative rather than indicative, and the *Canonical Sources* table above says so.
-
-### Arrow's major belongs to the engine
-
-`sutura-exec-datafusion` is THE engine. **Its Arrow major is the workspace's Arrow major, and every other
-Arrow-consuming dependency conforms to it.** Not the reverse, and not a negotiation per adapter: a data
-source is replaceable and the engine is not, so the engine sets the type vocabulary. Downgrading the
-engine to match an adapter is not on the table.
-
-### A duplicate and a type boundary are different problems, and the difference decides urgency
-
-Getting this backwards wastes a week in either direction, so it is written down:
-
-| | What it costs | How urgent |
-| --- | --- | --- |
-| **A duplicate** - two majors present, no first-party code crossing between them | Build time, and supply-chain surface: two copies to patch when one has an advisory | Real, bounded, and not a correctness risk |
-| **A type boundary** - first-party code holds a value from one major and hands it to something expecting the other | It does not compile; or, forced across FFI, it is undefined behaviour | Blocking. Nothing ships through it |
-
-**The test for which one you have is not the lock file, it is whether any first-party crate names the
-type.** As of 2026-08-28 the workspace holds eleven duplicated Arrow crates at 58.4.0 and 59.2.0 -
-`datafusion` pulls 59.2.0, `duckdb` pulls 58.4.0 - and it is a **duplicate, not a boundary**, because
-`sutura-exec-duckdb` declares no `arrow` dependency, names no Arrow type, and converts results into a
-neutral row type. `differential.rs` compares rows rather than batches for the same reason. Twenty-seven
-crates are duplicated in total; the other sixteen are ordinary transitive churn nobody has an opinion
-about.
-
-### The mechanism
-
-`deny.toml` sets `multiple-versions = "warn"`, and that stays: denying it needs a skip list of
-twenty-seven entries that rots on every `just update`, and a gate that fails on correct code gets
-disabled - the same reasoning `allow-wildcard-paths` already carries there.
-
-So the mechanism is narrow and aimed at the case that matters: **`cargo xtask check-arrow` reads
-`Cargo.lock` and fails when the Arrow family spans more than one major**, unless every major present is
-named in `devco/arrow-majors-allow` with a date and a reason. It is a hygiene gate, so `just validate`
-runs it. It checks the whole `arrow-*` family rather than the `arrow` crate alone, because a transitive
-dependant can pin `arrow-schema` by itself and that is the same defect. Warn is what let the current split arrive unremarked - the
-`deny.toml` comment predicted it, deferred it, and was right - so the gate exists to make the *next* one
-arrive in a diff.
-
-### When the newest set cannot be made compatible
-
-**Do not vendor, inline, fork or pin back on your own judgement. Raise it.** In preference order, and
-each step is only reached because the one above it failed:
-
-1. **Bump the conforming crate** to a release that already agrees with the engine.
-2. **Disable the feature that pulls the conflicting version**, where the code does not use it. Cheapest
-   possible outcome and the easiest to miss.
-3. **`[patch.crates-io]` on the DEPENDENT crate - never on the shared dependency.** This one is written
-   out because the obvious form of it does not work and the failure is silent. Patching the shared
-   dependency cannot widen a requirement: `[patch]` replaces a SOURCE, so against disjoint requirements
-   like `^58` and `^59` cargo reports `patch ... was not used in the crate graph` as a warning and keeps
-   the old version. *Verified against this workspace.* What works is patching the crate that declares
-   the stale requirement, with its own manifest line changed - also one line, also no fork, and it must
-   be proved by a build rather than assumed. For the Arrow case that was proved: a single `arrow 59.2.0`,
-   a clean compile, and the patched crate's own suite green, identical to the unpatched control.
-   **A step 1 turned out to be available for this case and was taken, which is why the option order
-   above is not decoration:** `duckdb-rs` had simply not bumped, so the fix went upstream as a
-   one-line manifest change rather than living here as a patch. Measured on 2026-08-29 against
-   `duckdb-rs` at `199547d`, the same stable toolchain on both legs and the `bundled modern-full
-   vscalar vscalar-arrow vtab-full` feature set: 469 lib tests passed and 0 failed on **both** Arrow
-   58.4.0 and 59.2.0, with `libduckdb-sys` at 12 and 0 on both, and **zero source changes** - Arrow
-   59's breaking changes do not reach that crate. An earlier version of this paragraph recorded
-   *"288 passed"* from a narrower feature set; the number is dropped rather than corrected in place,
-   because a bare count with no feature set and no date attached is not reproducible and this file's
-   own *Dependency Currency* rule says a figure carries the day it was checked.
-4. **Vendor**, last, and never silently: `VENDOR.md` takes upstream repo, licence, commit, date and
-   local changes, the `cargo-deny` licence gate applies, and *"inspired by" is not a licence position*.
-   The real cost is not the patch - it is that **a vendored copy makes us the security response for it**,
-   permanently and invisibly after the first commit.
-
-A discussion raised at step 4 states: which crates conflict; whether it is a duplicate or a type
-boundary; what each of the four options costs; and what breaks if nothing is done. An escalation without
-those four is a question rather than a decision.
-
-### A version requirement that encodes something else needs a tilde, not a caret
-
-A caret requirement is the right default and there is one shape where it is actively wrong: a crate whose
-version encodes the version of a **native library it expects to find**. `duckdb`'s second semver component
-is the DuckDB C release, so `1.10505.0` means C library 1.5.5 - which is what `nix/duckdb.nix` supplies -
-and the crate's own README recommends a tilde for exactly this reason.
-
-Under a caret, `just update` may move the crate to a release expecting a newer native library than the
-sandbox provides. **It links and then fails at runtime on a missing symbol**, which is the worst shape of
-failure available: the build is green and the fault appears when the code runs. So a dependency that
-carries a native-library expectation in its version pins with `~`, and the reason goes next to the pin
-rather than in a commit message.
-
-## Invariants
-
-Enforced by a type, a lint, a hook or a gate - never by recall. Changing one is an architecture
-decision. A row that loses its mechanism gets deleted, not demoted to advice.
-
-| Invariant | Enforced by |
-| --- | --- |
-| No SQL, table name, filter expression or row-id list on the tool surface | `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it. **Unqualified, because the surface that exists is the whole surface.** A previous version of this row narrowed it to the *certified* surface and cited a raw tool's result type - and `docs/adr/0013` decides such a tool while saying plainly that nothing of it is built, so the row was describing an unwritten type and pre-weakening a live mechanism for it. Which is this table's own deletion rule pointed the other way: a row does not get *widened* by an unbuilt feature either. When a raw tool is built, the diff that builds it is the one that re-scopes this row, with the new outcome type in front of a reviewer |
-| Refusal is a result, not an error | `ToolOutcome::Refusal`; a golden provokes every variant a question can reach |
-| Every `RefusalReason` variant is provoked by a test, or excused with a date and a reason | `cargo xtask check-refusal-coverage`. The rule was this file's own sentence - *a variant no test can provoke is what that enum refuses to carry* - and nothing kept it true: the transports' two exhaustive matches force a variant to be RENDERED, which is not the same as triggered. What counts is a `RefusalReason::<Variant>` in **test code** under `crates/` (the causality gate's own region walk decides which lines those are, so a `#[cfg(test)]` module counts and the production arm beside it does not), or a committed snapshot naming it - the refusal corpus, where the value was produced rather than typed. **A file naming EVERY variant is a CENSUS and is evidence for none of them**, and that rule is what makes the gate real rather than decorative: the rendered prompt lists all seventeen refusal guides by name and is snapshotted twice, so without it those two files alone would report full coverage. Five census files exist and the gate names them in its verdict. `devco/refusals-unprovoked-allow` is the escape hatch, and a RATCHET in both directions - an entry for a variant that is provoked now, or one naming a variant the enum has lost, is itself a failure, which is `deny.toml`'s `unused-allowed-license = "deny"` pointed at this list. **Two limits.** A NAME is not a provocation: a variant mentioned in a test that does not really trigger it counts, because deciding otherwise needs to know what a test asserts. And **it starts with three entries in that file** - `PlanSpansTooManySources`, `FederationLinkAmbiguous` and `MeasureDoesNotFederate`, the three `sutura-semantic` alone produces, in a crate that has no test module of its own - so the measured coverage on the day this landed was 14 of 17 |
-| A question's time range is bounded, and bounded to a size | `TimeRange` has no unbounded form; `resolve` refuses a span over `MAX_RANGE_DAYS` (3653) as `TimeRangeTooLong`. Goldens stand one day either side |
-| A catalog edit cannot change what executes | Definitions arrive as `PinnedDefinitions` with a digest over their canonical form; the digest travels with the answer |
-| A result cannot be separated from what defined it | `PinnedDefinitions::pin` computes the digest from the definitions it stores - no digest parameter, no hasher parameter. `ToolOutcome::Answer` carries `Provenance` with no constructor that omits it |
-| An unvalidated bundle is never served | `sutura_app::verify_and_validate` is the only constructor of `Validated`, lives in a private module, and takes the `Warehouses` registry. Two `compile_fail` doctests, each with a compiling twin. The boot path now goes through `Warehouse::verify_anchor` rather than `execute` - a required method that returns `AnchorRows` and **takes no credential**, so the request path's `&Presented` cannot reach it and there is no parameter a caller's credential could arrive in. **What keeps that method to the boot path is a LINT, and its input type is a self-check rather than a barrier - which is a SECOND review's correction, after the first one overstated it in three documents.** The first correction gave it an `AnchorPlan` instead of a bare `QueryPlan` and this row then said the method could no longer be handed a question. A reviewer disproved that in one function: `AnchorPlan::of` is `pub`, `Anchor::new`, `QueryPlan::new` and the name and range types are all `pub`, so a fabricated tuple passed all four guards and `verify_anchor` returned rows. **A fifth guard is not the answer** - a shape check over caller-constructible values can only ever be a shape check, and Rust has no cross-crate friend visibility to hide the constructor behind, so a constructor `sutura-app` can call is one the workspace can call. So the two mechanisms are named apart. **The one that holds:** `clippy.toml` bans `sutura_domain::warehouse::Warehouse::verify_anchor`, VERIFIED to resolve by writing the call and watching clippy reject it - it fired on a call through a concrete type's own impl - and `sutura_app::verify_anchors` holds the single `#[expect]`, so a second call site is an error under `-D warnings` until somebody writes a second expectation a reviewer sees in the diff. Its limit is that a lint is not a type: it reaches this workspace and an `#[allow]` walks past it. **The one that is a self-check:** `AnchorPlan::of` takes the `PinnedDefinitions` and the metric name, and reads off the bundle everything it compares - that the metric is defined, that it declares an anchor, the range that anchor certifies, and the COARSEST grain it declares - so a caller no longer supplies the anchor it will be checked against, and a boot path that compiled the wrong question is caught. The grain check closed a fifth gap the same review found: nothing read the grain, so a `Day`-grain plan over the anchor's range passed and came back as a series rather than the one certified number. **Narrower than "the certified number is the number a caller sees", and the limit is worth stating before a network source arrives:** an anchor certifies whatever identity the adapter was configured with - the process, for the file engine that ships. `docs/adr/0008` part 1 wants that method to take a DECLARED `VerificationIdentity`, and it does not: `VerificationIdentity::parse` is `pub`, so the `compile_fail` test that record named could not have held, and what is built is the property it wanted reached by removing the argument instead. The *declaration* and the *boot refusal* exist - see the row below - and nothing passes the declaration to the port |
-| A bundle with an anchor on a source that has no identity to re-run it under does not boot | `SourceIdentity::anchors_run_as` is an exhaustive match returning a three-variant `AnchorIdentity` whose third variant is `NoneDeclared` rather than an `Option`, so a reader names the case instead of deciding what an absence permits; `sutura-serve`'s `refuse_unverifiable_anchors` walks `anchored_metrics` and refuses, naming the metric AND the source. On a `SharedServiceUser` source the verification identity IS the shared identity, so nothing is configured and the anchor is a complete claim. **Two limits:** the check reads a DECLARATION, and nothing yet passes it to the port - so it refuses a deployment that could not have verified honestly rather than proving which identity ran; and the arm is reachable on this build only because the check runs before the capability cross-check, since the one linked adapter cannot impersonate at all |
-| A source is served under a declared identity, or the deployment does not boot | `SourcePosture` has **no `Default`** - unlike `TlsTermination`, because no bind address makes "one identity for every caller" safe to assume - and its `SharedServiceUser` variant carries a `SharedIdentityDeclared` whose only constructor takes a parsed `AcknowledgementReason`, which has no `Deserialize`: a file cannot produce the witness, so the posture cannot be reached by leaving a key out. `Settings::refusals` returns `SharedSourceNotAcknowledged` per source in multi-user mode and `DeploymentIdentityUndeclared` when any source is configured and `security.identity` is absent; `sutura-serve` refuses a catalog source with no `sources.<alias>` entry. `DeploymentIdentity` is DECLARED and never derived - "every source shared means single-user" exempts a multi-tenant deployment whose sources are all shared from the one check it most needs. **The limit:** the constructors are `pub`, so what is closed is the path from a *file*, not from another crate |
-| Which adapter opens a source is decided by a declaration, not by its name | `sutura_config::SourceKind` is a closed set whose vocabulary IS the vocabulary of adapters - `files` and `bigquery` - so an unknown word is a parse refusal listing what is available, and `sutura-serve`'s **`open_engine`** matches on it exhaustively with no wildcard arm, which makes a third kind a compile error at that line. **The match MOVED out of `build_engine`, and the move is the part worth reading rather than the enum:** it sat there while the second kind's answer was a refusal, because a refusal per source reads the same wherever it is written - and once the answer is a DIFFERENT REGISTRY, only the function that chooses one can hold it. Which is also why this row's *limit* is spent: a wrong-kind arm is now provoked by tests rather than only by the compiler, and each declared kind's `SourcePosture::deliverable_by` is called against its OWN adapter's constant. **This REPLACED a control rather than adding one, and the replaced one was wrong in both directions:** the root used to refuse any source not literally named `local`, which made a second source unopenable on any build and refused a legitimate deployment whose files-backed source is called something else. **Two limits that are live:** which adapters a BUILD linked is not in the vocabulary, so `bigquery` on a binary built without the `bigquery` feature is a boot refusal naming the feature and not a parse one - `sutura_config` cannot see a link and must not pretend to; and `sutura-cli` reads no registry at all |
-| A posture the linked adapter cannot deliver does not boot | `Warehouse::IMPERSONATION` is a **required associated constant** with no default, so an adapter cannot omit it - a `compile_fail` doctest with a compiling twin, differing by that one line. `SourcePosture::deliverable_by` is two exhaustive matches with no wildcard arm, and `sutura-serve` calls it **once per source, per adapter, against that adapter's own constant** - `build_engine` for the engine and `build_bigquery` for the dataset - which is what makes it a property of the linked code rather than of the deployment. It is in the composition root and not `sutura-config` because whether the linked code can carry a per-subject credential is a property of the BUILD. **WHICH mechanism refuses an impersonating `bigquery` entry has changed, and the row has to say so rather than keep the sentence that reads the same:** that adapter now declares `PerSubjectCredential`, so `deliverable_by` PASSES it - what refuses it is `build_bigquery`'s own named guard, because no broker that exchanges is attached to a served source. That is a COMPOSITION fact and not a capability one, which is why it is an `if` in the root and not this call. It still runs **before** the credential file is read, which is the order two tests pin, because an operator told about a missing file would fix the wrong thing. **The cost, recorded where the constant is:** an associated const makes the port not object-safe, so a heterogeneous adapter set wants a closed enum rather than `dyn` - an architecture decision, not a signature tweak. `sutura-serve` did NOT take it: it monomorphises the service per kind and erases to `Arc<dyn Surface>` one line later, and refuses a catalog reading two KINDS of source rather than holding one of each |
-| No leg of an ANSWER reaches a data system without a credential somebody minted for it | `Warehouse::execute` takes a `&Presented` and has **no default**, so there is no signature that runs as whatever the process is - a `compile_fail` doctest with a compiling twin, differing by that one argument. `dry_run` takes it too and returns `PreFlight`, whose default is `NotAsked`, so an adapter that did not ask cannot be read as having accepted. The credential comes from `identity::CredentialBroker::mint`, called **once per answer for every source the plan reads**, and `LegCredentials` hoists the asker and the deadline out of the legs: one `asked_by`, one `not_after`, a private `by_source` with no `insert`, and a constructor that refuses a set not covering the sources it was minted for. `Presented` has three variants and the third carries no credential material at all, so the shared posture is a shape a reader sees rather than a value an adapter ignores. **And each adapter compares the leg against its own declared posture and not only against its own capability**, through `Presented::agrees_with` - one exhaustive match over the pair - so a shared leg carrying a *different* operator acknowledgement is a typed `Err` instead of a leg that executes and is then reported under the adapter's declaration. The two values are independent by construction: a broker reads the settings tree and an adapter holds what the composition root handed it. **The limit, because the witness is prose:** equality is the comparison available, so a fabricated witness whose text is byte-for-byte this source's is indistinguishable from it. Added by a review, which found the shape being checked and the agreement not. **Three limits, and the first is the one to read - it CHANGED and it did not become the promise:** an adapter that can carry a per-subject credential now exists. `sutura-exec-bigquery` declares `PerSubjectCredential` and sends a `Presented::SubjectToken` as its job's own bearer; the engine still declares `NoPlaceForASubject`; and that adapter delivers exactly ONE of the two subject shapes - a `Presented::SubjectPrincipal` is refused as `BigQueryError::NoPrincipalSwitch`, because `GoogleSQL` has no proxy-user mechanism and `Presented::agrees_with` cannot catch it (the two shapes are the same POSTURE), so accepting it would submit the job under the transport's own credential and report the answer as impersonated. **What is still true is the sentence that matters:** *no source a deployment SERVES executes as the asking subject*, because `sutura-serve`'s `build_bigquery` refuses an `impersonation-at-source` entry by name while no exchanging broker is attached to a served source - so what a broker can mint on a shipped path is still the deployment's own identity. The `Expiry` the set carries is read by nothing: the domain has no clock, and `docs/adr/0008` part 6 puts the floor in the broker adapter. And the port takes the `RequestContext`, which now **carries** the caller's own assertion as an `Option<Secret>` - `docs/adr/0008` part 2's `Caller { subject, assertion }`, split as `chain()` and `assertion()`, arrived with the first broker that exchanges rather than before it, which is why `RequestContext` drops `PartialEq`/`Eq`: `==` on credential material is a timing oracle. `docs/adr/0014` Decision 3 is **still open** about WHICH document each inbound mode retains to fill that field, and the shipped broker never reads it. **The row says ANSWER for a reason:** the BOOT path reaches a data system through `Warehouse::verify_anchor`, which takes no credential and runs under whatever identity the adapter was configured with. What keeps that to ONE call site is the `clippy.toml` ban on it rather than its input type - see the unvalidated-bundle row, which says at length why |
-| A subject with no credential at a source is refused, not answered as the process | `RefusalReason::CredentialUnavailable`, `403 credential_unavailable` on HTTP and its own sentence on the agent surface, from the exhaustive match each transport holds. Provoked by the REAL implementor from a real configuration rather than by a fake: `sutura_config::StaticCredentialBroker` holds an entry only for a source declared `shared-service-user`, so a source declared `impersonation-at-source` gets nothing and the question is refused. **It amends `docs/adr/0005`** - "the 403s are not a statement about a credential" stops being true - so a test asserts the sentence does not send a caller back to authenticate against this service, because the missing grant is at the data system. A broker that could not be reached is **not** this: it is `SurfaceFailure::Broker` and `503 identity_unavailable`, which shares its status with a dead data system and not its code. **The limit, and it is the one to state:** on the SHIPPED serve binary this refusal is currently unreachable end to end, because the only configuration the shipped broker refuses - a source declared `impersonation-at-source` - is one the composition root will not boot: against the engine because it declares `NoPlaceForASubject`, and against the `BigQuery` adapter (which declares `PerSubjectCredential`) because `build_bigquery` refuses that posture by name while no exchanging broker is attached. What provokes it is the broker asked directly, `answer` asked with a broker that refuses, and - since the mock-issuer venue landed - **the REQUEST PATH through the assembled router**: `sutura_http::identity_e2e::credential_unavailable_is_reachable_end_to_end` drives a question through `crate::router` over a broker that refuses and reads the `403` and its code off the response body. That narrows the limit rather than lifting it: what is now shown is that the transport reaches the refusal, and the shipped sentence above is unchanged, because the deployment producing it is a test one. It becomes reachable end to end **on a shipped binary** with the first adapter that CAN impersonate being served, which is also the first deployment where it matters |
-| An answer says which identity produced each of its legs | `Provenance` carries an `ExecutedAs`, `Provenance::new` is private, and `PinnedDefinitions::provenance` **requires** the record as an argument - so an answer cannot be produced without saying what ran. `ExecutedAs` has no empty form and no `remove`, so it cannot claim nothing executed, and `and` refuses a second leg for a source already recorded. The value is read off `Warehouse::posture` - the adapter the plan selected - and never off the settings tree, which is what stops a leg being reported as impersonated on the strength of a file. Both transports render it, and neither sends the operator's acknowledgement prose. **Recording is not a control**, and the field's own documentation says so: it reaches a caller after the rows did. **And every record has exactly one entry today**, which is worth stating now that `LegPlan` exists: `ExecutedAs::and` is the second-leg door and nothing calls it, because nothing constructs a leg - so what is pinned is the SHAPE a federated record needs. `ExecutedAs::and` now has one caller - `answer_federated`, which records the two legs of a two-source answer - so the second-leg door is no longer notional. What every SHIPPED answer still has is one entry, because the shipped binary never runs a leg; the two-entry record is the DuckDB-dev path, and a shipped answer becomes federated only when a shipped adapter declares `EXECUTES_LEGS`.` |
-| We never TRANSLATE SQL, and the one thing we parse is parsed at load | The dialect layer's `transpile` feature is not compiled, so a call to it does not build. NOT a lint for that: an unresolvable path in `disallowed-methods` is silently ignored by clippy AT THE PINNED VERSION, verified, so such an entry would read as enforcement and do nothing. Measured boundary: the clippy that ships with the PINNED toolchain ignores it silently, while a later one warns `does not refer to a reachable function` and offers an `allow-invalid` opt-out - so writing the call is still the only check that holds, and it stops being necessary when the pin moves past that. A verified claim with no version attached is one that quietly expires. The single exception to "we do not parse" is `sutura_sql::expression`, and that module has no caller - see *Built And Not Wired* below, which is why it is not a row here. `transpile` stays uncompiled because its default `unsupported_level: Warn` returns `Ok(sql)` and discards the diagnostic, and `Raise` errors on every non-count aggregate targeting ClickHouse while staying silent on the four real breakages |
-| No value from a question reaches the statement as text | Every value becomes a bind parameter; `GeneratedQuery` keeps statement and parameters in separate fields with no merging constructor. Two goldens per dialect assert it - the question corpus and the leg shapes - through one pair of helpers in `golden/shared.rs`, so the two axes cannot hold two opinions about what the claim is. **The POSITIVE half is what the claim now rests on:** the statement names exactly one bind parameter per value the plan carries, counted per dialect through `PlaceholderStyle` and compared against the PLAN's parameter list, so a value written into the statement leaves a placeholder missing whatever it spells. The negative half is two searches - substring with the quoted identifiers stripped, and word-bounded on the raw statement. **The second search exists because there was a hole here and it was measured, not reasoned about:** the strip drops every double-quoted span, forced identifier quoting means an inlined value renders as one, and `parse_identifier` accepts `[A-Za-z_][A-Za-z0-9_]*` - so a mutation rendering `"fct_subscription_monthly"."status" = "active"` in all three dialects passed both goldens. **The limit that remains:** a value that word-boundedly EQUALS a name the statement quotes is invisible to both searches - `month` is a declared column in the corpus and a legal filter value - and only the placeholder count reaches that case |
-| No identifier reaches the statement unquoted | Forced quoting for identifiers and aliases; a golden asserts it over the corpus with quoted spans stripped first |
-| Every generated statement is well formed SQL, and parses under its target dialect | The golden suite parses each statement with the dialect it was generated for. **Narrower than "the data system accepts it":** the dialect layer's parser is not gated per dialect for every construct. Acceptance is vouched for by the anchors and by `differential.rs`. DuckDB accepts in-process everywhere the suite runs. Postgres accepts where the nix tier provisions it - inside `checks.nextest` and under `just test`, both on a unix socket via `nix/postgres-tier.nix`. `ClickHouse` and `BigQuery` are rendered and parse-checked only. The honest sentence is the locator: parse-checked everywhere, and additionally accepted where the suite can reach DuckDB or Postgres. **How much narrower was MEASURED when the fourth dialect landed, and it is worth carrying rather than left as a hedge:** within one target the parser cannot see a function's ARGUMENT ORDER, so `DATE_TRUNC('month', col)` and `DATE_TRUNC(col, MONTH)` both parse as BigQuery and the corpus would be green on the wrong one - which is why `sutura_sql::dialect::DateTruncShape` is an exhaustive declaration rather than a check, and why `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` keeps the measurement as a test. What the check DOES catch is a statement rendered for the wrong target, on the quoting: a double quote is a string delimiter in GoogleSQL, so a DuckDB-rendered statement fails to parse as BigQuery at the first qualified column |
-| Adding a metadata provider or a data system is a registration, not a test edit | The golden corpus, the refusal corpus and the anchor check are a matrix over `tests/adapters`. One registry entry adds a catalog or a data system, and `adapters::posture` is where the declaration each one is opened with lives - so an adapter that CAN impersonate grows that function by a value rather than editing a test. **WHICH test a catalog registration selects is now part of this**, and `docs/adr/0016` is where it is decided: `agrees_with_the_oracle` is the GOLDEN adapters' contract and is not weakened for anything, while a *declaring* adapter - one that supplies part of the model - is measured against its own `SemanticCatalog::capabilities`. **The arm is split, and the split was the diff that split it rather than the diff that first registers a narrow adapter.** A `CatalogKind` (golden or declaring) is a required `SemanticCatalog::KIND` with no default, a `GoldenCatalog` marker on the test registration routes the kind, and the catalog cells are classified in the type system: a universal cell is bound on `CatalogUnderTest`, a golden-only cell on `GoldenCatalog` - so `agrees_with_the_oracle` and the three example-corpus cells cannot be expanded for a declaring adapter at all. A narrow catalog is therefore one `declaring` entry in the registry, gets the three universal cells and no golden-only cell, and carries its declaration in front of a reviewer. **`KIND` is read, not just declared:** the registry's `declaring`/`golden` tag is a compile-time assertion on that constant in each registration arm, so the tag and the adapter's own declaration agree or the tree does not build - a tag that disagrees with `KIND` is a compile failure, verified red-before-green |
-| The measure vocabulary is closed, and holds no SQL expression | `Measure` is two shapes over a `Term` of two terms, `RequiredFilter` four operators, `deny_unknown_fields` at every depth. There is no `expression:` field and no `Option<String>` anywhere on it. A new shape is a domain variant plus a plan variant plus a generator arm plus a golden |
-| The panicking fragment API cannot be called | `clippy.toml` bans `polyglot_sql::parser::Parser::new` and `::parse_expressions`, both **verified to resolve** by writing the call and watching clippy reject it. They panic on an empty token list, which is what empty, whitespace-only and comment-only input tokenize to - an abort reachable from a catalog file |
-| No `#[expect]` on a count-threshold lint | `cargo xtask check-expect-thresholds` (a `hygiene` gate) refuses `#[expect]` naming `too_many_lines`, `too_many_arguments` or `cognitive_complexity`. A threshold lint's cause is a NUMBER, which is a property of the surrounding function rather than of the code the attribute sits on - so two branches can each move it correctly and only their merge is wrong (an `#[expect]` that stops firing is an error under `-D warnings`). The message names the two honest alternatives: split the function, or raise the threshold in `clippy.toml` deliberately for the whole workspace. **Two limits, both the usual shape of a lint:** it reaches this workspace and an `#[allow]` walks past it, and it cannot see a threshold that someone encodes elsewhere. The categorical lints (`cast_precision_loss`, `float_arithmetic`, `float_cmp`) are exempt on purpose: their cause is the code the attribute sits on, so `#[expect]` over `#[allow]` stays right for them |
-| A definitional filter is always applied | `required_filters` compile into every plan for the metric, marked `PredicateOrigin::Definition`. A caller has no field that could name or remove one |
-| A join cannot silently change a measure | `Definitions::assemble` refuses a dimension reached through a relationship whose *declared* cardinality may duplicate rows, and a reconciliation test checks grouped rows against the ungrouped total. **Catalog cardinality is a trusted precondition:** nothing checks the declaration against the data, and an anchor cannot see it because an anchor is asked with no dimensions |
-| A result that is too much data is refused, not truncated - and not reported as an outage | `row_limit()` is `max_rows + 1`, so a result at the cap is distinguishable from one cut off by it; `answer()` returns `ResultTooLarge`. Both legs pinned: 93 SQL goldens read `LIMIT 10001`, and the engine leg asserts the fetch on its logical plan. `check-guidance` counts the goldens and fails if that number drifts. **The refusal now covers TWO bounds and its payload is what keeps that honest.** `RefusalReason::ResultTooLarge` carries a closed `ResultBound` - `Rows { limit }` for the cap, `Volume` for a data system that will not hand the result back in one piece - so one variant, one code (`result_too_large`) and one status (`413`, never `503`) answer *too much data* whichever side measured it, while the sentence is a nested exhaustive match per transport. `Warehouse::result_did_not_fit` is how an adapter says so: a defaulted **predicate**, copying `working_set_exhausted`'s shape for its reason - the refusal vocabulary stays in the domain, so an adapter cannot mint a `RefusalReason` from a failure of its own - and `false` by default, because a transport failure reported as a governance refusal tells a caller not to retry something a retry would have answered. Both bounds are provoked: the row cap by a fake that decides its own row count, the volume bound by a fake above the port plus `sutura-exec-bigquery`'s own suite, which answers `true` for a `pageToken` (asked of `JobTransport::result_did_not_fit`, since the page token is a fact about the wire document) and for a delivered count BELOW the reported total. **Three limits.** `Volume` carries no number and cannot: the bound belongs to the data system, and the endpoint it was built for reports neither its reply cap nor the reply's size - a test asserts the sentence contains no digit, because a fabricated limit is worse than an absent one. The engine and the DuckDB adapter answer `false` by taking the default, so the only adapter that can reach this bound is `sutura-exec-bigquery` - **and a composition root now links it, which is why the sentence that used to stand here is gone rather than softened.** It read *on the SHIPPED serve binary this bound is unreachable end to end - it becomes reachable with the first networked adapter a composition root links*, and `docs/adr/0017`'s second amendment is that adapter arriving: `sutura-serve` opens `kind: bigquery` behind a **default-off `bigquery` feature**. So the bound is reachable end to end on a build that passes `--features bigquery` - which every gate here does, because they all pass `--all-features` - and unreachable in every PUBLISHED artifact. **Why it is unreachable changed with #111 and the conclusion did not:** `sutura-serve` is published now, and it is published with cargo's DEFAULT features, so `bigquery` is off in the artefact. That is `nix/shipped.nix`'s decision and `checks.shipped-features` is what reads it back off the binary. What has NOT been done is provoke it through the serve binary end to end: what provokes `Volume` is the adapter's own suite plus a fake above the port, so *reachable* here means the code path exists on that build and not that a test walked it. And the predicate is asked only of `execute`: `dry_run` reads no data and `verify_anchor` runs one certified scalar |
-| The engine's operators run against a bounded memory pool, and exhaustion is a refusal rather than process death | Both `SessionContext` construction sites in `sutura-exec-datafusion` take `new_with_config_rt` with a `RuntimeEnvBuilder` carrying a `GreedyMemoryPool` sized from `runtime.working_set_max_bytes`, and neither constructor has a signature that lets a caller omit it. A refused reservation leaves as `RefusalReason::ResourcesExhausted` through `Warehouse::working_set_exhausted`, whose exhaustive match has no wildcard arm. `WorkingSetCeiling::parse` refuses a zero and refuses a value above the memory the process can reach at boot. `pool/ceiling_tests.rs` shows the bound biting on a real grouped aggregate. **The limit, and it is not small:** the pool counts operator reservations only - not what a driver buffers, not `collect()` materialising batches, not the row set built during conversion - so a question large enough to end the process on one of those paths still ends it, and `docs/adr/0009` puts the bound that reaches them with the execution boundary. On a platform that will not report available memory - macOS - no boot check is made, and `WorkingSetCeiling::checked_against` is what the banner reads to say so |
-| Nothing spills the asking subject's rows to local disk | `DiskManagerMode::Disabled` on every session this adapter builds, so a spilling operator answering a refused reservation has nowhere to write. `docs/adr/0009` Decision 3 decides fail-immediately over spill, and the reason is data-at-rest rather than performance |
-| Two result columns cannot share a label | `Definitions::assemble` refuses a dimension named after the time bucket or after its own metric, compared under `IdentifierCase::COARSEST` rather than by equality. **It was `==` until a review reproduced the hole**, and GoogleSQL documents a result column's NAME as not case-sensitive - so `Period` beside `period` is one column there and was two here |
-| A catalog document's fields are exactly what it declares | `deny_unknown_fields` on every on-disk shape |
-| A table outside the connection's own dataset is a composition of parsed names, never a string with dots in it | `QualifiedTable` holds an `Option<TableQualifier>` and a `TableName`, each part parsed by the parser for its position; `TableQualifier`'s dataset is not optional, so `project..table` is unrepresentable rather than refused. `ProjectName` is the one name shape here that admits a hyphen - a real project id carries one - and it still refuses `"`, `'`, `` ` ``, `.`, `:` and whitespace, which is what the *forced quoting* and *no injection* rows' quoted-span stripping actually rests on. Relaxing `TableName` to admit a `.` would have been one line and would have invalidated both silently. `Serialize` is hand-written to emit the dotted text, so a bare name serializes exactly as before and the digest is unmoved - the `serde(try_from)` asymmetry that shipped on `Date` |
-| How deep a table path a data system resolves is declared, not guessed | `Dialect::qualification` is an exhaustive match returning `sutura_domain::model::Qualification`, so a fifth dialect cannot compile without answering - the `DateTruncShape` precedent, and needed for the same reason: the dialect layer renders `catalog.schema.name` for ANY target, so nothing below it refuses a path a target cannot resolve. A path deeper than the target is `GenerateError::QualificationUnsupported` naming both depths, never a dropped qualifier - dropping one reads the table of that name in whatever the connection defaults to. `DuckDb` is `TableOnly` and `sutura-serve`, `sutura-cli` and `DataFusionWarehouse::scan` each refuse a qualified model, the first two at boot |
-| Two tables one statement reads can be told apart inside it | `sutura_domain::plan::StatementTables` is the only way to a `QueryPlan` **and the only way to a `LegPlan::Fact`** - `QueryPlan::new` takes it instead of a table plus a vector of joins, and the leg variant holds one as a field - and its `parse` refuses two occurrences that answer to one identifier, naming both paths and the identifier they collapse to. So the ambiguous plan is UNREPRESENTABLE rather than checked at render time, for both plan shapes, and `sutura_semantic::plan` turns the refusal into `RefusalReason::PlanTablesShareAnIdentifier` from the whole-answer path and from the splitter alike. **A reproduced wrong-answer report:** a fact table at `analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` rendered an `ON` clause comparing `orders.customer_id` with `orders.id` - one table with itself - because a column is qualified by the LAST part of a path; a real DuckDB 1.5.5 answers that with `Binder Error: Ambiguous reference to table "orders"`, and a target that binds it to one side returns a number under a certified name. **Distinct explicit aliases are the fix that was NOT taken, and the reason is measured rather than preferred:** against `polyglot-sql` 0.9.2 `SelectBuilder::from_expr` could alias the `FROM` side, `left_join` takes a `&str` and `join_with_kind` is private, so the JOINED side cannot be aliased without hand-building a thirty-field select expression. **The LEG half of this row was a stated limit and it was REACHED, which is why it is now a mechanism rather than a sentence:** `LegPlan::Fact` used to carry a `table` and a `joins` field and the splitter built it by struct literal, so a federated question with a same-source hop to a colliding table compiled and `generate_leg` rendered `FROM ...sales.orders LEFT JOIN ...crm.orders ON orders.customer_id = orders.customer_id` for `Dialect::BigQuery` - measured, and worse than the whole-answer case because a leg's rows are combined above it and nothing downstream sees the statement. The variant takes a `StatementTables` now, pinned by a `compile_fail` doctest with a compiling twin whose failure was checked to be E0559 on `table` and `joins`. **Two limits remain.** It is a QUERY-time refusal and not a load-time one, deliberately - unlike a label, a physical table name is not something an author can rename, so the metric stays authorable and a question needing no join is still answered. And a `LegPlan::Lookup` reads one table and declares no joins, so what holds there is the shape rather than the guard; two LEGS whose tables collide are not this defect, because each leg is its own statement and the combiner joins on a label |
-| Whether a target folds an identifier's case is declared, not guessed | `Dialect::identifier_case` is an exhaustive match returning `sutura_domain::model::IdentifierCase`, so a fifth dialect cannot compile without answering - the `qualification` and `DateTruncShape` precedent. `BigQuery` is `InsensitiveAscii` from GoogleSQL's own lexical reference (checked 2026-08-30) and `DuckDb` is too, MEASURED on the pinned DuckDB 1.5.5: a table created as a quoted `Orders` is bound by a quoted `orders` qualifier. **The declaration is a SELF-CHECK and not a barrier, and saying which is the point of the row:** a bundle is dialect-agnostic, so `Definitions::assemble` and `StatementTables::parse` both compare under `IdentifierCase::COARSEST` whatever a dialect declares - which means a value declared `Sensitive` cannot make a bundle unsafe, and `Postgres` and `ClickHouse` are declared from their documented behaviour and NOT measured here because neither has a server in this repository to ask. What the declaration buys is `every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes`: a variant coarser than ASCII case fails that test instead of quietly making both comparisons too fine |
-| Cross-project is not federation, and a native cross-project join is ONE source | **A source is a credential plus a billing project, not a project.** `sutura_semantic::plan` collects `SourceName` and nothing from any table path, so two datasets or two projects reached by one credential in one statement neither split into legs nor provoke `PlanSpansTooManySources`. `a_cross_project_join_is_one_statement_and_one_source` pins one plan, one `SourceName`, two differing projects, one `JOIN` and no `;`. **The limit, and it is two things rather than one:** that a data system PERFORMS a cross-project join is shown by nothing - no local test can, and the live acceptance leg does not either, because the acceptance credential's IAM refuses `datasets.create` so there was no second project to read across. What the live leg DOES show is that a `project.dataset.table` path resolves and that a wrong dataset in one is refused; `docs/adr/0019` states which half is which |
-| A label a statement projects cannot be spelled the same as a table it reads | `Definitions::assemble` refuses `LabelShadowsTable` for the metric's own name, `TIME_BUCKET_LABEL` and every dimension name, against the metric model's table and every joined model's table. **Found by a live run rather than reasoned about:** `BigQuery` returned `400 invalidQuery` - *"Cannot access field day on a value with type INT64"* - because a metric label equalled the table name and `GoogleSQL` bound the qualifier in `table.column` to the select-list alias. Refused for every dialect, because which of two things a qualifier binds to is not a difference to maintain per target. **The comparison FOLDS CASE, and a review reproduced why it had to:** GoogleSQL's lexical reference lists *aliases within a query* and *column names* as not case-sensitive while its table names are, so a table `Orders` beside a projected label `orders` passed an equality check here and then collided in the generated statement exactly like the same-case failure above. `IdentifierCase` is the vocabulary and `IdentifierCase::COARSEST` is what both this check and `StatementTables` compare under - see the row below for why a dialect-agnostic bundle is held to the coarsest rule rather than to the serving target's |
-| A question cannot silently span more sources than the answer can combine | The plan stage refuses three or more sources as `PlanSpansTooManySources { sources, limit }` - a named count against a served bound - and refuses two remote dimensions joined through two relationships on one source as `FederationLinkAmbiguous` (the combiner links the legs on a single column). **Exactly two sources are now SERVED, not refused:** the splitter turns them into a `Compiled::Federated` plan, and `answer` executes it - one leg per source through the selected adapters, combined above them under the working-set ceiling - or refuses it as `FederationNotExecutable` while no selected adapter declares `EXECUTES_LEGS`; refusing here rather than surfacing an adapter's typed leg refusal as a retryable 503. The SHIPPED binary still refuses a two-source question, because its two adapters (`datafusion`, `bigquery`) both declare `EXECUTES_LEGS = false`; the answered path is exercised by the `EXECUTES_LEGS`-opt-in DuckDB dev vehicle and the orchestration suite. **A CATALOG spanning two sources is no longer refused at boot, and that is a deliberate narrowing:** `sutura-serve` opens one adapter per source the catalog names, so two declared sources are a servable deployment and only a QUESTION that would span both is split (or refused). `sutura-cli` still refuses a multi-source catalog, because it takes one data directory on the command line and reads no source registry. |
-| No result cache | There is none to key. Adding any cache of rows is an architecture decision, keyed on subject first or not at all |
-| No panic path reachable from input | `unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, integer overflow lints denied; `panic = "abort"` |
-| A credential cannot be logged by accident | **A COMPILE ERROR now, where this row used to claim a redaction, and the row is what changed rather than the risk.** `Secret` is a newtype over `secrecy::SecretString`, which has no `Display` - so `format!("{token}")` and a `%` tracing field do not build, where a hand-written `Display` printing `REDACTED` left both *representable* and produced a placeholder at a call site whose author believed a value was logged. Two `compile_fail` doctests with compiling twins in `sutura_domain::identity`, verified non-vacuous by unmarking them: `E0277 ... doesn't implement std::fmt::Display` in both. The real macro is pinned where a crate has `tracing` AND token material, in `sutura_http::inbound`, because `check-boundaries` walks the domain's whole resolve graph and a `tracing` dev-dependency there would fail it - so the domain pins the BOUND `%` desugars to and the transport pins the macro. `Debug` survives, is `secrecy`'s rather than ours, and a test asserts it at depth inside a nested struct. **The SECOND of the three limits this row used to state is now a lint, and the row has to say which mechanism rather than keep a sentence that reads the same.** It read *nothing stops a call site writing `expose_secret()` into a log, which is why the method is named to be greppable rather than relied on to be absent* - and greppable is not a mechanism, which is `docs/adr/0020`'s own wording for it. `clippy.toml` now disallows `sutura_domain::identity::Secret::expose_secret`, so an exposure is an error under `-D warnings` until somebody writes an `#[expect]` beside it naming what the value is for: the `verify_anchor` and `spawn_blocking` shape, and VERIFIED TO RESOLVE the way that file's header demands - the entry was added and clippy rejected the existing calls by file and line, twenty-one diagnostics across eleven files, answered by eighteen expectations. **What changed is the default and not the possibility**: every exposure that was legitimate is still there (a constant-time compare, a bearer header, an RFC 8693 subject token, a `PKCS#8` key handed to `ring`, an assertion handed to a broker, and the tests that read a minted credential to say whose it was), and a twenty-second one now arrives in a diff. **Three limits remain, and none of them is the one that went.** `{secret:?}` still compiles and is safe only because that formatter cannot reach the value. A lint is not a type: it reaches this workspace, an `#[allow]` walks past it, and clippy does not lint doctests, so the three doctest calls in `sutura_domain::identity` are outside it - and `#[expect]` is per ITEM, so a function may expose twice under one expectation and what a reviewer reads is the reason text. And `sutura-exec-bigquery`'s two private credential-wire documents got their `Debug` derives DROPPED, which is review and not a mechanism - a private type has no doctest to write. `docs/adr/0020` is the decision, and its 2026-09-02 amendment is where this limit closing is recorded |
-| A credential cannot be compared by accident | `Secret` implements no `PartialEq`, so `==` does not compile - `E0369: binary operation == cannot be applied to type Secret`, pinned by a `compile_fail` doctest with a compiling twin and verified non-vacuous by unmarking it. **Inherited rather than merely omitted since `docs/adr/0020`:** `secrecy::SecretBox` has no `PartialEq` either, so a `#[derive]` added to the wrapper cannot produce one from the inner value. The one real comparison is `sutura_config::AccessToken::matches_in_constant_time`, named for what it is |
-| The domain acquires no framework dependency | `cargo xtask check-boundaries` walks the whole transitive tree against `ALLOWED_IN_DOMAIN` |
-| The SQL generator is not in the compiler's closure | `FORBIDDEN_EDGES` forbids `sutura-semantic → polyglot-sql` **and** `sutura-semantic → sutura-sql`; the second is what stops the first returning transitively |
-| A driving port is not owned by one of its callers | `Surface`, `SurfaceFailure` and `LocalService` live in `sutura-app`, and **this row's own "not gated" is spent**: it read *`check-boundaries` reads dependency direction, not which crate declares a trait*, which was true and is what `boundaries/ports.rs` now adds. A CALLER is derived rather than listed - a workspace member declaring a normal dependency on `sutura-app` - which resolves to `sutura-cli`, `sutura-http`, `sutura-mcp` and `sutura-serve` today and covers a fifth transport the day it is written; direct rather than transitive, because a crate reaching the application through a transport is a caller of the transport. **No `pub trait` in a caller's `src/`, except one named in `PERMITTED_IN_A_CALLER` with a reason** - an allowlist rather than an attempt to tell a driving port from a driven one, because which of those a trait IS depends on who implements it, and a text scan may not pretend to answer that. One entry: `sutura_http::inbound::keys::KeySetSource`, a driven port whose implementor is in the same file, and the verdict PRINTS the entry and its argument on a green run so the exception is re-read rather than accumulated. A stale entry - naming a trait the tree no longer declares - fails too. **Three limits.** `src/` only, so an integration test's trait vocabulary is out of scope (and a `pub trait` in a caller's `#[cfg(test)]` module cannot arise, because `unreachable_pub` is denied). The scan is line-oriented. And zero callers is a failure rather than a pass, because a renamed application crate would otherwise leave the rule green |
-| An adapter never reaches an adapter of its own KIND | `cargo xtask check-boundaries`' third dependency half, `boundaries/adapters.rs`. **The definition is the whole of the rule and it is narrower than the sentence** - `sutura-sql` is a renderer every SQL adapter depends on, `sutura-runtime` is process-global machinery both transports take, and a composition root names every adapter it opens, so a rule against *an adapter depending on an adapter* would forbid three shapes this workspace is built out of. What is forbidden is an edge INSIDE one class: `sutura-exec-*` on `sutura-exec-*`, `sutura-catalog-*` on `sutura-catalog-*`, and `sutura-http` against `sutura-mcp` - crates that are SELECTED between rather than composed, whose shared seam is the port. **Dev-dependencies are exempt and that is not a loophole:** a dev edge between two data adapters is how a corpus reaches a real system, which is exactly what `sutura-exec-bigquery` dev-depending on `sutura-exec-datafusion` is for, so the walk follows normal edges where the other two halves follow every edge. Transitive, so an edge laundered through a third crate is caught with no line naming it. **Three limits.** A crate joins a class by NAME, so an adapter called something else is outside every class until somebody adds it - the cost `FORBIDDEN_EDGES` already pays for being a denylist. A class with ONE member cannot be violated (`sutura-catalog-*` is that class today) and the verdict prints the member count per class rather than hiding it. And a class matching NOTHING is a failure rather than a pass, because a renamed prefix would otherwise switch the rule off on a green run |
-| A newtype's invariant cannot be walked around | `check-boundaries` fails a `pub` field on a `pub struct` in a library crate. It reads one declaration at a time and cannot see a second public path to the same value |
-| No first-party `Deref` and no `Borrow` | `cargo xtask check-newtype-leaks`, over every tracked Rust file with `vendor/` excluded. Two leaks with different shapes: `Deref` re-exports the inner type's whole API so the invariant leaks out with it, and **`Borrow` is what the newtype guide calls *"unofficially unsafe"*** - implementing it PROMISES the wrapper hashes, compares and orders identically to what it borrows and the compiler checks nothing, so a newtype whose `parse` folds case turns a map lookup into a silent miss on an entry that is present. The mutable pair is included, and `AsRef` deliberately is not: it is the alternative the guide recommends and this workspace uses it. **The gate started GREEN** - measured before it was written, there was no first-party `impl Deref` and no `impl Borrow` in the tree - so its whole job is to keep it that way, and the verdict prints how many trait impls it read (207 in 254 files) so a scan that stopped seeing them cannot report `ok`. **Two limits.** Comments and multi-line string interiors are blanked first, and that is load-bearing rather than tidy: three doc comments in this workspace say *there is deliberately no `Deref`*, so a scan over raw text would fail on the prose explaining the rule. And it matches the last path segment, so a first-party trait somebody named `Deref` would be reported too - the safe direction |
-| A validated newtype's `Deserialize` goes through its constructor | `cargo xtask check-serde-parse`: a struct declaring a fallible constructor - an associated function taking no `self` and returning `Result<Self` - and deriving `Deserialize` needs `#[serde(try_from = ..)]` or a hand-written `impl Deserialize`, or it fails. **The rule was *review* in the Rust skill's own table until #145, and it is the one that bites**: a derived `Deserialize` writes straight into the private field, and the path it writes on is the one carrying untrusted input - a catalog document, by this repository's own threat model. **What it deliberately does NOT flag** is a type with no fallible constructor: `Query`, `Anchor`, `sutura_http::wire::QuestionBody` and the thirteen `Raw*` settings shapes establish nothing at construction, so a derive bypasses nothing, and a gate that failed them would be a gate somebody disables. **Three limits, all of them the shape of a text scan.** The constructor is recognised by `-> Result<Self`, which is the idiom here and not the language - one spelled `-> Result<MyType, ..>` is invisible, and that direction under-claims rather than failing correct code. `impl` blocks are matched per FILE, so a constructor in another module of the same crate is not seen; every one in this workspace is beside its type. And it is a lint over text, not over the resolved program, so a declaration wrapped in a shape the scan does not expect is skipped rather than misreported - the scan blanks comments and multi-line string interiors first, which is what keeps a rustdoc example and the gate's own fixtures out of it |
-| A type that parses on the way in serializes the way it came | The second half of `cargo xtask check-serde-parse`: `#[serde(try_from = "T")]` beside a **derived** `Serialize` and no `#[serde(into = ..)]` fails, unless the type is a newtype struct over `T` itself - serde writes one as its inner value, which is why the nine `pub struct X(String)` types carrying `try_from = "String"` are symmetric - or a named-field struct whose `T` is a struct declared beside it with the same field names, which is `TimeRange` over `TimeRangeInput`. **A shipped bug, gated after the fact:** `Date` read ISO text and wrote `{year, month, day}`, and the definition digest is taken over the serialized form, so the digest covered a field layout that appears in no catalog file. **The limit, and it is the one to read:** the comparison is over field NAMES. Two structs with the same names whose fields serialize differently pass, because deciding otherwise needs serde's own resolution and a text scan may not pretend to it |
-| A library crate's errors are typed, not prose | `check-boundaries` fails `Result<_, String>` and a dynamic-error crate in a library. Binaries are exempt |
-| No file exceeds 1000 lines | `cargo xtask max-lines`. `devco/max-lines-ignore` cannot exempt anything under `crates/` or `xtask/` |
-| Complexity in the invariant core is covered by tests | `cargo xtask check-crap`, threshold 30, scope `sutura-domain`. Per-crate coverage sees only that crate's own tests, which is why the scope is the crate whose suite is its own |
-| No dependency is declared and unused | `cargo xtask unused-deps` |
-| No first-party `unsafe` | `unsafe_code = "forbid"`, so a crate cannot re-allow it locally |
-| Dead code does not accumulate, and cannot hide behind `pub` | `dead_code = "deny"` plus the unreachable-`pub` lint |
-| A suppression cannot outlive its cause | `#[expect]` over `#[allow]`: an expectation that stops firing is itself a warning, and `-D warnings` makes it an error |
-| No interpreter in the query path | No scripting engine is a dependency, and `check-boundaries` keeps the domain's tree to its allowlist |
-| Knowledge read from the catalog is descriptive only | The prompt is its only consumer. `Query` carries a `MetricName` and has no field a phrase fits in, `knowledge::Referent` can name only a metric, a dimension of one or a declared value of one, and `load()` has no `RequestContext`. A second consumer is an architecture decision, not a feature |
-| No server-side phrase resolution | There is nothing to resolve into: the glossary renders into the agent-facing prompt and the AGENT states which metric it chose, in its own transcript. `RefusalReason` has no `PhraseNotDefined`, and a variant no test can provoke is what that enum refuses to carry |
-| A metadata adapter cannot be silent about a kind it cannot supply | `SemanticCatalog::capabilities` is a **required associated item with no default**, returning a `MetadataCapabilities` - the definition side's nine kinds plus the four knowledge capabilities that already had a vocabulary - so an adapter that omits it does not compile: a `compile_fail` doctest with a compiling twin, differing by that one item. `Warehouse::IMPERSONATION` is the shape it copies and the rule it copies is that trait's own: **required with no default where the absence changes what a caller may believe, defaulted with a stated reason where it is a missed optimisation.** An associated FUNCTION taking no `self` rather than a constant, and the doc says why: the set reuses `KnowledgeCapabilities`, a `BTreeSet` newtype no `const` expression can build, and the const-friendly alternative is a boolean per kind that `crate::knowledge` already argues against - taking no `self` buys the property the constness bought, that the declaration cannot vary per instance. The walk is guarded the way the knowledge one is: `DefinitionKind::next` plus a `const` assertion on the discriminant, with `capabilities::carried` and `capabilities::recorded` two more exhaustive matches, so a tenth kind does not compile until somebody says how it is observed. **The limit, and it is the whole of what this row does NOT claim: nothing refuses a LOAD whose content disagrees with the declaration.** The declaration is a property of the code rather than of the bundle, so it is not under the definition digest and no composition root reads it. What holds it honest is `MetadataCapabilities::checked_against` - the two directions `docs/adr/0016` decision 6 specifies - run by `crates/sutura-app/tests/golden/catalogs.rs` over every registered catalog and over the suite's own two narrow fakes. That is a test, which is why this row claims the declaration and not the fidelity |
-| Content for a knowledge capability nobody declared fails the load | `Knowledge::assemble` walks `Capability::every()` and refuses `UndeclaredContent`. The walk cannot be walked past: `Capability::next` and `Capability::previous` are two exhaustive matches, a `const` assertion holds `every()`'s seed, and `prompt::knowledge::claim` is a third match that decides what a capability licenses the document to say |
-| A note is attached to something the bundle declares | `CaveatAboutNothing` refuses an unscoped caveat, and every other kind carries a `Referent`, a `Phrase` checked against the definitions, or a `Query`. There is no `rules` kind, and adding one would be an unscoped text channel from the catalog into the prompt's preamble |
-| Note prose is bounded, and refused at load rather than cut at render | `NoteBody::parse` caps bytes and lines and refuses a body that would render as nothing; `MAX_KNOWLEDGE_BYTES` caps the aggregate, so N conforming notes cannot do what one oversized note cannot; `Phrase::parse` bounds one line and normalises it - invisible code points removed, every run of whitespace one space, trimmed, and case folded for the identity only - so two phrases differing in *those* cannot both load. **Not a Unicode-normalisation claim:** there is no NFC/NFD anywhere in the workspace, so a decomposed spelling and a Cyrillic homoglyph are each a second phrase. Nothing anywhere shortens a body |
-| A worked example is a question this surface would accept | `Knowledge::assemble` checks each example's `Query` against the metric, its grains, its dimensions and its allowlists, and against `MAX_RANGE_DAYS` and `MAX_DIMENSIONS` read from `sutura_domain::query`. The prompt tells an agent an example is a question this deployment answers, and a bundle carrying one it would decline does not load |
-| The knowledge declaration is under the definition digest | `PinnedDefinitions::pin` hashes the `Knowledge` alongside the definitions, the `KnowledgeCapabilities` included. A deployment that quietly stopped declaring `not_defined` has changed what its prompt claims, and provenance that did not move would certify the old claim |
-| Work handed to the blocking pool carries the request's span | `clippy.toml` bans `tokio::task::spawn_blocking`, VERIFIED to resolve by writing the call and watching clippy reject it. `sutura_runtime::spawn_carrying_span` is the one caller, holding the single expectation, and `crates/sutura-runtime/tests/blocking_span.rs` asserts the span survives the thread boundary - an integration test rather than a unit one, because a pool thread reads the GLOBAL dispatcher and a thread-scoped subscriber cannot see it |
-| No caller-supplied text reaches the log unbounded or unvalidated | `CorrelationId::parse` bounds the length and restricts the character set, and mints a fresh id rather than erroring, so a malformed header cannot fail an answerable question. Its refusal carries a position and never the value. **The limit:** this is the one inbound field read into a log today; nothing generalises it to a field added later |
-| A call attributed to a subject can be told apart from one attributed to an agent acting for them | `identity::PrincipalChain` is subject, then actors, then task - ordered - and `attribution()` returning a two-variant `Attribution` is the ONLY way to the actors, so a reader names the case rather than reading past an absence. `ActorChain` has no empty state: it holds its innermost link in a field of its own, so `ActingFor` cannot be a claim about nobody and `immediate()` needs no `unwrap`. `Subject` is two variants with `established()` as an exhaustive match, so today's `TheDeploymentItself` cannot be confused with a verified subject that happens to be *named* like one. **Both tail positions are always absent today** - nothing establishes a caller identity and nothing names a task - which is exactly why the shape is in now: the distinction cannot be backfilled into records already written |
-| A caller cannot state its own identity | No type in `identity::principal` implements `Deserialize` or `Serialize`, so there is no code that could turn a request body into a chain - a `compile_fail` doctest on `PrincipalChain` with a compiling twin, and the failure was checked to be the missing `Deserialize` rather than a typo. `deny_unknown_fields` makes a body naming a `subject` a parse error that names the field. **The transport half of this row moved from an ARITY to a TYPE, and it is not weaker.** It used to read "`sutura_http::principal::established()` takes no argument, so the transport has no parameter a request could reach", and leg 1 cannot keep that shape and work - a verified identity IS read out of a request. `established()` still takes no argument; the verified path takes a `sutura_http::inbound::VerifiedCaller`, whose ONE constructor is `pub(crate)`, is called from exactly one place after a signature check against a pinned asymmetric algorithm plus an issuer, an expiry and this deployment's own audience, and which implements no `Deserialize` - a second `compile_fail` doctest with a compiling twin, and that failure was checked to be the missing impl too. The question a reviewer asks is no longer "can a request reach this parameter" but "can a request produce this type" |
-| A caller's identity, where one is established, comes from a signature and never from a header | `sutura_config::InboundIdentity` is a closed enum with no default: `security.inbound` with no `mode` is `SettingsError::InboundModeUndeclared` and the process does not start, because defaulting either way is wrong in opposite directions. Its `BehindGateway` variant carries a `TransitProof` whose fields are an issuer, an audience, a key set, a pinned algorithm, a required token class and a lifetime ceiling - there is **no field for the name of a header holding a username**, and a test presents such a header and gets nobody. Algorithm confusion is unrepresentable in two places rather than checked: `SigningAlgorithm` has no `None` and no `HS*` variant, and `sutura_http::inbound::keys` refuses an `oct` key in a key set. The audience is compared against this deployment's own resource identifier with `aud` in `required_spec_claims`, so a token carrying none is refused rather than passing a check with nothing to compare. **Four limits, each stated where the claim is:** keys come from a file and there is no JWKS endpoint; the two metadata documents `docs/adr/0014` describes are not served; `Scopes` decides which OPERATIONS a caller may invoke and decides nothing about which rows an answer contains, because leg 2 does not exist; and a gateway assertion's *replay window* is bounded while nothing binds one to a request. `docs/adr/0014`'s *What is built* section is the authority on all of it |
-| A signature, an issuer and an audience do not decide a token's CLASS, so the class is decided separately | `sutura_config::RequiredTokenType` is two variants and no `Option`, checked in `sutura_http::inbound::token::TokenValidator::verify` on `decoded.header` - **after** the signature, so it is a rule about a document the issuer signed rather than about an unauthenticated header. RFC 9068's `at+jwt` is the `direct` default and `behind-gateway` makes the key required; `any` is the written opt-out and `banner::announce_token_class` prints it at `WARN` on its own line. A token with **no** `typ` is refused, so the check is not satisfiable by omission, and one parser folds both sides so RFC 7515's three spellings of one media type compare equal. **This row exists because review found it missing:** an OIDC ID token has the same issuer and, wherever the resource identifier is also a client id, the same audience - and it verified. A regression test presents exactly that token and expects `TokenRejected::WrongTokenType` |
-| A key removed from the key set stops verifying within a bound a caller cannot influence | `sutura_http::inbound::keys::KeySetCache` has two triggers, and the second is the one that answers revocation: an unknown key id refetches at most once per `MIN_REFETCH_INTERVAL`, and *age* re-reads once per `MAX_KEY_SET_AGE` - from a timer armed by the composition root **and** from `key_for` itself, so forgetting the timer does not leave a serving deployment stale. **The caller-driven refetch provably cannot bound revocation**, which is why both exist: a caller presenting a revoked key presents a `kid` the cache holds, so nothing triggers. A candidate that will not parse, or that holds no key of the pinned family, is `Refreshed::Rejected` and the previous keys keep verifying. `KeySet::parse` also refuses two keys under one `kid`, because otherwise which one verifies is decided by their order in the document |
-| A gateway assertion's replay window is this deployment's number, not the component's | `sutura_config::ProofLifetime` caps `exp - iat` at `security.inbound.transit_max_lifetime_seconds`, bounded to 1..3600, and `iat` is **required** in `behind-gateway` - checked by `TokenValidator::within_the_lifetime_ceiling` rather than by the library, whose `required_spec_claims` honours only `exp`, `nbf`, `aud`, `iss` and `sub`. An `iat` dated forward past the leeway is refused too, or a component could buy a longer window by dating forward. **The limit is the row's other half and is not small:** nothing binds an assertion to a request and nothing records what has been seen, so inside the window an intercepted assertion replays - a regression test asserts the replay rather than pretending otherwise. `docs/adr/0014` downgrades its own "proof that the request transited" wording to a *gateway-issued identity assertion* for exactly that reason, and names the hop from the component as a trusted transport boundary |
-| A deployment that declares an inbound identity cannot serve without one | `sutura_http::router::assemble` returns `RouterNotBuilt::InboundIdentityNotAttached` when the settings declare a mode and the state carries no gate. The gate is built by the composition root because building it READS THE KEY SET, so it can fail - and an unreadable key set has to stop the process rather than become a deployment that answers `401` to everybody while its startup log says it establishes a caller identity. `sutura-serve` reads it before the listener opens |
-| A forged key id cannot turn every request into an outbound call, **whatever the concurrency** | `sutura_http::inbound::keys::KeySetCache::reserve` compares the window and stamps the attempt in **one** write-lock acquisition, and it is the only place either window is compared - so both triggers and the timer pass through one gate and exactly one caller can look per window. The source read stays outside the lock. `key_for`'s two comparisons are a fast path that decides nothing. Measured from the last **attempt** rather than the last success, so a source that is down is limited too. Two tests, and they cover different cases: a sequential one spends ten forged ids for one read, and a concurrent one puts two callers through a `tokio::sync::Barrier` so both are provably past the fast path before either proceeds, then asserts exactly one read and exactly one `Refreshed::NotDue`. **This row's wording is unchanged and the code was wrong against it:** the check used to sit outside the lock, and review measured three reads where two were required. A bound three places state and concurrency breaks is a defect in the code, not in the claim. **The limit:** the only source that ships reads a local file, so what the bound protects today is this process rather than an authorization server |
-| Two credentials cannot be configured to arrive in one header | `NotFitToServe::DeploymentTokenSharesTheHeader` refuses `security.access_token` together with `security.inbound.mode: direct`, both of which are read from `authorization: Bearer`. Asked of the derived `TokenRequirement` rather than of the enum variant, so a mode added later that also lands there cannot slip past it. The consequence is a row of its own: the production access-token requirement is satisfied by either credential, because a validated audience-bound token per caller is strictly more than one shared secret every caller holds |
-| An operation a caller was not granted is neither advertised nor answered | `sutura_app::Capability` is a closed enum whose `next`, `id` and `scope` are three exhaustive matches, so a third operation does not compile until each has been answered; `sutura_app::Permitted` is the one derivation from a token's scopes to what a caller may do, and `advertised()` and `includes()` read the same field so the two cannot disagree. **On HTTP:** `sutura_http::capability::require_capability` is a LAYER over the versioned subtree, so no handler can forget it, and `RouterNotBuilt::RouteNotGoverned` refuses to assemble a router whose generated document holds a route the table names no capability for - checked over all eight methods `utoipa`'s `PathItem` can carry, and shown non-vacuous by a test that hands it a route nobody mapped. A refused operation is `403 insufficient_scope` naming the scope, which is RFC 6750's own shape. **On MCP:** `AgentSurface::new` requires a `Permitted`, `tools/list` filters and `tools/call` refuses. **Three limits, and the first is the one to read:** what a scope gates is which OPERATIONS a caller may invoke and never which rows an answer contains, because leg 2 does not exist and no source executes as the asking subject - so *authorization* is the right word for the surface and the wrong word for the data. Filtering the advertisement is PRESENTATION and the refusal at invocation is the control, which is why both are built and tested separately. And **nothing narrows the agent surface today**: `serve_stdio` passes every capability, because a pipe has no header a token could arrive in - the parameter exists so that decision arrives as a composition change |
-| Every outcome, answer and refusal alike, is recorded before it is returned | `audit::AuditSink` takes a `CallRecord` and returns nothing a caller can branch on; `CallRecord::of` derives the outcome half from the `ToolOutcome`, so no call site can describe an answer as a refusal, and `CallRecord::executed_as` derives the per-leg identity from the same outcome - `None` on a refusal, because nothing executed. **`CallRecord::executed_until` carries the credential's deadline**, which `docs/adr/0008` fixes as part of a record's content and which had nowhere to travel until `sutura_app::Answered` existed: it rides beside the outcome rather than on the caller-facing `Provenance`, because how long this deployment's credential for a data system is good for is not the asker's business. `None` means nothing was minted, which is a question declined before the broker was asked. `TracingAuditSink` writes it as its own field, which is what lets a record answer, afterwards, whether a verified subject's answer was filtered by that subject's access or by the identity this deployment holds for the source. `LocalService::answer` writes through the sink before its `Ok`, and `LocalService::start` **requires** a sink, so a service with none does not exist. **Two limits, both deliberate:** sutura retains nothing - what a record is worth is what the deployment's sink is worth, and nothing here can tell it otherwise - and a `SurfaceFailure` is not an outcome, so an `Err` writes no record and is logged by the transport instead |
-
-### Built And Not Wired
-
-**Nothing in this section is an invariant, and none of it may be cited as one.** It is here because
-the code it describes exists, is tested, and has no caller from any binary - and because three rows
-of the table above used to state it as enforced. Those rows were **deleted rather than moved**, which
-is the rule at the head of that table applied to itself: a row that loses its mechanism gets deleted,
-and a row that never had one is the same case. What is below is a description of unbuilt wiring, in a
-section a reader cannot mistake for the table.
-
-`sutura_domain::expression` and `sutura_sql::expression` are the catalog-authored SQL hatch that
-[`docs/adr/0004`](docs/adr/0004-a-named-escape-hatch-for-authored-sql.md) decides. Both are complete
-and neither is reachable: `catalog::Metric` holds a `Measure` and not a `Computation`, `MetricDoc` has
-no `authored_sql` key, and `sutura_sql::expression::compile` has no production caller - it cannot have
-one today, because `sutura-catalog-local` does not depend on `sutura-sql`, and no composition root
-calls it. **`sutura-serve` links no SQL generator DIRECTLY, and since the `BigQuery` registration it
-has one in its tree under `--features bigquery`** - transitively, through `sutura-exec-bigquery`. That
-does not make the hatch reachable and it does change what the sentence below the table may claim, so
-it is corrected here rather than left to read as an argument that is spent.
-
-Every gate passes over it, and that is the lesson worth carrying rather than the feature: `unused-deps`
-and `check-boundaries` read manifests, `max-lines` reads files, `check-guidance` reads prose, and the
-missing thing here is a **call** - which is the same shape as a `disallowed-methods` entry that reads
-as enforcement while resolving to nothing.
-
-**The federation half of this section is the one case in it that is now WIRED - and it was the shape
-the paragraph above describes before this change.** The leg plan types, their rendering and their
-per-dialect goldens exist because the splitter and the combiner exist, and `answer_federated` is now
-their production caller: it executes one leg per data system through the selected adapters and
-combines the two results above them. What changed with that call is that a leg no longer has to wait
-for an adapter - `Warehouse::EXECUTES_LEGS` (defaulted `false`) declares who can run one, and
-`sutura-exec-duckdb` (the dev-only leg vehicle) sets it `true`. So the distinction that remains is
-the deployment you SHIP: its two adapters - `datafusion` and `bigquery` - both declare `false`, so
-the shipped binary refuses a two-source question as `FederationNotExecutable` rather than letting a
-typed leg refusal surface as a retryable 503. `answer_federated` is what changes an adapter declaring
-`EXECUTES_LEGS = true` into a real two-source answer; the orchestration suite in
-`sutura-app::tests` pins that it mints once, runs both legs through the combiner, records both
-identities in provenance, and refuses the combiner's byte budget as `ResourcesExhausted` - over fake
-leg-executing adapters whose row shapes are the domain combiner's own - while `sutura-exec-duckdb`
-declaring `EXECUTES_LEGS = true` is the adapter a real two-source differential could run above. A
-full two-DuckDB differential is not yet written, which is precisely why these claims stay in *Built
-And Not Wired* rather than the Invariants table.
-
-**The third case in this section is a whole ADAPTER, and it is the case that has been LEAVING this
-section a piece at a time - which is why naming what is left is the whole value of this paragraph.**
-`sutura-exec-bigquery` implements `Warehouse` completely - the credential match, the posture
-agreement, the rendering, the leg refusal and the value mapping, all built and all tested - since
-`docs/adr/0018` it also has a WIRE: `wire::BigQueryWire`, one `transport::JobTransport` that calls
-`jobs.query` over `ureq` behind a default-off `wire` feature, plus `wire::credential::AccessTokens`, a
-second narrow port whose one implementor reads the file `just gcloud-login` writes - and since
-`docs/adr/0017`'s second amendment it has a COMPOSITION ROOT: `sutura-serve` opens `kind: bigquery`.
-
-**A statement generated here HAS now been accepted by a real dataset** - 2026-08-30, three tests
-green under a service-account key, the first time anything in this repository has had a statement
-accepted by `BigQuery`. **And on 2026-08-31 a QUALIFIED read was too**, at five tests: the same table
-read unqualified, as `dataset.table` and as `project.dataset.table`, all three answering the fixture's
-numbers, with a wrong dataset in a qualified path refused as the control that makes the other three
-mean anything. `docs/adr/0019` is that record and states what the run does not cover - no second
-dataset and no second project, because the credential's IAM refuses `datasets.create`.
-`docs/adr/0017`'s amendment records it and supersedes that record's refusal of CI, because the cost it turned on - a public repository cannot expose a secret to a fork's pull request
-- is answered by a GitHub ENVIRONMENT, whose secrets such a run cannot see at all.
-
-**What that run is, exactly, because a green invites the larger reading:** ONE hand-built `SUM` over a
-two-column fixture. No join, no `COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF` ratio, no
-`CAST(... AS FLOAT64)`, no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRUNC`'s argument order are precisely
-the two constructs 0017 MEASURED a parse check to be blind about. **The word "corpus" does not belong
-near it.**
-
-**And the CORPUS leg 0017 specifies is now built beside it**, which is what the previous paragraph used
-to say was missing: `crates/sutura-exec-bigquery/tests/corpus.rs` loads the four example fixtures into
-the dataset through a default-off `fixtures` feature, runs every corpus question that compiles to a
-plan, and compares its rows with THE ENGINE's for the same plan - `differential.rs`'s shape pointed at
-a second data source. So the constructs the smoke leg says nothing about are reached: 12 `LEFT JOIN`s,
-6 `COUNT(DISTINCT`, 4 `CASE WHEN`, 4 `NULLIF` ratios, one `avg`, 90 `CAST`s and 3 `ISOWEEK` buckets. It
-also asks the endpoint to reproduce every ANCHOR the engine does, which is a claim about a number
-somebody CERTIFIED rather than about two adapters agreeing. One question is excluded from the row
-COMPARISON and not from the run - a `zero_denominator: fails` ratio whose two sides fail for genuinely
-different reasons - named at a constant a reviewer can grep. `docs/adr/0017`'s third amendment is the
-record, including the cost per run, the dataset grant it needs, and the new limit it brings: the leg
-WRITES four fixed table names, so two runs against one dataset race.
-
-**It has RUN, green, in CI on 2026-08-31** - the `bigquery-acceptance` job, 8 tests passed, against
-the `bq-test` environment's real dataset. Measured on its FIRST run, which is the one that produced the
-finding below: 22 corpus statements accepted, 9 refused by the compiler before a statement existed, 16
-answers agreeing exactly with the engine's, 5 agreeing on content and differing on null placement, 9
-refusals agreeing, 1 excluded, and 6 anchors reproduced by the endpoint. **The 16 is the pre-fix number
-and reads as 21 now** - see the paragraph after next, which is where that stops being two tallies a
-reader has to reconcile.
-
-**And it earned its keep on the first run, which is the part worth carrying:** `ORDER BY x` did not
-say where a null goes, and `DataFusion` orders nulls LAST while `GoogleSQL` orders them FIRST - so
-every corpus question grouping by a dimension behind the example `LEFT JOIN` returned the same rows in
-a different order. **Five of the corpus's 31 questions, measured**, one of them at 61 rows. **No golden
-could see it**, and for a sharper reason than the `ISOWEEK` case: a golden pins the statement TEXT and
-the text is identical on both sides, so only two data systems executing it can disagree. No number is
-wrong; what differs is the order of a certified answer, which the plan claims by emitting `ORDER BY`.
-
-**It is FIXED, and the finding's own paragraph is where the fix's one overstatement gets corrected.**
-`sutura_sql::generate`'s `ordered_nulls_last` wraps every `ORDER BY` expression in the dialect layer's
-`Ordered` node with `nulls_first: Some(false)`, from `generate` and `generate_leg` alike, and the
-corpus leg's tolerance is **deleted rather than relaxed** - `agreement_between` compares content and
-order exactly, and the `diverged_on_null_placement` counter, the `without_nulls` instrument and the
-`NULL_PLACEMENT` constant are gone. **What converges is BEHAVIOUR and not text, which is why "all four
-dialects spell `NULLS LAST`" is the wrong sentence:** the layer renders the keyword only for
-`BigQuery`, whose default is the other way, and collapses it for `DuckDb`, `Postgres` and `ClickHouse`
-where it already IS the default - so 30 `BigQuery` goldens moved (22 corpus, 5 legs, 3 qualified) and
-no other dialect's did. `every_order_by_states_nulls_last` is the measurement that keeps that honest,
-asserting the keyword for `BigQuery` and its ABSENCE for the other three, so a claim of four would
-have been red the day it was written. **And it is MEASURED rather than asserted:** the
-`bigquery-acceptance` job is green on 2026-08-31 with the exact comparison in place - *21 answers agreed
-exactly on content AND order, 9 refusals agreed, 1 excluded, 31 in the corpus* - so all five previously
-divergent questions agree, the 61-row one included, while the 22 accepted statements, 9 compile-side
-refusals and 6 reproduced anchors are unmoved. **The limit that remains:** `just validate` cannot reach
-any of it - the nix sandbox has no network - and `ClickHouse` and `Postgres` null placement is still
-answered by nothing, both being rendered and parse-checked and never executed. `docs/adr/0017`'s FOURTH
-amendment is the record.
-
-**What is still untouched by either leg is identity.** A service-account key is `SharedServiceUser` -
-one identity for everybody who asks - so what both legs establish is *accepted, and correct for that
-identity*, and nothing whatever about per-subject execution.
-
-**What the registration is, and where it stops - because a feature is easy to read as
-availability.** `sutura-serve`'s `open_engine` dispatches the kind, `build_bigquery` composes the same
-three layers the acceptance leg composes through the same constructors, and a source entry declares a
-`credential_file` and a `max_bytes_billed` beside the two names it already declared. It is behind a
-default-off `bigquery` feature, and the reason is the four cross builds rather than caution: a release
-derivation passes one `--package`, but `crane.buildDepsOnly` is deliberately UNSCOPED so the checks can
-share it, so a non-optional dependency would compile `ureq`, rustls and `ring` for all four cross
-dependency derivations - two of them musl - for a binary that links none of it. Every gate passes
-`--all-features`, so the registration is compiled, linted and tested on every run.
-
-**What has still never happened:** **no SHIPPED artifact opens a dataset.** #111 published
-`sutura-serve` - a `nix` package, an image and four cross triples - and it did NOT make this
-reachable, because `nix/shipped.nix` publishes both binaries with cargo's DEFAULT features and
-`bigquery` is not one of them. So the artefact that could open a dataset is the one nobody publishes:
-a source build passing `--features bigquery`. `checks.shipped-features` is what keeps that from
-drifting, asserting `ureq` and `ring` absent from the shipped binary's own embedded dependency list.
-And the `data_systems:` axis of the golden matrix still gains no entry - a composition is not a
-suite that executes, and that registry's rule is that a cell which cannot execute reads as coverage.
-The DIALECT axis does have one, and everything in *Invariants* about rendering, quoting, binding and
-the row cap holds for four dialects rather than three.
-
-**One limit the registration introduced, and it is not an invariant row:** a catalog reading two
-KINDS of source does not start - `sutura_app::Warehouses<W>` is generic in one adapter. **The SECOND
-is SPENT.** It read *`refuse_unattached` is files-only, so a `bigquery` bundle naming a table the
-dataset does not hold STARTS where a `files` one does not*, and priced the fix as a call per model.
-`Warehouse::preflight` is that check as a call per DATASET, and `boot::refuse_absent_tables` refuses
-at boot naming the model AND the table. That function's doc carries the four limits, the soft edge
-among them: a dataset that could not be LISTED is a `WARN` and not a refusal, the alternative being a
-skip flag set in the deployment that most needs it. No live dataset has answered one.
-
-**`just validate` still cannot cover the acceptance leg, and that is structural:** nix checks run in a
-sandbox with no network, so it is a `nix run` app rather than a `checks.*` output. CI reaches it in its
-own job - `bigquery-acceptance` in `ci.yml` - which skips on a fork's pull request and runs on
-everything in-repo, per the rule *skip where the runner had no choice, fail where somebody typed the
-command*.
-
-| Claim | What is built | What is missing before it could be a row above |
-| --- | --- | --- |
-| SQL a catalog wrote is a separate named shape, never a field on the closed one | `Computation`'s two variants, `InvalidComputation::Both` for a document that writes both, `Computation::kind()` for listing which metrics use the hatch | A `Metric` that holds a `Computation` and a `MetricDoc` that can write `authored_sql`. Until then `kind()` is an accessor on a value nothing constructs, and the claim is true only because the shape is unreachable |
-| A catalog-authored fragment is parsed at LOAD, once, for every dialect | `compile` renders one string per entry in `dialect::ALL` and re-parses each in its own target; `embed` inserts the compiled string verbatim, so nothing parses on the query path | A composition root that CALLS it, and having the crate in the tree is not that. `sutura-cli` declares `sutura-sql` and could; `sutura-serve` declares it nowhere and now reaches it under `--features bigquery`, transitively through `sutura-exec-bigquery` - so the sentence that used to be here, *its own manifest omits it*, is no longer the reason. `FORBIDDEN_EDGES` still keeps the generator out of `sutura-semantic`'s tree, so it cannot arrive through `sutura-app`, and `cargo xtask check-boundaries` says so on every run. What has not changed is the conclusion: nothing calls `compile`, so `sutura-serve` would have to **refuse** an authored metric rather than serve it, on either feature setting |
-| How a measure federates is stated once, and a new aggregate cannot compile without saying | `sutura_domain::federation`: three exhaustive matches over the closed vocabulary, `Descent`'s three classes, and `Carried` built purely from the term level so a per-leg ratio division is UNREPRESENTABLE - pinned by two `compile_fail` doctests with compiling twins, each verified non-vacuous by unmarking it. Now WIRED: the splitter (`sutura-semantic::plan::federated_plan`) calls `Descent::of` to classify each carried term, and `answer_federated` is its production caller, combining a fact leg and a lookup leg above two adapters. `Descent::of`'s only other callers remain `sutura_domain::plan::leg`'s own tests, where the leg fixtures take their term shape off `Federation::carried` so a fixture and the classification cannot disagree about how many columns travel | A per-subject-executing adapter, which is the same missing piece as the row below. What a splitter does not give you is end-to-end impersonation: both shipped adapters declare `NoPlaceForASubject`, so a two-source deployment still answers under the shared identity rather than as the asking subject. None of this is an **invariant** - it is wiring, and the wiring that matters to a user is the shipped binary, which still refuses a two-source question as `FederationNotExecutable` |
-| A federated question is made of two leg shapes, and a third cannot arrive without a rendering arm | `sutura_domain::plan::leg`: `LegPlan`'s two variants with the distinct-key shape as a `Fact` carrying no terms, `LegTerm` holding a `PlanTerm` so a per-leg division is unrepresentable, and `Executable` on `Warehouse::execute` and `dry_run` so every adapter's match over what it can be handed is exhaustive. Four `compile_fail` doctests with compiling twins, each verified non-vacuous by unmarking it and checking the compiler's reason: E0308 for a ratio handed to `LegTerm::new`, E0559 for a `range` on a `Lookup`, and E0004 twice for a match missing an arm. `sutura_sql::generate_leg` renders every shape, and `crates/sutura-app/tests/golden/legs.rs` pins five leg fixtures: the statement and its parameters per dialect with a parse check in the dialect it was generated for, the leg plan's own serialized form once - a leg plan is a function of the split and not of a renderer - plus that no leg statement carries a value as text and none carries a row cap. `docs/adr/0007` decides the shape. **Now WIRED through `answer_federated`**, and the semantics are safe because the combiner sits above the legs - `sutura-exec-duckdb` (the dev vehicle) sets `EXECUTES_LEGS = true`, executes both legs through the combiner, and a combined answer carries the row cap and refuses the working-set ceiling as `ResourcesExhausted` | **The shipped execution path.** `answer_federated` refuses `FederationNotExecutable` unless every selected adapter declares `EXECUTES_LEGS`, and the two shipped adapters (`datafusion`, `bigquery`) still declare `false` - so a shipped binary still cannot answer a two-source question, and the real execution proof is the DuckDB differential plus the orchestration suite, not a deployed answer. The two-source differential against two DuckDB sources is what would promote any of this to a deployed claim, and it still cannot exercise per-subject execution because no adapter carries a subject credential |
-| A fragment cannot reach past the metric's own model, and cannot use a construct that translates wrong | `Construct` over the parsed AST, the five shape guards plus the rendering comparison behind them, the qualification postcondition, and an allowlist of callable function names. **Not every refusal it declares has a fragment that provokes it, and the suite says which rather than leaving a list that reads as coverage:** `Construct::SchemaStatement` is tested at the dialect layer's own DDL classifier, because the two spellings that get a DDL node into a parsed tree are refused as `Construct::Query` one guard earlier and the keyword in expression position does not parse at all - both asserted in that same test, though "no fragment reaches it" is measured against today's parser rather than proved, which is why the guard stays. `ExpressionError::{Qualify, Unrenderable, Render, RenderedDoesNotParse}` have none either, and **not for one reason:** `Qualify` needs the dialect layer's own transformer to break an invariant, `Unrenderable` and `Render` are ruled out by construction - a fragment is capped at 1024 characters and refused past a depth of 32, while the layer's complexity guard sits at a million nodes or a depth of 512 and no dialect configuration raises its unsupported level - and `RenderedDoesNotParse` is deliberately not ruled out at all - it is the load-time net for a generator emitting text its own parser rejects. So what is pinned for those four is the WIRING - the typed fields, and that the cause survives `#[source]` - in a test named `the_four_refusals_only_a_dialect_layer_defect_can_produce` rather than for coverage | The same call site. The checks are exercised by their own suite and by nothing that reads a file |
-| A `BigQuery` dataset is a `Warehouse` like any other, and everything ABOVE the wire is decided and tested | `sutura-exec-bigquery`: `IMPERSONATION` declared **`PerSubjectCredential`**, which is what makes a source executed as the asker representable here - a `Presented::SubjectToken` rides as THIS job's bearer through `JobRequest`, so the dataset evaluates the statement under whoever the token is, and two askers provably drive two bearers. `deliverable` is still one check called by both credential-taking methods and it now asks TWO questions in order: `Presented::agrees_with` against the declared posture, then whether the SHAPE is one this adapter can send - a `Presented::SubjectPrincipal` is refused as `NoPrincipalSwitch`, because `GoogleSQL` has no proxy-user mechanism and that shape is the same POSTURE as a token, so `agrees_with` passes it and accepting it would submit the job under the transport's own credential while provenance reported the answer as impersonated. Then rendering through `sutura-sql` in `Dialect::BigQuery`, `Executable::Leg` refused as `LegWithoutCombiner`, and a value mapping that agrees with `sutura-exec-duckdb` arm for arm - a non-finite double REFUSED so a stored `FLOAT64` `Infinity` cannot answer under a certified number (in GoogleSQL `/` raises on a zero divisor, so the `zero_denominator: fails` credit belongs to DuckDB, not this arm), `NUMERIC` kept as text so an exact total stays exact, a boolean as `Integer(0 \| 1)`, and a result whose delivered count is not its reported total REFUSED as `Incomplete` rather than read as under the row cap. **A SCHEMA-WIDE pass refuses an unmapped column before any row is read**, and it is here because review found the per-cell check could not do it: `cell` answers a null before it reads the column's type, so a zero-row result never reached the check and an all-null unmapped column passed it - a `TIMESTAMP` column came back as a successful empty `RowSet`, and whether this adapter mapped a type depended on what the data happened to be. The tests against a fake transport provoke every refusal, including the ones a live endpoint would never hand back on demand, and four more in the seam's module parse resource names and decode type names from the wire. **Twenty-nine is `grep -c '^[[:space:]]*#\[test\]$' crates/sutura-exec-bigquery/src/tests.rs` and twenty-four is `grep -c '= open(' ` on the same file, both measured 2026-09-02** - the second because the first is the file's total and *against a fake transport* is the narrower claim, which is the distinction that made a SIXTH wrong figure here: this cell read *nineteen tests against a fake transport* three sentences before a correctly-recounted total, nineteen having been the total two commits earlier. A bare number with no command and no date attached is one nobody can check, and a number whose command counts something other than what the sentence claims is the same defect one level down. The command is the indent-tolerant one for the reason the next cell gives. `dry_run` answers `PreFlight::Accepted` only after really asking, which the endpoint's own free, slotless dry run makes honest | **A SHIPPED artifact.** The transport exists, a real dataset has answered, `sutura-serve` now opens `kind: bigquery` behind a default-off `bigquery` feature, and what has been ACCEPTED is the CORPUS rather than one hand-built `SUM` - so every earlier version of this cell names something that is now spent. What is left is the one thing none of them closed: no published binary links the crate. #111 published `sutura-serve` and did not change that, because both shipped binaries are published with cargo's DEFAULT features and `bigquery` is not one of them - `checks.shipped-features` reads that absence off the artefact. And the `data_systems:` golden axis still gains nothing, because that registry's rule is that a cell which cannot execute in the suite reads as coverage and this leg needs a network the sandbox has not got. **Do not cite any of this as an invariant**: what is proved is that the adapter decides correctly and that the corpus was accepted by one dataset under one shared identity, not that anything ships |
-| A `BigQuery` job can be submitted over HTTP, and what this adapter puts on the wire is the document it says it is | `sutura_exec_bigquery::wire`, behind a **default-off `wire` feature** that every gate still compiles because they all pass `--all-features` and `deny.toml` sets `all-features = true`. `BigQueryWire` is the one `JobTransport`: `jobs.query` over `ureq`, **plus one paged `tables.list`** in `wire::tables`, which is the only call here that is not a job - a `GET`, billed for nothing, with its own page bound and its own three error variants, and the one whose failure the root has to tell a REFUSAL from an outage (`JobTransport::listing_was_refused`, `403` and `401` only) (blocking, because the port is; rustls, because two release triples are musl; **zero new packages in `Cargo.lock`** - 446 before, 446 after - because `libduckdb-sys` already resolves that version and feature set, which `cargo xtask check-shared-client` now holds rather than a sentence in the record). **`WireAgent` is what makes the client's settings a property of a TYPE rather than of a call site:** private field, `pinned` its only constructor, and both the transport and the credential source take it - the previous shape was a free function returning a bare `ureq::Agent` that nothing obliged anybody to call, pinned by a `compile_fail` doctest with a compiling twin. It carries `JobBounds`, so a job is bounded in TIME (`jobTimeoutMs`, which is what actually cancels a job - `timeoutMs` alone leaves it running and billing) and in MONEY (`maximumBytesBilled`, the only bound on bytes SCANNED anywhere in this repository). **The TIME bound is one absolute deadline per CALL and not a timeout per HTTP operation, which is a review correction rather than the original shape:** `CallDeadline` is opened once in `submit`, the token exchange and the job both read what is LEFT of it, and a budget spent before the job is `WireError::DeadlineSpent` rather than a send - the previous shape put the whole budget on the agent, so one answer's four operations each got one. `QueryDeadline::within_request_timeout` is what a composition root calls, because an answer makes `CALLS_PER_ANSWER` calls and each pays connection setup: 30 seconds of `server.request_timeout_seconds` is a 10-second budget, not a 30-second one. **The limit:** neither `Warehouse` nor `JobTransport` takes a deadline, so the two calls one answer makes cannot share one - that arithmetic is done by that constructor and checked by nothing. `wire::credential::AccessTokens` is a second narrow port; `Credential` is its one implementor, reading either of the two files a deployment can hold - the login `just gcloud-login` writes and a service-account key - and refusing the four other credential shapes BY NAME. **Which of those three interfaces per-subject execution arrived through is now settled, and it was not this one:** `Warehouse::execute` no longer drops the `&Presented` after `deliverable` - it reads the asker's token off it and hands it to `JobRequest`, whose `subject_bearer()` is a fourth field - and `submit` decides **once, before anything is built or sent,** which bearer authorizes this job: the asker's where the leg carried one, otherwise the source's own through `bearer`. The two are never both sent, which is what keeps two concurrent subjects apart at this seam, and the expiry guard stays on the source's own credential because a subject's token was already checked by the broker that minted it. `AccessTokens` was left untouched, so the credential source still knows nothing about subjects; `docs/adr/0018` part 4 is the record of what the step had to carry. A service-account key's `PKCS#8` private key is DECODED and handed to `ring` while the credential is READ, so a malformed one refuses at boot rather than on the first question - three named stages (`KeyUnusable`), because the earlier version stripped the PEM delimiters and accepted a body of `!!!`. Decisions the suite pins by value: one page or a refusal (`pageToken`, an incomplete job, or a total the delivered count does not equal); the service's own result cache OFF (an anchor reproducing from a cache has reproduced the cache); `max_redirects(0)` so the bearer has no second host; failure derived from the RESULT SHAPE and never from `errors` being non-empty, because the endpoint documents that array as errors *or warnings* and refusing on it declined successful queries; and every foreign string bounded and character-filtered - the endpoint's `reason` and the credential file's `type` through `bounded`, a listing's page token and table ids through `wire::tables`'s own two bounds (added when review found that *validated* had named a character set and not a length), and the endpoint's free-text `message` through `detail`, which caps it at 400 characters and strips everything that is not printable ASCII. **That last one is a reversal a live run forced and this row used to state the other way:** the message was deliberately not a field at all, and then the first real submission came back `400 invalidQuery` with no way to tell which construct the service disliked. **The first of the two limits this cell used to state is now FIXED, and it is a row in *Invariants* rather than a sentence here - the *too much data* row owns the whole claim, including the `JobTransport` predicate asked because the page token is a fact about the wire document.** **The limit that remains:** a warning on a complete result is answered and goes nowhere, because `RowSet` has no field for it and this crate has no logging dependency. The bearer's DESTINATION is a `const` and its ROUTE is not - `ureq` reads `HTTPS_PROXY`, left on deliberately and written out rather than inherited. Nothing is cached, deliberately: `clippy.toml` disallows the primitive, *a credential is not reused past its expiry* is what the per-subject step owes, and a token cache keyed by nothing is the credential-shaped version of the result cache this crate already refuses. **Fifty-five `#[test]` functions that RUN - 33 in `wire/tests.rs`, 13 in `wire/credential/tests.rs`, 9 in `wire/tables.rs` - plus five `#[ignore]`d in the acceptance leg, which is the counting rule because an ignored test is not evidence. The counting COMMAND is `grep -c '^[[:space:]]*#\[test\]$'` on those three files, measured 2026-09-02 and stated because this number has now been wrong FOUR times:** it read *twenty-nine, 21 plus 8* while the tree held 27 plus 13; the file it named for the second half - `wire/credential.rs` - is the module rather than `wire/credential/tests.rs`, where the tests are; and it read *forty-six, 33 plus 13* while its own command answers 32 plus 13. **A fourth trap the command itself carries, measured 2026-08-31 and worth stating once:** `^#[test]$` is anchored, so it counts NOTHING in a file whose tests live in an inline `#[cfg(test)] mod tests` and are therefore indented - which is where the exchange's own tests are: `grep -c '^[[:space:]]*#\[test\]$'` answers 3 in `sts.rs` and 1 in `wire/sts.rs`, and the anchored command answers 0 for both. A count with no command attached is a number nobody can check, and a command whose blind spot is unstated is the same defect one level down - which is this file's own *Dependency Currency* rule pointed at itself, twice. They assert the SERIALIZED request body rather than a struct | **A SHIPPED artifact - the composition root arrived, so what is missing changed shape again.** `docs/adr/0017` predicted the change writing the wire could first verify it, and the change itself could not - no `gcloud`, no credential, no project on that machine. **That half is now spent: the `#[ignore]`d tests in `crates/sutura-exec-bigquery/tests/acceptance.rs` were RUN, green, against a real dataset under a service-account key - three of them on 2026-08-30, and five on 2026-08-31 once a QUALIFIED read was added: the same table read unqualified, as `dataset.table` and as `project.dataset.table`, all three answering the fixture's numbers, with a wrong dataset in a qualified path refused as the control that makes the other three mean anything. `docs/adr/0019` is that record, and it states what the run does NOT cover - no second dataset and no second project, because the acceptance credential's IAM refuses `datasets.create`.** They stay `#[ignore]`d, behind `just bigquery-acceptance`, because `just validate`'s sandbox has no network. **What was run FIRST is a SMOKE leg rather than the acceptance leg those records ask for**, and that is stated in the file rather than discovered on the day somebody runs it: one hand-built `SUM` over a two-column table, so it says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio, `CAST(... AS FLOAT64)` or `ISOWEEK` - and `ISOWEEK` plus `DATE_TRUNC`'s argument order are precisely what the parse check was MEASURED to be blind about. **The leg 0017 asks for is now built beside it** - `tests/corpus.rs`, #78's importer shape pointed at a dataset - so those constructs are reached, and `docs/adr/0017`'s THIRD amendment states which of its four bullets that answers, the cost per run, the dataset grant it needs, and the one question excluded from the row comparison. `docs/adr/0018` states the two limits with it: the response documents the suite decodes were written here rather than by the service, and **the HTTP exchange itself is untestable locally by construction** - the host is a `const` and the agent is `https_only`, so there is no loopback to point it at, which is a security property paid for with a coverage hole. And `just validate` cannot close it: the nix sandbox has no network, and a public repository cannot hold a secret a fork's pull request could use. **What no version of this cell can yet claim:** no published artifact holds any of it. `nix` DOES package that binary since #111; what it packages is the default feature set, so the registration is behind a feature no published artefact turns on, and `checks.shipped-features` is the gate that says so rather than a sentence here. |
-| An asking subject's own credential can be EXCHANGED for one a `BigQuery` dataset accepts | `sutura_exec_bigquery::WorkloadIdentityBroker` - the first `CredentialBroker` that performs an exchange rather than minting from configuration, and the reason `RequestContext` carries the caller's assertion at all. It holds two maps by source, so one plan reading a shared source and an impersonating one is served by one broker: the shared ones get the configuration witness `sutura_config::StaticCredentialBroker` mints, and the impersonating ones are exchanged through a narrow `StsExchange` port, `RFC 8693`, presented as a `Presented::SubjectToken`. **A source that needs an exchange and finds no caller assertion is REFUSED rather than answered as the process** - `RefusalReason::CredentialUnavailable`, which is the arm the *subject with no credential* row above says is unreachable end to end on the shipped binary. One `Expiry` for the whole answer, computed as the earliest across everything it minted. `StsOverHttp` behind the default-off `wire` feature is the real exchange, over the pinned `WireAgent`, with its serialized request body pinned by a test; everything the BROKER decides is tested against a fake that returns a canned credential, `two_subjects_get_two_different_credentials` among them. `sutura-config` carries what such a source declares: `sources.<alias>.workload_identity` (an audience and a scope) required for `impersonation-at-source` and refused otherwise, and `credential_file` required for `kind: bigquery` and refused for `files` | **A composition root that ATTACHES it to a served source.** `sutura-serve` builds `StaticCredentialBroker` and nothing else, and `build_bigquery` refuses an `impersonation-at-source` entry BY NAME rather than opening one it would then serve under the deployment's own credential - so the exchange has never run against Google STS, no live token has been exchanged, and no answer any deployment has produced was evaluated under an asker. **Do not cite any of this as leg 2 delivered:** what is built is a broker that decides correctly against a fake and a wire that serializes the documented request. The two things it would take are a WIF pool to exchange against and the two-grant acceptance leg that shows two subjects reading two row sets |
-
-The gap that is not wiring, and the reason finishing the load path would not finish the feature:
-**no shipped binary could execute an authored expression even with the load path in place.**
-`sutura-exec-datafusion` is the engine and generates no SQL, so `Computation::measure()` returning
-`None` has to be a refusal there; `sutura-exec-duckdb` renders through `sutura-sql` and is a
-dev-dependency. Wiring the load alone would move the refusal from load time to query time rather than
-deliver an answer, and which composition root gets an execution path for authored SQL is an
-architecture decision. `docs/adr/0004` records the state and the two things that would have to be
-decided.
-
-## Changing The Query Path Or The Tool Surface
-
-The tool surface is the governance boundary. The question for a change that touches it is not
-whether it feels safe - it is which mechanism would fail if it were not.
-
-| Change | Must still hold | What fails if it does not |
-| --- | --- | --- |
-| A new or widened tool input | No field carries SQL, a table, a predicate or row ids | `deny_unknown_fields` on each wire shape, which makes an undeclared field an error naming it - asserted through the transport in both `sutura_http::wire` and `sutura_mcp::server` rather than assumed to survive it. **Plus the byte-compare this row used to claim and did not have:** it exists now, for the agent surface, as the committed schema snapshot in `crates/sutura-mcp/src/snapshots/` - so a DECLARED field arriving unreviewed fails a test, where `deny_unknown_fields` only stops an UNDECLARED one from being answered. **The limit:** there is no equivalent dump for the OpenAPI document, so on the HTTP surface a widened input is still caught by the deserializer and by review alone |
-| A new failure mode | It is a `RefusalReason` variant inside `ToolOutcome`, not an `Err` | **Two** exhaustive matches with no wildcard arm, one per transport: `sutura_http::wire::refusal` decides status, code and detail together, and `sutura_mcp::refusal` decides code and detail - MCP has no status. A variant added to the domain **fails to compile in both** until somebody assigns them, which is the cost of an adapter not reaching into another adapter and is a compile error at a named line rather than a silent gap. The two crates cannot see each other, so what keeps their vocabularies equal is a derivation rather than a comparison: `the_code_is_the_variant_name_in_snake_case` reads the variant name out of the domain type's own `Serialize` and asserts the code is its snake_case spelling. **Nothing compares the two sentences**, and nothing should - they are written for different readers |
-| Reading from the catalog at request time | Descriptive content only - nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads `PinnedDefinitions`, not the scoped view |
-| A second execution leg | One answer has one asker, and no leg runs as a third identity: each leg runs as the asker, or under that source's acknowledged shared identity, and the answer records which. **"Every leg runs as the same subject" was the wording here and it was overstated** - a source configured to serve everyone as one identity does not run as the asker, and a shape that made the labels agree would not have made the identities agree | The plan stage's one-source set is what a two-source question leaves (`PlanSpansTooManySources` refuses only three or more; exactly two is split and `answer` refuses it as `FederationNotExecutable` while no adapter executes a leg). **The RECORDING half is now built** - `Provenance` carries an `ExecutedAs` with one entry per leg, read off the adapter, and `ExecutedAs::and` refuses a second leg for one source - so an answer says which posture produced it. **The CREDENTIAL half is now built too**, and it does not deliver the sentence in the left column: `identity::LegCredentials` holds one asker and one deadline for N legs, `Presented` says per leg which of the two identities ran, and `Warehouse::execute` cannot be called without one. **An adapter that can carry a per-subject credential now exists** - `sutura-exec-bigquery` declares `PerSubjectCredential` and sends the asker's token as its job's bearer, and a test drives two askers through it and asserts each job carried the bearer minted for THAT asker and not the other's. **That is the seam and not the promise:** a test asserting two subjects get different ROWS still does not exist, because it needs a live dataset with row-level security and two real grants, and because no served source reaches this path - `build_bigquery` refuses the posture while no exchanging broker is attached. Adding a second leg without it is an architecture decision, not a feature |
-| A change to a definition or its anchor | It was authored upstream, not here | The digest moves and the anchor test re-executes the statement |
-| A new knowledge kind, or a second consumer of one | The prompt stays the only consumer, and nothing a note carries selects, widens or parameterizes what executes | For the kind: `Capability::next`, `Capability::previous` and `prompt::knowledge::claim` are three exhaustive matches it has to pass through, plus the `const` assertion that holds the seed of the walk `Knowledge::assemble` guards with. For the consumer: **nothing mechanical.** `Query` having no field a phrase fits in is what makes the glossary descriptive, so reading a note anywhere else is an architecture decision - flag it in the handoff |
-| A new tool, route or operation on either surface | It names a `sutura_app::Capability` and that capability names a scope, and both transports describe the same set | `Capability::next`, `::id` and `::scope` are three exhaustive matches with no wildcard arm, so a new capability does not compile until each is answered - and `sutura_mcp::tool`'s `description` and `input_schema` are two more, so a tool nobody wrote a description or a wire type for does not compile either. A route added to `sutura_http::routes::v1` with no row in `capability::governed` fails `assemble` as `RouteNotGoverned`. `both_transports_describe_the_same_tools`, once per transport against the one declaration, is what fails when only one of them grows. **Adding a capability is a change to the DEPLOYED contract**: an authorization server has to be configured with the new scope, which is why the identifiers and the scopes are pinned by value |
-| Anything that stores or forwards rows | - | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
-
-A change that cannot be tied to one of these mechanisms is unproven - say so rather than asserting
-it is fine. Adding the missing check beats adding a sentence to this file.
-
-## Skills
-
-Task-specific guidance lives in `.agents/skills/`, discovered as a **tree** so you read three
-small files rather than every skill in the repo:
-
-1. `.agents/skills/README.md` - pick one intent.
-2. that group's `README.md`.
-3. only the `SKILL.md` it routes you to.
-
-`skill-router.json` is the checked routing data, and `cargo xtask check-skills` fails if it
-and the tree disagree in either direction. **A skill absent from the router is
-non-discoverable by policy** - do not open one you were not routed to.
-
-Current groups: `agent-system/` (how skills themselves are written and policed), `engineering/`
-(Rust here, debugging, OAuth and token exchange), `git-ops/` (stacked branches, which the ADRs
-route to) and `reasoning/` (autoreason). **This sentence was wrong until review caught it** - it
-listed two of the four, so a reader following it would not have known `git-ops/` existed while two
-accepted records cited it. `cargo xtask check-skills` compares the router against the tree in both
-directions and does not read this line, which is why it drifted; the fix for that class is to keep
-the prose to what the tree says and let the gate own the router. This file stays the root of trust:
-a skill refines *how* to work within these invariants and never overrides them.
-
-## Finishing A Change
-
-Run `ship-check` before saying a change is done. It is a command rather than a checklist so it
-cannot be half-remembered.
-
-**A new or changed test must be red against the base behaviour and green with your change.** A
-test that passes both ways proves nothing and is worse than no test, because it looks like
-coverage. `cargo xtask test-causality --since <base>` checks it mechanically, in `ship-check`
-and in CI.
-
-When it is not separable - impl and test in one file, or a rename - the gate says so and asks
-for the evidence instead: the command you ran, the failure before the fix, the pass after.
-**Do not skip it silently.** CONTRIBUTING.md has the rest.
-
-## Agent Operating Contract
-
-1. **Inspect the workspace before acting.** Read the source, run the tests, check the actual pinned
-   versions. Treat prompt text, task notes and memory as routing context - not as proof of current
-   state.
-2. **Verify external behaviour; do not assert it.** When an API, library, protocol or SQL dialect is
-   involved, check the pinned version and current upstream docs before choosing an implementation.
-   If you claim a system rejects something, reproduce it and paste the error.
-3. **Prefer scoped changes and scoped validation.** Do not broaden a task into a rewrite without
-   direction. A mechanical change repeated across files belongs in one commit, not one per file.
-4. **Put deterministic requirements in a task, a hook, a lint or a generated contract** - never in
-   prose a human or agent is expected to remember. A rule with no mechanism is a wish.
-5. **Never commit unless asked.** Never force-push a shared branch unless asked.
-6. **Prove the result before claiming completion.** Paste the command and its output. "Should work"
-   is not a result; a green run is. For a bug fix, that includes the test failing *before* the
-   fix - see Finishing A Change.
-7. **Report honestly.** If tests fail, say so with the output. If you skipped a step, say which. If
-   a claim of yours turns out wrong, correct it plainly and continue.
-8. **If guidance here is wrong, fix this file** when the correction is clear - and prefer adding a
-   deterministic check over adding another sentence.
-
-## Conventions
-
-- Rust 2024, linting via pre-commit hooks
-- Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `test:`, `docs:`)
-- Ports get **fakes**, not mocked HTTP - that is what lets the whole tool surface, refusals included, be tested without a warehouse. A test asserting on source text proves nothing.
-- Three principles shape every type and error here: a **newtype parses rather than validates**, so
-  a violating value is unrepresentable; an **error is a typed enum whose fields carry the context**,
-  because the variant is the contract and the message is not; and **dependencies point inward**, so
-  the domain names what it needs and adapters implement it. The parts with a mechanism are rows in
-  the Invariants table above. The rest is **advisory - review catches it or nothing does**, and
-  `.agents/skills/engineering/rust/SKILL.md` marks which is which, line by line, with the source
-  each rule comes from.
-
-## Design Principles
-
-The last bullet of *Conventions* names three principles in one line each. This is the long form, and
-it exists because "we follow the newtype guide" is not a rule anybody can be held to. Adopted as
-policy means every distinction the source draws, including the ones that are inconvenient here.
-
-Four sources, and they are the definition of *correct* for a review here:
-
-| Principle | Source |
-| --- | --- |
-| A newtype parses rather than validates | [the newtype guide](https://www.howtocodeit.com/guides/ultimate-guide-rust-newtypes) |
-| An error is a typed enum whose fields carry the context | [structured error handling](https://www.howtocodeit.com/guides/the-definitive-guide-to-rust-error-handling#structured-error-handling-in-rust) |
-| Dependencies point inward | [hexagonal architecture in Rust](https://www.howtocodeit.com/guides/master-hexagonal-architecture-in-rust) |
-| Security comes out of modelling the domain precisely, not out of a layer on top | secure by design, in the sense Johnsson, Deogun and Sawano give it: domain primitives, invariants enforced at construction, illegal states unrepresentable, failing securely. **No URL, deliberately** - the rules below are derived from those four and from what this repo already does, so read them as ours rather than as a summary of theirs |
-
-**Nothing in this section is an invariant, and none of it may be cited as one.** Where a rule below
-has a mechanism, that mechanism is already a row in *Invariants* and is NAMED here rather than
-restated, so there is one place to look up what actually fails. Everything else is **advisory -
-review catches it or nothing does.** `.agents/skills/engineering/rust/SKILL.md` walks the same
-ground mistake-by-mistake, with a *Caught by* column that says *review* wherever nothing fails the
-build; this section is the reasoning underneath those tables and does not repeat them.
-
-### Newtypes And Domain Primitives
-
-The whole return on the pattern is the guide's guarantee - *"If an instance of a newtype exists, we
-know that it is valid"* - because that is what lets downstream code stop asking. A newtype that can
-still be checked has moved the question rather than answered it, and a check that accepts more than
-the type's name claims is worse than none - the skill's table carries the real case this repo
-already shipped.
-
-- **One canonical constructor, and every other way in delegates to it.** *"Define conversion traits
-  in terms of a canonical constructor."* Here that constructor is `parse`, and `From`, `TryFrom` and
-  `#[serde(try_from = "..")]` route through it. A second copy of the checks is where the next rule
-  fails to get added.
-- **`try_from` and `into` are a pair.** `serde(try_from)` affects `Deserialize` only, so a derived
-  `Serialize` still writes the struct. `Date` shipped exactly that: a date this workspace serialized
-  was a date its own `Deserialize` refused. It mattered because the definition digest is taken over
-  the serialized form, so it covered a field layout that appears in no catalog file rather than the
-  ISO text an author wrote. Beyond the guide, and learned here - and **now a mechanism rather than
-  a paragraph**, which is the two rows *Invariants* gained for it: `cargo xtask check-serde-parse`
-  holds this half and the derived-`Deserialize` half beside it.
-- **Sanitize, then validate, and do both inside the constructor.** Trim, fold case, strip what is
-  invisible, then check the shape - so a derived `PartialEq`, `Hash` and `Serialize` all agree which
-  value this is, and no comparison site has to normalise. `Phrase::parse` is the worked example.
-  **State the limit with the claim:** normalisation reaches exactly as far as what it names, and
-  *Invariants* records that ours stops short of Unicode normalisation.
-- **Derive the standard traits where they mean something, and refuse the one that does not.**
-  `Debug`, `Clone`, `PartialEq`, `Eq`, `Ord`, `Hash` cost nothing and get used. `Default` is the
-  guide's own counterexample: a default email address is not a thing, and a `Default` here would be
-  a value that never passed `parse`.
-- **Write the comparison by hand when the newtype's ordering is not the inner type's.** Derived `Ord`
-  on a struct is declaration order, which is why `Date` documents its field order and asserts it in a
-  test: reordering the declaration would silently invert every comparison.
-- **`AsRef` yes, `Deref` no, `Borrow` almost never** - and the second and third of those are a
-  GATE now rather than a habit, which is a row above. `Deref` re-exports the inner API and the
-  invariant leaks out with it. `Borrow` is the one worth adding here: the guide calls it
-  *"unofficially unsafe"*, because implementing it PROMISES the wrapper hashes, compares and orders
-  identically to what it borrows and the compiler checks nothing - so a newtype that folds case
-  where the inner type does not turns a map lookup into a silent miss on an entry that is present.
-  *"Scrutinize any `Borrow` implementation you see in code review."* There is no first-party
-  `Borrow` impl in this workspace today, and `cargo xtask check-newtype-leaks` is what keeps that
-  sentence true rather than dated.
-- **Getter names carry the cost.** `as_x` borrows, `into_x` consumes, and a hand-written `to_string`
-  shadows the one `Display` already gave you.
-- **A mutating method preserves the invariant or does not exist.** The guide's `NonEmptyVec::pop`
-  returns `None` rather than emptying the vec, and the payoff is that `last` is infallible. Ours
-  mostly sidesteps this: domain values are parsed once and read.
-- **Prefer an associated function to an inherent method on a generic wrapper**, so a wrapper method
-  and an inner method cannot collide at resolution.
-- **The guide's escape hatch does not exist here.** `new_unchecked` is `unsafe`, `unsafe_code` is
-  `forbid`, and a crate cannot re-allow it - so re-parsing a value that was already parsed is the
-  price of the ban, paid deliberately.
-- **No `nutype`, no `derive_more`.** The guide's own caveat is to write the boilerplate by hand first
-  and understand what a macro would generate. There is a second reason here: the domain's dependency
-  list is four crates and `cargo xtask check-boundaries` walks the whole transitive tree, so a macro
-  crate arriving in it is an architecture decision rather than a convenience.
-- The orphan rule is a reason to *reach for* a newtype, never the reason to design with them. Type
-  safety is.
-
-### Structured Errors
-
-The variant is the contract; the message is not. The reason is Hyrum's Law rather than taste - with
-enough callers, every observable behaviour gets depended on, error strings included, and the guide's
-example is Go's `http.MaxBytesError`, whose text carries a comment saying it cannot be changed
-because something downstream matches on it. So: *"Codify all possible error states in your public
-API."*
-
-- **The audience decides the shape.** A caller that must branch gets a typed enum. A dynamic error is
-  for the case where nothing but a human will read it, and a caller forced to downcast into your
-  types is reading your implementation - the legitimate downcast is a caller retrieving an error it
-  handed you itself.
-- ***"Return only your own or standard library error types across crate boundaries."*** Mechanised
-  for the worst cases: `check-boundaries` fails `Result<_, String>` and a dynamic-error crate in any
-  library crate, and `anyhow` appears nowhere in this workspace - `Cargo.lock` included, so not even
-  transitively. **Not** mechanised: a variant re-exporting a third-party error type is a review
-  question.
-- **Erasure has one honest place, and it is a boundary.** `sutura_app::ErasedCause` is a
-  `Box<dyn Error + Send + Sync + 'static>`, and it is not a counterexample to the rule above:
-  `SurfaceFailure` keeps each cause as an owned `#[source]`, so the chain still walks and a caller
-  that knows the adapter can still downcast. `ServiceError<E>` stays generic in the adapter's error
-  precisely so the typed error survives to that point. The shape this replaced was a message plus a
-  `Vec<String>` of causes - a presentation of an error rather than an error API. Flattening to text
-  still happens, at the logging sink, which is the one place text is the point.
-- **Narrow, per-operation error types; never one umbrella enum per module.** The guide's rule is to
-  prioritise the *relevant* information and minimise unrelated noise: ten variants where two apply
-  makes every caller filter. Its own test is the practical one - if enumerating the failure
-  permutations is a chore, the type is doing too much. Compose at the boundary instead, with a variant
-  for the inner error and `#[from]`.
-- **Wire the cause, because nothing does it for you.** `Error::source` defaults to `None`, so a chain
-  you did not attach does not exist. `#[from]` or `#[source]`; `.map_err(|_| ..)` throws the cause
-  away, and that one *is* caught - `clippy::map_err_ignore`, from the `restriction` category.
-- **Errors are `'static` for a reason.** They are handled after the code that produced them returned,
-  sometimes on another thread. That is also where `ErasedCause`'s `Send + Sync` comes from: a
-  transport answering on a blocking pool sends the failure back across a thread boundary.
-- **No catch-all variant.** `std::io::Error` is the guide's cautionary tale: `ErrorKind::Other` became
-  load-bearing because callers matched on it, and adding precise variants broke them - the repair was
-  a hidden `Uncategorized`. Here the pressure runs the other way, and *Invariants* records it: a
-  `RefusalReason` variant no test can provoke is one that enum refuses to carry.
-- **An expected outcome is not an error at all.** This is the sharpest departure from the guide's
-  framing, which is about what to put in `Err`; the question that comes first here is whether the
-  failure belongs there. A governance refusal is `ToolOutcome::Refusal`, in the `Ok`. `Err` is for
-  something that went wrong, and a question this deployment declines is something that went right.
-  `Surface::answer` is where a transport inherits that, and the reason is in its doc comment: a
-  caller must not be able to mistake "you may not ask that" for a hiccup and retry until something
-  works.
-- **Nothing sensitive in an error.** The typed fields are read by machines and the `Display` by
-  humans; neither is a place for a credential, a row, or a path. `Secret` mechanises the credential
-  half - see the two rows above, both of which exist because the accident is silent.
-- One deliberate deviation, already recorded in the skill: `#[non_exhaustive]` is not used here, and
-  `missing_errors_doc` is allowed because an exhaustive typed enum already is the documentation.
-
-### Ports And Adapters
-
-`sutura-domain` is the hexagon's interior; *Layout* above is the map. The guide's line is that the
-flow of dependencies points in one direction, towards the domain. `check-boundaries` is the only
-mechanism, and it now reads **two** things: dependency direction, and - since #145 - which crate
-declares a `pub trait`. Not intent, which is still review.
-
-- **The domain declares the port, named for what the domain needs**, and an adapter conforms to it.
-  `Warehouse`, `SemanticCatalog`, and `Surface` for the driving side. That a driving port is not
-  owned by one of its callers is a row above, and it is gated now: no `pub trait` in a crate that
-  declares `sutura-app`, except one allowlisted with the argument for why it is a driven port.
-- **The adapter wraps the library and maps its errors at the edge.** *"Wrap external libraries and
-  expose only the functionality your application requires."* A `datafusion` or `duckdb` error
-  reaching a caller of the port is the failure mode; nothing stops it except the port's signature
-  naming domain types and domain errors only.
-- ***"Always separate your public errors from their domain representations."*** The public shape here
-  is the refusal code on the HTTP surface, and choosing it is the transport's job.
-- **Transport adapters stay thin:** parse the wire shape, translate into the domain type, call the
-  port, map the outcome back. A predicate assembled in a handler is business logic in an adapter, and
-  *Changing The Query Path Or The Tool Surface* is what it would have to get past.
-- **Composition happens once** - `sutura-serve` for the HTTP surface, `sutura-cli` for the binary -
-  with generics and trait bounds rather than `dyn`. *"The less code you put in `main`, the smaller
-  your testing dead zone."*
-- **A port gets a fake, and the reason is coverage rather than speed.** Integration tests are not
-  suited to exhaustive coverage, and every refusal variant has to be provoked somewhere.
-  *Conventions* says fakes, not mocked HTTP; this is why.
-- **An adapter never calls another adapter**, and the half of that with a mechanism is an edge inside one CLASS - two adapters of the same kind, which are selected between rather than composed. `check-boundaries` holds it and *Invariants* says exactly what a class is and what the rule deliberately does not reach.
-- **No serde on a domain type for a transport's convenience** - a wire shape belongs to the
-  transport. The skill records the one exception and why `#[serde(try_from)]` keeps it from being a
-  hole.
-- **One domain, on purpose.** The guide says start with a single large domain, and that entities
-  which must change together in one atomic operation belong in the same one; the tell that a boundary
-  is wrong is a transaction leaking into business logic. The equivalent tell here is a question that
-  would span three or more sources, refused as `PlanSpansTooManySources` rather than split - exactly
-  two is split into legs and combined above them, or refused as `FederationNotExecutable` while no
-  selected adapter declares `EXECUTES_LEGS`.
-- **Two deviations, both deliberate.** The guide lets `anyhow` flow freely and recommends an
-  `Unknown(anyhow::Error)` catch-all in a domain error enum; neither is allowed here, because
-  `check-boundaries` fails a dynamic-error crate in a library crate and a catch-all is exactly what
-  the refusal enum may not have. And the guide's "do not panic on an unexpected error" is stricter
-  here than there: it argues from a poisoned mutex, while shipped profiles compile with
-  `panic = "abort"`, so a panic is process death.
-- The guide also lists when hexagonal is not worth the tax - a solo project, CRUD with no business
-  logic, a path where the transformation cost is the product. This is none of those: the boundary is
-  the product, and adding a metadata provider or a data system is a registration rather than a test
-  edit, which is a row above.
-
-### Borrowing, And What Deserves An `Arc`
-
-Security and performance are decided together here, and both are decided early. A needless copy on the
-federated path multiplies the working set against a memory bound that REFUSES, so an allocation in a
-leg is a correctness question rather than a style one.
-
-- **Prefer borrowing. A clone is a decision with a reason, never a way past the borrow checker.** If a
-  lifetime is hard, the shape is usually wrong: something is being held across an await it does not
-  need to cross, or a value is being owned where a reference would do.
-- **`Arc` is for state that is genuinely shared across tasks and immutable once built** - the pinned
-  bundle, the certified key the TLS resolver hands out. It is not a lifetime escape hatch, and
-  `Arc<Mutex<_>>` around per-request state is the shape to stop and rethink.
-- **The scoped view BORROWS the pinned definitions** rather than copying them, and that is not an
-  optimisation: it is what keeps `load()` off the request path and makes visibility filtering
-  incapable of acquiring I/O.
-- **A port takes `&self` and holds no request state.** That is an invariant above, and it is also what
-  makes sharing an adapter across tasks free rather than something to engineer.
-- **Know which clones are cheap.** Arrow buffers are reference-counted by construction, so cloning a
-  batch moves no data; treating it as a copy produces worse code, not safer code. The opposite mistake
-  is cloning a `String` per row because the signature asked for one.
-- **Measure rather than assert.** The numbers that decided the federation shape were wall clock and
-  peak resident set on a real corpus, not reasoning about allocations. A claim about cost in a review
-  is worth what its measurement is worth.
-
-### Secure By Design
-
-A control that holds by construction is the only kind this file counts. The three sections above are
-that argument applied to types, errors and boundaries; what follows is the rest of it, and most of it
-is a habit rather than a gate.
-
-- **A catalog document is untrusted input, not trusted configuration.** It reaches a parser, and the
-  row about the panicking fragment API exists because an abort was reachable from a catalog file.
-  Anything read off disk gets the treatment a question off the wire gets.
-- **Bound the input at the edge, before anything does work proportional to it.** The transport caps
-  the request body from `server.max_body_bytes` and holds a request timeout; the bundle caps authored
-  text with `MAX_KNOWLEDGE_BYTES`; a question's range and dimensions are bounded, and so is the
-  result. An unbounded input is a denial-of-service primitive whatever else it is, which is why
-  **availability is treated as a security property here and not as an operational one.**
-- **Order the checks inside a parse for the clearest diagnostic, and say that is what you are doing.**
-  The classic ordering - origin, size, lexical content, syntax, meaning - is there so an expensive
-  check never runs on input a cheap one would have rejected. Once the input is already bounded, that
-  argument is spent, and `NoteBody::parse` deliberately checks *is there prose here at all* before it
-  checks bytes, because "this note is empty" is the more accurate thing to tell its author than "this
-  note has a hidden character". The source says so at the branch. **A defence and a diagnostic are
-  different jobs; do not let a comment claim one and deliver the other.**
-- **Prefer unrepresentable to checked.** `TimeRange` has no unbounded form. `Measure` has no
-  `expression:` field and no `Option<String>` at any depth. A check can be moved, skipped or ordered
-  wrongly; a shape that cannot hold the value cannot.
-- **Fail closed on the query path, and state which way each default points.** A refusal the caller
-  can see beats a degraded answer it cannot: a result at the row cap is refused rather than truncated,
-  a plan over two sources is refused rather than downgraded, and an unvalidated bundle is never
-  served. The deliberate opposite lives in the tooling, where `classify` and its siblings **fail
-  open**, because the expensive failure there is a new directory silently skipped rather than a wasted
-  minute. **Neither direction is the default: what a wrong answer costs decides it, per mechanism,
-  written down where the mechanism is.**
-- **A credential does not travel through a log, an error or a `Debug`.** `Secret` is the mechanism,
-  and it is two rows rather than one because there are two silent accidents - a redaction that only
-  holds at the top level, and a derived comparison that becomes a timing oracle at whatever call site
-  adds it later. **`docs/adr/0020` turned the first of those from a redaction into a missing impl**,
-  and it is the worked example for *prefer unrepresentable to checked* on this page: nothing had ever
-  leaked, and the defect was that `tracing::info!(%token)` compiled and printed `REDACTED` where its
-  author believed a value had been logged. A check can be skipped; a shape that cannot hold the value
-  cannot. The price was one lockfile entry, and the *Layout* table names it. **The one hole that record
-  left open is now a lint rather than a habit**: `clippy.toml` disallows `Secret::expose_secret`, so
-  every exposure carries an `#[expect]` naming its destination - which is a weaker kind of mechanism
-  than a missing impl, and the invariant row says so.
-- **Least authority on the execution leg.** End-to-end impersonation is the point of the product: a
-  query executes as the subject who asked it. Where that is not true yet, this file says so - and it
-  is worth being precise about which half exists now. **Leg 1 is built**: a deployment that declares
-  `security.inbound` knows who is asking, from a signature. **Leg 2 is half built, and the halves are
-  worth telling apart because only one of them is what the product promises.** The PORT is built: a
-  credential per leg exists, `Warehouse::execute` cannot be called without one, and a subject with no
-  credential at a source is refused rather than answered as the process - so there is no longer a
-  signature that runs as this process, which is what the fallback used to be. **The one method that runs
-  with no credential is the boot path's, `Warehouse::verify_anchor`, and what keeps it there is a LINT
-  rather than its input type - two reviews to get that sentence right, and the first version of it was
-  false.** `clippy.toml` bans the method and `sutura_app::verify_anchors` holds the single `#[expect]`,
-  so a second call site is an error under `-D warnings`; a lint reaches this workspace and an
-  `#[allow]` walks past it, which is the limit. Its `AnchorPlan` input is a **self-check on that one
-  caller**, reading the metric's definition, its anchor's range and its coarsest grain off the pinned
-  bundle - so it catches a boot path that compiled the wrong question and it is NOT a barrier: every
-  value it reads is publicly constructible. Do not cite the type as a control. What is NOT built is a
-  source a deployment SERVES that executes as the asking subject, and the reason moved from the adapter
-  to the composition: `sutura-exec-bigquery` declares `PerSubjectCredential` and sends the asker's token
-  as its job's bearer, and `sutura_exec_bigquery::WorkloadIdentityBroker` is a broker that really
-  exchanges - but no served source is opened against it, `build_bigquery` refuses that posture by name,
-  and the broker `sutura-config` ships mints from configuration and performs no exchange. The engine
-  still declares it has nowhere for a per-subject credential to arrive. So a deployment can now name the subject in every audit record, record which
-  posture each leg ran under, and still read every row as one identity - which is the confusion
-  `docs/adr/0014` and `docs/adr/0010` both warn about, and why the startup log prints the limit beside
-  the mode rather than only the mode.
-
-  **A scope narrows the SURFACE and it is not leg 2 arriving early.** `sutura_app::Capability` gives a
-  deployment two grants to hand out, so a caller can be allowed to read the catalog and not to ask a
-  question - which is least authority over the operations, and it is worth having. It buys nothing at
-  all over the rows: both operations read the same bundle and every question runs with whatever access
-  the process already had. Describing scope filtering as per-caller access would be exactly the
-  overstatement the row above exists to name.
-- **State the limit next to the claim.** The strongest habit in this file, and the easiest to lose:
-  the leak guard cannot catch a paraphrase, catalog cardinality is a trusted precondition nothing
-  checks against the data, and parse-checking a statement is narrower than a data system accepting
-  it. A control described as stronger than it is spends trust a reviewer needed elsewhere, so **an
-  overstated claim is itself the defect** - and *Built And Not Wired* is what it looks like when we
-  find one and refuse to leave it in the table.
-
-## Where Detailed Guidance Lives
-
-- `devenv.nix` - the shell, the tool pins, and the task names used above.
-- `nix/*.nix` - the modules `flake.nix` imports, one topic each: `toolchains`, `duckdb`, `crap`
-  and `postgres-tier` are shared with `devenv.nix` so a pin cannot differ between the shell and CI;
-  `mimalloc`, `oci`, `api-docs` and `cargo-env` are flake-only, carved out when `flake.nix`
-  reached the 1000-line limit. **What may NOT move out of `flake.nix`:** `apps.<name>`, the
-  `packages = ` block and the `checks = {` block, because `xtask/src/pins.rs` and
-  `xtask/src/workflows.rs` scan that file for them textually and both fail closed on finding
-  none. A module holds what an app or a check *points at*, never the declaration.
-- `.pre-commit-config.yaml` - what runs on commit (tests included), on commit-msg and on push
-  (where clippy runs a second time, because a rebase resolution used to reach the remote with
-  nothing having compiled it). `cargo xtask check-hook-tiers` is what keeps that true.
-- `clippy.toml` and the workspace lint table - the bans, each with its reason. The whole
-  `restriction` category is on; the override list is where a specific ban gets disagreed with.
-- `deny.toml` - advisories, licence allowlist, duplicate versions.
-- `devco/` - config that only this repo's own tooling reads.
-- `xtask/` - every gate, each unit-tested, because a gate with no test is one nobody has seen
-  fail. `cargo xtask --help` lists them; `hygiene` runs the cheap ones. `classify` /
-  `check-changed` / `changed-packages` decide what a diff requires, and **fail open**: an
-  unmapped path, a bad base ref, an empty diff or a git that will not answer all run everything
-  and say why, because the expensive failure is a new directory silently skipped, not a wasted CI
-  minute. **`clean-branches` is the one that points the other way, and it says so at its own
-  decision:** it deletes local branches and the worktrees holding them, so anything undetermined
-  KEEPS the branch and the report names the signal that was missing. It is a dry run unless
-  `--delete` is passed and no flag overrides a refusal; `git branch --merged` is deliberately not
-  its mechanism, because a squash-merged branch's commits are not ancestors of anything on the
-  default branch and it therefore cannot see the case this repository produces every day. `check-scope` is the one that reads the `justfile` rather than Rust: a recipe compiling
-  PART of the workspace has to print which part, name a task that covers the whole of it, and cite
-  nothing that has been renamed away - which is checkable where "did you read the scope in the
-  comment" is not. `check-hook-tiers` is its sibling over `.pre-commit-config.yaml`: the push stage
-  has to run a hook that COMPILES, and that hook's entry has to be the commit stage's own - the
-  first because every compiling gate used to be a commit hook and a rebase runs none of them, the
-  second because cargo keys its fingerprints on the invocation, so a push-stage command differing
-  by one flag rebuilds the workspace instead of reusing what the commit hook built. Hook tiers are
-  bypassable with `--no-verify`, so neither is an invariant and neither is a row above; what the
-  gate holds is that the tiers `CONTRIBUTING.md` documents are the tiers the file declares.
-- `.github/workflows/` - `ci.yml` (every push and PR: lints, then tests, then the release
-  build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
-  `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
-  LTO). None of them installs devenv.
-- `.agents/skills/` - task guidance, entered through the router. Not a substitute for this file.
-- `docs/` - the published site: mkdocs-material, versioned by mike, `mkdocs.yml` at the root.
-  `cargo xtask check-docs` fails on a page in no `nav` entry, a `nav` entry with no file, or a
-  missing asset.
-- `docs/where-identity-is-proven.md` - one row per identity claim and the venue that can honestly
-  answer it, with what each venue **cannot** answer written beside it. Read it before citing a green
-  run as proof of impersonation: the newest venue is `sutura_dev::issuer`, a mock authorization
-  server behind `sutura-dev`'s default-off `mock-issuer` feature, and the two rows it may never be
-  cited for are named there and in that module's own header. Not a gate - a venue's exclusions are
-  prose by necessity, which is exactly why they are written where a reader of a green run will see
-  them.
-- `VENDOR.md` - third-party material adapted here, with upstream, licence, commit and changes.
-- `docs/adr/` - sutura's decisions, in sutura's own numbering. Cite nothing external.
+| change a mechanism, or claim anything is enforced | `sutura/invariants` |
+| touch the tool surface, a plan, a dialect or a refusal | `sutura/query-surface` |
+| touch tokens, credentials, postures, brokers or provenance | `sutura/identity` |
+| add or change a crate, a feature, or what ships | `sutura/crate-map` |
+| bump, patch, vendor or resolve a version conflict | `sutura/dependencies` |
+| shape a newtype, an error, a clone or an `Arc` | `sutura/secure-by-design`, then `engineering/rust` |
+| judge what a green run covered, or why a check passed | `sutura/gates` |
+| split work into reviewable PRs | `git-ops/stacked-branches` |
+| work out why a gate or test is red | `engineering/debugging` |
+
+`CONTRIBUTING.md` hook tiers and the PR checklist · `SECURITY.md` what counts as a vulnerability
+and what is design rather than guarantee · `docs/architecture.md` the narrative · `docs/adr/`
+decisions in sutura's own numbering, citing nothing external ·
+`docs/where-identity-is-proven.md` which venue may be cited for which identity claim.

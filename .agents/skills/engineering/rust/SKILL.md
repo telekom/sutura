@@ -62,19 +62,24 @@ is allowed because a typed, exhaustive error enum already is the documentation.
 `sutura-domain` is the hexagon's interior. Everything else is an adapter that depends on it,
 and nothing depends on an adapter.
 
-**Three ports exist, and each arrived with its implementor.** That is the rule - `AGENTS.md`'s
-*Layout* states it as "a port trait arrives with its first implementor" - and it is also why there
-is no fourth. A trait with no implementor and no caller is a guess at a signature only the first
-real adapter can settle, and in a library crate `pub` hides it from `dead_code`, which is how an
-unused item survives review. `CredentialBroker` is the live example: module comments in
-`sutura-domain`, `sutura-config` and `sutura-http` name it as the port that would mint a credential
-per request, and it is deliberately **absent** rather than sketched. Do not add one speculatively.
+**Every port here arrived with its implementor**, which is the rule `AGENTS.md` states as "a port
+trait arrives with its first implementor". A trait with no implementor and no caller is a guess at a
+signature only the first real adapter can settle, and in a library crate `pub` hides it from
+`dead_code`, which is how an unused item survives review. So do not add one speculatively -
+`ls crates/*/src` and `grep 'pub trait'` is the current set.
 
-| Port | Declared in | Implemented by |
+`CredentialBroker` is the worked example of the rule being honoured rather than of abstinence: it
+was named in three module comments as the port that *would* mint a credential per request and left
+deliberately absent, and it arrived in `sutura-domain`'s `identity` module with a real implementor
+in `sutura-config` - and a second, exchanging one in the BigQuery adapter. Which is the point: the
+signature it has now is the one two implementors settled, not the one a sketch guessed.
+
+| Port | Kind | Note |
 | --- | --- | --- |
-| `Warehouse` - driven | `sutura-domain`, `warehouse.rs` | `DataFusionWarehouse`, the engine that ships; `DuckDbWarehouse` on the dev-dependency leg; the fakes |
-| `SemanticCatalog` - driven | `sutura-domain`, `pinned.rs` | `LocalCatalog` in `sutura-catalog-local`; the fakes, and the hand-written oracle the goldens compare against |
-| `Surface` - driving | `sutura-app`, `surface.rs` | `LocalService<W>`, and nothing else |
+| `Warehouse` | driven | The engine that ships, the dev-dependency legs, the fakes |
+| `SemanticCatalog` | driven | The local catalog, the fakes, and the hand-written oracle the goldens compare against |
+| `CredentialBroker` | driven | Two real implementors - see `sutura/identity` for which one every shipped binary builds |
+| `Surface` | driving | `LocalService<W>`, and nothing else |
 
 **Driven and driving are not the same rule, and the difference decides which crate declares the
 trait.** A driven port is dependency inversion: the interior declares what it needs and an adapter
@@ -94,8 +99,8 @@ The rules, now that there are ports to apply them to:
 | --- | --- |
 | No framework type reaches the domain - no `tokio`, `axum`, `rmcp`, `datafusion`, `arrow` in its tree | `check-boundaries` - a transitive **allowlist**, so a framework arriving through an innocuous crate fails too. The strongest of the three: a type cannot appear without its crate |
 | A **driven** port is declared by the domain, named for what the domain needs | *review* |
-| A **driving** port is declared by the application, never by one of its callers | `check-boundaries` - no `pub trait` in a crate that declares a normal dependency on `sutura-app`, except one allowlisted in `boundaries/ports.rs` with a reason. `AGENTS.md` carried this as an invariant and said plainly that it was not gated; that sentence is now spent |
-| A port's methods take and return domain types and domain errors only | *review*. `Surface` is where that costs something: erasing the warehouse's generic parameter erases the adapter's error TYPE, so `SurfaceFailure` keeps the error itself, owned, as a `#[source]` - the reasoning is under *Design Principles* in `AGENTS.md` |
+| A **driving** port is declared by the application, never by one of its callers | `check-boundaries` - no `pub trait` in a crate that declares a normal dependency on `sutura-app`, except one allowlisted in `boundaries/ports.rs` with a reason. `AGENTS.md` carried this as an invariant and said plainly that it was not gated; that sentence is now spent - see `sutura/invariants` for its remaining limits |
+| A port's methods take and return domain types and domain errors only | *review*. `Surface` is where that costs something: erasing the warehouse's generic parameter erases the adapter's error TYPE, so `SurfaceFailure` keeps the error itself, owned, as a `#[source]` - the reasoning is in `sutura/secure-by-design` |
 | A port's methods stay synchronous for as long as `Warehouse` is | *review*. The engine drives its own runtime and blocks on it, so an `async` port would hide the requirement that a transport move the call onto a blocking pool - a runtime cannot be entered from within a runtime |
 | The adapter wraps the third-party library and maps its errors to the domain's at the boundary | *review* |
 | Composition happens in a composition root and nowhere else - `sutura-cli` for the CLI, `sutura-serve` for the HTTP surface | *review*. Both consume both driven ports, which is what lets a transport be transport-only: it never reads a catalog directory and never opens a data system |
@@ -133,11 +138,14 @@ and exempt in tests (`allow-*-in-tests` in `clippy.toml`). Shipped profiles use
 Slices are walked with `split_first` rather than indexed. `unsafe_code` is `forbid` - not
 `deny` - so a crate cannot re-allow it locally.
 
-## 3. `--all-features` on every entry point, even though it is a no-op
+## 3. `--all-features` on every entry point - now load-bearing
 
-No crate here declares a feature today, and nothing is `optional = true`. So the flag currently
-changes nothing - and it is on every gate for exactly that reason: the day an adapter goes behind a
-feature, coverage must not silently drop to nothing without anyone noticing.
+The flag went onto every entry point while it was still a no-op, which was the cheapest time to do
+it. **That day has passed:** several crates declare features and have optional dependencies, so an
+entry point missing the flag now lints and tests nothing behind them. `check-guidance` fails a cited
+cargo line without it, and `just gates` adds a DEFAULT-feature lane besides - because a
+`#[cfg(feature = ..)]` compiled only with the feature on is exactly the shipped set's blind spot.
+See `sutura/crate-map` for why an adapter is behind a default-off feature at all.
 
 The inner loop is deliberately narrow:
 
@@ -191,5 +199,4 @@ Run `gates` before you claim done. Individually:
 
 ## Before claiming completion
 
-Paste the command and its output. A new or changed test must also satisfy the causality
-requirement in `AGENTS.md`: red against base behaviour, green on your change.
+Paste the command and its output. A new or changed test must also satisfy the causality requirement in `AGENTS.md`: red against base behaviour, green on your change.

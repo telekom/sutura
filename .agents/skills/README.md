@@ -22,6 +22,9 @@ are symlinks to `.agents/skills`. One canonical set, three products.
 | I need to… | Group |
 | --- | --- |
 | start a session, or find which skill applies | `agent-system/README.md` |
+| know what this codebase guarantees, and what it does not | `sutura/README.md` |
+| change the tool surface, a plan, identity, a crate or a dependency | `sutura/README.md` |
+| find a gate, hook, nix module or workflow | `sutura/README.md` |
 | write or change Rust in this workspace | `engineering/README.md` |
 | cut over-engineering | `engineering/README.md` |
 | find out why something fails | `engineering/README.md` |
@@ -35,6 +38,7 @@ are symlinks to `.agents/skills`. One canonical set, three products.
 | Group | Scope |
 | --- | --- |
 | `agent-system/` | How skills are discovered, imported and maintained. |
+| `sutura/` | This codebase's own reference: invariants, the query and tool surface, identity, the crate map, dependency currency, security reasoning, the gate map. |
 | `engineering/` | Rust in this workspace, debugging, and both halves of OAuth 2.x / OIDC. |
 | `git-ops/` | Stacked branches: dependent changes as separate reviewable PRs. |
 | `reasoning/` | Structured reasoning: making the argument explicit before acting on it. |

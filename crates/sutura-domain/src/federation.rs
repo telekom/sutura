@@ -3,7 +3,7 @@
 //!
 //! **This module is a classification and a rule, and nothing executes it.** There is no leg plan
 //! type, no splitter and no combiner in this workspace yet, so nothing here has a production
-//! caller: the same shape `AGENTS.md`'s *Built And Not Wired* section describes for the
+//! caller: the same shape `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory describes for the
 //! authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
 //! classification that looks wired is worse than one that says it is not.
 //!

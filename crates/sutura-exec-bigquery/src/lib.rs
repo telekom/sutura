@@ -44,7 +44,7 @@
 //!    [`BigQueryWarehouse::load_fixture`], runs the corpus questions, and compares its rows with the
 //!    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 //!
-//! So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
+//! So this crate is still built and not wired - see `.agents/skills/sutura/query-surface` - and nothing here may be cited
 //! as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
 //! and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
 //! last one has changed rather than gone away.** It was *a cell that has never executed reads as
