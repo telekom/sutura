@@ -28,6 +28,16 @@ The rule the middle row establishes: **the mock issuer is the default venue, and
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
 everything *around* it, and shrinks to the one job only it can do.
 
+!!! warning "The two end-to-end suites are not venues for anything on this page"
+
+    `just serve-e2e` and `just mcp-e2e` drive the composed HTTP surface and the composed agent surface
+    end to end - a real settings file, a real catalog, a real listener or a real pipe, and a real
+    answer. **Neither establishes an identity claim.** The example they run declares one shared
+    identity, so every question in them is answered as the deployment; and a pipe has no header a token
+    could arrive in, so the agent surface grants every capability to whoever can launch the process and
+    says so at startup. They are transport venues, named here only so that a green run in one is not
+    read as evidence in the table below. Leg 1 on a composed binary is the mock issuer's job.
+
 ## Which venue answers which claim
 
 | Claim | Fake at the port | Mock issuer | Real dataset, shared key | Real provider | Real exchange |

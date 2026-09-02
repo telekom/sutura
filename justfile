@@ -152,6 +152,25 @@ serve-e2e:
     echo "serve-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-serve --all-features
 
+# The agent surface, spawned: `crates/sutura-cli/tests/mcp.rs` starts `sutura mcp` over
+# `examples/single-player` and speaks the Model Context Protocol on the process's own pipes.
+#
+# The sibling of `just serve-e2e` one transport over: that one drives the HTTP composition through a
+# loopback listener, this one drives the agent composition through the process's own pipes. Also a
+# gate - `checks.nextest` runs it, because a pipe needs no network, no port and no credential - so
+# this recipe runs that one target while working on it rather than being a second tier. Unlike
+# `just bigquery-acceptance`, nothing here is `#[ignore]`d.
+
+# Run the end-to-end suite against the composed agent surface.
+mcp-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "mcp-e2e: scope sutura-cli - the composed agent surface, over the spawned binary's pipes."
+    echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
+    cargo nextest run -p sutura-cli --all-features
+
 # `*paths`, not `+paths`, and the no-argument form is the one a PERSON uses: with nothing to go on
 # the gate reads the working tree itself, so `just check-changed` answers "does what I have touched
 # compile" without anybody having to type a path list. The commit hook keeps passing filenames.
