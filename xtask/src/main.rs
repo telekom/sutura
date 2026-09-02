@@ -26,6 +26,7 @@ mod line_endings;
 mod max_lines;
 mod pins;
 mod repo;
+mod serde_parse;
 mod shared_client;
 mod shipped;
 mod skills;
@@ -166,6 +167,16 @@ const TASKS: &[Task] = &[
         description: "ATTRIBUTION.md names every third-party crate in Cargo.lock",
         kind: Kind::Hygiene,
         run: attribution::run_check,
+    },
+    Task {
+        // Beside the boundary gate because it is the same principle in the same shape: a rule from
+        // one of the four sources `AGENTS.md` adopts as policy, held by a check rather than by a
+        // sentence. `check-boundaries` owns the dependency direction and the typed surface; this
+        // one owns the two serde rules that were *review* in the Rust skill's own table.
+        name: "check-serde-parse",
+        description: "a validated newtype's serde goes through its constructor, both ways",
+        kind: Kind::Hygiene,
+        run: serde_parse::run,
     },
     Task {
         name: "line-endings",

@@ -29,7 +29,8 @@ downstream re-checks it. A newtype that merely *can* be checked has moved the pr
 | `pub struct Digest(pub String)` | a private field, and `parse` as the only way in | `check-boundaries` - a `pub` field on a `pub struct` in a library crate fails it |
 | a constructor returning `Self` plus a separate `is_valid()` | one `parse(..) -> Result<Self, E>`; after `Ok`, nothing re-checks | *review* |
 | a check that accepts more than the name claims - `!raw.trim().is_empty()` for a content hash | validate the actual shape: hex, and the exact length | *review*. This was a real bug here: `DefinitionDigest::parse("not a hash")` succeeded |
-| `#[derive(Deserialize)]` on a validated newtype | `#[serde(try_from = "String")]` plus a `TryFrom` that calls `parse` | *review*. **The one that bites:** a derived `Deserialize` writes straight into the private field, so every check is bypassed by the one path that carries untrusted input |
+| `#[derive(Deserialize)]` on a validated newtype | `#[serde(try_from = "String")]` plus a `TryFrom` that calls `parse` | `cargo xtask check-serde-parse` - **the one that bites**, and the reason it is gated first: a derived `Deserialize` writes straight into the private field, so every check is bypassed by the one path that carries untrusted input. What makes a type subject to it is having a fallible constructor (`-> Result<Self`); a hand-written `impl Deserialize` counts as a route through it |
+| `#[serde(try_from = ..)]` beside a derived `Serialize` | `#[serde(into = ..)]` too, or a hand-written `Serialize` | `cargo xtask check-serde-parse` - `try_from` moves `Deserialize` and leaves `Serialize` where it was, so the type reads text and writes a field layout. `Date` shipped that, and the definition digest is taken over the serialized form. A newtype over the `try_from` target is exempt: serde writes one as its inner value |
 | a second constructor that repeats the checks | `From` / `TryFrom` delegate to `parse` - one place a future rule gets added | *review* |
 | normalising at comparison sites (`eq_ignore_ascii_case`) | normalise inside `parse`, so derived `PartialEq`/`Hash`/`Serialize` all agree which value this is | *review* |
 | `impl Deref for MyNewtype` | an inherent method, or `AsRef<T>` if a borrow is genuinely wanted | *review*. `Deref` re-exports the inner type's whole API, and the invariant leaks out with it |
@@ -171,6 +172,7 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask line-endings` | CRLF. `fmt` fixes it |
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
 | `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
+| `cargo xtask check-serde-parse` | a derived `Deserialize` on a type with a fallible constructor and no `#[serde(try_from = ..)]`; and a `try_from` whose derived `Serialize` writes a different shape |
 | `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles nothing, and a push-stage clippy invocation that is not the commit stage's own |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
 
