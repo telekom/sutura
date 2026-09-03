@@ -3831,7 +3831,10 @@ reconcile them. The plan owns the numbering and the dependency graph. What is be
   guard is dismantled: red against a build with that arm removed. The corpus exists here rather than
   later because every subsequent entry needs a real on-disk two-source catalog, and because in this
   entry it demonstrates the refusal that holds TODAY - which is what makes the later flip from refusal
-  to answer a visible behaviour change in a diff rather than a new test appearing.
+  to answer a visible behaviour change in a diff rather than a new test appearing. <em>The home this
+  entry names was later repurposed:</em> <code>examples/multi-player</code> is the served-deployment DataHub example
+  (<code>docs/adr/0016</code>'s amendment, issue #202), so the two-source corpus it asserts against remains
+  unbuilt and is a prerequisite this entry still owns.
   <strong>Not the single-player corpus:</strong> moving a model there was costed and flips 7 questions from planned
   to refused, deletes 21 SQL goldens, and moves a sentence a gate counts.</li>
 <li><strong><code>feat/source-registry</code> - per-source configuration, a keyed set of warehouses, and the two startup
@@ -3883,8 +3886,8 @@ whose executing method receives a string, a schema and physical filters and no s
 written: <strong>no security property currently held is at stake, because none is held.</strong> There is no
 per-caller identity, <code>describes_identity()</code> is a <code>const fn</code> returning <code>false</code> printed on every boot,
 and the bearer token authenticates the deployment. What changes with this milestone is that the gap
-acquires a victim: against three systems with grants, reading under a service identity is what
-<code>examples/multi-player/README.md</code> calls turning a row-level security policy into decoration. <strong>This
+acquires a victim: against three systems with grants, reading under a service identity is exactly the silent downgrade the multi-player deployment shape
+exists against (<code>examples/multi-player/README.md</code>). <strong>This
 is the milestone that cannot honestly ship without the credential port</strong>, and single-player DuckDB
 federation is not.</p>
 <p>One disclosure this record found rather than inherited, and it is why a semi-join is declined below:

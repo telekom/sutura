@@ -2745,8 +2745,8 @@ back as a result set without a named conversion somebody wrote.</p>
 can consume the credential's life before the last one starts. That case does not exist under parallel
 execution and it is created deliberately here, so it is checked rather than noted.</p>
 <p><strong>The broker port arrives with a real implementor, not a fake.</strong> <code>AGENTS.md</code> says a port trait arrives
-with its first implementor, and <code>examples/multi-player/README.md</code> says the same thing about
-<code>CredentialBroker</code> specifically - "a trait with no implementor is a guess at a signature". The
+with its first implementor, because a trait with no implementor is a guess at a signature, and the
+calling-subject floor it answers to is <code>docs/adr/0008</code> part 6. The
 implementor here is the <strong>static-credential broker single-user mode already needs</strong>: credentials as
 configuration, one user, one host, which is a shipping deployment mode rather than test scaffolding.
 So no rule bends and no fake stands in for one.</p>
