@@ -55,6 +55,12 @@
 //! * **A comment.** A stale comment beside Rust code is reviewed with that code, which is the
 //!   position [`super`] already takes. The one over-reach is a trailing `// ...` on a line that also
 //!   carries code: its spans are read, and a citation there must exist like any other.
+//! * **A span broken across two source lines.** [`super::spans`] reads a LINE, so a citation split
+//!   by a `\` continuation inside a string literal closes no span on either line and is skipped.
+//!   One exists today - `claims.rs`'s `mcp-e2e` remedy - and it is covered anyway, because the
+//!   remedy check reads the concatenated literal at runtime rather than the source. Joining
+//!   continuations here needs a lexer, and the alternative (reporting an odd backtick count) would
+//!   fire on every multi-line prose span in the tree.
 
 use std::path::Path;
 

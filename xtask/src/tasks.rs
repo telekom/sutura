@@ -463,8 +463,8 @@ lint:
 
     #[test]
     fn a_quiet_recipes_name_does_not_carry_its_at_sign() {
-        // `just @dev-endpoint` is not how anything invokes it, and this file's own comment at line
-        // 786 cites the recipe without the prefix. RED BEFORE THE FIX beside it: the name came back
+        // `just @dev-endpoint` is not how anything invokes it, and the justfile's own comment above
+        // that recipe cites it without the prefix. RED BEFORE THE FIX beside it: the name came back
         // as `@dev-endpoint`, so `recipe_names` - the one authority every citation checker in this
         // workspace resolves a `just <task>` against - denied that a recipe `sutura-dev` prints
         // exists. `dev/src/provisioned.rs`'s own hand-parse of this file already stripped it, which
