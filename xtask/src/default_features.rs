@@ -335,9 +335,15 @@ mod tests {
     fn the_lint_level_is_still_the_last_thing_clippy_is_told() {
         // The other half of that seam: threading a profile in must not reorder `-D warnings` out of
         // the driver's arguments, which would turn the lint half into a warning-only run.
-        let clippy = PASSES.iter().find(|pass| pass.what == "clippy").expect("a clippy pass is declared");
+        let clippy = PASSES
+            .iter()
+            .find(|pass| pass.what == "clippy")
+            .expect("a clippy pass is declared");
         let words = invocation(clippy, "sutura-cli", Some("ci"));
-        assert_eq!(words.get(words.len().saturating_sub(3)..), Some(&["--", "-D", "warnings"][..]));
+        assert_eq!(
+            words.get(words.len().saturating_sub(3)..),
+            Some(&["--", "-D", "warnings"][..])
+        );
     }
 
     #[test]
