@@ -138,6 +138,16 @@ fn joined(names: &BTreeSet<String>) -> String {
     names.iter().cloned().collect::<Vec<_>>().join(", ")
 }
 
+/// The one literal `nix build` prefix ordinary CI may name, and why it is safe to name.
+///
+/// A `feature-probes-<triple>` output is a `writeText` listing which feature-on link probes exist
+/// for that triple - `nix/shipped.nix`'s `probeManifests`. It installs no `bin/`, so it cannot be
+/// a published asset, and the `cross` jobs read it to learn which probes to build. It has to be
+/// LITERAL for the same reason it exists: the step used to reconstruct that set from a naming
+/// pattern, which went silently empty when the pattern changed, so a fixed name is what makes a
+/// missing manifest a failed `nix build` rather than a green run over nothing.
+const PROBE_MANIFEST: &str = "feature-probes-";
+
 fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -156,7 +166,8 @@ fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
             .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
             .collect();
         let release_check = output.ends_with(".one-binary") || output.ends_with(".shipped-features");
-        if !output.is_empty() && (!output.starts_with("checks.") || release_check) {
+        let permitted = output.starts_with(PROBE_MANIFEST);
+        if !output.is_empty() && !permitted && (!output.starts_with("checks.") || release_check) {
             found.push((index.saturating_add(1), output));
         }
     }
@@ -436,6 +447,20 @@ mod tests {
                 (4, String::from("oci")),
             ]
         );
+    }
+
+    #[test]
+    fn the_probe_manifest_is_the_one_literal_ordinary_ci_may_build() {
+        // The `cross` jobs must name it literally - that is what makes a missing manifest a failed
+        // build instead of a green run over an empty set - and it installs no `bin/`, so it cannot
+        // become a published asset. Everything else keeps failing, including a literal that merely
+        // starts the same way.
+        let found = super::literal_release_builds(concat!(
+            "          nix build \".#feature-probes-${TARGET}\" --no-link\n",
+            "          nix build .#feature-probes-x86_64-unknown-linux-musl\n",
+            "          nix build .#feature-probesque -L\n",
+        ));
+        assert_eq!(found, vec![(3, String::from("feature-probesque"))]);
     }
 
     #[test]
