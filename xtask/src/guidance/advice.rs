@@ -194,13 +194,22 @@ mod tests {
         // most-printed citation in `sutura-dev` - unread, and the gate green over exactly the
         // module #243 was filed against.
         assert!(matches!(cited("just dev-endpoint {}"), Some(Cited::Recipe("dev-endpoint"))));
-        assert!(matches!(cited("cargo xtask text-hygiene --fix"), Some(Cited::Gate("text-hygiene"))));
+        assert!(matches!(
+            cited("cargo xtask text-hygiene --fix"),
+            Some(Cited::Gate("text-hygiene"))
+        ));
         // The shapes the header promises to leave alone.
         assert!(cited("just dev-up-{profile}").is_none(), "an interpolated NAME is not a name");
-        assert!(cited("cargo xtask {name}").is_none(), "a wholly interpolated name is not a name");
+        assert!(
+            cited("cargo xtask {name}").is_none(),
+            "a wholly interpolated name is not a name"
+        );
         assert!(cited("just --list").is_none(), "a flag is not a task");
         assert!(cited("just <task>").is_none(), "a placeholder is not a task");
-        assert!(cited("nix run .#crap").is_none(), "another invocation is not this gate's business");
+        assert!(
+            cited("nix run .#crap").is_none(),
+            "another invocation is not this gate's business"
+        );
         assert!(cited("endpoints.json").is_none(), "a filename is not an invocation");
     }
 
@@ -246,7 +255,10 @@ mod tests {
         let root = crate::repo::root().expect("the repo root");
         let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
         let (problems, found) = advice_problems(&root, &files);
-        assert!(found > 0, "read no citation out of any printed line - the scan is broken, not the tree");
+        assert!(
+            found > 0,
+            "read no citation out of any printed line - the scan is broken, not the tree"
+        );
         assert_eq!(problems, Vec::<String>::new(), "this tree prints a task that does not exist");
     }
 
@@ -257,8 +269,14 @@ mod tests {
         // fixture, so vendoring a second crate does not quietly widen this.
         let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
         let scope = in_scope(&files);
-        assert!(scope.contains("dev/src/provisioned.rs"), "the file #243 was filed about is not read");
-        assert!(scope.contains("xtask/src/guidance/advice.rs"), "this gate does not read itself");
+        assert!(
+            scope.contains("dev/src/provisioned.rs"),
+            "the file #243 was filed about is not read"
+        );
+        assert!(
+            scope.contains("xtask/src/guidance/advice.rs"),
+            "this gate does not read itself"
+        );
         assert!(
             files
                 .iter()

@@ -117,11 +117,7 @@ fn recipes(text: &str) -> Vec<Recipe> {
             // a recipe" answered no. Latent for the two rules below - nothing cites a quiet recipe
             // in the justfile itself - and live the moment a gate read a printed line, which
             // `check-guidance`'s `advice` check now does.
-            let name = head
-                .split_whitespace()
-                .next()
-                .unwrap_or_default()
-                .trim_start_matches('@');
+            let name = head.split_whitespace().next().unwrap_or_default().trim_start_matches('@');
             // `:=` is an assignment, not a recipe. None exist today; the guard costs a line and
             // stops one being read as a recipe called `set`.
             if !name.is_empty() && !head.ends_with(":=") && !raw.contains(":=") {
