@@ -427,18 +427,49 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
 /// failure surfaced as eighteen workflow references that "do not exist". A gate whose parse has
 /// desynchronised must say the parse is broken - never answer the question with a guess.
 pub(crate) fn declared_block(text: &str, header: &str) -> Option<BTreeSet<String>> {
+    scan_block(text, header).map(|(names, _)| names)
+}
+
+/// The RAW source of one output block, header line to closing line.
+///
+/// Raw and not the code projection, because the question its caller asks - does this block name
+/// `sutura-<service>-tier` - is about a store path inside a string literal, which the projection
+/// blanks out. `#[cfg(test)]` because `crate::compose::file`, the gate that asks, is a unit test:
+/// a field nothing reads in the binary is dead code the compiler is right to refuse.
+#[cfg(test)]
+pub(crate) fn block_source(text: &str, header: &str) -> Option<String> {
+    scan_block(text, header).map(|(_, source)| source)
+}
+
+/// One parsed output block: the attributes it declares, and its raw source.
+///
+/// An alias and not a struct, and that is the compiler choosing between two lints rather than a
+/// style preference. `clippy::type_complexity` refuses the tuple written out; a struct puts the
+/// source in a named field, whose only reader is `crate::compose::file` - a `#[cfg(test)] mod` -
+/// so `dead_code` refuses that in the binary. The alias satisfies both without an `allow`.
+type Block = (BTreeSet<String>, String);
+
+/// One scan, shared by both faces above, because a second one would be a second thing to keep in
+/// step with the shapes recorded here.
+fn scan_block(text: &str, header: &str) -> Option<Block> {
     let mut names = BTreeSet::new();
     let mut depth = 0_i32;
     let mut inside = false;
     let mut opened = false;
     let mut block_closed = false;
-    for line in code_lines(text) {
+    let mut source = String::new();
+    let raw: Vec<&str> = text.lines().collect();
+    for (number, line) in code_lines(text).into_iter().enumerate() {
         let trimmed = line.code.trim();
         let header_line = !inside && trimmed.starts_with(header);
         if header_line {
             inside = true;
         } else if !inside {
             continue;
+        }
+        if let Some(original) = raw.get(number) {
+            source.push_str(original);
+            source.push('\n');
         }
 
         // Only the outermost level of the block declares an output; everything deeper belongs
@@ -473,7 +504,7 @@ pub(crate) fn declared_block(text: &str, header: &str) -> Option<BTreeSet<String
             break;
         }
     }
-    block_closed.then_some(names)
+    block_closed.then_some((names, source))
 }
 
 /// What one scan of `.github` found: the references, and how many files were read.

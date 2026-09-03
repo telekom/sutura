@@ -302,10 +302,16 @@ fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
     //
     // Textual, because `flake.nix` cannot be evaluated from a unit test and because that is how
     // `check-workflows` reads the same file. Two things per tier: the module has to be IMPORTED,
-    // and the script it produces has to be NAMED - the second is what distinguishes a check that
-    // provisions the tier from a `let` binding nothing uses.
+    // and the script it produces has to be named INSIDE `checks = {`.
+    //
+    // The second half is scoped to that block deliberately. Naming the script anywhere in the file
+    // is satisfied by `apps.<service>-tier` alone - the `just` task, which is a person typing a
+    // command and not a venue - so the gate would have passed a tier CI never runs while its
+    // failure message said the opposite. An overstated control is the defect, not a smaller one.
     let Some(root) = crate::repo::root() else { return };
     let Some(flake) = flake_text() else { return };
+    let checks = crate::workflows::block_source(&flake, "checks = {")
+        .expect("flake.nix's `checks = {` block must close, or this gate is reading nothing");
     let tiers = nix_tier_modules(&root);
 
     // Anti-vacuity by NAME rather than by count: a count goes green the moment somebody adds a
@@ -326,9 +332,10 @@ fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
         );
         let script = format!("sutura-{service}-tier");
         assert!(
-            flake.contains(script.as_str()),
-            "flake.nix imports `{module}` and never names `{script}`, so the tier is built and \
-             never started. A tier nothing runs is not a CI venue"
+            checks.contains(script.as_str()),
+            "flake.nix imports `{module}` and no check in `checks = {{` names `{script}`, so the \
+             tier is built and never started. A tier only `just` runs is a command a person types, \
+             not a CI venue"
         );
     }
 }

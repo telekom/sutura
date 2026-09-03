@@ -240,6 +240,11 @@
         # `keycloak-tier` app runs, so the sandbox and a developer's shell cannot drift.
         keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
 
+        # The one writer both tiers publish through. Named here as well, because the property
+        # that matters about it - two tiers in ONE endpoint file - needs a second service in the
+        # sandbox where `checks.keycloak-tier` can watch what happens to it.
+        tierEndpoints = import ./nix/tier-endpoints.nix { inherit pkgs; };
+
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
@@ -473,7 +478,7 @@
           # No network beyond loopback, no docker socket, no state outside the build directory.
           keycloak-tier = pkgs.runCommand "keycloak-tier"
             {
-              nativeBuildInputs = [ keycloakTier.tier pkgs.jq ];
+              nativeBuildInputs = [ keycloakTier.tier tierEndpoints.script pkgs.jq ];
             }
             ''
               tree="$NIX_BUILD_TOP/worktree"
@@ -497,15 +502,35 @@
               test "$(jq -r '.subjects | length' "$realm")" = 2
               test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${keycloakTier.realm}"
 
-              # `stop` withdraws BOTH claims. A stale endpoint file is read as availability, which
-              # is how a fail-closed cell panics on a dead server instead of skipping.
+              # A SECOND TIER IN THE SAME FILE, which is the property `nix/tier-endpoints.nix`
+              # exists for and which no other check can see: `checks.nextest` provisions Postgres
+              # alone and this one provisions Keycloak alone, so the two-tier case only happens on
+              # a developer's machine - where the old single-`printf` writer silently dropped the
+              # first service's entry and discovery answered a truthful file about half a tier.
+              # A neighbour is published by hand here rather than by starting a real server,
+              # because what is under test is the writer and not the second service.
+              sutura-tier-endpoint publish "$tree" postgres "$tree/.sutura-dev/pg" 5432
+              test "$(jq -r '.services | length' "$endpoints")" = 2
+              test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
+
+              # `stop` withdraws BOTH of ITS OWN claims and NEITHER of the neighbour's. A stale
+              # endpoint is read as availability, which is how a fail-closed cell panics on a dead
+              # server instead of skipping; a withdrawal that took the whole file with it is the
+              # clobbering above, in the other direction.
               sutura-keycloak-tier stop
-              test ! -f "$endpoints"
               test ! -f "$realm"
+              test -f "$endpoints"
+              test "$(jq -r '.services | has("keycloak")' "$endpoints")" = false
+              test "$(jq -r '.services.postgres.port' "$endpoints")" = 5432
               if sutura-keycloak-tier status; then
                 echo "the tier reports itself up after stop" >&2
                 exit 1
               fi
+
+              # The last service out takes the file with it, because its EXISTENCE is what
+              # discovery reads as "something is provisioned here".
+              sutura-tier-endpoint withdraw "$tree" postgres
+              test ! -f "$endpoints"
 
               touch $out
             '';
