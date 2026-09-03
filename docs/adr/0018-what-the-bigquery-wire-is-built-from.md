@@ -461,9 +461,12 @@ record says so rather than letting a reader infer that everything here submits a
 
 **What was added.** `wire::tables::list`, reached through `JobTransport::list_tables`, is a paged
 `GET` on `tables.list`: it issues no statement, reads no rows, and is billed for nothing. It exists
-because `sutura-serve` needs to know at boot whether a dataset holds the tables a bundle names - a
-`files` deployment already refuses that case and a `bigquery` one did not - and because asking per
-DATASET rather than per MODEL is what makes the check affordable at all.
+because **both serving composition roots** need to know, before they accept anything, whether a
+dataset holds the tables a bundle names - a `files` source already refuses that case and a `bigquery`
+one did not - and because asking per DATASET rather than per MODEL is what makes the check affordable
+at all. `sutura-serve` asks before its listener opens and `sutura-cli`'s agent surface before it
+announces itself on the pipe; the decision they share is `sutura_app::preflight::ask`, and each root
+renders its own sentence through its own sink.
 
 **What it inherits without re-arguing:** the host is the same `const`, the agent is the same pinned
 `WireAgent`, redirects are refused, the answer is read under `MAX_ANSWER_BYTES`, and the bearer comes
