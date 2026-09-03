@@ -3235,15 +3235,29 @@ this became its second caller.</p>
 </ul>
 <p><strong>Three limits, in this record's own tradition of stating them next to the claim:</strong></p>
 <ul>
-<li><strong>No live dataset has answered a listing.</strong> The three response documents this suite decodes were
-  written here, which is this record's existing limit restated for a second endpoint - and the
-  acceptance leg does not cover the pre-flight either, so issue #120's own <em>Verification</em> bullet
-  about a <code>just bigquery-acceptance</code> run is outstanding.</li>
+<li><strong>A live dataset HAS now answered a listing, and the documents this suite decodes are still ours.</strong>
+  The three response documents were written here, which is this record's existing limit restated for
+  a second endpoint; what closes the other half of #216 is a run and not a document.
+  <code>the_dataset_really_answers_a_listing_and_names_only_the_table_it_does_not_hold</code> is <code>#[ignore]</code>d
+  beside its neighbours and asks a real dataset about a set of one table it holds and one it does
+  not, with the clean set asserted FIRST as the control. <strong>It has never run on a developer machine
+  here</strong> - no dataset is named in this environment, so <code>just bigquery-acceptance</code> fails on its own
+  precondition rather than reporting green. <strong>It has RUN, green, in CI on 2026-09-02</strong> - the
+  <code>bigquery-acceptance</code> job, 9 tests passed, this one the sixth of the endpoint leg's - and it keeps
+  running there, because <code>--run-ignored only</code> reaches every <code>#[ignore]</code>d test in the crate rather
+  than a set somebody has to remember to extend. <strong>What the run does not reach is the soft edge:</strong> no
+  live dataset has FAILED to answer, so the refusal-versus-warning split of <code>preflight_was_refused</code>
+  is still exercised against a fake transport only.</li>
 <li><strong>A document whose shape the service changes decodes to an EMPTY listing</strong>, because every field is
   <code>#[serde(default)]</code> - and an empty listing means <em>every table is absent</em>. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
   behaviour so the direction is a measured property rather than a hope. It cannot be told from an
-  empty dataset, which really does answer with no <code>tables</code> array.</li>
+  empty dataset, which really does answer with no <code>tables</code> array. <strong>A <code>totalItems</code> cross-check would
+  tell the two apart</strong> - a non-zero total beside an empty <code>tables</code> array is a shape change and not an
+  empty dataset - and it is deliberately NOT built: nothing here has seen whether the service
+  populates that field on a real listing, and a decoder that refuses on a field the service may omit
+  would refuse every boot. The live run above is what would settle it, which is the honest order:
+  measure, then decide.</li>
 <li><strong><code>tables.list</code> reports existence and nothing else.</strong> Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.</li>
