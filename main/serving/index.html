@@ -4121,9 +4121,13 @@ like.</p>
 <h2 id="what-is-not-built">What is not built<a class="headerlink" href="#what-is-not-built" title="Permanent link">&para;</a></h2>
 <p>Named rather than implied, because an absence that reads as an oversight gets assumed away.</p>
 <ul>
-<li><strong>No MCP surface.</strong> The seam is there and nothing sits on it: the transport talks to the service
-  through one small port, so a second transport consumes the same thing rather than growing its own
-  copy of the wiring.</li>
+<li><strong>No caller identity on the agent surface.</strong> This bullet said the agent transport did not exist,
+  and that had stopped being true: <code>sutura-mcp</code> sits on the same small port this one talks to and
+  serves the tool surface over a process's own standard input and output, which <code>just mcp-e2e</code>
+  drives end to end. What does not exist there is anyone to be: a pipe has no header a token could
+  arrive in, so that surface offers every capability and answers as the deployment, and a
+  network-reachable one needs the identity leg
+  <a href="../adr/0014-how-a-caller-proves-who-it-is/">how a caller proves who it is</a> designs.</li>
 <li><strong>No record STORE.</strong> This bullet said "no audit sink" and that had already stopped being true: there
   is an <code>AuditSink</code> port, <code>sutura-app</code> writes one record per outcome through it before the outcome
   returns, and the writer a deployment gets for free puts that record on the log below. What does not

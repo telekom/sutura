@@ -2661,10 +2661,13 @@ today say so inside the section, and <a href="#what-exists-today">What exists to
 <strong>Do not deep-link a section of this page as evidence that a control is in place.</strong></p>
 </div>
 <h2 id="serving-is-mcp">Serving is MCP<a class="headerlink" href="#serving-is-mcp" title="Permanent link">&para;</a></h2>
-<p><strong>Partly built, and the built half is not the one this section describes.</strong> <code>sutura-http</code> exists: a
-versioned <code>v1</code> tree, a liveness probe, a generated interface description, rate limiting and a bearer
-gate. <strong>There is no MCP surface</strong>, and MCP is what this section is about - so read it as the shape
-the second transport has to take, with the first one already standing beside it.</p>
+<p><strong>Both transports are built, and one property this section describes is not.</strong> <code>sutura-http</code> serves
+a versioned <code>v1</code> tree, a liveness probe, a generated interface description, rate limiting and a
+bearer gate; <code>sutura-mcp</code> serves the tool surface over a process's own standard input and output,
+and <code>just mcp-e2e</code> drives that one end to end. What is absent is a caller identity on the agent
+surface: a pipe has no header a token could arrive in, so it answers as the deployment and offers
+every capability, and a network-reachable agent surface needs the identity leg
+<a href="../adr/0014-how-a-caller-proves-who-it-is/">how a caller proves who it is</a> designs.</p>
 <p>The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.</p>
 <p>That makes the tool surface the governance boundary, and it is deliberately narrow. No tool takes
@@ -2675,9 +2678,13 @@ absent field cannot.</p>
 <p>That last property is the part that <strong>is</strong> enforced today, transport or no transport: <code>Query</code> is the
 tool surface, it declares no such field, and <code>deny_unknown_fields</code> makes a question carrying one an
 error naming it. A transport can only narrow what the type already refuses.</p>
-<p>The tool schemas are meant to be derived from the domain types rather than written by hand, so
-widening the surface changes a generated schema and shows up in the diff of the review that widened
-it. That dump is not written yet, so today review is the only thing catching a widened surface.</p>
+<p>The tool schemas are derived from the types rather than written by hand, so widening the surface
+changes a generated schema and shows up in the diff of the review that widened it. That dump is
+written: <code>sutura-mcp</code> generates each tool's input schema with <code>schemars</code> over the wire type the
+deserializer uses, and snapshots it, so a new or widened field fails the byte-compare until
+somebody re-accepts the snapshot. <strong>What review still owns</strong> is whether a widened field should
+exist - a snapshot can be re-accepted without thought, which is why one test asserts the question
+tool's fields by name instead of by bytes.</p>
 <p>An HTTP surface sits beside the MCP one for callers that are not agents: a second transport over the
 same service, derived from the same types, so it cannot accept a question the MCP surface would
 reject.</p>
