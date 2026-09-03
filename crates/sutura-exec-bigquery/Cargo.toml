@@ -17,9 +17,12 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # the feature off this crate is what it was: rendering, credential and posture checks, value
 # mapping, and a port with no implementor - three dependencies, no network, no outbound stack. With
 # it on, `ureq` and its rustls closure are compiled for whatever target is building, and two of the
-# four release triples are musl. Nothing turns it on today: no crate in this workspace depends on
-# `sutura-exec-bigquery` at all, so *no shipped artifact links either half of this crate*, and
-# `sutura-serve` still refuses `kind: bigquery` by name.
+# four release triples are musl. **No SHIPPED artifact links either half**, which is a narrower
+# statement than the one that stood here and is the true one: `sutura-serve` and `sutura-cli` each
+# declare this crate `optional` behind a `bigquery` feature of their own that turns `wire` on, and
+# neither feature is in a default build or in a release derivation. `sutura-http` reaches the broker
+# as a DEV-dependency, which propagates to nothing. And what those two roots refuse by name is no
+# longer `kind: bigquery` - it is the `impersonation-at-source` posture, with the shared one served.
 #
 # **Off is not hidden, which is the thing a default-off feature usually gets wrong.** Every gate
 # here passes `--all-features`: `just lint`, `just test`, the doctests, and `deny.toml`'s
