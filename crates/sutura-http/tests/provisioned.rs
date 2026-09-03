@@ -113,11 +113,9 @@ mod tests {
             .and_then(serde_json::Value::as_str)
             .expect("a successful token response carries an identity token");
         let claims = id_token.split('.').nth(1).expect("a JWT has three dot sections");
-        let claims =
-            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, claims)
-                .expect("the identity token's payload is base64url");
-        let claims: serde_json::Value =
-            serde_json::from_slice(&claims).expect("the identity token's payload is JSON");
+        let claims = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, claims)
+            .expect("the identity token's payload is base64url");
+        let claims: serde_json::Value = serde_json::from_slice(&claims).expect("the identity token's payload is JSON");
         claims
             .get("sub")
             .and_then(serde_json::Value::as_str)
