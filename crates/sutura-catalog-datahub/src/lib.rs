@@ -175,8 +175,10 @@ pub enum DataHubError {
     ///
     /// This adapter declares no knowledge capability, so any knowledge content it were handed would
     /// be refused here (the `UndeclaredContent` guard) rather than dropped or forwarded. Today no
-    /// snapshot produces knowledge - there is no metric for a `Referent` to name - so this stays the
-    /// wiring for content that cannot occur in the standalone deployment.
+    /// snapshot produces knowledge - a [`Snapshot`] has no knowledge aspect to read at all - so
+    /// this stays the wiring for content that cannot occur in the standalone deployment. Since
+    /// issue #202 the reason is no longer that no metric exists for a `Referent` to name: a
+    /// standalone bundle carries a certified metric.
     #[error("the DataHub content's knowledge does not hold together")]
     Knowledge {
         #[source]
@@ -247,9 +249,11 @@ impl<R: AspectReader> DataHubCatalog<R> {
 
         let definitions =
             Definitions::assemble(models, relationships, metrics).map_err(|cause| DataHubError::Inconsistent { cause })?;
-        // No knowledge: there is no metric for a `Referent` to name (see the crate header), so the
-        // bundle carries none and the declaration agrees. The `Knowledge::assemble` call is what
-        // would refuse undeclared content the day a snapshot produced any.
+        // No knowledge: a snapshot has no knowledge aspect to read (see the crate header), so the
+        // bundle carries none and the declaration agrees - not because no metric exists for a
+        // `Referent` to name, which stopped being true when a certified metric arrived. The
+        // `Knowledge::assemble` call is what would refuse undeclared content the day a snapshot
+        // produced any.
         let knowledge =
             Knowledge::assemble(&definitions, KnowledgeInput::none()).map_err(|cause| DataHubError::Knowledge { cause })?;
         Ok((definitions, knowledge))
@@ -343,7 +347,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
     ///
     /// The measure ALREADY is the domain's own [`Measure`], and the filters, grains, dimensions and
     /// anchor are the domain's own closed vocabularies spelled as in a markdown metric - which is
-    /// what makes the namespace closed: an unknown aggregate, an unknown operator, an unparseable
+    /// what makes the document closed: an unknown aggregate, an unknown operator, an unparseable
     /// value, a dimension unreachable through any relationship, a grainless metric or an unknown
     /// property all fail before or at `Definitions::assemble`, never guessed at. The three free
     /// strings (`model`, `time_column`, each nested `column`) are parsed here as the identifier
@@ -421,12 +425,12 @@ where
     ///
     /// That distinction is the whole of this declaration, and it is why a metric-free `DataHub`
     /// deployment stays servable: whether a bundle carries any of the may-provide kinds is the
-    /// deployment's decision (it defined the namespace or it did not), so absence is faithful rather
-    /// than an aspirational declaration - `checked_against`'s `Unprovided` direction exempts them -
-    /// while presence is still covered by the declared half. `Cardinality` is among them because it
-    /// is observed only as *a dimension reached through a relationship*, which happens exactly when
-    /// a deployment declares a dimension with a `via`; a bundle whose dimensions are all local
-    /// carries none, lawfully.
+    /// deployment's decision (it defined the `sutura` property or it did not), so absence is
+    /// faithful rather than an aspirational declaration - `checked_against`'s `Unprovided` direction
+    /// exempts them - while presence is still covered by the declared half. `Cardinality` is among
+    /// them because it is observed only as *a dimension reached through a relationship*, which
+    /// happens exactly when a deployment declares a dimension with a `via`; a bundle whose
+    /// dimensions are all local carries none, lawfully.
     ///
     /// A deployment that defined no metric content therefore loads a bundle with models, prose and
     /// joins and no metrics, which is `docs/adr/0016` decision 3's narrow deployment rather than a

@@ -341,10 +341,19 @@ impl SuturaProperty {
 /// vocabularies.** The `measure` is the `sutura-domain` [`Measure`] type itself - the closed set,
 /// written exactly as this repository writes it - the `grains` and `required_filters` are the
 /// closed `Grain` and `RequiredFilter` enums, and a `dimension` and an `anchor` mirror the markdown
-/// document's shapes with `deny_unknown_fields` at every depth refusing a property this adapter
+/// document's shapes. `deny_unknown_fields` sits on this document, on the measure and on the term
+/// inside it, on a filter, on a dimension and on the anchor, and refuses a property this adapter
 /// does not recognise rather than guessing. An aggregate out of the closed set, an unknown operator,
-/// an unparseable value, an unknown grain, an unclosed namespace key - all fail the decode before
-/// the conversion sees them.
+/// an unparseable value, an unknown grain, an unknown key at any of those levels - all fail the
+/// decode before the conversion sees them, naming the key.
+///
+/// **One level below that does not refuse, and it is stated here because no green run shows it:**
+/// an anchor's `range` decodes through `sutura_domain::calendar::TimeRangeInput`, which carries no
+/// `deny_unknown_fields`, so a key written INSIDE the range object is dropped in silence instead of
+/// named. A range is two dates and the extra key is discarded, so nothing untyped reaches the query
+/// path through it - it is a fidelity hole, not the escape hatch `docs/adr/0002` closes - and the
+/// attribute on that domain shape is what would close it, there and on the markdown catalog path
+/// that decodes the same type.
 ///
 /// The three free strings - `model`, `time_column`, and each nested `column` - are the one thing
 /// this shape cannot close, and they are parsed as domain identifier types during the conversion

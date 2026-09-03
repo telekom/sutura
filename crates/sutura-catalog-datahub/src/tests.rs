@@ -303,13 +303,16 @@ fn a_metric_that_does_not_hold_together_is_refused_by_its_own_defect() {
     );
 }
 
-/// A property this namespace does not define, written where an operator would write it - as a
-/// key at the content's top level - is refused BY NAME, through the load path's typed error.
+/// A property this document does not define, written where an operator would write it - as a
+/// key at the content's top level - is refused BY NAME.
 ///
-/// The domain guard over the measure's own grammar is the previous test, but that one is a
-/// property inside the measure; the case an operator hits the day they write a key the namespace
-/// does not carry is the top level, and it must refuse naming the property rather than with a
-/// bare serde string.
+/// The domain guard over the measure's own grammar is the NEXT cell, and that one is a property
+/// inside the measure; the case an operator hits the day they write a key the document does not
+/// carry is the top level, and it must refuse naming the property rather than with a bare "did not
+/// decode". **What this does not reach is the typed error:** the refusal is asserted where the
+/// decode happens, on `SuturaProperty::assemble`, and nothing in this crate asserts
+/// `DataHubError::Sutura`, the variant `convert_metric` wraps it in - so the naming is proven and
+/// the wrapping is not.
 #[test]
 fn an_unknown_key_at_the_sutura_level_is_refused_and_named() {
     let json = r#"{
@@ -324,7 +327,7 @@ fn an_unknown_key_at_the_sutura_level_is_refused_and_named() {
         .sutura()
         .expect("the metric carries sutura content")
         .assemble()
-        .expect_err("a property the namespace does not define must not read")
+        .expect_err("a property the document does not define must not read")
         .to_string();
     assert!(message.contains("optimized"), "the refusal names the property: {message}");
 }
