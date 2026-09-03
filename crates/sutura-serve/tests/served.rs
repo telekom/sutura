@@ -44,415 +44,33 @@
 //! whole module is `cfg(unix)`.
 
 // `cfg(test)` for the reason `crates/sutura-cli/tests/example.rs` gives: clippy honours
-// `allow-expect-in-tests` only inside a `#[cfg(test)]` item, and without it every `expect` in the
-// harness below is a lint error.
+// `allow-expect-in-tests` only inside a `#[cfg(test)]` item, and without it every `expect` in this
+// file and in `served/harness.rs` is a lint error.
 // `cfg(unix)` and `cfg(test)` as TWO attributes rather than `cfg(all(test, unix))`, which is not a
 // style choice: clippy looks for a literal `#[cfg(test)]` on an ancestor module to decide whether
 // `allow-expect-in-tests` applies and whether `tests_outside_test_module` fires, and it does not
 // see through an `all(..)`. Written the other way this module was thirty-five lint errors.
+//
+// The harness carries the same two attributes for the same two reasons - a `#[cfg(test)]` on the
+// declaration is what puts a literal one on `harness`'s own ancestor chain - and it is declared here
+// at the top level rather than inside `mod tests` because a `#[path]` inside an inline module
+// resolves against that module's directory rather than this file's.
+#[cfg(unix)]
+#[cfg(test)]
+#[path = "served/harness.rs"]
+mod harness;
+
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {
-    use core::fmt::Write as _;
-    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-    use std::net::TcpStream;
-    use std::path::{Path, PathBuf};
-    use std::process::{Child, Command, ExitStatus, Stdio};
-    use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
-    use std::time::{Duration, Instant};
+    use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
 
-    /// The deployment's own bearer token, which authenticates the DEPLOYMENT and not a caller.
-    ///
-    /// Thirty-five characters, because `sutura_config::AccessToken::MIN_LENGTH` is thirty-two and a
-    /// fixture shorter than that would be refused at startup rather than at the gate.
-    const TOKEN: &str = "e2e-access-token-000000000000000000";
-
-    /// The version label the served bundle is stamped with.
-    ///
-    /// Fixed rather than read from the working tree, for the reason the CLI example gives: the
-    /// digest does not include it, and a version that moved between runs would churn every
-    /// assertion that carries provenance.
-    const VERSION: &str = "serve-e2e";
-
-    /// How long a start may take before the test gives up and prints the log it has.
-    ///
-    /// Generous on purpose. Startup loads the catalog and RE-EXECUTES every anchor against the
-    /// engine, so this is the cost of validating a bundle rather than of binding a socket, and a
-    /// shared CI runner is slower than a laptop at both.
-    const START_BUDGET: Duration = Duration::from_secs(120);
-
-    /// How long a `SIGTERM` may take to become an exited process.
-    ///
-    /// Longer than the `shutdown_grace_seconds` the embedded defaults ship, because the bound is on
-    /// the grace period and the process still has to unwind and exit after spending it.
-    const STOP_BUDGET: Duration = Duration::from_secs(45);
-
-    /// The example deployment, which is also what a reader is told to run.
-    ///
-    /// Canonicalised because `sutura_config` refuses a relative `data_dir` - a relative path
-    /// resolves against whatever working directory the supervisor chose - and because a path
-    /// carrying `..` in a settings file is harder to read in a failure than the real one.
-    fn example_root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/single-player")
-            .canonicalize()
-            .expect("the example directory is in this repository")
-    }
-
-    /// The settings file the deployment is started from.
-    ///
-    /// Everything not written here is the embedded default, which is the point: this is a
-    /// deployment's own `base.yaml` and not a second copy of the configuration tree. Four things are
-    /// said, and each of them is what makes one of the tests below possible.
-    ///
-    /// * `server.port: 0` - the kernel picks, so two checks in one sandbox cannot collide.
-    /// * `security.access_token` - so the bearer gate is armed and its refusal is reachable.
-    /// * `telemetry.format: bunyan` - so the harness can read the bound address out of the log.
-    /// * `catalogs:` and `sources:` over the example directory - the one catalog and the one data
-    ///   system a reader of the quickstart has.
-    fn settings(example: &Path) -> String {
-        let catalog = example.join("catalog").display().to_string();
-        let data = example.join("data").display().to_string();
-        format!(
-            "server:\n  \
-               host: \"127.0.0.1\"\n  \
-               port: 0\n\
-             security:\n  \
-               identity: \"single-user\"\n  \
-               single_user_because: \"an end-to-end test reads its own fixture files as one identity\"\n  \
-               access_token: \"{TOKEN}\"\n\
-             telemetry:\n  \
-               format: \"bunyan\"\n\
-             catalogs:\n  \
-               - name: \"model\"\n    \
-                 kind: \"markdown\"\n    \
-                 dir: \"{catalog}\"\n    \
-                 data_dir: \"{data}\"\n    \
-                 version: \"{VERSION}\"\n\
-             sources:\n  \
-               local:\n    \
-                 kind: \"files\"\n    \
-                 data_dir: \"{data}\"\n    \
-                 posture: \"shared-service-user\"\n"
-        )
-    }
-
-    /// The command, with this shell's own `SUTURA_*` variables removed.
-    ///
-    /// **Not cosmetic.** `sutura_config` layers one environment variable per key on top of the
-    /// files, so a developer with `SUTURA__SERVER__PORT` exported would be running a different
-    /// deployment from CI and the failure would name a setting nobody wrote in this file.
-    fn command(config_dir: &Path) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_sutura-serve"));
-        for (key, _) in std::env::vars_os() {
-            if key.to_string_lossy().starts_with("SUTURA") {
-                command.env_remove(key);
-            }
-        }
-        command
-            .env("SUTURA_ENVIRONMENT", "development")
-            .env("SUTURA_CONFIG_DIR", config_dir)
-            .env_remove("RUST_LOG")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        command
-    }
-
-    /// One HTTP response, as much of it as an assertion needs.
-    struct Reply {
-        status: u16,
-        body: String,
-    }
-
-    impl Reply {
-        /// The body as JSON, or a failure naming what came back instead.
-        fn json(&self) -> serde_json::Value {
-            serde_json::from_str(&self.body)
-                .unwrap_or_else(|cause| panic!("the {} body is not JSON ({cause}): {}", self.status, self.body))
-        }
-    }
-
-    /// A running deployment: the process, the address it reported, and its log.
-    struct Served {
-        child: Child,
-        address: String,
-        /// Every line the process wrote up to and including `listening`.
-        startup: Vec<String>,
-        /// Everything it writes afterwards.
-        lines: Receiver<String>,
-        config_dir: PathBuf,
-        reaped: bool,
-    }
-
-    /// Reads one stream line by line into the shared channel.
-    ///
-    /// Both streams go to ONE channel, and that is what stops the test deadlocking: a piped stream
-    /// nobody drains fills its buffer and blocks the writer, and the writer here is the process
-    /// under test. Relative order within a stream survives, which is all the ordering assertion
-    /// below needs - both lines it compares are written by the subscriber, to standard output, from
-    /// one thread.
-    fn forward<Stream>(stream: Stream, into: &Sender<String>)
-    where
-        Stream: std::io::Read,
-    {
-        for line in BufReader::new(stream).lines() {
-            let Ok(line) = line else { return };
-            if into.send(line).is_err() {
-                return;
-            }
-        }
-    }
-
-    /// Starts the deployment and waits until it says what it bound.
-    ///
-    /// `case` names the temporary configuration directory, so a failure leaves a directory a reader
-    /// can identify. `nextest` runs each test in its own process, so the process id in the name is
-    /// what keeps two tests from sharing one.
-    // `zombie_processes` cannot see the `Drop` impl below, which is where the wait for a failing test
-    // lives: this function hands the child to a `Served`, and every path out of a `Served` - a clean
-    // `terminate` or a panicking assertion - reaps it. Reaping here would mean waiting for the service
-    // to exit before asking it anything.
-    #[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
-    fn start(case: &str) -> Served {
-        let example = example_root();
-        let config_dir = std::env::temp_dir().join(format!("sutura-serve-e2e-{case}-{}", std::process::id()));
-        drop(std::fs::remove_dir_all(&config_dir));
-        std::fs::create_dir_all(&config_dir).expect("the temporary configuration directory is creatable");
-        std::fs::write(config_dir.join("base.yaml"), settings(&example)).expect("the settings file is writable");
-
-        let mut child = command(&config_dir).spawn().expect("the composed binary starts");
-        let stdout = child.stdout.take().expect("standard output was piped");
-        let stderr = child.stderr.take().expect("standard error was piped");
-        let (sender, lines) = channel();
-        let second = sender.clone();
-        drop(std::thread::spawn(move || forward(stdout, &sender)));
-        drop(std::thread::spawn(move || forward(stderr, &second)));
-
-        let mut startup = Vec::new();
-        let deadline = Instant::now() + START_BUDGET;
-        loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            let line = lines
-                .recv_timeout(left)
-                .unwrap_or_else(|cause| panic!("the service never reported a listener ({cause}):\n{}", startup.join("\n")));
-            let bound = bound_address(&line);
-            startup.push(line);
-            if let Some(address) = bound {
-                return Served {
-                    child,
-                    address,
-                    startup,
-                    lines,
-                    config_dir,
-                    reaped: false,
-                };
-            }
-        }
-    }
-
-    /// The address a `listening` event reports, if this line is one.
-    ///
-    /// Reads the event's own `bound` field rather than matching text: that field is
-    /// `TcpListener::local_addr` read back off the bound socket, which is the whole reason
-    /// `server.port: 0` is usable here.
-    fn bound_address(line: &str) -> Option<String> {
-        let event: serde_json::Value = serde_json::from_str(line).ok()?;
-        if event.get("msg").and_then(serde_json::Value::as_str)? != "listening" {
-            return None;
-        }
-        Some(String::from(event.get("bound").and_then(serde_json::Value::as_str)?))
-    }
-
-    impl Served {
-        /// A GET, with the deployment's token when one is given.
-        fn get(&self, path: &str, token: Option<&str>) -> Reply {
-            self.send("GET", path, token, None)
-        }
-
-        /// A POST of a JSON question.
-        fn post(&self, path: &str, token: Option<&str>, body: &str) -> Reply {
-            self.send("POST", path, token, Some(body))
-        }
-
-        /// One request over one connection.
-        ///
-        /// **Hand-written rather than a client crate, deliberately.** The alternative is `ureq`,
-        /// which arrives with rustls and `ring`; `crane.buildDepsOnly` is unscoped so the four cross
-        /// dependency derivations - two of them musl - would compile that closure for a binary that
-        /// links none of it, which is the same cost `sutura-serve`'s `bigquery` feature is
-        /// default-off to avoid. What is needed here is one plaintext loopback request with a fixed
-        /// shape, so this is thirty lines and no dependency.
-        ///
-        /// `Connection: close` is what makes reading to end-of-file the whole response, and the
-        /// chunked assertion in [`parse`] is what stops that quietly mis-parsing if a handler ever
-        /// answers without a length.
-        fn send(&self, method: &str, path: &str, token: Option<&str>, body: Option<&str>) -> Reply {
-            let mut stream = TcpStream::connect(&self.address).expect("the listener accepts a connection");
-            stream
-                .set_read_timeout(Some(Duration::from_secs(60)))
-                .expect("a read timeout is settable");
-            let mut request = String::new();
-            write!(request, "{method} {path} HTTP/1.1\r\n").expect("writing to a String cannot fail");
-            write!(request, "Host: {}\r\n", self.address).expect("writing to a String cannot fail");
-            request.push_str("Connection: close\r\n");
-            if let Some(token) = token {
-                write!(request, "Authorization: Bearer {token}\r\n").expect("writing to a String cannot fail");
-            }
-            if let Some(body) = body {
-                request.push_str("Content-Type: application/json\r\n");
-                write!(request, "Content-Length: {}\r\n", body.len()).expect("writing to a String cannot fail");
-            }
-            request.push_str("\r\n");
-            if let Some(body) = body {
-                request.push_str(body);
-            }
-            stream.write_all(request.as_bytes()).expect("the request is writable");
-            stream.flush().expect("the request flushes");
-            let mut raw = Vec::new();
-            let read = stream.read_to_end(&mut raw).expect("the response is readable");
-            assert!(read > 0, "the listener closed the connection without answering");
-            parse(&String::from_utf8_lossy(&raw))
-        }
-
-        /// Stops the process the way an orchestrator does, and returns how it exited.
-        fn terminate(&mut self) -> ExitStatus {
-            let signalled = Command::new("/bin/sh")
-                .arg("-c")
-                .arg(format!("kill -TERM {}", self.child.id()))
-                .status()
-                .expect("a shell is available to send the signal");
-            assert!(signalled.success(), "the terminate signal was not delivered");
-            let deadline = Instant::now() + STOP_BUDGET;
-            loop {
-                if let Some(status) = self.child.try_wait().expect("the child is waitable") {
-                    self.reaped = true;
-                    return status;
-                }
-                assert!(
-                    Instant::now() < deadline,
-                    "the process was still running {}s after SIGTERM",
-                    STOP_BUDGET.as_secs()
-                );
-                std::thread::sleep(Duration::from_millis(25));
-            }
-        }
-
-        /// The startup log, plus everything written since.
-        ///
-        /// Non-blocking: whatever has arrived by now is the answer. Called after
-        /// [`Served::terminate`] has reaped the process, so the reader threads have already seen
-        /// end-of-file.
-        fn log(&self) -> Vec<String> {
-            let mut out = self.startup.clone();
-            loop {
-                match self.lines.try_recv() {
-                    Ok(line) => out.push(line),
-                    Err(TryRecvError::Empty | TryRecvError::Disconnected) => return out,
-                }
-            }
-        }
-    }
-
-    impl Drop for Served {
-        /// Never leaves a process or a directory behind, including after a panicking assertion.
-        ///
-        /// `SIGKILL` here and `SIGTERM` in [`Served::terminate`]: this path runs when a test has
-        /// already failed, so what it owes is cleanup rather than a drain.
-        fn drop(&mut self) {
-            if !self.reaped {
-                drop(self.child.kill());
-                drop(self.child.wait());
-            }
-            drop(std::fs::remove_dir_all(&self.config_dir));
-        }
-    }
-
-    /// Splits a response into its status and its body.
-    fn parse(text: &str) -> Reply {
-        let (head, body) = text
-            .split_once("\r\n\r\n")
-            .unwrap_or_else(|| panic!("not an HTTP response: {text}"));
-        assert!(
-            !head.to_ascii_lowercase().contains("transfer-encoding: chunked"),
-            "this harness reads a length-delimited response and got a chunked one:\n{head}"
-        );
-        let status_line = head.lines().next().unwrap_or_default();
-        let status = status_line
-            .split_whitespace()
-            .nth(1)
-            .and_then(|code| code.parse::<u16>().ok())
-            .unwrap_or_else(|| panic!("no status in `{status_line}`"));
-        Reply {
-            status,
-            body: String::from(body),
-        }
-    }
-
-    /// Where an event with exactly this message first appears in the log.
-    ///
-    /// Matches the bunyan `msg` field WHOLE rather than as a substring, and that was MEASURED rather
-    /// than preferred. The banner writes `listening on loopback only - reachable from this host and no
-    /// other` before the catalog is loaded, so a substring search for `listening` found that line and
-    /// the ordering assertion below went red against a service that was in fact ordered correctly. A
-    /// search loose enough to match the wrong event reports the wrong thing in both directions.
-    fn position(log: &[String], message: &str) -> usize {
-        let field = format!("\"msg\":\"{message}\"");
-        log.iter()
-            .position(|line| line.contains(&field))
-            .unwrap_or_else(|| panic!("no event says `{message}`:\n{}", log.join("\n")))
-    }
-
-    /// The grain every question in this file asks at.
-    ///
-    /// One constant rather than a parameter because all three fixtures below ask at it, and it is
-    /// checked against each of them - so this is a fact about the corpus rather than a default.
-    const GRAIN: &str = "month";
-
-    /// A question as it arrives on the wire, mirrored from the example's own fixture.
-    ///
-    /// **The fixture is READ rather than cited in a comment, and that is the difference between a
-    /// claim and a mechanism.** `stem` names the file under `examples/single-player/questions/`
-    /// that holds this question, and the metric, the grain and both dates have to appear in it - so
-    /// a fixture renamed, deleted or re-ranged goes red HERE instead of leaving this suite quietly
-    /// asserting a question the example no longer asks. That is the property #117 wants out of this
-    /// file: the example a reader is told to run is the example CI runs.
-    ///
-    /// A substring check and not a parse, deliberately: parsing the YAML would mean a second
-    /// dev-dependency for four fields, and what is guarded here is a fixture that MOVED rather than
-    /// one that is subtly mis-shaped - `crates/sutura-cli/tests/example.rs` parses every question in
-    /// that directory and pins what each one compiles to.
-    fn question(stem: &str, metric: &str, start: &str, end: &str) -> String {
-        let path = example_root().join("questions").join(format!("{stem}.yaml"));
-        let fixture = std::fs::read_to_string(&path).unwrap_or_else(|cause| {
-            panic!(
-                "{} is the example question this body mirrors, and it is not readable: {cause}",
-                path.display()
-            )
-        });
-        for expected in [metric, GRAIN, start, end] {
-            assert!(
-                fixture.contains(expected),
-                "{} no longer mentions `{expected}`, so this suite asks something the example does \
-                 not:\n{fixture}",
-                path.display()
-            );
-        }
-        format!(r#"{{"metric":"{metric}","grain":"{GRAIN}","range":{{"start":"{start}","end":"{end}"}}}}"#)
-    }
-
-    /// The one question this file asserts numbers for.
-    fn recurring_revenue_june() -> String {
-        question("recurring-revenue-june", "recurring_revenue", "2026-06-01", "2026-07-01")
-    }
-
-    /// A route inside the version prefix, composed the way the router composes it.
-    ///
-    /// One helper over both routes rather than one per route: the composition is the part worth
-    /// having in a single place, and `base_paths` already owns each half.
-    fn v1(base: &str) -> String {
-        format!("{}{base}", sutura_http::constants::API_V1_PREFIX)
-    }
+    // The harness, next door. It holds no assertion - see its own module documentation for why the
+    // split moved this direction and not the other.
+    use crate::harness::{
+        RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, example_root, position, question, recurring_revenue_june,
+        refused_to_start, settings_declaring_inbound, start, start_configured, v1,
+    };
 
     // ------------------------------------------------------------------- the harness itself ---
 
@@ -673,6 +291,194 @@ mod tests {
             !document["paths"][sutura_http::constants::HEALTH_PATH].is_null(),
             "the served document does not describe the liveness probe: {}",
             document["paths"]
+        );
+    }
+
+    // ------------------------------------------------------------------------------- leg 1 ---
+    #[test]
+    fn the_composed_binary_verifies_a_callers_own_token_and_refuses_every_forgery_alike() {
+        // **Leg 1 on the composed binary, which nothing in this repository had.** The gate, the
+        // validator, the key-set cache and the negatives all have their standing tests through
+        // `sutura_http`'s assembled router, and issue #147 asks for the one thing an in-crate router
+        // cannot say: that the REAL composition root read the key set its own settings file named,
+        // built the gate, and mounted it over the governed routes. `inbound_gate` in `src/main.rs` had
+        // no test at all - neither here nor in `src/tests.rs` - so a root that stopped arming leg 1
+        // would have gone out green.
+        //
+        // The issuer is the same fixture `sutura_http` mints from, pointed at a spawned process
+        // instead of at a `oneshot`: a generated key pair, a JWK set published to a real path, and a
+        // deployment configured with the issuer's own `iss` and audience.
+        let issuer = an_issuer();
+        let published = PublishedKeySet::of(&issuer, "serve-leg-one").expect("the key set publishes");
+        let served = start_configured(
+            "leg-one",
+            &settings_declaring_inbound(&example_root(), &issuer, published.path()),
+        );
+        // Armed at BOOT, before the listener opened - which is the difference between a process that
+        // does not start and one that starts and authenticates nobody.
+        assert!(
+            served.startup.iter().any(|line| line.contains("leg 1 is armed")),
+            "the composition root did not report arming leg 1:\n{}",
+            served.startup.join("\n")
+        );
+
+        let token = issuer
+            .mint(&accepted_by("user@example.com"))
+            .expect("the issuer signs a token");
+        let reply = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(&token),
+            &recurring_revenue_june(),
+        );
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "202121"]]), "{}", reply.body);
+        // **The limit, next to the claim.** Leg 1 named the caller; it did not make the source execute
+        // as them. This deployment read its files under one identity, and the answer says so - so a
+        // green run here is evidence about who was asking and about nothing else.
+        assert_eq!(
+            body["executed_as"],
+            serde_json::json!([{ "source": "local", "posture": "shared-service-user" }])
+        );
+
+        // **And the caller the gate verified reached the RECORD, which none of the three assertions
+        // above can see.** `executed_as` reports the source's posture, which is `shared-service-user`
+        // whether a caller was established or not, and the rows are the example's own number either
+        // way - so a root that verifies the token correctly and then answers as the deployment passes
+        // everything up to here, and the forgeries below still `401`. This is leg 1's *names who is
+        // asking* half, and it is asserted on what the deployment wrote down about the answer.
+        //
+        // The subject is asserted as well as the mode, because `verified` alone would hold for a
+        // deployment that established somebody and recorded the wrong person.
+        let record = served.awaiting(RECORD);
+        let answered = record
+            .iter()
+            .rev()
+            .find(|line| line.contains(RECORD))
+            .expect("`awaiting` returns only once a line carries it");
+        assert!(
+            answered.contains(r#""subject_established":"verified""#),
+            "the record for an answered question does not say a caller was verified:\n{answered}"
+        );
+        assert!(
+            answered.contains(r#""subject":"user@example.com""#),
+            "the record names a different subject from the one the token carried:\n{answered}"
+        );
+
+        // **The gate is on the governed routes and not on the merged ones**, asserted on this
+        // deployment rather than on the token one. `sutura_http::router` layers leg 1 onto the
+        // versioned router and merges liveness beside it, so a change that layered the merged router
+        // instead would answer `401` to every orchestrator's probe - and the two existing probe tests
+        // could not see it, because both start the deployment-token settings and never build this
+        // middleware at all.
+        assert_eq!(
+            served.get(sutura_http::constants::HEALTH_PATH, None).status,
+            200,
+            "a deployment declaring inbound identity refuses its own liveness probe"
+        );
+
+        // Each of these is the accepted token with exactly one thing moved, so a check that stopped
+        // running on this path fails by name. The second assertion is the one that matters at a
+        // transport: the refusals are INDISTINGUISHABLE, because a caller who could tell "your
+        // signature is wrong" from "your audience is wrong" has been told which half of a forgery to
+        // fix.
+        let good = accepted_by("user@example.com");
+        let mut challenges: Vec<String> = Vec::new();
+        for (case, minted) in [
+            ("no token at all", Ok(String::new())),
+            (
+                "a wrong audience",
+                issuer.mint(&good.clone().for_audience("https://someone-else.example.com")),
+            ),
+            (
+                "a wrong issuer",
+                issuer.mint(&good.clone().claiming_issuer("https://forger.example.com")),
+            ),
+            ("an expired token", issuer.mint(&good.clone().expired_since(60))),
+            // The regression `docs/adr/0014` records by name: an OpenID Connect ID token from the same
+            // issuer, for the same audience, correctly signed - and not an access token. It verified
+            // once, and this is the first time the class check is asserted on a composed binary.
+            (
+                "an ID token where an access token is required",
+                issuer.mint(&good.clone().classed(Token::ID_TOKEN)),
+            ),
+            // The oldest JWT defect there is, and a forgery that is right in every other respect.
+            ("an unsigned token", issuer.mint_unsigned(&good)),
+            ("a forged signature", issuer.mint_signed_by_a_stranger(&good)),
+        ] {
+            let token = minted.expect("the issuer mints every negative it is asked for");
+            let presented = if token.is_empty() { None } else { Some(token.as_str()) };
+            let reply = served.post(
+                &v1(sutura_http::constants::base_paths::QUERY),
+                presented,
+                &recurring_revenue_june(),
+            );
+            assert_eq!(reply.status, 401, "{case} established a caller: {}", reply.body);
+            assert_eq!(reply.json()["code"], "unauthorized", "{}", reply.body);
+            challenges.push(reply.challenge.unwrap_or_default());
+        }
+        let distinct: std::collections::BTreeSet<&String> = challenges.iter().collect();
+        assert_eq!(distinct.len(), 1, "the refusals are distinguishable: {distinct:?}");
+        let challenge = challenges.first().expect("every case above pushed one");
+        // It names this deployment's own resource identifier - the value the settings file declared -
+        // and says nothing about which check failed.
+        assert!(challenge.contains(RESOURCE), "{challenge}");
+        assert!(!challenge.contains("error_description"), "{challenge}");
+    }
+
+    #[test]
+    fn a_published_key_set_this_deployment_cannot_use_stops_the_process() {
+        // The other half of arming leg 1, and it is only observable on a binary: `inbound_gate` reads
+        // the key set with a `?`, so an unusable one has to be a process that DOES NOT START rather
+        // than one that starts, logs that it establishes a caller identity, and answers `401` to
+        // everybody with nothing in the log connecting the two.
+        //
+        // A symmetric key, because accepting one is how algorithm confusion works - the holder of a
+        // *published* key could sign with it - and because the refusal has to happen while the gate is
+        // being BUILT. `sutura_http`'s router test asserts the same document starts no gate; what it
+        // cannot assert is what the process then does about it.
+        let issuer = an_issuer();
+        let published = PublishedKeySet::of(&issuer, "serve-unusable").expect("the key set publishes");
+        published
+            .rotate_to(&MockIssuer::key_set_of_symmetric_keys())
+            .expect("the unusable set is published");
+        let said = refused_to_start(
+            "unusable-keys",
+            &settings_declaring_inbound(&example_root(), &issuer, published.path()),
+        );
+        let told = said.join("\n");
+        // **Asserted on the refusal's own sentence, and the reason is that nothing else separates the
+        // two ways this deployment can fail to start.** A root that read the key set fine and then
+        // forgot to attach the gate also exits non-zero, also never logs `leg 1 is armed` and also
+        // never listens - `sutura_http::router` refuses to assemble, which is the guard that exists so
+        // this cannot be forgotten. Only what it SAYS tells an operator which of the two happened.
+        //
+        // **The limit of that, said plainly rather than dressed up:** `docs/serving.md` documents the
+        // BEHAVIOUR - an unusable key set refuses rather than skips - and not the wording. The string
+        // matched below is `sutura_http`'s own `Display`, so this assertion is held by recall across a
+        // crate boundary and a reword there turns this test red with nothing pinning the pair. That is
+        // tolerable for a startup refusal an operator reads once, and it is not a mechanism.
+        //
+        // The key set's PATH is deliberately not what is matched: the startup banner echoes the whole
+        // resolved configuration, so a path assertion here passes for every refusal this deployment
+        // can produce - measured, on a build that had been changed to swallow this very failure.
+        // `contains("symmetric")` is a second, independent sentence - it comes from the key set
+        // loader rather than from the wrapper above it - so it is not entailed by the first.
+        assert!(
+            told.contains("the inbound identity declared by this deployment is not usable"),
+            "the deployment did not refuse the declaration it cannot serve:\n{told}"
+        );
+        assert!(
+            told.contains("symmetric"),
+            "the refusal did not say what was wrong with the key set:\n{told}"
+        );
+        assert!(
+            !told.contains("leg 1 is armed"),
+            "the deployment armed leg 1 over a key set it cannot use:\n{told}"
+        );
+        assert!(
+            !told.contains("\"msg\":\"listening\""),
+            "the deployment opened a listener on a key set it cannot use:\n{told}"
         );
     }
 }

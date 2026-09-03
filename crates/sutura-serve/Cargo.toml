@@ -80,6 +80,16 @@ tracing = { workspace = true }
 # adds nothing to `Cargo.lock` and nothing to any build.
 [dev-dependencies]
 serde_json = { workspace = true }
+# The mock authorization server, for the leg-1 cases in `tests/served.rs`: a generated key pair, a
+# JWK set published to a real path and a token minter every claim of which is a parameter.
+#
+# **The same fixture `sutura-http` drives its router tests from**, which is the whole reason it lives
+# in `sutura-dev` rather than in either crate: what this suite adds is not a second issuer but the
+# same one pointed at a composed binary, so a deployment configured with the issuer's own names and a
+# key set it published is the shape both venues test. The feature is named because it is default-off
+# in that crate - `xtask` links the same library for a compose project name and should not compile a
+# crypto backend for it.
+sutura-dev = { workspace = true, features = ["mock-issuer"] }
 
 # The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`, for
 # the reason `sutura-cli`'s manifest gives: this way the C is never compiled - not even a build
