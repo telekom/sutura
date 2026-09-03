@@ -141,10 +141,7 @@ pub(super) fn advice_problems(root: &Path, files: &[String]) -> (Vec<String>, us
     let mut problems = Vec::new();
     let mut found = 0_usize;
 
-    for rel in files {
-        if !super::has_ext(rel, &["rs"]) || rel.starts_with(MIRRORED) {
-            continue;
-        }
+    for rel in in_scope(files) {
         let Some(text) = read(rel) else {
             continue;
         };
@@ -171,8 +168,11 @@ pub(super) fn advice_problems(root: &Path, files: &[String]) -> (Vec<String>, us
     (problems, found)
 }
 
-/// Which `.rs` files this check reads, so a test can assert the scope rather than restate it.
-#[cfg(test)]
+/// Which `.rs` files this check reads.
+///
+/// [`advice_problems`] iterates this rather than filtering inline, so the test that asserts the
+/// scope asserts the scope the gate actually walks. A second copy of the filter would be a test
+/// that restates it and passes while the walk reads something else.
 fn in_scope(files: &[String]) -> std::collections::BTreeSet<&str> {
     files
         .iter()
