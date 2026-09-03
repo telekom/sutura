@@ -905,6 +905,14 @@ default set. **Its limit is CI's:** `ci.yml` reaches every gate as a nix check o
 gate is neither, so what CI has for this lane is the four `cross` link builds for the compile half and
 nothing at all for the lint half.
 
+> **Amended, and the limit is gone rather than narrowed.** That gate is now a nix app -
+> `ci.yml` runs `nix run .#default-features` on every pull request that touches Rust - so the lint
+> half of this lane is gated in CI and not only in `just gates`. An app and not a check for the
+> reason the paragraph above gives for it not being a hygiene gate: it shells out to cargo, which
+> wants a resolvable registry and a writable target directory the sandbox has not got. **What did
+> not change:** both passes stop at metadata, so the four `cross` builds are still the only thing
+> that LINKS the default set, and they are still `needs: [ci]`.
+
 **The measurement this record's own rule asks for, taken 2026-09-02.** `cargo check -p sutura-cli
 --all-targets` on the default feature set touches neither `ring` nor `ureq`; the same command with
 `--features bigquery` compiles `ring` from C and assembly. That is the whole argument for default-off
