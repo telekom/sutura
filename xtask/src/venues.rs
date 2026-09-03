@@ -20,7 +20,7 @@
 use crate::Verdict;
 use crate::repo;
 
-const JUSTFILE: &str = "Justfile";
+const JUSTFILE: &str = "justfile";
 const VENUE_MAP: &str = "docs/where-identity-is-proven.md";
 /// The one `-acceptance` task that is NOT an identity venue (it reaches a metadata-catalog platform),
 /// and therefore has no row in this page. Named as a constant rather than inferred so the exception is
