@@ -818,19 +818,15 @@
         };
         # `nix run .#keycloak-acceptance` - provision a REAL issuer and prove the venue.
         #
-        # **An app and NOT a check, and for the same reason `bigquery-acceptance` is.** It boots a
-        # JVM that `checks.*` cannot - the sandbox kills a long-running process - so nothing here is
-        # hermetic and it is not part of `just validate`; it is opt-in, where the `sutura-http`
-        # consumer asks for it. It proves the VENUE and not leg 2: a real issuer mints two
-        # per-subject tokens at the discovered endpoint; nothing executes AS those subjects.
+        # **An app and NOT a check, for the same reason `bigquery-acceptance` is:** it boots a JVM
+        # `checks.*` cannot hold, so nothing here is hermetic and it is not part of `just validate`.
+        # It proves the VENUE and not leg 2: a real issuer mints two per-subject tokens at the
+        # discovered endpoint; nothing executes AS those subjects.
         #
-        # It supplies the pinned cargo and `cargo-nextest` (for the reason `apps.deny` gives for
-        # the two it adds) and the tier's script from the SAME derivation the dev shell uses. It is
-        # deliberately NOT a warm-start consumer - the warm-start gate requires an `exec cargo`
-        # command, and this app must `exec` nothing so its EXIT trap can tear the tier down on
-        # success AND failure; an opt-in job compiling `sutura-http` cold is cheaper than a JVM
-        # left behind. The test reads only the discovery file `start` writes, with
-        # `SUTURA_DEV_REQUIRE_TIER=1` failing an absent venue.
+        # It supplies the pinned cargo (for the reason `apps.deny` gives) and the tier's script
+        # from the SAME derivation the dev shell uses. NOT a warm-start consumer (that gate wants an
+        # `exec cargo`, which this app must avoid so its EXIT trap tears the tier down on success and
+        # failure; an opt-in job compiling cold beats a JVM left behind).
         apps.keycloak-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-keycloak-acceptance" ''
