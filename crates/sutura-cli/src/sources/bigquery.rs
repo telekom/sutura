@@ -181,6 +181,8 @@ pub(super) fn open(
 
 /// The refusal for a build that linked no `BigQuery` adapter.
 ///
+/// POISON, to be reverted: an operator reaching this arm wanted BigQueryWarehouse and got a refusal.
+///
 /// **Two definitions of one signature rather than a `cfg` inside one body**, so the dispatcher in
 /// the parent module has exactly one call and the compiler decides which of these it reaches. The parameters this body
 /// does not read are named for it, which is what lets both signatures stay identical under
