@@ -477,9 +477,12 @@ mod tests {
         //    the listing attributed quota to the DATASET's project rather than the source's billing
         //    project, and the fix is otherwise held by an assertion about a URL and a header rather
         //    than by anything having sent them.
-        // 3. Whether a small dataset pages at all - and that it does not is itself worth knowing,
-        //    because the paging loop is the part of `list` no local document exercises against a real
-        //    token.
+        // 3. The paging loop runs against a real token and terminates, which no local document
+        //    reaches. **What a green run does NOT say is how many pages it took** - nothing here
+        //    reports a page count, so *a small dataset does not page* stays unmeasured, and the
+        //    earlier version of this line claimed the run answered it. What it does establish is
+        //    that the listing was COMPLETE enough to hold the table below, because a listing cut
+        //    short would have reported that table absent and failed the control.
         //
         // **The control is inside this test rather than beside it, and that is the point of the
         // shape.** The pre-flight fails toward reporting a table absent - `Listing`'s fields are all
@@ -520,6 +523,49 @@ mod tests {
             named,
             vec![absent.to_string()],
             "the dataset's own listing names the table that is not there and nothing else"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_dataset_the_credential_cannot_list_is_unverified_and_never_every_table_absent() {
+        // **The soft edge of the pre-flight, which the test above cannot reach and `docs/adr/0018`
+        // recorded as held by a fake transport only.** A listing that FAILS has to be a different
+        // answer from one that reports a table missing, and the reason it needs a live check is the
+        // direction the decoder fails in: every field of `wire::tables::Listing` is
+        // `#[serde(default)]`, so anything that decodes to nothing reads as *every table is absent*
+        // and would stop a boot. What a composition root has to get instead is an `Err` it renders as
+        // *could not verify*, on the warning side of `preflight_was_refused` - a `404` is a name
+        // somebody is about to fix, not a grant to add.
+        //
+        // **Both names in the path are fictitious literals, so this leg still writes no resource of
+        // the developer's project into this repository.** The PROJECT is the fixture's own on
+        // purpose: a dataset absent from a project the credential can see is the case being asked
+        // about, and one in a project it cannot see is a different answer.
+        let fixture = Fixture::required();
+        let nowhere = QualifiedTable::new(
+            Some(TableQualifier::in_project(
+                ProjectName::parse(fixture.connection.billing_project.as_str()).expect("a project id is also a project name"),
+                DatasetName::parse("sutura_acceptance_no_such_dataset").expect("a dataset name parses"),
+            )),
+            TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"),
+        );
+        let warehouse = warehouse(fixture);
+
+        let unverified = warehouse
+            .preflight(&BTreeSet::from([nowhere]))
+            .expect_err("a dataset that is not there cannot answer a listing, and must not answer one emptily");
+        assert!(
+            core::error::Error::source(&unverified).is_some(),
+            "the endpoint's own error did not survive #[source]: {unverified:?}"
+        );
+        // `preflight_was_refused` answers `true` for `401` and `403` only, so this is the half of the
+        // split a live dataset can reach without a second identity. **The refusal half stays a
+        // fake-transport claim**: it needs a credential holding no `bigquery.tables.list`, which is
+        // not what either this leg or CI's `bq-test` environment is pointed at.
+        assert!(
+            !warehouse.preflight_was_refused(&unverified),
+            "a dataset that is not there is a condition that passes, not a grant an operator adds: {unverified:?}"
         );
     }
 }

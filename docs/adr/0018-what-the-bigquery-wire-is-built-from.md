@@ -505,7 +505,7 @@ this became its second caller.
   in the warning half:** a dataset that is not there cannot be told from a name somebody is about to
   fix, and the endpoint answers `404` for an invisible project too.
 
-**Three limits, in this record's own tradition of stating them next to the claim:**
+**Four limits, in this record's own tradition of stating them next to the claim:**
 
 - **A live dataset HAS now answered a listing, and the documents this suite decodes are still ours.**
   The three response documents were written here, which is this record's existing limit restated for
@@ -514,12 +514,23 @@ this became its second caller.
   beside its neighbours and asks a real dataset about a set of one table it holds and one it does
   not, with the clean set asserted FIRST as the control. **It has never run on a developer machine
   here** - no dataset is named in this environment, so `just bigquery-acceptance` fails on its own
-  precondition rather than reporting green. **It has RUN, green, in CI on 2026-09-02** - the
-  `bigquery-acceptance` job, 9 tests passed, this one the sixth of the endpoint leg's - and it keeps
-  running there, because `--run-ignored only` reaches every `#[ignore]`d test in the crate rather
-  than a set somebody has to remember to extend. **What the run does not reach is the soft edge:** no
-  live dataset has FAILED to answer, so the refusal-versus-warning split of `preflight_was_refused`
-  is still exercised against a fake transport only.
+  precondition rather than reporting green. **It has RUN, green, in the `bigquery-acceptance` job** -
+  on #221's own branch on 2026-09-02 and again on `main` at the commit that merged it on 2026-09-03 -
+  and it keeps running there, because `--run-ignored only` reaches every `#[ignore]`d test in the
+  crate rather than a set somebody has to remember to extend. An earlier version of this sentence
+  also placed it in that run's test list by ORDINAL, and the ordinal was wrong: it is deleted rather
+  than corrected, because nextest reports in completion order and a position in that list is not a
+  property of the suite.
+- **The soft edge is half live now, and the half that is not is named.** A listing that fails is a
+  different answer from one that reports a table absent, and until
+  `a_dataset_the_credential_cannot_list_is_unverified_and_never_every_table_absent` the whole
+  refusal-versus-warning split of `preflight_was_refused` was exercised against a fake transport
+  only. That test asks a real endpoint about a dataset that is not there and pins the WARNING half:
+  the call fails, the transport's own error survives on the chain, and `preflight_was_refused` answers
+  `false` - so a deployment naming a dataset nobody can read is reported *could not verify* and
+  serves, rather than being stopped as though its tables were absent. **The REFUSAL half still is
+  not live:** it needs an identity holding no `bigquery.tables.list`, which the acceptance
+  environment's identity is not, so `401`/`403` remains a fake-transport claim.
 - **A document whose shape the service changes decodes to an EMPTY listing**, because every field is
   `#[serde(default)]` - and an empty listing means *every table is absent*. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
@@ -528,8 +539,14 @@ this became its second caller.
   tell the two apart** - a non-zero total beside an empty `tables` array is a shape change and not an
   empty dataset - and it is deliberately NOT built: nothing here has seen whether the service
   populates that field on a real listing, and a decoder that refuses on a field the service may omit
-  would refuse every boot. The live run above is what would settle it, which is the honest order:
-  measure, then decide.
+  would refuse every boot. **The run named above as what would settle it cannot**, and that is worth
+  recording as its own shape of overstatement rather than quietly fixed: the leg asserts on
+  `TablesPresent`, `Listing` decodes `tables` and `nextPageToken` and nothing else, so no
+  `totalItems` value reaches an assertion, a panic message or a log line - checked against both green
+  runs above, whose output contains the string nowhere. What would settle it is therefore a DECODER
+  change and not another run: the field read as an `Option` that cannot refuse a document omitting
+  it, reported by the acceptance leg, and only then a decision about the cross-check. Measure, then
+  decide - with something that measures.
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
