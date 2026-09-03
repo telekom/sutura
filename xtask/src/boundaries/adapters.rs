@@ -23,7 +23,8 @@
 //! **The classes are NAMED rather than guessed**, and a class that loses every member fails: a
 //! renamed prefix would otherwise switch the rule off silently, which is this gate's own worst
 //! failure mode. A class with ONE member cannot be violated, and the verdict prints the member
-//! count per class rather than hiding that - `sutura-catalog-*` is that class today.
+//! count per class rather than hiding that - read those counts rather than a sentence here, which
+//! named the one-member class until a second metadata provider arrived and made it wrong.
 //!
 //! Two limits. It reads the dependency GRAPH, so an adapter reaching another through a re-export
 //! it does not declare is not a thing cargo permits and not a thing this checks. And a crate joins

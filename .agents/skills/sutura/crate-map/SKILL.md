@@ -53,7 +53,10 @@ default-off feature on whichever composition root wants it, and the four `cross`
 gate that says whether that was necessary. Every other gate passes `--all-features` and `deny.toml`
 sets `all-features = true`, so the registration is still compiled, linted and tested on every run -
 and `just gates` adds a DEFAULT-feature lane, because a `#[cfg(feature = ..)]` compiled only with
-the feature on is the shipped set's blind spot.
+the feature on is the shipped set's blind spot. **That lane's scope is the shipped set and no
+wider** - its package list is derived from the `binaries` list below, so a feature on a crate that
+does not ship is reached by the `--all-features` gates and by nothing at the default set - and it is
+a developer lane: CI has the four `cross` builds for the compile half and nothing for the lint half.
 
 A feature-gated adapter's absence is a **startup refusal naming the feature**, never a silent
 degradation - and `sutura_config` cannot see a link, so which adapters a BUILD contains is not in

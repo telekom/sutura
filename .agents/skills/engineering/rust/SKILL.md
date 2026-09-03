@@ -17,7 +17,11 @@ Sources, and the definition of "correct" for a review here:
 [hexagonal architecture](https://www.howtocodeit.com/guides/master-hexagonal-architecture-in-rust).
 
 Read the **Caught by** column literally. Where it says *review*, nothing fails the build - the
-rule is real but unenforced, and this file says so rather than implying a gate exists.
+rule is real but unenforced, and this file says so rather than implying a gate exists. Every such
+rule is gathered again under *What stays advisory* at the foot, so the honest half is handed to a
+reader rather than inferred from a column: **a rule described as enforced when it is not spends a
+reviewer's trust exactly where they needed it.** A *Caught by* cell is prose, and no gate compares
+it against the gate it names - so read it against the tree rather than trusting it.
 
 ### Newtypes parse; they do not validate
 
@@ -50,7 +54,7 @@ chore, the type is doing too much.
 | `Err(MyError::Invalid(format!("digest has {n} chars")))` | `MyError::WrongLength { value, len, expected }` - typed fields, not a sentence | *review*. The variant and its fields are the contract; the `#[error(..)]` text may be reworded, and a caller that parsed it was never promised anything |
 | one umbrella `Error` for a whole module | one enum per fallible operation, carrying only what that operation can produce | *review*. Ten variants where two apply makes the caller filter noise |
 | `.map_err(\|_\| MyError::Bad)` | `#[from]` or `#[source]`, so the cause survives the boundary | `clippy::map_err_ignore` - the `restriction` category is on |
-| an expected outcome returned as `Err` | a variant of the result. A governance refusal is `ToolOutcome::Refusal { reason }`, never an error | *review* for the CHOICE of `Ok` over `Err`. What is gated is the consequence: `cargo xtask check-refusal-coverage` fails a `RefusalReason` variant no test provokes, unless `devco/refusals-unprovoked-allow` excuses it with a date and a reason |
+| an expected outcome returned as `Err` | a variant of the result. A governance refusal is `ToolOutcome::Refusal { reason }`, never an error | *review* for the CHOICE of `Ok` over `Err`. What is gated is the consequence: `cargo xtask check-refusal-coverage` fails a `RefusalReason` variant no test NAMES and no snapshot records, unless `devco/refusals-unprovoked-allow` excuses it with a date and a reason. **A name is not a provocation** - `xtask/src/refusals.rs` states that as its own limit, because deciding otherwise means knowing what a test asserts - so what it buys is that a variant nothing mentions cannot arrive silently |
 
 Two local deviations from the guide, both deliberate: `#[non_exhaustive]` is **not** used
 (`exhaustive_enums` is allowed in the lint table - nothing is published, so the compatibility
@@ -76,10 +80,22 @@ signature it has now is the one two implementors settled, not the one a sketch g
 
 | Port | Kind | Note |
 | --- | --- | --- |
-| `Warehouse` | driven | The engine that ships, the dev-dependency legs, the fakes |
-| `SemanticCatalog` | driven | The local catalog, the fakes, and the hand-written oracle the goldens compare against |
+| `Warehouse` | driven | The engine that ships, the dev-dependency legs, the networked adapter behind its feature, the fakes |
+| `SemanticCatalog` | driven | The local catalog, the declaring one, the fakes, and the hand-written oracle the goldens compare against |
 | `CredentialBroker` | driven | Two real implementors - see `sutura/identity` for which one every shipped binary builds |
-| `Surface` | driving | `LocalService<W>`, and nothing else |
+| `AuditSink` | driven | The tracing sink in `sutura-runtime`, and the recording fakes |
+| `Surface` | driving | `LocalService`, this crate's own service, plus a failing double |
+
+**This table is the hexagon's BOUNDARY and not the grep result, and the difference is not a
+rounding error.** An adapter may declare a port of its own for a seam inside itself - a transport
+for a job API, a reader for a metadata aspect - and several do; those are internal and belong to
+their crate, not to the interior. One of them, `sutura_http::inbound::keys::KeySetSource`, is
+allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason, which is the only place any
+of this is mechanised. `grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` is the whole
+set; the rows above are the subset the interior owns. **Nothing compares either against this page**,
+and a port table is the shape this page is most prone to rotting into: the paragraph above once
+named `CredentialBroker` as a port deliberately ABSENT - accurate when written, and it has had two
+implementors since. So measure it rather than reading it.
 
 **Driven and driving are not the same rule, and the difference decides which crate declares the
 trait.** A driven port is dependency inversion: the interior declares what it needs and an adapter
@@ -147,6 +163,14 @@ cargo line without it, and `just gates` adds a DEFAULT-feature lane besides - be
 `#[cfg(feature = ..)]` compiled only with the feature on is exactly the shipped set's blind spot.
 See `sutura/crate-map` for why an adapter is behind a default-off feature at all.
 
+**Two limits on that lane, because a green run invites the wider reading.** Its package list is
+DERIVED from `nix/shipped.nix`'s `binaries`, so it reaches the binaries a release publishes and
+nothing else - a feature on a crate that does not ship is compiled by the `--all-features` gates
+only, and by nothing at the default set. And it is a DEVELOPER lane: `ci.yml` reaches gates as nix
+builds, so what CI has for this is the four `cross` link builds for the compile half and **nothing
+at all for the lint half**. `xtask/src/default_features.rs` states both as its own limits. So run
+`just gates` when you touch a `#[cfg(feature = ..)]`, and do not read a green pull request as cover.
+
 The inner loop is deliberately narrow:
 
 ```bash
@@ -188,6 +212,43 @@ Run `gates` before you claim done. Individually:
 | `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |
 | `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles nothing, and a push-stage clippy invocation that is not the commit stage's own |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
+
+## What stays advisory, and this list is the point of it
+
+Every row above whose *Caught by* cell says *review*, plus **borrowing**, which has no row of its
+own. Naming them is the deliverable, because the failure this page guards against is a rule
+described as enforced when it is not - and `AGENTS.md` calls an overstated control the defect
+itself. Nothing below fails a build. A reviewer catches it or nothing does.
+
+**Deliberately no count.** Nothing keeps a number here equal to the rows above;
+`grep -c '^|.*\*review\*'` over this file is the answer, and it is a raw `grep` rather than a `just`
+task because no task counts it.
+
+**Newtypes.** One `parse` and no separate `is_valid`. A check that accepts more than its name
+claims. A second constructor that repeats the checks instead of delegating. Normalising at
+comparison sites rather than inside `parse`.
+
+**Errors.** Typed fields rather than a sentence in the message. One enum per fallible operation
+rather than an umbrella per module. And the CHOICE of `Ok` over `Err` for an expected outcome,
+which is the least mechanisable of the three principles' consequences: only a reader can tell that
+a thing which went *right* is being returned as an error. What `check-refusal-coverage` gates is
+narrower than the choice and narrower than a provocation.
+
+**Ports and adapters.** A driven port declared by the domain and named for what the domain needs. A
+port's methods taking and returning domain types only. A port staying synchronous while `Warehouse`
+is. An adapter mapping its library's errors at the boundary. Composition in a composition root.
+Generics for a driven port and `dyn` exactly once for the driving one. No serde derive on a domain
+type for a transport's convenience. And any cross-adapter edge outside the classes
+`check-boundaries` knows about, since a crate joins one by name.
+
+**Borrowing.** Preferring a borrow to a clone, and knowing which clones are cheap. There is no
+mechanism and there is not going to be one: a clone is a decision with a reason, and a gate cannot
+read the reason.
+
+Two of these could plausibly become gates and deliberately are not. *One `parse` and no `is_valid`*
+would have to guess which method is the constructor, and *a port's methods take domain types only*
+would have to know what a domain type is. Both would fail correct code, and a gate that fails
+correct code gets disabled - which costs more than the rule was worth.
 
 ## Conventions
 
