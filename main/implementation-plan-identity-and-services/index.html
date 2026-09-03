@@ -3617,13 +3617,102 @@ economise.</p>
    classification fails open the same way <code>xtask classify</code> does - a diff it cannot compute, and any
    path that is not markdown under <code>docs/</code> or <code>mkdocs.yml</code>, runs everything. Two consequences of that
    were checked case by case and must stay true: <strong><code>AGENTS.md</code> still runs the gates</strong>, because
-   <code>check-guidance</code> reads it and reads nothing else, and <strong>a non-markdown asset under <code>docs/</code> still
-   runs them</strong>, because <code>check-docs</code> is what resolves it.</p>
+   <code>check-guidance</code> is the only gate that judges what it SAYS - the other gates that read it at all,
+   <code>text-hygiene</code>, <code>line-endings</code> and <code>max-lines</code>, read it as bytes, and <code>mkdocs --strict</code> never
+   renders it, because <code>docs_dir</code> is <code>docs/</code> and the only snippet includes are <code>CHANGELOG.md</code> and
+   <code>CONTRIBUTING.md</code> - and <strong>a non-markdown asset under <code>docs/</code> still runs them</strong>, because
+   <code>check-docs</code> is what resolves it. That first clause is about what reads <code>AGENTS.md</code>, not about
+   what <code>check-guidance</code> reads: <code>check-guidance</code> scans every <code>.md</code>, <code>.nix</code>, <code>.yml</code>, <code>.yaml</code>, <code>.toml</code>
+   and <code>.sh</code> in the tree. The point is that deferring it over that one file defers the whole of what
+   checks that file's content.</p>
 <p><strong>The residual risk, stated rather than waved at, because the replacement is narrower than what it
-   replaced.</strong> <code>hygiene</code> is thirteen gates. Seven read Rust, manifests, lock files or workflow YAML -
-   <code>check-boundaries</code>, <code>check-pins</code>, <code>check-warm-start</code>, <code>unused-deps</code>, <code>check-arrow</code>,
-   <code>check-workflows</code>, <code>check-crap</code> - and a markdown-only diff cannot change what any of them reads, so
-   skipping those loses nothing. Six read prose, and only part of one is replaced:</p>
+   replaced.</strong> What makes the skip safe is a CLASSIFICATION of the sweep rather than its size, so the
+   classification is where the mechanism went: <code>Kind::Hygiene</code> in <code>xtask/src/main.rs</code> carries a
+   <code>Reads</code>, which the compiler makes every gate declare, and <code>check-gate-classification</code> fails unless
+   the two tables below are exactly the two groups that registry declares, in both directions - so a
+   gate named here that the sweep does not collect fails it too. <strong>There is deliberately no count
+   here.</strong> A gated number stays green while a new code-reading gate joins the set unclassified, and
+   that is what happened to this paragraph: it carried a count that had been true of a smaller sweep,
+   gates joined that the argument had never seen, and one gate it did name - <code>check-crap</code>, which
+   reads <code>docs/crap.md</code> - was on the wrong side of the line.</p>
+<p><strong>Reads code.</strong> A diff of <code>docs/*.md</code> and <code>mkdocs.yml</code> cannot change a byte any of these reads, so
+   skipping them loses nothing:</p>
+<table>
+<thead>
+<tr>
+<th>Gate</th>
+<th>What it reads</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>check-boundaries</code></td>
+<td>the domain crate's manifest and the Rust under <code>crates/</code></td>
+</tr>
+<tr>
+<td><code>check-pins</code></td>
+<td><code>flake.nix</code> and <code>pixi.toml</code></td>
+</tr>
+<tr>
+<td><code>check-warm-start</code></td>
+<td><code>nix/cargo-env.nix</code>, <code>flake.nix</code>, <code>xtask/src/causality.rs</code></td>
+</tr>
+<tr>
+<td><code>unused-deps</code></td>
+<td>every member manifest and that member's own Rust</td>
+</tr>
+<tr>
+<td><code>check-arrow</code></td>
+<td><code>Cargo.lock</code> and <code>devco/arrow-majors-allow</code></td>
+</tr>
+<tr>
+<td><code>check-shared-client</code></td>
+<td><code>Cargo.lock</code></td>
+</tr>
+<tr>
+<td><code>check-shipped-binaries</code></td>
+<td><code>nix/shipped.nix</code> and every workflow and action under <code>.github/</code></td>
+</tr>
+<tr>
+<td><code>check-attribution</code></td>
+<td><code>Cargo.lock</code>, the root manifest, <code>ATTRIBUTION.md</code></td>
+</tr>
+<tr>
+<td><code>check-serde-parse</code></td>
+<td>the Rust under <code>crates/</code></td>
+</tr>
+<tr>
+<td><code>check-newtype-leaks</code></td>
+<td>the Rust under <code>crates/</code></td>
+</tr>
+<tr>
+<td><code>check-refusal-coverage</code></td>
+<td>the Rust and the snapshots under <code>crates/</code>, and <code>devco/refusals-unprovoked-allow</code></td>
+</tr>
+<tr>
+<td><code>check-expect-thresholds</code></td>
+<td>every tracked <code>*.rs</code></td>
+</tr>
+<tr>
+<td><code>check-skills</code></td>
+<td><code>.agents/skills/**</code> and the router - prose, and none of it under <code>docs/</code></td>
+</tr>
+<tr>
+<td><code>check-scope</code></td>
+<td>the <code>justfile</code>, which no other gate reads</td>
+</tr>
+<tr>
+<td><code>check-hook-tiers</code></td>
+<td><code>.pre-commit-config.yaml</code></td>
+</tr>
+<tr>
+<td><code>check-workflows</code></td>
+<td><code>.github/**</code>, against the outputs <code>flake.nix</code> declares</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Reads prose.</strong> Each of these reads at least one file such a diff CAN change, so skipping one
+   defers a verdict rather than costing nothing - and only part of one is replaced:</p>
 <table>
 <thead>
 <tr>
@@ -3641,8 +3730,12 @@ economise.</p>
 <td>Nav entries and links covered independently by <code>mkdocs --strict</code>; the asset half is unreachable from a <code>docs/*.md</code>-only diff</td>
 </tr>
 <tr>
-<td><code>check-skills</code></td>
-<td>Deferred. A prose-only edit to <code>.agents/skills/**</code> is not under <code>docs/</code>, so this only bites a page that names a skill</td>
+<td><code>check-crap</code></td>
+<td>Deferred, and the row easiest to get wrong: it reads <code>docs/crap.md</code> for the <code>cargo-crap</code> version <code>nix/crap.nix</code> pins, so a page edit that drops that version merges green</td>
+</tr>
+<tr>
+<td><code>check-gate-classification</code></td>
+<td>Deferred, and it reads the two tables above - so a pull request can break this classification and only the <code>main</code> push says so</td>
 </tr>
 <tr>
 <td><code>text-hygiene</code>, <code>line-endings</code></td>
@@ -3656,10 +3749,10 @@ economise.</p>
 </table>
 <p>Every one of those still runs on the <code>main</code> push, in <code>publish</code>, whose cache posture and
    unconditional gates are unchanged. So the trade is explicit: <strong>one property was moved forward onto
-   the pull request, five were left behind it</strong>, and the reason the trade is acceptable is that the
-   moved one is the only one whose post-merge failure blocks a publish on something a reviewer could
-   not see coming - the other five are visible in the diff and fail loudly with the page in front of
-   whoever wrote it.</p>
+   the pull request and every other row above was left behind it</strong>, and the reason the trade is
+   acceptable is that the moved one is the only one whose post-merge failure blocks a publish on
+   something a reviewer could not see coming - the rest are visible in the diff and fail loudly with
+   the page in front of whoever wrote it.</p>
 <p><strong>What that means for the rest of this section:</strong> the 15m45s is still owed a measurement, and that
    is what point 2 is for - it decides whether points 3 and 4 are needed at all now that the text-only
    check has removed the reason the gate had to stay. Nothing about the closure being the cost has
