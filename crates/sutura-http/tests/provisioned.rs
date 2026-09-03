@@ -157,7 +157,7 @@ mod tests {
 
         // 3. Both principals mint a token through the confidential client's password grant, and the
         //    two are DIFFERENT subjects - `docs/adr/0008`'s two-subject ground made reachable.
-        let token_url = format!("{endpoint}/realms/master/protocol/openid-connect/token");
+        let token_url = format!("http://{endpoint}/realms/master/protocol/openid-connect/token");
         let mint = |(username, password): (&str, &str)| {
             let response = agent
                 .post(&token_url)
