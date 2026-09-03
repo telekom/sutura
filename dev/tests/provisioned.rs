@@ -196,18 +196,22 @@ mod tests {
     }
 
     #[test]
-    fn the_skip_notice_names_every_profile_and_not_one_of_them() {
-        // A DECLARATION test with no docker in it, in the one file the causality gate holds while
-        // it reverts `dev/src/provisioned.rs` - which is why it is here and not beside the code it
-        // is about. The assertion and the string it asserts on cannot live in one file and also be
-        // provable, because that file is the implementation.
+    fn the_skip_notice_names_the_profile_the_missing_service_declares() {
+        // A DECLARATION test with no docker in it, reached through the library door: a harness told
+        // that its service was not provisioned is pointed at the profile THAT SERVICE declares, so
+        // the advice is one task rather than a list a reader has to choose from.
         //
-        // The property: a harness told that its service was not provisioned is pointed at the
-        // profiles this tier ACTUALLY declares. That line used to cite `just dev-up-identity`,
-        // which was correct while `identity` was the only profile and became advice that starts the
-        // wrong stack the day a second one arrived - a reader whose missing service was `datahub`
-        // was being told to bring up Keycloak. Derived from `SERVICES`, so a third profile cannot
-        // leave the message behind.
+        // Two wrong shapes came first, in order. `just dev-up-identity` unconditionally, which was
+        // correct while `identity` was the only profile and became advice that starts the wrong
+        // stack the day a second one arrived - a reader whose missing service was `datahub` was
+        // being told to bring up Keycloak. Then a derived list of every profile, which is never
+        // wrong and never says which one to type.
+        //
+        // This file used to be the only place the assertion could live, because the causality gate
+        // reverts a changed file that added no test and `dev/src/provisioned.rs` held none. It holds
+        // its own now - `every_command_this_remedy_names_is_a_just_task_that_exists` and
+        // `a_service_whose_venue_is_a_nix_tier_is_not_told_to_enable_a_compose_profile` are beside
+        // the code - so what is left here is the same claim through the door a harness uses.
         let profiled = SERVICES
             .iter()
             .find(|service| service.profile().is_some())
@@ -232,10 +236,15 @@ mod tests {
         let message = problem.to_string();
         std::fs::remove_dir_all(&root).expect("cleanup");
 
-        for profile in sutura_dev::scope::profiles() {
+        let profile = profiled.profile().expect("that is what it was found by");
+        assert!(
+            message.contains(&format!("`just dev-up-{profile}`")),
+            "the notice names no task for `{profile}`, the profile the missing service declares: {message}"
+        );
+        for other in sutura_dev::scope::profiles() {
             assert!(
-                message.contains(profile),
-                "`{profile}` is declared and the skip notice does not name it: {message}"
+                other == profile || !message.contains(&format!("dev-up-{other}")),
+                "`{other}` is another service's profile and the notice sends a reader to it: {message}"
             );
         }
     }
