@@ -14,6 +14,25 @@
 //!
 //! **Fails closed**: no such job, or a job with no shell at all, is the scan breaking rather than
 //! the job being clean.
+//!
+//! # Four ways an earlier draft of this read as compliance
+//!
+//! Measured by editing the real job one property at a time and re-running the gate, which is the
+//! only way to find out whether an assertion would catch a regression:
+//!
+//! * the fork rule was searched for as TEXT, so `!(...)` around it - the rule inverted - passed,
+//!   and so did the rule demoted to one step's `if:` while the job itself ran on every fork. It is
+//!   now read off the job's own condition, negation refused;
+//! * the print check knew `echo` and `cat`, so a bare `printenv SUTURA_BQ_KEY` added beside the
+//!   write passed: the key, in a public log, with the write still in place so nothing else
+//!   complained. [`PRINTS`] plus [`redirects_to_file`] is the fix, and `printenv` has to be in the
+//!   list *because* the same verb with a redirect is how the key is stored;
+//! * `set -eux` contains no `-x` substring, so tracing was invisible to any naive test. See
+//!   [`traces`];
+//! * `exit 1` was searched for over the WHOLE job, so a guard downgraded from an exit to a
+//!   `continue` was clean as long as some other guard still exited - and *unset configuration
+//!   fails rather than skips* is the property telekom/sutura#81 states most exactly. Each guard now
+//!   has to reach one within [`GUARD_WINDOW`] lines.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,6 +48,19 @@ pub(super) const JOB: &str = "bigquery-acceptance";
 /// BRANCH of this repository can see the environment's secret and must be held to the leg, while a
 /// fork's cannot and must skip. An event-name test collapses those two into one answer.
 const FORK_RULE: &str = "github.event.pull_request.head.repo.full_name == github.repository";
+
+/// Print verbs that put their argument in the log.
+///
+/// `printenv` is here BECAUSE it is how the key is written: the same command without a redirect
+/// prints the key instead of storing it, and a check that knew only `echo` read that as clean.
+const PRINTS: &[&str] = &["echo", "printf", "printenv", "cat "];
+
+/// How far after a guard a non-zero `exit` may sit.
+///
+/// The shape in this job is three lines - the test, a message, the exit - and a `for` wrapping one
+/// adds two. Deliberately a window rather than the whole job: `exit 1` ANYWHERE used to satisfy
+/// this, so a guard downgraded to a `continue` beside an unrelated exit was invisible.
+const GUARD_WINDOW: usize = 6;
 
 /// One job's own lines, from its header to the next thing at the same indentation.
 ///
@@ -94,6 +126,38 @@ fn configured(block: &[String]) -> BTreeMap<String, String> {
     out
 }
 
+/// Does this line send its output to a FILE rather than to the log?
+///
+/// `>&1` and `>&2` ARE the log, so they are not an exemption - which is the distinction between
+/// the line that stores the key and every line that would reveal it.
+fn redirects_to_file(line: &str) -> bool {
+    line.split('>').skip(1).any(|rest| !rest.trim_start().starts_with('&'))
+}
+
+/// Does this line turn shell tracing on? `set -x`, `set -eux` and `set -o xtrace` all do.
+///
+/// Refused for the whole job rather than only where the key is in scope, because the job's own
+/// comment gives the reason: a traced command line is a value in a public log.
+fn traces(line: &str) -> bool {
+    let Some(flags) = line.trim().strip_prefix("set ") else {
+        return false;
+    };
+    flags.split_whitespace().any(|word| {
+        word == "xtrace"
+            || word
+                .strip_prefix('-')
+                .is_some_and(|set| !set.starts_with('-') && set.contains('x'))
+    })
+}
+
+/// Does this line exit non-zero? A guard that does not reach one is a skip.
+fn exits_non_zero(line: &str) -> bool {
+    let Some(code) = line.trim().strip_prefix("exit ") else {
+        return false;
+    };
+    code.trim().trim_end_matches(';').parse::<i32>().is_ok_and(|code| code != 0)
+}
+
 /// Everything wrong with the acceptance job.
 pub(super) fn problems(text: &str) -> Vec<String> {
     let Some(block) = job(text, JOB) else {
@@ -119,12 +183,26 @@ pub(super) fn problems(text: &str) -> Vec<String> {
         ));
     }
 
-    if !block.iter().any(|line| line.contains(FORK_RULE)) {
-        problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job's condition does not test `{FORK_RULE}` - skip where the \
-             runner had no choice, run where somebody in this repository pushed. An event-name \
-             test answers both with one verdict"
-        ));
+    // The JOB's own condition, at four spaces. A STEP's `if:` sits deeper and skips one step, so
+    // the job still runs on a fork and reports a pass for a leg that never happened - and a `!`
+    // states the rule backwards while satisfying any test that only looks for the text.
+    match block
+        .iter()
+        .find(|line| line.strip_prefix("    ").is_some_and(|key| key.starts_with("if:")))
+    {
+        Some(line) if line.contains(FORK_RULE) && !line.contains('!') => {}
+        Some(line) => problems.push(format!(
+            "{WORKFLOW}: the `{JOB}` job's own condition is `{}`, which has to test `{FORK_RULE}` \
+             and may not negate it - skip where the runner had no choice, run where somebody in \
+             this repository pushed. An event-name test answers both with one verdict and a `!` \
+             answers both backwards",
+            line.trim()
+        )),
+        None => problems.push(format!(
+            "{WORKFLOW}: the `{JOB}` job has no condition of its own, so it runs on a fork's pull \
+             request - the `environment:` still withholds the key, but the leg then fails for want \
+             of a secret or skips one step and reports a pass. A step's `if:` is not this rule"
+        )),
     }
 
     for line in &bodies {
@@ -172,13 +250,30 @@ pub(super) fn problems(text: &str) -> Vec<String> {
     }
 
     let mut guarded = BTreeSet::new();
-    for line in &bodies {
+    for (at, line) in bodies.iter().enumerate() {
         let is_guard = line.contains("-z ");
         let is_list = line.contains("for ") && line.contains(" in ");
+        if !(is_guard || is_list) {
+            continue;
+        }
         for word in line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            if (is_guard || is_list) && word.len() > 2 {
+            if word.len() > 2 {
                 guarded.insert(word.to_owned());
             }
+        }
+        if !bodies
+            .iter()
+            .skip(at.saturating_add(1))
+            .take(GUARD_WINDOW)
+            .copied()
+            .any(exits_non_zero)
+        {
+            problems.push(format!(
+                "{WORKFLOW}: the `{JOB}` job's guard `{}` reaches no non-zero `exit` within \
+                 {GUARD_WINDOW} lines - unset configuration has to FAIL rather than skip, and a \
+                 guard that warns and carries on is a skip that reads as a pass on an in-repo run",
+                line.trim()
+            ));
         }
     }
     for (name, kind) in configured(&block) {
@@ -190,19 +285,23 @@ pub(super) fn problems(text: &str) -> Vec<String> {
             ));
         }
         for line in &bodies {
-            if kind == "secrets" && line.contains(&name) && (line.contains("echo") || line.contains("cat ")) {
+            let prints = PRINTS.iter().any(|verb| line.contains(verb)) && !redirects_to_file(line);
+            if kind == "secrets" && line.contains(&name) && prints {
                 problems.push(format!(
                     "{WORKFLOW}: the `{JOB}` job puts `{name}` on a line that prints - `{}`. A \
-                     workflow log on a public repository is public",
+                     workflow log on a public repository is public, and the only reason a print \
+                     verb may name the key at all is a redirect INTO a file",
                     line.trim()
                 ));
             }
         }
     }
-    if !joined.contains("exit 1") {
+    if let Some(line) = bodies.iter().find(|line| traces(line)) {
         problems.push(format!(
-            "{WORKFLOW}: nothing in the `{JOB}` job exits non-zero, so an unset value can only \
-             skip - and a skip on an in-repo run reads as a pass"
+            "{WORKFLOW}: the `{JOB}` job turns shell tracing on - `{}`. Every command in that body \
+             then reaches the log with its arguments, which is the channel this job's own comments \
+             say `python3 -c` and `printenv` exist to avoid",
+            line.trim()
         ));
     }
     problems.extend(one_credential_mechanism(&block, &configured(&block)));
@@ -342,6 +441,77 @@ jobs:
         assert!(
             found.iter().any(|p| p.contains("interpolates into a shell body")),
             "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_negated_fork_rule_states_the_rule_backwards_while_still_containing_it() {
+        // The literal is present, so a text search finds it and the job runs on a fork ONLY.
+        let inverted = CI.replace(
+            "if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository",
+            "if: github.event_name == 'push' || !(github.event.pull_request.head.repo.full_name == github.repository)",
+        );
+        let found = problems(&inverted);
+        assert!(found.iter().any(|p| p.contains("may not negate it")), "{found:?}");
+    }
+
+    #[test]
+    fn a_fork_rule_demoted_to_one_step_leaves_the_job_itself_running_on_a_fork() {
+        let demoted = CI
+            .replace(
+                "    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository\n",
+                "",
+            )
+            .replace(
+                "      - name: Acceptance leg\n",
+                "      - name: Acceptance leg\n        if: github.event.pull_request.head.repo.full_name == github.repository\n",
+            );
+        let found = problems(&demoted);
+        assert!(found.iter().any(|p| p.contains("has no condition of its own")), "{found:?}");
+    }
+
+    #[test]
+    fn a_print_verb_naming_the_key_without_a_redirect_is_the_key_in_a_public_log() {
+        // The write STAYS, so nothing else in the job is disturbed and only the print check can
+        // produce the failure. `printenv` with a redirect is how the key is stored, so the verb
+        // alone cannot decide it - and `>&2` is the log rather than a file.
+        for added in ["printenv SUTURA_BQ_KEY", "echo \"$SUTURA_BQ_KEY\" >&2"] {
+            let leaked = CI.replace(
+                "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n",
+                &format!("          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n          {added}\n"),
+            );
+            let found = problems(&leaked);
+            assert_eq!(found.len(), 1, "{added}: {found:?}");
+            assert!(found[0].contains("on a line that prints"), "{added}: {found:?}");
+            assert!(found[0].contains(added), "{added}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn shell_tracing_puts_every_argument_in_the_log_including_the_key() {
+        // `set -eux` contains no `-x` as a substring, which is how a naive test misses it.
+        let traced = CI.replace("          set -eu\n", "          set -eux\n");
+        let found = problems(&traced);
+        assert!(found.iter().any(|p| p.contains("turns shell tracing on")), "{found:?}");
+        assert_eq!(
+            problems(&CI.replace("set -eu", "set -o errexit -o nounset")),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_guard_that_warns_and_carries_on_is_a_skip_beside_an_unrelated_exit() {
+        // The key's own guard still exits, so `exit 1` is present in the job - which is exactly
+        // what a whole-job search reads as compliance.
+        let carries_on = CI.replace(
+            "              echo \"the environment defines no $name\" >&2\n              exit 1",
+            "              echo \"the environment defines no $name - skipping\" >&2\n              continue",
+        );
+        let found = problems(&carries_on);
+        assert!(found.iter().any(|p| p.contains("reaches no non-zero `exit`")), "{found:?}");
+        assert!(
+            carries_on.contains("exit 1"),
+            "the job still holds an exit for the key's guard"
         );
     }
 
