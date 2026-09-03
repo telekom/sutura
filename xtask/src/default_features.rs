@@ -23,11 +23,18 @@
 //! resolvable registry and a target directory; the nix sandbox `hygiene` runs in has neither. So it
 //! lives in `just gates`, which is where every gate that shells out to cargo lives.
 //!
-//! **What CI runs is still nothing, and that is the limit to read before trusting a green run here.**
-//! `ci.yml` reaches every gate as a `nix build .#checks.*` or a `nix run .#<app>`, so this one wants
-//! an app warmed the way `apps.causality` is - otherwise it compiles the dependency graph a third
-//! time in the same job. Until then the developer lane is gated and the CI lane is not: what CI has
-//! is the four `cross` link builds for the COMPILE half and nothing at all for the LINT half.
+//! **CI runs it as `nix run .#default-features`, and the PROFILE is why that is an argument.**
+//! `ci.yml` reaches every gate as a `nix build .#checks.*` or a `nix run .#<app>`, so this one is an
+//! app, warmed the way `apps.causality` is: it reuses the dependency closure `checks.nextest` built
+//! minutes earlier in the same job instead of compiling the graph a third time, and that reuse only
+//! happens if cargo is asked for the profile those artifacts were built at. Hence `--profile <name>`
+//! threaded through to both cargo lines, passed by the app and by nothing else - hard-coding `ci`
+//! would push a developer running `just gates` into a SECOND profile and a second dependency build,
+//! for a verdict that does not depend on the profile at all.
+//!
+//! Before that step existed, what CI had for this lane was the four `cross` link builds for the
+//! COMPILE half - and they are `needs: [ci]`, so a `ci` failure skips them - and nothing at all for
+//! the LINT half.
 //!
 //! **The package list is DERIVED and not written here**, which is the single-owner rule: it is every
 //! `package = "..."` inside `nix/shipped.nix`'s `binaries` list, the same declaration
@@ -133,8 +140,51 @@ const PASSES: &[Pass] = &[
     },
 ];
 
+/// The `--profile <name>` this run was asked to compile at, or `None` for cargo's default.
+///
+/// An argument rather than a constant, because the two callers want different answers: the CI app
+/// warms the `ci` closure and has to name it, while `just gates` has to stay on the developer's
+/// default profile - a second profile there is a second dependency build in the same target
+/// directory, bought for a verdict that does not depend on the profile.
+///
+/// FAIL CLOSED on anything it cannot read, and that direction is the point: a flag silently dropped
+/// would leave the CI step compiling the whole closure from scratch and still passing, so nobody
+/// would ever attribute the minutes to the typo that caused them.
+fn requested_profile(args: &[String]) -> Result<Option<&str>, String> {
+    match args {
+        [] => Ok(None),
+        [flag, name] if flag == "--profile" && !name.is_empty() => Ok(Some(name.as_str())),
+        _ => Err(format!(
+            "usage: check-default-features [--profile <name>] - got `{}`",
+            args.join(" ")
+        )),
+    }
+}
+
+/// The words one pass hands cargo, for one package, at one profile.
+///
+/// The profile travels with the SUBCOMMAND and never in `tail`: clippy's tail opens `--`, and
+/// everything past that separator belongs to the lint driver rather than to cargo - so a
+/// `--profile` appended there would select no profile, warm nothing, and not fail either.
+fn invocation<'a>(pass: &Pass, package: &'a str, profile: Option<&'a str>) -> Vec<&'a str> {
+    let mut words: Vec<&str> = pass.lead.to_vec();
+    if let Some(name) = profile {
+        words.extend(["--profile", name]);
+    }
+    words.extend(["--package", package]);
+    words.extend(pass.tail.iter().copied());
+    words
+}
+
 /// `cargo xtask check-default-features` - the shipped feature set compiles and lints.
-pub(crate) fn run(_args: &[String]) -> Verdict {
+pub(crate) fn run(args: &[String]) -> Verdict {
+    let profile = match requested_profile(args) {
+        Ok(profile) => profile,
+        Err(why) => {
+            eprintln!("xtask check-default-features: {why}");
+            return Verdict::Fail;
+        }
+    };
     let Some(root) = repo::root() else {
         eprintln!("xtask check-default-features: could not determine the repo root");
         return Verdict::Fail;
@@ -161,16 +211,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         packages.join(", ")
     );
     println!("  cargo's DEFAULT feature set - the one `nix/shipped.nix` publishes and no other gate compiles.");
+    if let Some(name) = profile {
+        println!("  profile `{name}` - the profile the warmed artifacts were built at, so this reuses them.");
+    }
     let mut failed: Vec<String> = Vec::new();
     for package in &packages {
         for pass in PASSES {
             println!("\n=== {} {package} ===", pass.what);
             let mut command = std::process::Command::new("cargo");
-            command
-                .current_dir(&root)
-                .args(pass.lead)
-                .args(["--package", package])
-                .args(pass.tail);
+            command.current_dir(&root).args(invocation(pass, package, profile));
             match command.status() {
                 Ok(status) if status.success() => {}
                 Ok(_) => failed.push(format!("{} {package}", pass.what)),
@@ -200,7 +249,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::shipped_packages;
+    use super::{PASSES, invocation, requested_profile, shipped_packages};
 
     #[test]
     fn every_package_in_the_binaries_list_is_read_in_declaration_order() {
@@ -257,6 +306,66 @@ mod tests {
             "  ];\n",
         );
         assert_eq!(shipped_packages(nix), vec!["sutura-cli"]);
+    }
+
+    #[test]
+    fn every_pass_puts_the_profile_where_cargo_reads_it_and_not_past_the_lint_separator() {
+        // The failure this exists for: clippy's tail opens `--`, so a profile appended to the end
+        // of the line goes to the lint driver instead of to cargo. Nothing errors - the run just
+        // compiles at the default profile, reuses none of the warmed artifacts and passes, so the
+        // only symptom is a CI step quietly paying for a whole dependency build.
+        for pass in PASSES {
+            let words = invocation(pass, "sutura-serve", Some("ci"));
+            let at = words
+                .windows(2)
+                .position(|pair| pair == ["--profile", "ci"])
+                .unwrap_or_else(|| panic!("{} must pass `--profile ci`, got {words:?}", pass.what));
+            assert!(at > 0, "{} must keep the subcommand first, got {words:?}", pass.what);
+            if let Some(separator) = words.iter().position(|word| *word == "--") {
+                assert!(
+                    at < separator,
+                    "{} puts the profile past `--`, where cargo never sees it: {words:?}",
+                    pass.what
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_lint_level_is_still_the_last_thing_clippy_is_told() {
+        // The other half of that seam: threading a profile in must not reorder `-D warnings` out of
+        // the driver's arguments, which would turn the lint half into a warning-only run.
+        let clippy = PASSES.iter().find(|pass| pass.what == "clippy").expect("a clippy pass is declared");
+        let words = invocation(clippy, "sutura-cli", Some("ci"));
+        assert_eq!(words.get(words.len().saturating_sub(3)..), Some(&["--", "-D", "warnings"][..]));
+    }
+
+    #[test]
+    fn no_profile_argument_leaves_cargo_on_the_developers_default() {
+        // `just gates` passes nothing and must not be pushed into a second profile: locally that is
+        // a second dependency build in the same target directory for an identical verdict.
+        for pass in PASSES {
+            let words = invocation(pass, "sutura-cli", None);
+            assert!(!words.contains(&"--profile"), "{} named a profile: {words:?}", pass.what);
+            assert!(words.windows(2).any(|pair| pair == ["--package", "sutura-cli"]));
+        }
+    }
+
+    #[test]
+    fn a_profile_argument_this_gate_cannot_read_is_a_failure_and_not_a_default() {
+        assert_eq!(requested_profile(&[]), Ok(None));
+        let asked = [String::from("--profile"), String::from("ci")];
+        assert_eq!(requested_profile(&asked), Ok(Some("ci")));
+        // Reading any of these as "no profile asked for" is the silent-green shape: the CI step
+        // would compile the closure from scratch, pass, and blame the minutes on nothing.
+        for bad in [
+            vec![String::from("--profile")],
+            vec![String::from("--profile"), String::new()],
+            vec![String::from("--all-features")],
+            vec![String::from("--profile"), String::from("ci"), String::from("--profile")],
+        ] {
+            assert!(requested_profile(&bad).is_err(), "{bad:?} must not read as a default");
+        }
     }
 
     #[test]
