@@ -8,23 +8,34 @@
 //! instance. `compose.services.yaml`'s `datahub` profile is that instance, and this is the first
 //! thing in this repository that talks to it.
 //!
-//! **It proves the VENUE and not the reader.** What it asserts is that a real `DataHub` GMS at the
-//! pinned version is reachable on the port this worktree's provisioning allocated, that it reports
-//! itself healthy, and that its versioned `OpenAPI` v3 entity surface - the surface an
-//! `AspectReader` over HTTP will call - is served rather than `404`. That is the measurement which
-//! turns "needs a provisioned instance" from an obstacle into a fact, and it is deliberately ALL it
-//! claims:
+//! **It proves the VENUE and the PLATFORM's half, and not the reader.** Two cells:
 //!
-//!   * **No aspect is read and none is decoded here.** There is no HTTP `AspectReader` yet - the
-//!     only implementor is the recorded fixture - so there is nothing to point at this endpoint.
-//!   * **Nothing is ingested.** The instance is empty, so this cannot and does not say that a
-//!     `sutura` structured property survives a round trip through the platform.
+//!   * `the_provisioned_datahub_serves_the_surface_a_reader_would_call` - a real `DataHub` GMS at
+//!     the pinned version is reachable on the port this worktree's provisioning allocated, reports
+//!     itself healthy, and serves its versioned `OpenAPI` v3 entity surface rather than `404`.
+//!   * `the_deployment_defined_document_round_trips_through_a_provisioned_datahub` - a deployment
+//!     CAN define the property `docs/adr/0016` describes, the platform's own validator accepts the
+//!     corpus's own document as its scalar value, the document comes back byte for byte, and the
+//!     `SINGLE` cardinality, the declared value type and the scalar's ceiling are enforced by the
+//!     platform rather than only read off its schema. That is issue #202's feasibility question,
+//!     answered against a running instance instead of a specification.
+//!
+//! What is still NOT here, stated because the gap is the useful part:
+//!
+//!   * **No aspect is DECODED.** There is no HTTP `AspectReader` - the only implementor is the
+//!     recorded fixture - so nothing turns the served document into a `Snapshot`. The round trip is
+//!     driven by this test's own requests, and the response shape it measures
+//!     (`structuredProperties.properties[].values[].string`) is what that reader will have to map
+//!     onto `document::MetricAspect`'s `sutura` field.
+//!   * **No property NAME is the library's.** The urn appears in this file and nowhere in
+//!     `src/`, which is the boundary `docs/adr/0016` draws: the grammar of the document is this
+//!     repository's, the property that carries it is the deployment's.
 //!   * **Nothing is authenticated.** The tier runs with `METADATA_SERVICE_AUTH_ENABLED: "false"`,
 //!     as upstream's quickstart does, so the bearer half of the read path is untouched.
 //!
-//! Reading it as evidence of a working read path would be exactly the overstatement `AGENTS.md`
-//! calls the defect itself. What it removes is the excuse: the next change writes a reader, and the
-//! venue it is measured against already exists and is already gated.
+//! Reading either cell as evidence of a working read path would be exactly the overstatement
+//! `AGENTS.md` calls the defect itself. What they remove is the excuse: the next change writes a
+//! reader, and both the venue and the platform's acceptance of the document are already measured.
 //!
 //! # Fail-closed where a tier was provisioned, loudly skipped where one was not
 //!
@@ -67,6 +78,8 @@
 mod tests {
     use std::time::Duration;
 
+    use sutura_catalog_datahub::AspectReader as _;
+
     /// How long GMS gets to answer. Generous: provisioning has already gated on its health check,
     /// so a request slower than this is a wedged JVM rather than a cold one, and a short timeout
     /// would turn that into a flake instead of a failure.
@@ -85,29 +98,47 @@ mod tests {
     /// catches before anybody writes one.
     const PROBES: &[&str] = &["health", "openapi/v3/entity/dataset"];
 
-    #[test]
-    #[ignore = "needs `just dev-up-datahub`; `just test` cannot see a docker service because the \
-                postgres tier rewrites the discovery file - run `just datahub-acceptance`"]
-    fn the_provisioned_datahub_serves_the_surface_a_reader_would_call() {
+    /// Where this worktree's `datahub` is listening, or `None` on a machine that provisioned none.
+    ///
+    /// `sutura_dev::provisioned::here` has already put the notice on stderr and, in the required
+    /// direction, panicked rather than returning - so `None` here means "a developer machine with
+    /// no tier", never "a job that asked for one and did not get it".
+    fn endpoint() -> Option<String> {
         let inside = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let provisioned = sutura_dev::provisioned::here(inside, "datahub");
-        let Some(endpoint) = provisioned.endpoint() else {
-            // The notice is already on stderr, and in the required direction `here` panicked rather
-            // than reaching this line.
-            return;
-        };
+        sutura_dev::provisioned::here(inside, "datahub")
+            .endpoint()
+            .map(ToString::to_string)
+    }
 
-        // Built the way `sutura_exec_bigquery::wire::WireAgent::pinned` builds one, minus
-        // `https_only`: this is loopback plaintext by construction, because the tier publishes an
-        // ephemeral HTTP port.
-        let agent = ureq::Agent::new_with_config(
+    /// Built the way `sutura_exec_bigquery::wire::WireAgent::pinned` builds one, minus `https_only`:
+    /// this is loopback plaintext by construction, because the tier publishes an ephemeral HTTP
+    /// port.
+    ///
+    /// `status_as_error` is the one knob, and it is a knob because the two cells need opposite
+    /// halves of `ureq` 3's default. The reachability probe wants a non-2xx to arrive as an `Err`
+    /// naming the path (see its own comment). The round trip wants the platform's `400` BODY,
+    /// because the whole point of those assertions is the reason `DataHub` states in it, and an
+    /// `Err` carries the status without it.
+    fn agent(status_as_error: bool) -> ureq::Agent {
+        ureq::Agent::new_with_config(
             ureq::Agent::config_builder()
                 .timeout_global(Some(ANSWER_TIMEOUT))
                 // A metadata platform on loopback has no reason to send this test anywhere else,
                 // and a redirect is how a probe silently starts measuring a different server.
                 .max_redirects(0)
+                .http_status_as_error(status_as_error)
                 .build(),
-        );
+        )
+    }
+
+    #[test]
+    #[ignore = "needs `just dev-up-datahub`; `just test` cannot see a docker service because the \
+                postgres tier rewrites the discovery file - run `just datahub-acceptance`"]
+    fn the_provisioned_datahub_serves_the_surface_a_reader_would_call() {
+        let Some(endpoint) = endpoint() else {
+            return;
+        };
+        let agent = agent(true);
 
         for path in PROBES {
             let url = format!("http://{endpoint}/{path}");
@@ -139,5 +170,217 @@ mod tests {
                  reader written against it would fail the same way"
             );
         }
+    }
+
+    /// The structured property this cell registers, and the one place in the repository where a
+    /// property urn is written down.
+    ///
+    /// **It is written HERE and nowhere in the library, which is the whole distinction.** What a
+    /// deployment defines is the property: its name, its urn, its value type, its cardinality and
+    /// the entity types it binds to. The library names none of those - `document::MetricAspect`'s
+    /// `sutura` field is the adapter's own canonical shape, and mapping a registered property onto
+    /// it is the unbuilt HTTP `AspectReader`'s job. So this constant is **the test playing the
+    /// deployment's part**, not the adapter reading a name it knows.
+    const PROPERTY_URN: &str = "urn:li:structuredProperty:sutura";
+
+    /// One request, one status, one body - because the refusals asserted below are about the reason
+    /// `DataHub` states, and a helper that discarded the body would discard the assertion.
+    ///
+    /// A body means an upsert and no body means a read; this surface needs no other verb, so the
+    /// `Option` is the method rather than a second parameter that could disagree with it.
+    fn send(agent: &ureq::Agent, url: &str, body: Option<&serde_json::Value>) -> (u16, String) {
+        let mut response = body
+            .map_or_else(
+                || agent.get(url).call(),
+                |json| {
+                    agent
+                        .post(url)
+                        .header("Content-Type", "application/json")
+                        .send(serde_json::to_string(json).expect("a probe body serializes"))
+                },
+            )
+            .expect("the provisioned DataHub answered, whatever it answered - `just dev-up-datahub` rebuilds it");
+        let status = response.status().as_u16();
+        let text = response.body_mut().read_to_string().expect("the answer is text");
+        (status, text)
+    }
+
+    /// A metric entity carrying `values` under [`PROPERTY_URN`], upserted synchronously.
+    fn write_property(agent: &ureq::Agent, endpoint: &str, id: &str, values: &serde_json::Value) -> (u16, String) {
+        let urn = format!("urn:li:metric:(urn:li:dataPlatform:bigquery,orders,{id})");
+        let body = serde_json::json!([{
+            "urn": urn,
+            "metricKey": { "value": { "platform": "urn:li:dataPlatform:bigquery", "path": "orders", "id": id } },
+            "metricInfo": { "value": {
+                "name": id,
+                "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "SUM(amount_cents)" }] },
+            } },
+            "structuredProperties": { "value": { "properties": [{ "propertyUrn": PROPERTY_URN, "values": values }] } },
+        }]);
+        send(
+            agent,
+            &format!("http://{endpoint}/openapi/v3/entity/metric?async=false&createIfNotExists=false"),
+            Some(&body),
+        )
+    }
+
+    /// The number `DataHub` names in a refusal as its own ceiling, so the headroom below is a
+    /// measured ratio against the platform's stated limit rather than a constant this repository
+    /// would have to keep in step with it.
+    fn stated_maximum(refusal: &str) -> usize {
+        let Some((_, after)) = refusal.split_once("maximum of ") else {
+            panic!("the refusal states the maximum it enforced: {refusal}");
+        };
+        after
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .expect("the stated maximum is a number")
+    }
+
+    /// The deployment-defined document, written into a real `DataHub` and read back out.
+    ///
+    /// # What this proves that the recorded fixture cannot
+    ///
+    /// The fixture proves what the adapter DECIDES about a document. Four things about the document
+    /// itself were open until they were measured here, and all four are the platform's behaviour
+    /// rather than this repository's:
+    ///
+    ///   * **The platform's own validator accepts the corpus document as a property value.** Not a
+    ///     paraphrase of it: the document is read out of `fixture::FixtureReader` through the
+    ///     crate's public port, so what is written is provably the string the unit half decodes,
+    ///     and the two cannot drift.
+    ///   * **It survives the round trip byte for byte**, which is what makes the scalar a transport
+    ///     rather than a lossy field.
+    ///   * **The scalar has a ceiling, and it is the platform's `keywordMaxLength`** - the value is
+    ///     indexed as an Elasticsearch keyword - so what bounds a metric's document is a
+    ///     deployment's index configuration and not a constant in this crate. Asserted as a ratio
+    ///     against the number the refusal names, because the number is a deployment's to change.
+    ///   * **`SINGLE` cardinality and the declared value type are enforced server-side**, so the
+    ///     `docs/adr/0016` transport note's "one string-valued property" is the platform's rule and
+    ///     not merely this adapter's reading of it.
+    ///
+    /// # And what it still does not prove
+    ///
+    /// **This is not the adapter's read path.** There is no HTTP `AspectReader`, so nothing here
+    /// decodes the served document into a `Snapshot`; the mapping from the response shape
+    /// (`structuredProperties.properties[].values[].string`) to `MetricAspect.sutura` is written by
+    /// the next change, and this cell is the venue it will be measured in. Nothing here is
+    /// authenticated either - the tier runs with `METADATA_SERVICE_AUTH_ENABLED: "false"`.
+    #[test]
+    #[ignore = "needs `just dev-up-datahub`; `just test` cannot see a docker service because the \
+                postgres tier rewrites the discovery file - run `just datahub-acceptance`"]
+    fn the_deployment_defined_document_round_trips_through_a_provisioned_datahub() {
+        let Some(endpoint) = endpoint() else {
+            return;
+        };
+        let agent = agent(false);
+
+        // The deployment's half: register the property. Upserted, so a re-run over a tier that
+        // already has it is the same request rather than a conflict.
+        let definition = serde_json::json!([{
+            "urn": PROPERTY_URN,
+            "propertyDefinition": { "value": {
+                "qualifiedName": "sutura",
+                "displayName": "sutura",
+                "valueType": "urn:li:dataType:datahub.string",
+                "cardinality": "SINGLE",
+                "entityTypes": ["urn:li:entityType:datahub.metric"],
+                "description": "The closed-vocabulary metric document a deployment defines.",
+            } },
+        }]);
+        let (status, body) = send(
+            &agent,
+            &format!("http://{endpoint}/openapi/v3/entity/structuredproperty?async=false"),
+            Some(&definition),
+        );
+        assert_eq!(status, 200, "the platform accepts the property definition: {body}");
+
+        // The corpus's own document, through the crate's public port rather than restated here.
+        let snapshot = sutura_catalog_datahub::fixture::FixtureReader
+            .read()
+            .expect("the recorded corpus reads");
+        let document = snapshot
+            .metrics()
+            .iter()
+            .find_map(|metric| metric.sutura())
+            .expect("the corpus carries one certified metric")
+            .string_value()
+            .to_owned();
+
+        let (status, body) = write_property(&agent, &endpoint, "revenue", &serde_json::json!([{ "string": document }]));
+        assert_eq!(status, 200, "the platform accepts the corpus document as the scalar: {body}");
+
+        // ONE request for the whole metric half of a bundle, aspects inline - which is the answer
+        // to the read path's cost that `docs/adr/0016` and `docs/implementation-plan.md` both leave
+        // open. A reader pages this surface; it does not fetch an entity per metric.
+        let (status, body) = send(
+            &agent,
+            &format!("http://{endpoint}/openapi/v3/entity/metric?aspects=structuredProperties&aspects=metricInfo&count=100"),
+            None,
+        );
+        assert_eq!(status, 200, "the metric surface answers a paged read: {body}");
+        let served: serde_json::Value = serde_json::from_str(&body).expect("the answer is json");
+        let entity = served["entities"]
+            .as_array()
+            .expect("a page is an array of entities")
+            .iter()
+            .find(|entity| entity["urn"].as_str().is_some_and(|urn| urn.ends_with(",revenue)")))
+            .expect("the metric just written is on the page");
+        assert_eq!(
+            entity["structuredProperties"]["value"]["properties"][0]["propertyUrn"],
+            serde_json::json!(PROPERTY_URN),
+            "the page carries the property inline, not a reference to fetch"
+        );
+        assert_eq!(
+            entity["metricInfo"]["value"]["expression"]["dialects"][0]["dialect"],
+            serde_json::json!("ANSI_SQL"),
+            "the promotion candidate's raw half rides the same response as the certified half"
+        );
+        assert_eq!(
+            entity["structuredProperties"]["value"]["properties"][0]["values"][0]["string"],
+            serde_json::json!(document),
+            "the document read back is the document written, byte for byte"
+        );
+
+        // The ceiling. Deliberately far past it, so the assertion is about the refusal being
+        // STATED rather than about where the boundary sits - which is a deployment's setting.
+        let (status, body) = write_property(
+            &agent,
+            &endpoint,
+            "over_the_ceiling",
+            &serde_json::json!([{ "string": "x".repeat(1 << 17) }]),
+        );
+        assert_eq!(status, 400, "a scalar past the platform's ceiling is refused: {body}");
+        assert!(
+            body.contains("keywordMaxLength"),
+            "the refusal names the setting that bounds it, so a deployment knows what to raise: {body}"
+        );
+        let maximum = stated_maximum(&body);
+        assert!(
+            document.len() * 10 < maximum,
+            "the corpus document ({} bytes) has an order of magnitude of headroom under the platform's \
+             stated maximum ({maximum} bytes) - if this fails, a metric's document has grown into the \
+             index limit and the transport needs revisiting, not the test",
+            document.len()
+        );
+
+        // The two constraints `docs/adr/0016` reads off the property's TYPE, asked of the platform.
+        let (status, body) = write_property(
+            &agent,
+            &endpoint,
+            "two_values",
+            &serde_json::json!([{ "string": "{}" }, { "string": "{}" }]),
+        );
+        assert_eq!(status, 400, "a second value on a SINGLE property is refused: {body}");
+        assert!(body.contains("cardinality"), "the refusal names the cardinality: {body}");
+
+        let (status, body) = write_property(&agent, &endpoint, "wrong_type", &serde_json::json!([{ "double": 1.0 }]));
+        assert_eq!(status, 400, "a number where the definition says string is refused: {body}");
+        assert!(
+            body.contains("should be a string"),
+            "the refusal names the declared value type: {body}"
+        );
     }
 }
