@@ -78,6 +78,18 @@ let
   #     and so would a published CLI - measured on 2026-09-02 by compiling
   #     `sutura-cli --all-targets` both ways: the default set touches neither `ring` nor `ureq`, and
   #     `--features bigquery` compiles `ring` from C and assembly.
+  #   * **THAT FIRST BULLET IS THE ONE THE MEASUREMENT BELOW FALSIFIED, and it is left standing
+  #     rather than rewritten because the correction is the useful part.** The cost is NOT the four
+  #     cross builds. `craneLib.buildDepsOnly` is called on `args` - deliberately unscoped, so the
+  #     checks share one dependency derivation - and `cargoExtraArgs` is set on the final attrset
+  #     instead, which means the deps derivation resolves the WHOLE workspace at cargo's default
+  #     set. `sutura-exec-bigquery` is a workspace member that takes `ureq` non-optionally, so
+  #     `ring`, `rustls`, `rustls-webpki`, `rustls-pki-types`, `webpki-roots`, `ureq` and
+  #     `ureq-proto` are compiled inside `sutura-deps-<triple>` on all four triples WITH THE
+  #     FEATURE OFF. The `bigquery` feature gates the edge from `sutura-cli` to that crate, not the
+  #     closure's arrival. Verified in the four `cross` logs of the run cited below. So the musl C
+  #     and assembly this record priced is paid on every pull request either way, and default-off
+  #     buys nothing in build time - what it buys is the second bullet and what the artefact links.
   #   * The failure is loud rather than silent, which is what makes the choice defensible instead
   #     of merely cheap. `security.tls_termination: in-process` on a build without `tls` is a
   #     startup refusal naming the feature, and so is a `kind: bigquery` source on a build without
@@ -98,6 +110,32 @@ let
   # measurement `github.com/telekom/sutura#121` step 2 owes, and until it existed the only
   # evidence was a native `cargo check` - which stops at metadata and so says nothing about the
   # link that a musl target is the whole risk of. An entry here is a build, not a promise.
+  #
+  # **AND HERE IS THE NUMBER, taken 2026-09-03 from the four `cross` jobs of run 33781193001** -
+  # the first time `--features bigquery` was LINKED for any triple this project publishes. Each
+  # pair is the `sutura` crate derivation alone, deps already in the store, off and then on:
+  #
+  #   | triple                     | OFF   | ON    | delta        |
+  #   | -------------------------- | ----- | ----- | ------------ |
+  #   | x86_64-unknown-linux-gnu   | 70.5s | 71.0s | +0.5s  +0.7% |
+  #   | aarch64-unknown-linux-gnu  | 69.2s | 69.1s | -0.1s  -0.2% |
+  #   | x86_64-unknown-linux-musl  | 83.0s | 84.2s | +1.2s  +1.4% |
+  #   | aarch64-unknown-linux-musl | 77.3s | 78.6s | +1.3s  +1.7% |
+  #
+  # All four linked, both musl triples included, `file` reporting a statically linked binary of the
+  # right architecture. The step's own printed wall clock is 73 / 72 / 87 / 82s in that order,
+  # which is the table plus one flake evaluation.
+  #
+  # **SO: DEFAULT-OFF WAS NOT NECESSARY FOR BUILD COST, and this is where that is written down
+  # rather than in a commit message.** A delta under two percent is not what a feature gate is for,
+  # and the bullet above explains why it could not have been - the closure is in the deps
+  # derivation with the feature off. What default-off IS necessary for is the artefact: no
+  # published binary of either shipped executable links an outbound TLS stack, which
+  # `checks.shipped-features` asserts out of the binary's own embedded dependency list. Keep the
+  # decision, drop the build-cost reason for it. **What this measurement does NOT cover:** the
+  # probe links and never runs; it says nothing about the artefact's SIZE, which nothing prints;
+  # and `sutura-serve`'s `tls` and `bigquery` remain unprobed, so the +1.7% ceiling is the CLI's
+  # and is not evidence about the server.
   binaries = [
     {
       bin = "sutura";

@@ -71,6 +71,19 @@ which stops at metadata and therefore says nothing about the musl link that is t
 declares - `sutura-serve`'s `tls` and `bigquery` are the same shape and are deliberately unprobed,
 because the closure is compiled per target and three probes would triple the job.
 
+**And the first run of it corrected the paragraph above.** Measured 2026-09-03 over the four `cross`
+jobs of run 33781193001, `sutura` alone with deps already in the store: 70.5→71.0s
+(x86_64-gnu), 69.2→69.1s (aarch64-gnu), 83.0→84.2s (x86_64-musl), 77.3→78.6s (aarch64-musl) - a
+delta of **at most +1.7%**, and all four linked. The reason it is that small is the reason the
+build-cost argument for default-off does not hold: `buildDepsOnly` is called on the UNSCOPED
+argument set so the checks can share one dependency derivation, so the deps build resolves the whole
+workspace at cargo's default features, and `sutura-exec-bigquery` takes `ureq` non-optionally -
+`ring`, `rustls` and `ureq` are therefore compiled inside `sutura-deps-<triple>` for all four
+triples **with the feature off**. A feature gate on a composition root cannot subtract a closure the
+deps derivation already pulled. **So default-off is a decision about what the ARTEFACT links, held
+by `checks.shipped-features`, and not a decision about build time** - cite it that way. What is
+still unmeasured is binary size, which no step prints.
+
 A feature-gated adapter's absence is a **startup refusal naming the feature**, never a silent
 degradation - and `sutura_config` cannot see a link, so which adapters a BUILD contains is not in
 the settings vocabulary.

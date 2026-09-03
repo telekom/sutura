@@ -890,3 +890,55 @@ they never compile `sutura-serve` itself"* and *"`sutura-serve` is not a `nix` p
 both spent by telekom/sutura#111, which publishes both binaries. And *"the image holds `sutura-cli`,
 which links the engine only"* needs the qualifier *as published*: the crate can now link a second
 adapter, and the artefact still does not.
+
+## Amendment, 2026-09-03: the build nothing asked for has been run, and it went the other way
+
+**The sentence this amendment exists to correct** is in *The measurement this record's own rule asks
+for, taken 2026-09-02*, above: *"What would price the alternative - the feature ON for four triples -
+is a build nothing asks for, so it has not been run."* It is now false, and it was falsified by
+telekom/sutura#121's own step 2 rather than by anything external. `nix/shipped.nix` grew a
+`probeFeatures` field; a feature named there gets a `<bin>-<feature>-<triple>-ci` package per
+release triple, and the four `cross` jobs build them beside the shipped set on every pull request.
+The record's build-cost reasoning above it is corrected here rather than in place, per this page's
+own convention.
+
+**The number, from the four `cross` jobs of run 33781193001.** Each pair is the `sutura` crate
+derivation alone, dependencies already in the store, `--features bigquery` off and then on:
+
+| triple | OFF | ON | delta |
+| --- | --- | --- | --- |
+| `x86_64-unknown-linux-gnu` | 70.5s | 71.0s | +0.5s, +0.7% |
+| `aarch64-unknown-linux-gnu` | 69.2s | 69.1s | -0.1s, -0.2% |
+| `x86_64-unknown-linux-musl` | 83.0s | 84.2s | +1.2s, +1.4% |
+| `aarch64-unknown-linux-musl` | 77.3s | 78.6s | +1.3s, +1.7% |
+
+All four linked. `file` reported the right architecture on each, statically linked on both musl
+triples, so this is a link result and not an exit code.
+
+**Was default-off necessary? For build cost, no - and the mechanism says why it could not have
+been.** `craneLib.buildDepsOnly` is called on the unscoped argument set, deliberately, so the checks
+can share one dependency derivation; `cargoExtraArgs` is set on the final attrset instead. The
+dependency derivation therefore resolves the WHOLE workspace at cargo's default features, and
+`sutura-exec-bigquery` is a workspace member that takes `ureq` non-optionally. `ring`, `rustls`,
+`rustls-webpki`, `rustls-pki-types`, `webpki-roots`, `ureq` and `ureq-proto` are consequently
+compiled inside `sutura-deps-<triple>` on all four triples **with the feature off** - visible in all
+four job logs. The `bigquery` feature gates the edge from `sutura-cli` to that crate, not the
+closure's arrival on the builder. So the musl C-and-assembly cost this record priced on 2026-09-02
+is paid on every pull request either way; the feature ON adds only the real compile of that closure
+plus the link, which is the delta in the table and hides inside the parallel slack behind
+`sutura-mcp` and `sutura-exec-datafusion` on the critical path.
+
+**What default-off IS still necessary for, unchanged and now the whole of the argument:** no
+published artefact links an outbound TLS stack, which `checks.shipped-features` asserts out of each
+binary's own embedded dependency list rather than out of a manifest. The decision of step 3 stands;
+what does not stand is *the four cross builds* as its reason. **Keep the decision, drop the
+build-cost justification for it** - an argument that a measurement contradicts is worth less than no
+argument, because it invites the next reader to trust the rest of the paragraph.
+
+**The limits of this measurement, next to it.** The probe links and never RUNS, so nothing here says
+the feature works - only that it builds. Binary size is unmeasured: no step prints it, so the
+artefact-closure argument above is still qualitative. `sutura-serve`'s `tls` and `bigquery` are
+deliberately unprobed, so the +1.7% ceiling is the CLI's and is not evidence about the server. And
+the cost of *having* the probe is real even though the cost of the feature is not: it adds roughly
+72-87s to each of four `cross` jobs on every pull request, which is the price of the answer rather
+than the price of the feature.
