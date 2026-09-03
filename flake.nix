@@ -236,6 +236,10 @@
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
 
+        # The identity provider's CI venue, on the same pattern and from the same one file the
+        # `keycloak-tier` app runs, so the sandbox and a developer's shell cannot drift.
+        keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
+
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
@@ -444,6 +448,67 @@
             postCheck = "${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
+
+          # The identity tier, brought up and provisioned INSIDE the sandbox - the nix-native venue
+          # for `compose.services.yaml`'s `keycloak`, whose demo venue is a docker profile.
+          #
+          # **What it holds, and it is not "a server started".** `sutura-keycloak-tier start`
+          # provisions a realm, a confidential client and two subjects through `kcadm.sh` and then
+          # asks the token endpoint for a token AS each subject, failing if either does not come
+          # back. So this check is the mechanical form of the claim that the tier needs NO HUMAN: a
+          # realm that came up half-provisioned, a flow a Keycloak upgrade turns off, or a required
+          # action that reappears is a red check here rather than a puzzling refusal in whatever
+          # reads it next. It asserts the harness contract on top of that - `endpoints.json` names
+          # the port the operating system chose, the realm file names both subjects, and `stop`
+          # withdraws both claims.
+          #
+          # **Its own check rather than `nextest`'s `preCheck`, and the reason is what reads it.**
+          # Postgres is provisioned there because Rust cells connect to it in that pass. Nothing in
+          # this repository can carry a per-subject credential yet, so no cell reads this tier -
+          # paying a JVM's start-up on every test pass for a server nothing connects to is the cost
+          # `compose.services.yaml` declines for the same service on the same grounds. The
+          # convergence is one line: when a cell needs a real issuer, this tier moves into
+          # `nextest`'s `preCheck` beside Postgres and this check goes away.
+          #
+          # No network beyond loopback, no docker socket, no state outside the build directory.
+          keycloak-tier = pkgs.runCommand "keycloak-tier"
+            {
+              nativeBuildInputs = [ keycloakTier.tier pkgs.jq ];
+            }
+            ''
+              tree="$NIX_BUILD_TOP/worktree"
+              mkdir -p "$tree"
+              cd "$tree"
+
+              sutura-keycloak-tier start
+              sutura-keycloak-tier status
+
+              # The discovery contract: a harness learns the port from this file and nowhere else,
+              # so a tier that started and published nothing is a tier no test can reach.
+              endpoints=.sutura-dev/endpoints.json
+              test -f "$endpoints"
+              test "$(jq -r '.provisioner' "$endpoints")" = nix
+              port="$(jq -r '.services.keycloak.port' "$endpoints")"
+              test "$port" -gt 0
+              test "$(jq -r '.services.keycloak.host' "$endpoints")" = 127.0.0.1
+
+              # Two subjects, because one is not the property `docs/adr/0008` draws.
+              realm=.sutura-dev/keycloak-realm.json
+              test "$(jq -r '.subjects | length' "$realm")" = 2
+              test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${keycloakTier.realm}"
+
+              # `stop` withdraws BOTH claims. A stale endpoint file is read as availability, which
+              # is how a fail-closed cell panics on a dead server instead of skipping.
+              sutura-keycloak-tier stop
+              test ! -f "$endpoints"
+              test ! -f "$realm"
+              if sutura-keycloak-tier status; then
+                echo "the tier reports itself up after stop" >&2
+                exit 1
+              fi
+
+              touch $out
+            '';
 
           # A shipped package holds one executable, THAT executable is the one it was supposed to
           # build, and no toolchain is in its closure. It held three binaries and a full cargo
@@ -746,6 +811,22 @@
             export PATH="${rustToolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
             exec cargo deny check "$@"
           '');
+        };
+
+        # `nix run .#keycloak-tier -- start|stop|status` - the identity tier by hand.
+        #
+        # An app rather than a package on the dev shell's PATH, and the difference is who pays.
+        # `devenv.nix` carries the Postgres tier because `just test` provisions it on every run;
+        # nothing here reads Keycloak yet, so putting it in the shell would make every contributor
+        # fetch a JVM and a 186 MB server on `nix develop` for a tier they will not use. As an app
+        # it arrives when somebody asks for it - `just keycloak-tier start` - and `checks.keycloak-
+        # tier` is the venue that runs it unattended.
+        #
+        # The SAME derivation the check runs, from the same file, which is the property that keeps
+        # a demo and CI from drifting.
+        apps.keycloak-tier = {
+          type = "app";
+          program = "${keycloakTier.tier}/bin/sutura-keycloak-tier";
         };
 
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.

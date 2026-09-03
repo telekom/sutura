@@ -1,9 +1,15 @@
-//! Gates that read `compose.services.yaml`'s TEXT.
+//! Gates that read `compose.services.yaml`'s TEXT, and the other venue's half of the same rule.
 //!
 //! The parent module's suite is mostly about the functions above it - what `dev-up` puts on a
-//! command line, which services a profile selects. These two read the file itself, because
+//! command line, which services a profile selects. These read the file itself, because
 //! **no other gate in this repository reads a compose file** and a rule about its shape that
 //! nothing scans is a rule held by recall.
+//!
+//! Two of them read `nix/` and `flake.nix` instead, and they live here because the QUESTION is the
+//! same one: which venue answers for a provisioned service in CI. The compose file declares it, and
+//! a declaration is worth what the other side of it is worth - a `nix native` claim is only true
+//! while a check actually provisions that tier, and a check is only run while `just ci` names it.
+//! Splitting the two directions across two files is how one of them rots.
 
 /// The compose file's text, or `None` where the repo root cannot be found.
 fn compose_text() -> Option<String> {
@@ -260,5 +266,113 @@ fn every_discoverable_service_declares_which_venue_answers_for_it_in_ci() {
                 lines[0]
             );
         }
+    }
+}
+
+/// Every `nix/<service>-tier.nix`, by the service it provisions.
+///
+/// Derived from the directory rather than from a list, so a tier added without wiring is caught by
+/// the same scan that reads the wired ones.
+fn nix_tier_modules(root: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root.join("nix")) else {
+        return Vec::new();
+    };
+    let mut services: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter_map(|name| name.strip_suffix("-tier.nix").map(String::from))
+        .collect();
+    services.sort();
+    services
+}
+
+/// `flake.nix`, or `None` where the repo root cannot be found.
+fn flake_text() -> Option<String> {
+    let root = crate::repo::root()?;
+    std::fs::read_to_string(root.join("flake.nix")).ok()
+}
+
+#[test]
+fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
+    // THE HOLE THIS CLOSES IS THE MIRROR OF THE DECLARATION GATE ABOVE. That one holds
+    // `compose.services.yaml` honest about which venue answers - a service may not declare
+    // `nix native - nix/<service>-tier.nix` unless that file exists. Nothing held the next step:
+    // a tier module can exist, be declared as the CI venue, and be provisioned by NO check, at
+    // which point CI runs neither venue and both files read as though it did.
+    //
+    // Textual, because `flake.nix` cannot be evaluated from a unit test and because that is how
+    // `check-workflows` reads the same file. Two things per tier: the module has to be IMPORTED,
+    // and the script it produces has to be NAMED - the second is what distinguishes a check that
+    // provisions the tier from a `let` binding nothing uses.
+    let Some(root) = crate::repo::root() else { return };
+    let Some(flake) = flake_text() else { return };
+    let tiers = nix_tier_modules(&root);
+
+    // Anti-vacuity by NAME rather than by count: a count goes green the moment somebody adds a
+    // module, including one added without wiring, and a scan that found nothing would pass
+    // everything. `postgres` is the reference implementation, so its absence means the convention
+    // moved and this gate stopped reading anything.
+    assert!(
+        tiers.iter().any(|service| service == "postgres"),
+        "this scan found {tiers:?} and not the reference tier, so it is reading the wrong place"
+    );
+
+    for service in &tiers {
+        let module = format!("./nix/{service}-tier.nix");
+        assert!(
+            flake.contains(module.as_str()),
+            "`{module}` exists and flake.nix does not import it, so no nix check provisions it - \
+             wire it into a check, or delete the module"
+        );
+        let script = format!("sutura-{service}-tier");
+        assert!(
+            flake.contains(script.as_str()),
+            "flake.nix imports `{module}` and never names `{script}`, so the tier is built and \
+             never started. A tier nothing runs is not a CI venue"
+        );
+    }
+}
+
+#[test]
+fn every_nix_check_is_named_by_the_task_that_runs_them() {
+    // `just ci` iterates a LITERAL LIST of check names, and its own comment says why: "this loop
+    // names its checks, so a name left out is a check nobody ran". That sentence was a rule held by
+    // recall, and it had already been broken once - `api-docs` was missing from the list while
+    // being called THE gate, and four stale-page incidents went unseen locally.
+    //
+    // It matters most for a tier: `just validate` is the only thing that counts as verified here,
+    // and it verifies a provisioned service exactly when the check that provisions it is in this
+    // list. A check declared in `flake.nix` and absent from the loop is dead weight that reads as
+    // coverage.
+    //
+    // The release checks are the deliberate exception, and they are recognised the same way
+    // `check-workflows` recognises them: they belong to the tag-triggered release workflow, not to
+    // ordinary CI, so `just ci` must NOT build them.
+    let Some(root) = crate::repo::root() else { return };
+    let Some(flake) = flake_text() else { return };
+    let Ok(justfile) = std::fs::read_to_string(root.join("justfile")) else {
+        return;
+    };
+
+    let release_only = ["one-binary", "shipped-features"];
+    let declared: Vec<String> = crate::workflows::declared_block(&flake, "checks = {")
+        .into_iter()
+        .filter(|name| !release_only.contains(&name.as_str()))
+        .collect();
+    assert!(
+        declared.len() >= 5,
+        "this scan parsed {} check(s) out of flake.nix and would pass anything",
+        declared.len()
+    );
+
+    let Some(loop_line) = justfile.lines().find(|line| line.trim_start().starts_with("for check in")) else {
+        panic!("the `ci` recipe no longer iterates a list of checks, so this gate reads nothing");
+    };
+    for name in &declared {
+        assert!(
+            loop_line.split_whitespace().any(|word| word.trim_end_matches(';') == name),
+            "`checks.{name}` is declared in flake.nix and `just ci` does not name it, so nothing \
+             a contributor runs builds it - add it to that loop, or say why it is release-only"
+        );
     }
 }

@@ -203,7 +203,10 @@ fn declared_apps(text: &str) -> BTreeSet<String> {
 /// Measured, on the change that split that line. Counting the header's braces like any other
 /// line's makes both shapes the same case, and `opened` is what keeps the `depth <= 0` break from
 /// firing before the block has started.
-fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
+/// `pub(crate)` rather than private: `crate::compose::file` asks the same question of the same
+/// block - which checks does `flake.nix` declare - and a second parser for it would be a second
+/// thing to keep in step with the two shapes this doc comment records.
+pub(crate) fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut depth = 0_i32;
     let mut inside = false;
