@@ -233,13 +233,14 @@ services:
   # runtime has never been measured. It turns on with the branch that gives an adapter somewhere for a
   # subject's credential to arrive.
   keycloak:
-    # CI venue: compose only.
-    # Because: no nix tier exists for it yet, and that is a limit of THIS REPOSITORY rather than of
-    #   the software. `nixpkgs` carries `keycloak`; in its file-backed development mode it needs no
-    #   external store; and `kcadm.sh` can create a realm, a client and users with no human at a
-    #   keyboard. So nothing about it forces the docker venue - the tier is simply unwritten.
-    # Converges: with `nix/keycloak-tier.nix`, on `nix/postgres-tier.nix`'s pattern. This block is
-    #   what a reader sees until then, so the absence is a declaration and not a default.
+    # CI venue: nix native - nix/keycloak-tier.nix
+    #   Which is what the `compose only` declaration that used to stand here predicted, so this
+    #   block is now the DEMO ONLY: `nixpkgs` carries the server, it needs no external store, and
+    #   `kcadm.sh` provisions a realm, a client and two subjects with nobody at a keyboard.
+    #   `checks.keycloak-tier` runs that tier inside the sandbox and fails if either subject cannot
+    #   obtain a token, so a green `just validate` now says something about Keycloak - and what it
+    #   says comes from the nix tier and not from this file. What the two venues are FOR still
+    #   differs: this one is a browser and a console, the tier is an issuer a test can reach.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
     profiles:
       - identity

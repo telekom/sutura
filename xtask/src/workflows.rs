@@ -20,6 +20,16 @@
 //! Text scanning on both sides, because this has to run where there is no nix. It cannot know
 //! whether an output BUILDS; it knows whether it is declared, which is the failure that recurs.
 //!
+//! **`nix eval .#checks.<system> --apply builtins.attrNames` IS the authority and cannot be the
+//! mechanism.** It is the obvious answer to "which checks exist" and it was weighed: the gate's own
+//! venue rules it out. `check-workflows` runs inside `checks.hygiene`, a nix derivation with no nix
+//! and no network, and evaluating that attrset needs the flake's inputs - crane and nixpkgs - which
+//! means either fetching them or a second, differently-shaped gate outside the sandbox. So the
+//! authority is unreachable exactly where the check runs, and what replaced the brace counting is a
+//! Nix *lexer* rather than a Nix *evaluator*: see [`code_lines`] for the three shapes that fooled
+//! the counting, and note that the resulting parse is now cross-checked against the tree by a unit
+//! test rather than trusted.
+//!
 //! Literal package builds and the two release-profile assertions are also refused in `ci.yml`.
 //! Pull requests use interpolated `-ci` packages for their link matrix; the tag-triggered release
 //! workflow owns everything that is published.
@@ -88,8 +98,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
     // Apps and packages together, because `nix run` accepts either.
     let mut runnable = declared_apps(&flake);
-    runnable.extend(declared_block(&flake, "packages = "));
-    let checks = declared_block(&flake, "checks = {");
+    let (Some(packages), Some(checks)) = (declared_block(&flake, "packages = "), declared_block(&flake, "checks = {")) else {
+        eprintln!("xtask check-workflows: a flake output block does not close in flake.nix");
+        eprintln!("  the scan is broken, not the workflows - it would otherwise report names");
+        eprintln!("  from whatever follows the block, and lose the ones inside it");
+        return Verdict::Fail;
+    };
+    runnable.extend(packages);
 
     // An empty side would make this gate pass by finding nothing - the failure mode a
     // text-scanning check is most prone to.
@@ -163,16 +178,12 @@ fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
     found
 }
 
-/// Every `apps.<name>` declaration. Comments are skipped: they name outputs in prose, and a
-/// comment is not a declaration.
+/// Every `apps.<name>` declaration. Read off the CODE half of the file, so a comment or a
+/// string naming an output in prose is not a declaration.
 fn declared_apps(text: &str) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with('#') {
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("apps.")
+    for line in code_lines(text) {
+        if let Some(rest) = line.code.trim_start().strip_prefix("apps.")
             && let Some(name) = rest.split([' ', '=', '.']).next()
             && !name.is_empty()
         {
@@ -180,6 +191,209 @@ fn declared_apps(text: &str) -> BTreeSet<String> {
         }
     }
     names
+}
+
+/// One line of a Nix file with everything that is not code blanked out, and the `let` depth it
+/// starts at.
+struct CodeLine {
+    /// The line, with every character inside a comment or a string literal replaced by a space.
+    /// Interpolations are kept, because `${...}` is code and its braces balance.
+    code: String,
+    /// How many `let`s are open at the START of this line. A binding inside `let ... in` is not
+    /// an attribute of the enclosing set, and at brace depth alone the two are indistinguishable.
+    lets: u32,
+}
+
+/// Which construct the scanner is inside.
+enum Frame {
+    /// Nix code. `braces` counts `{` this frame has open; `interpolation` marks a frame opened by
+    /// `${`, whose own unmatched `}` ends it; `lets` counts open `let`s.
+    Code { braces: u32, lets: u32, interpolation: bool },
+    /// `"..."`, where `\` escapes and `${` opens code.
+    Quoted,
+    /// `''...''`, where `''$`, `'''` and `''\` escape and `${` opens code.
+    Indented,
+    /// `#` to end of line.
+    Line,
+    /// `/* ... */`.
+    Block,
+}
+
+/// Split a Nix file into its code half, line by line.
+///
+/// **A BRACE-COUNTING SCAN OVER RAW TEXT CANNOT READ NIX, and it failed by INVENTING names as
+/// well as by losing them - the worse of the two failure modes for a gate whose whole job is to
+/// say which outputs exist.** Three shapes broke it, all of them in the tree at once:
+///
+/// - **A brace inside a `#` comment.** Comments were skipped when reading a NAME and counted when
+///   counting DEPTH, so one sentence quoting `` `checks = {` `` in prose shifted every line after
+///   it one level deeper. Six real checks became invisible - `hygiene`, `fmt`, `doctest`, `crap`,
+///   `api-docs` and `reuse`, each of them referenced by a workflow - and `check-workflows` failed
+///   on the references rather than on the parse.
+/// - **A brace inside a string.** `checks.keycloak-tier`'s body is an inline shell script in a
+///   `''...''` literal, so shell text sat at the block's own depth: `tree=`, `endpoints=`, `port=`
+///   and `realm=` were reported as declared checks. Any shell brace - a `case`, an `awk` program -
+///   would have shifted the depth on top of that.
+/// - **A `let` binding inside a check's value.** `let` opens no brace, so `cells`, `checkOne`,
+///   `quoted`, `required`, `forbidden`, `wantOne` and `banOne` all read as declared outputs on
+///   `main` for as long as the release checks were written inline. Harmless only because no
+///   workflow happens to name them.
+///
+/// So this is a small lexer instead: comments, both string forms with their escapes, `${...}`
+/// interpolation as nested code, and `let ... in` as a scope. Nothing else about Nix is modelled,
+/// and nothing else is needed to answer "which attributes does this block declare".
+fn code_lines(text: &str) -> Vec<CodeLine> {
+    let chars: Vec<char> = text.chars().collect();
+    let at = |index: usize| chars.get(index).copied().unwrap_or('\0');
+    let word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '\'');
+    let mut stack = vec![Frame::Code {
+        braces: 0,
+        lets: 0,
+        interpolation: false,
+    }];
+    let mut lines = Vec::new();
+    let mut code = String::new();
+    // Only a line that STARTS outside every `let` can declare an attribute. Inside a string
+    // literal the answer is "not a declaration", which is what a non-zero depth says.
+    let mut lets = 0_u32;
+    let mut index = 0_usize;
+    while index < chars.len() {
+        let current = at(index);
+        if current == '\n' {
+            lines.push(CodeLine {
+                code: std::mem::take(&mut code),
+                lets,
+            });
+            if matches!(stack.last(), Some(Frame::Line)) {
+                stack.pop();
+            }
+            lets = match stack.last() {
+                Some(&Frame::Code { lets: open, .. }) => open,
+                _ => 1,
+            };
+            index = index.saturating_add(1);
+            continue;
+        }
+        let next = at(index.saturating_add(1));
+        let after = at(index.saturating_add(2));
+        let previous = index.checked_sub(1).map_or(' ', &at);
+        let keyword = |word_chars: &[char]| {
+            !word(previous)
+                && chars.get(index..).is_some_and(|rest| rest.starts_with(word_chars))
+                && !word(at(index.saturating_add(word_chars.len())))
+        };
+        match stack.last_mut() {
+            Some(Frame::Line) => {
+                code.push(' ');
+                index = index.saturating_add(1);
+            }
+            Some(Frame::Block) => {
+                if current == '*' && next == '/' {
+                    stack.pop();
+                    code.push_str("  ");
+                    index = index.saturating_add(2);
+                } else {
+                    code.push(' ');
+                    index = index.saturating_add(1);
+                }
+            }
+            Some(Frame::Quoted) => {
+                if current == '\\' {
+                    code.push_str("  ");
+                    index = index.saturating_add(2);
+                } else if current == '"' {
+                    stack.pop();
+                    code.push(' ');
+                    index = index.saturating_add(1);
+                } else if current == '$' && next == '{' {
+                    stack.push(Frame::Code {
+                        braces: 0,
+                        lets: 0,
+                        interpolation: true,
+                    });
+                    code.push_str("${");
+                    index = index.saturating_add(2);
+                } else {
+                    code.push(' ');
+                    index = index.saturating_add(1);
+                }
+            }
+            Some(Frame::Indented) => {
+                if current == '\'' && next == '\'' {
+                    if matches!(after, '$' | '\'' | '\\') {
+                        code.push_str("   ");
+                        index = index.saturating_add(3);
+                    } else {
+                        stack.pop();
+                        code.push_str("  ");
+                        index = index.saturating_add(2);
+                    }
+                } else if current == '$' && next == '{' {
+                    stack.push(Frame::Code {
+                        braces: 0,
+                        lets: 0,
+                        interpolation: true,
+                    });
+                    code.push_str("${");
+                    index = index.saturating_add(2);
+                } else {
+                    code.push(' ');
+                    index = index.saturating_add(1);
+                }
+            }
+            Some(Frame::Code {
+                braces,
+                lets: open,
+                interpolation,
+            }) => {
+                if current == '#' {
+                    stack.push(Frame::Line);
+                    code.push(' ');
+                    index = index.saturating_add(1);
+                } else if current == '/' && next == '*' {
+                    stack.push(Frame::Block);
+                    code.push_str("  ");
+                    index = index.saturating_add(2);
+                } else if current == '\'' && next == '\'' {
+                    stack.push(Frame::Indented);
+                    code.push_str("  ");
+                    index = index.saturating_add(2);
+                } else if current == '"' {
+                    stack.push(Frame::Quoted);
+                    code.push(' ');
+                    index = index.saturating_add(1);
+                } else if current == '{' {
+                    *braces = braces.saturating_add(1);
+                    code.push('{');
+                    index = index.saturating_add(1);
+                } else if current == '}' {
+                    // An unmatched `}` in an interpolation frame is the `}` of its own `${`.
+                    // Both are emitted, so the block scan sees a balanced pair either way.
+                    if *braces > 0 {
+                        *braces = braces.saturating_sub(1);
+                    } else if *interpolation {
+                        stack.pop();
+                    }
+                    code.push('}');
+                    index = index.saturating_add(1);
+                } else if keyword(&['l', 'e', 't']) {
+                    *open = open.saturating_add(1);
+                    code.push_str("let");
+                    index = index.saturating_add(3);
+                } else if keyword(&['i', 'n']) {
+                    *open = open.saturating_sub(1);
+                    code.push_str("in");
+                    index = index.saturating_add(2);
+                } else {
+                    code.push(current);
+                    index = index.saturating_add(1);
+                }
+            }
+            None => break,
+        }
+    }
+    lines.push(CodeLine { code, lets });
+    lines
 }
 
 /// Every attribute at the top level of an output block.
@@ -203,18 +417,59 @@ fn declared_apps(text: &str) -> BTreeSet<String> {
 /// Measured, on the change that split that line. Counting the header's braces like any other
 /// line's makes both shapes the same case, and `opened` is what keeps the `depth <= 0` break from
 /// firing before the block has started.
-fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
+/// `pub(crate)` rather than private: `crate::compose::file` asks the same question of the same
+/// block - which checks does `flake.nix` declare - and a second parser for it would be a second
+/// thing to keep in step with the shapes this doc comment records.
+///
+/// `None` where the header matched and the block never closed. That case USED TO BE SILENT, and
+/// silence is what made the comment-brace defect expensive: the scan ran off the end of the block
+/// into the rest of `outputs`, so it reported `formatter` as a check, lost six real ones, and the
+/// failure surfaced as eighteen workflow references that "do not exist". A gate whose parse has
+/// desynchronised must say the parse is broken - never answer the question with a guess.
+pub(crate) fn declared_block(text: &str, header: &str) -> Option<BTreeSet<String>> {
+    scan_block(text, header).map(|(names, _)| names)
+}
+
+/// The RAW source of one output block, header line to closing line.
+///
+/// Raw and not the code projection, because the question its caller asks - does this block name
+/// `sutura-<service>-tier` - is about a store path inside a string literal, which the projection
+/// blanks out. `#[cfg(test)]` because `crate::compose::file`, the gate that asks, is a unit test:
+/// a field nothing reads in the binary is dead code the compiler is right to refuse.
+#[cfg(test)]
+pub(crate) fn block_source(text: &str, header: &str) -> Option<String> {
+    scan_block(text, header).map(|(_, source)| source)
+}
+
+/// One parsed output block: the attributes it declares, and its raw source.
+///
+/// An alias and not a struct, and that is the compiler choosing between two lints rather than a
+/// style preference. `clippy::type_complexity` refuses the tuple written out; a struct puts the
+/// source in a named field, whose only reader is `crate::compose::file` - a `#[cfg(test)] mod` -
+/// so `dead_code` refuses that in the binary. The alias satisfies both without an `allow`.
+type Block = (BTreeSet<String>, String);
+
+/// One scan, shared by both faces above, because a second one would be a second thing to keep in
+/// step with the shapes recorded here.
+fn scan_block(text: &str, header: &str) -> Option<Block> {
     let mut names = BTreeSet::new();
     let mut depth = 0_i32;
     let mut inside = false;
     let mut opened = false;
-    for line in text.lines() {
-        let trimmed = line.trim();
+    let mut block_closed = false;
+    let mut source = String::new();
+    let raw: Vec<&str> = text.lines().collect();
+    for (number, line) in code_lines(text).into_iter().enumerate() {
+        let trimmed = line.code.trim();
         let header_line = !inside && trimmed.starts_with(header);
         if header_line {
             inside = true;
         } else if !inside {
             continue;
+        }
+        if let Some(original) = raw.get(number) {
+            source.push_str(original);
+            source.push('\n');
         }
 
         // Only the outermost level of the block declares an output; everything deeper belongs
@@ -227,7 +482,7 @@ fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
         if !header_line
             && opened
             && depth == 1
-            && !trimmed.starts_with('#')
+            && line.lets == 0
             && let Some((key, _)) = trimmed.split_once('=')
         {
             let key = key.trim();
@@ -245,10 +500,11 @@ fn declared_block(text: &str, header: &str) -> BTreeSet<String> {
             opened = true;
         }
         if opened && depth <= 0 {
+            block_closed = true;
             break;
         }
     }
-    names
+    block_closed.then_some((names, source))
 }
 
 /// What one scan of `.github` found: the references, and how many files were read.
@@ -546,7 +802,7 @@ mod tests {
             "          });\n",
             "        };\n",
         );
-        let names = super::declared_block(flake, "packages = ");
+        let names = super::declared_block(flake, "packages = ").expect("the block closes");
         assert!(names.contains("xtask"), "xtask must be declared, got {names:?}");
         assert!(names.contains("default"), "default must be declared, got {names:?}");
         assert!(!names.contains("pname"), "a nested attribute is not a declaration");
@@ -564,9 +820,133 @@ mod tests {
             "          hygiene = pkgs.runCommand \"h\" { } \"\";\n",
             "        };\n",
         );
-        let names = super::declared_block(flake, "checks = {");
+        let names = super::declared_block(flake, "checks = {").expect("the block closes");
         assert!(names.contains("clippy"), "got {names:?}");
         assert!(names.contains("hygiene"), "declared below a nested close, got {names:?}");
         assert!(!names.contains("cargoArtifacts"), "a nested attribute is not a declaration");
+    }
+
+    #[test]
+    fn a_brace_inside_a_comment_does_not_shift_the_block() {
+        // THE DEFECT THAT SHIPPED. A sentence in `flake.nix` quoting the block's own header in
+        // prose - `checks = {` inside a `#` comment - was skipped when reading a name and counted
+        // when counting depth, so everything below it sat one level too deep. Six checks that CI
+        // builds every run became undeclared, and the gate reported eighteen workflow references
+        // as pointing at outputs that do not exist.
+        let flake = concat!(
+            "        checks = {\n",
+            "          clippy = craneLib.cargoClippy { };\n",
+            "          # `checks = {` is the block two xtask gates read, so it stays here.\n",
+            "          hygiene = pkgs.runCommand \"h\" { } \"\";\n",
+            "        };\n",
+            "        formatter = pkgs.nixfmt;\n",
+        );
+        let names = super::declared_block(flake, "checks = {").expect("the block closes");
+        assert!(names.contains("hygiene"), "a comment's brace must not hide it, got {names:?}");
+        assert!(!names.contains("formatter"), "the scan ran past the block, got {names:?}");
+        assert_eq!(names.len(), 2, "got {names:?}");
+    }
+
+    #[test]
+    fn shell_inside_an_indented_string_declares_nothing() {
+        // `checks.keycloak-tier`'s body is an inline shell script. At raw-text depth its
+        // assignments sat at the block's own level, so `port` and `realm` were reported as
+        // declared checks - a gate INVENTING outputs, which is worse than losing them because a
+        // caller cannot tell the difference. The `${...}` is code and its braces still balance.
+        let flake = concat!(
+            "        checks = {\n",
+            "          keycloak-tier = pkgs.runCommand \"k\" { } ''\n",
+            "            port=\"$(jq -r '.port' \"$f\")\"\n",
+            "            realm=.sutura-dev/keycloak-realm.json\n",
+            "            case \"$x\" in *a*) echo ${tier.realm} ;; esac\n",
+            // A brace shell leaves unbalanced, which is the half a `matches('{').count()` cannot
+            // survive at all: one of these shifts every line below it.
+            "            sed -n 's|.*}||p' \"$log\"\n",
+            "          '';\n",
+            "          fmt = craneLib.cargoFmt { };\n",
+            "        };\n",
+        );
+        let names = super::declared_block(flake, "checks = {").expect("the block closes");
+        assert_eq!(names.len(), 2, "shell text is not a declaration, got {names:?}");
+        assert!(names.contains("keycloak-tier"), "got {names:?}");
+        assert!(
+            names.contains("fmt"),
+            "an unbalanced shell brace must not hide it, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn a_let_binding_inside_a_check_is_not_a_check() {
+        // `let` opens no brace, so a binding in a check's own value is at the same brace depth as
+        // the check. Seven of them read as declared outputs on `main` for as long as the release
+        // checks were written inline in `flake.nix`.
+        let flake = concat!(
+            "        checks = {\n",
+            "          one-binary =\n",
+            "            let\n",
+            "              cells = map f binaries;\n",
+            "              checkOne = p: \"x\";\n",
+            "            in\n",
+            "            pkgs.runCommand \"one\" { } \"\";\n",
+            "          reuse = pkgs.runCommand \"r\" { } \"\";\n",
+            "        };\n",
+        );
+        let names = super::declared_block(flake, "checks = {").expect("the block closes");
+        assert_eq!(names.len(), 2, "a let binding is not an output, got {names:?}");
+        assert!(names.contains("one-binary"), "got {names:?}");
+        assert!(names.contains("reuse"), "got {names:?}");
+    }
+
+    #[test]
+    fn a_block_that_never_closes_is_an_error_and_not_an_answer() {
+        // The direction this gate has to fail in. Answering with the names it happened to collect
+        // is how a desynchronised parse became eighteen confusing reference failures instead of
+        // one clear "the scan is broken".
+        let flake = concat!(
+            "        checks = {\n",
+            "          clippy = craneLib.cargoClippy { };\n",
+            "          hygiene = pkgs.runCommand \"h\" { } \"\";\n",
+        );
+        assert!(
+            super::declared_block(flake, "checks = {").is_none(),
+            "an unclosed block must not answer the question"
+        );
+    }
+
+    #[test]
+    fn an_interpolation_holding_an_attrset_keeps_the_scan_aligned() {
+        // `${pkgs.closureInfo { rootPaths = [ drv ]; }}` - a `${` whose code contains its own
+        // braces. Popping the interpolation on the FIRST `}` swallows the second, and the block
+        // then never closes.
+        let flake = concat!(
+            "        checks = {\n",
+            "          one-binary = pkgs.runCommand \"o\" { } ''\n",
+            "            grep -q x ${pkgs.closureInfo { rootPaths = [ drv ]; }}/store-paths\n",
+            "          '';\n",
+            "          reuse = pkgs.runCommand \"r\" { } \"\";\n",
+            "        };\n",
+        );
+        let names = super::declared_block(flake, "checks = {").expect("the block closes");
+        assert_eq!(names.len(), 2, "got {names:?}");
+        assert!(names.contains("reuse"), "the scan lost alignment, got {names:?}");
+    }
+
+    #[test]
+    fn the_real_flake_declares_the_checks_ci_builds() {
+        // The unit fixtures above are shapes; this is the file. Anchored on names `ci.yml` and
+        // `justfile` both build, so a parse that regresses on the real tree fails here rather
+        // than in a nix step minutes into a run.
+        let Some(root) = crate::repo::root() else { return };
+        let Ok(flake) = std::fs::read_to_string(root.join("flake.nix")) else {
+            return;
+        };
+        let names = super::declared_block(&flake, "checks = {").expect("flake.nix's `checks = {` block must close");
+        for required in ["clippy", "nextest", "hygiene", "fmt", "doctest", "crap", "api-docs"] {
+            assert!(names.contains(required), "`checks.{required}` is not declared, got {names:?}");
+        }
+        assert!(
+            !names.contains("formatter"),
+            "`formatter` is a sibling of `checks`, so the scan ran past the block: {names:?}"
+        );
     }
 }

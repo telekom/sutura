@@ -40,6 +40,15 @@ paths = [
     # `.devenv/`, so an ad-hoc verification run that used the example access token left that
     # token on disk seven times over. Allowlisted by PATH, so anything these tools generate
     # into a scanned directory is still scanned.
+    # MEASURED, the first time the keycloak tier was ever started: `nix/keycloak-tier.nix` writes
+    # the realm's generated client secret, admin password and per-subject passwords to
+    # `.sutura-dev/keycloak-realm.json` - a reader needs them to ask for a token - and the sweep
+    # then reported two `generic-api-key` findings, so `just secrets`, `just validate` and the
+    # push hook all went red for anyone with a tier up. Nothing there was ever committable: the
+    # directory is gitignored, every value is generated per `start`, the file is `0600`, and
+    # `stop` removes it. CI's clean checkout cannot reproduce any of it, which is the cry-wolf
+    # shape this block already exists for.
+    '''\.sutura-dev/.*''',
     '''\.devenv/.*''',
     '''\.pixi/.*''',
     '''target/.*''',
