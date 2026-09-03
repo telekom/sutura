@@ -917,9 +917,13 @@ like.
 
 Named rather than implied, because an absence that reads as an oversight gets assumed away.
 
-- **No MCP surface.** The seam is there and nothing sits on it: the transport talks to the service
-  through one small port, so a second transport consumes the same thing rather than growing its own
-  copy of the wiring.
+- **No caller identity on the agent surface.** This bullet said the agent transport did not exist,
+  and that had stopped being true: `sutura-mcp` sits on the same small port this one talks to and
+  serves the tool surface over a process's own standard input and output, which `just mcp-e2e`
+  drives end to end. What does not exist there is anyone to be: a pipe has no header a token could
+  arrive in, so that surface offers every capability and answers as the deployment, and a
+  network-reachable one needs the identity leg
+  [how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md) designs.
 - **No record STORE.** This bullet said "no audit sink" and that had already stopped being true: there
   is an `AuditSink` port, `sutura-app` writes one record per outcome through it before the outcome
   returns, and the writer a deployment gets for free puts that record on the log below. What does not

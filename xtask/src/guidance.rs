@@ -8,13 +8,19 @@
 //! Scope: documentation and configuration (`.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh`).
 //! Rust source is deliberately out of scope - see the filter in `run`.
 //!
-//! Five checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Six checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
 //! * `claims` - a statement about what this repo has, checked against what it has
 //! * `counts` - a number in prose that counts something, checked against the count
 //! * `references` - a gate, task or skill named in prose must exist
+//! * `remedies` - the correction a failure prints, held to the standard of the prose it corrects
+//!
+//! The sixth is the only one that reads THIS binary's own source rather than the tree, and it is
+//! here because of `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface
+//! was absent for as long as it took a person to read it, because the scope below is prose files
+//! and no gate in the repository - this one included - reads a Rust string literal.
 //!
 //! `claims` and `counts` exist because of one review, and because of one CAUSE rather than
 //! nineteen mistakes: nineteen false sentences across `README.md`, `docs/` and `AGENTS.md`, four of
@@ -41,7 +47,7 @@ use crate::repo;
 // `claims` and `counts` judge a claim across lines and need a flattened view to do it.
 mod claims;
 
-use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches};
+use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 
 /// A phrase that should not appear, and what to write instead.
 struct Forbidden {
@@ -409,6 +415,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     problems.extend(count_mismatches(&root, &files, &text_files));
     problems.extend(bad_task_references(&root, &text_files));
     problems.extend(dead_paths(&root, &text_files));
+    // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
+    // the reason it states. They are judged against the tree rather than scanned in it.
+    problems.extend(remedy_problems(&root));
 
     if problems.is_empty() {
         println!(

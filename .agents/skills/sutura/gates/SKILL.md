@@ -158,6 +158,15 @@ therefore does not see.
   now written down where it can be compared. The other silent-green mode is granularity: an entry
   counting FILES over a literal that can repeat inside one is right only by coincidence, which is
   why each entry declares files or occurrences rather than inheriting a default.
+- **The gate that fails a false claim carried one, and the reason generalises.** Its scope is prose
+  files, so it never read its own source: the *remedy* a claim prints - the sentence handed to a
+  reader as the correction - said a transport surface was absent for as long as it took a person to
+  notice, invisible to every gate in the repository including itself. Three properties of a remedy
+  are mechanical now: it may not repeat a wording any live claim forbids, every repo path it cites
+  must resolve, and every task it cites must exist. **The sentence itself still is not** - a remedy
+  is prose and nothing derives it, so a wording nobody has registered is held by review. The
+  transferable part: when a mechanism's own data is prose, ask what reads THAT, and expect the
+  answer to be nothing.
 - **A count in prose is only as good as the command beside it.** An anchored
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.

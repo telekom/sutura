@@ -5,11 +5,11 @@ description: OAuth 2.x and OIDC for this service - validating access tokens, aut
 
 # OAuth and OIDC here
 
-**None of this page describes code that exists.** sutura now has an HTTP surface, but not the one
-this page is about: it is gated by a single shared bearer token that authenticates the DEPLOYMENT,
-with no token validation, no JWT dependency, no OIDC and no credential port. There is no MCP surface. There is nothing here to review against
-these rules yet: this is the shape the two halves have to take when the first transport arrives, and
-it is written down first because retrofitting either half is where governance gets lost.
+**Read this page as design, not as description.** sutura serves two transports now: HTTP behind a
+single shared bearer token that authenticates the DEPLOYMENT, and an agent surface over a process's
+own pipes, where there is no header a token could arrive in at all. What is below is the shape the
+two halves have to take, and it is written down first because retrofitting either half is where
+governance gets lost.
 
 sutura is *intended to be* a **resource server** that also acts as a **client** on the way down: it
 validates an incoming token, then obtains a downstream credential *as the calling subject*. Both

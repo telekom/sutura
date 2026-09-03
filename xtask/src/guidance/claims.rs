@@ -21,6 +21,13 @@ use std::path::Path;
 
 use super::matches_any;
 
+// The remedy check, split off under the 1000-line cap. The seam is the one the causality gate
+// forces: the mechanism moved and every assertion stayed in `tests` below, beside the table it
+// reads.
+mod remedies;
+
+pub(super) use remedies::remedy_problems;
+
 /// What makes a claim false: a path that is there, optionally holding a literal.
 ///
 /// A path rather than a sentence, because the point of this table is that the prose is checked
@@ -56,8 +63,22 @@ pub(super) struct Contradicted {
     /// wording is added here the moment it is found, not merely fixed where it was found.
     wordings: &'static [&'static str],
     /// What refutes it. ALL of these must stand for the rule to be live.
+    ///
+    /// Doubly load-bearing, and the second job is why `github.com/telekom/sutura#241` was filed:
+    /// the same rows underwrite [`Contradicted::instead`]. A remedy that rests on a row here
+    /// retires with the rule instead of outliving it, and
+    /// `tests::every_live_rule_still_has_its_evidence` is where a row that has gone reports itself.
     evidence: &'static [Evidence],
     /// What is true instead, and where the correct sentence already is.
+    ///
+    /// **Held by [`remedies`], and not by review** - which it was, for as long as it took a person
+    /// to read this field: it said the agent surface was absent from the day `sutura mcp` shipped,
+    /// invisible because `run`'s scope is prose files and this gate never reads its own source.
+    ///
+    /// **What that does not reach is the sentence.** A remedy is prose and nothing derives it, so a
+    /// wording nobody has registered, a number, or a claim about behaviour is held here by review -
+    /// the same limit `AGENTS.md` records for this whole module. What is closed is the class that
+    /// rotted: a remedy asserting an absence the tree contradicts, once that absence is a wording.
     instead: &'static str,
     /// Paths this applies to. Empty means everywhere in scope.
     only: &'static [&'static str],
@@ -65,13 +86,35 @@ pub(super) struct Contradicted {
     except: &'static [&'static str],
 }
 
+impl Contradicted {
+    /// Is what refutes this claim still in the tree?
+    ///
+    /// A rule that kept forbidding a sentence after it became true again is the same bug as a
+    /// stale doc, one layer up. Read by both checks over this table, so *live* means one thing.
+    fn is_live(&self, root: &Path) -> bool {
+        self.evidence.iter().all(|e| e.stands(root))
+    }
+}
+
 pub(super) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
-        name: "there is no HTTP surface",
+        // RENAMED from "there is no HTTP surface". The entry always held both halves of one claim,
+        // and a name that said only HTTP was the label version of the defect
+        // `github.com/telekom/sutura#241` reports: this entry's own remedy went on saying the agent
+        // surface was absent after `github.com/telekom/sutura#189` shipped it.
+        name: "a transport surface is absent",
         wordings: &[
             "neither an MCP nor an HTTP surface",
             "The MCP and HTTP surfaces",
             "no MCP server and no HTTP surface",
+            // THREE spellings of the surviving half, each found in the tree rather than imagined,
+            // per the doctrine on this field. Two of them differ only in case because the match is
+            // case-sensitive and a bullet heading capitalises; the third is the one this file's own
+            // remedy carried, which is what makes `remedies_hold` a mechanism here rather than a
+            // note.
+            "no MCP surface",
+            "No MCP surface",
+            "the MCP surface is absent",
         ],
         evidence: &[
             Evidence {
@@ -86,11 +129,27 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
                 path: "docs/serving.md",
                 holds: "",
             },
+            // The agent half, pinned the way the HTTP half already was: the crate, and the task
+            // that drives it end to end. The remedy below rests on both, so the day either goes the
+            // rule retires and the evidence test names it instead of the sentence going quietly
+            // stale.
+            Evidence {
+                path: "crates/sutura-mcp/Cargo.toml",
+                holds: "",
+            },
+            Evidence {
+                path: "justfile",
+                holds: "mcp-e2e:",
+            },
         ],
-        instead: "the MCP surface is absent and the HTTP one is not: `sutura-http` and \
-                  `sutura-serve` ship, `docs/serving.md` is published, and `examples/single-player` \
-                  has a captured session. The token authenticates the DEPLOYMENT, not the caller, \
-                  which is what keeps the identity claims design targets - see `docs/concepts.md`",
+        instead: "both surfaces ship. `sutura-http` and `sutura-serve` serve HTTP and \
+                  `sutura-mcp` serves the agent surface over the process's own pipes, `just \
+                  mcp-e2e` drives that one end to end against committed schema snapshots, \
+                  `docs/serving.md` is published, and `examples/single-player` has a captured \
+                  session. The clause that is still load bearing is the identity: the HTTP bearer \
+                  token authenticates the DEPLOYMENT and not the caller unless the deployment \
+                  declares `security.inbound`, and the agent surface has no header a token could \
+                  arrive in at all - see `docs/concepts.md`",
         only: &[],
         except: &[],
     },
@@ -483,9 +542,7 @@ fn wording_lines(text: &str, wording: &str) -> Vec<usize> {
 pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for rule in CONTRADICTED {
-        // The rule is live only while what refutes it is still there. A gate that kept forbidding
-        // a sentence after it became true again is the same bug as a stale doc, one layer up.
-        if !rule.evidence.iter().all(|e| e.stands(root)) {
+        if !rule.is_live(root) {
             continue;
         }
         for rel in files {
@@ -646,7 +703,91 @@ pub(super) fn count_mismatches(root: &Path, all: &[String], files: &[String]) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{CONTRADICTED, COUNTS, Evidence};
+    use super::remedies::{path_shaped, remedies_hold, remedy_scan_broke};
+    use super::{CONTRADICTED, COUNTS, Contradicted, Evidence, remedy_problems};
+
+    /// The entry as it stood before `github.com/telekom/sutura#241`, reduced to the two fields
+    /// that made it wrong: evidence that the surface SHIPS, and a remedy saying it does not.
+    const STALE: Contradicted = Contradicted {
+        name: "a transport surface is absent",
+        wordings: &["the MCP surface is absent"],
+        evidence: &[Evidence {
+            path: "crates/sutura-mcp/Cargo.toml",
+            holds: "",
+        }],
+        instead: "the MCP surface is absent and the HTTP one is not: `sutura-http` and \
+                  `sutura-serve` ship",
+        only: &[],
+        except: &[],
+    };
+
+    #[test]
+    fn an_instead_sentence_that_names_an_absent_surface_fails_when_the_surface_lands() {
+        let root = crate::repo::root().expect("the repo root");
+        // The surface landed: the evidence row stands, so the rule is live and its remedy is read.
+        assert!(STALE.is_live(&root), "the fixture's premise is that the crate is there");
+        let found = remedies_hold(&root, &[&STALE]);
+        assert!(
+            found.iter().any(|problem| problem.contains("the MCP surface is absent")),
+            "a remedy repeating a wording this table forbids must be reported: {found:?}"
+        );
+    }
+
+    /// Four citations: two that resolve - a numbered record by its PREFIX, which is how this repo
+    /// cites one, and a recipe - and two that do not.
+    const CITES: Contradicted = Contradicted {
+        name: "citations",
+        wordings: &["a phrase nothing in this repo writes"],
+        evidence: &[],
+        instead: "see `docs/adr/0002` and `just mcp-e2e`, not `docs/no-such-page.md` or \
+                  `just no-such-recipe`",
+        only: &[],
+        except: &[],
+    };
+
+    #[test]
+    fn a_remedy_citation_that_resolves_to_nothing_is_reported() {
+        let root = crate::repo::root().expect("the repo root");
+        let found = remedies_hold(&root, &[&CITES]);
+        assert!(
+            found.iter().any(|problem| problem.contains("docs/no-such-page.md")),
+            "a path that is not in the tree must be reported: {found:?}"
+        );
+        assert!(
+            found.iter().any(|problem| problem.contains("no-such-recipe")),
+            "a recipe that does not exist must be reported: {found:?}"
+        );
+        assert_eq!(found.len(), 2, "the two that resolve must not be reported: {found:?}");
+    }
+
+    #[test]
+    fn a_settings_key_or_a_route_is_not_a_citation() {
+        // The three spans in the live table that hold a slash or look like they might, and none of
+        // them is something to open. Under-claiming is the safe direction here.
+        assert!(!path_shaped("sources.<alias>.kind"));
+        assert!(!path_shaped("GET /v1/catalog"));
+        assert!(!path_shaped("ci.yml"));
+        assert!(path_shaped("docs/serving.md"));
+        assert!(path_shaped(".agents/skills/sutura/query-surface/SKILL.md"));
+    }
+
+    #[test]
+    fn a_remedy_scan_that_reads_no_path_reports_itself() {
+        // Same argument as `a_count_entry_measures_something`: a span walk that stopped working
+        // would make the check pass on every remedy. Nothing to read is the tell.
+        assert!(!remedy_scan_broke(&[]).is_empty(), "an empty table must not read as clean");
+        let live: Vec<&Contradicted> = CONTRADICTED.iter().collect();
+        assert!(remedy_scan_broke(&live).is_empty(), "the live table cites paths");
+    }
+
+    #[test]
+    fn every_live_remedy_is_held_to_the_prose_it_corrects() {
+        // The live half of the two fixtures above. Red against the tree this was written on: the
+        // transport entry's remedy said the agent surface was absent while its own evidence rows
+        // prove it ships.
+        let found = remedy_problems(&crate::repo::root().expect("the repo root"));
+        assert!(found.is_empty(), "a remedy in CONTRADICTED does not hold: {found:?}");
+    }
 
     #[test]
     fn a_wrapped_sentence_is_still_one_claim() {
@@ -741,6 +882,9 @@ mod tests {
                 );
             }
             assert!(!rule.wordings.is_empty(), "`{}` forbids nothing", rule.name);
+            // An empty list is vacuously true, so an entry with no evidence can never retire and
+            // the loop above would check nothing about it.
+            assert!(!rule.evidence.is_empty(), "`{}` rests on nothing", rule.name);
         }
     }
 
