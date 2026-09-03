@@ -824,15 +824,18 @@
         # consumer asks for it. It proves the VENUE and not leg 2: a real issuer mints two
         # per-subject tokens at the discovered endpoint; nothing executes AS those subjects.
         #
-        # It supplies the pinned cargo and `cargo-nextest` (for the reason `apps.deny` gives) and
-        # the tier's script from the SAME derivation the dev shell uses. The test reads only the
-        # discovery file `start` writes, with `SUTURA_DEV_REQUIRE_TIER=1` failing an absent venue.
+        # It supplies the pinned cargo and `cargo-nextest` (for the reason `apps.deny` gives for
+        # the two it adds) and the tier's script from the SAME derivation the dev shell uses. It is
+        # deliberately NOT a warm-start consumer - the warm-start gate requires an `exec cargo`
+        # command, and this app must `exec` nothing so its EXIT trap can tear the tier down on
+        # success AND failure; an opt-in job compiling `sutura-http` cold is cheaper than a JVM
+        # left behind. The test reads only the discovery file `start` writes, with
+        # `SUTURA_DEV_REQUIRE_TIER=1` failing an absent venue.
         apps.keycloak-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-keycloak-acceptance" ''
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
             ${cargoLinkEnv}
-            ${cargoWarmStart}
             sutura-keycloak-tier start
             cleanup() { sutura-keycloak-tier stop; }
             trap cleanup EXIT
