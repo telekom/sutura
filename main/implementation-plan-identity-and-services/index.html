@@ -3740,6 +3740,10 @@ economise.</p>
 <td>Deferred, and it reads the two tables above - so a pull request can break this classification and only the <code>main</code> push says so</td>
 </tr>
 <tr>
+<td><code>check-venues</code></td>
+<td>Deferred, and the deferred verdict is the map itself: <code>docs/where-identity-is-proven.md</code> is a <code>docs/*.md</code> page, so a pull request can leave a venue claiming a limit it does not state and only the <code>main</code> push says so. The half that reads <code>.github/workflows/ci.yml</code> is unreachable from such a diff</td>
+</tr>
+<tr>
 <td><code>text-hygiene</code>, <code>line-endings</code></td>
 <td>Deferred. Whitespace and CRLF in a new page</td>
 </tr>
