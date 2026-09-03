@@ -39,8 +39,11 @@ everything *around* it, and shrinks to the one job only it can do.
 
     The exception is named rather than left to be found: two tests inside `just serve-e2e` spawn the
     binary over a **mock issuer's** published key set, and those two are this page's middle venue on a
-    composed binary. `just mcp-e2e` has no such case and cannot have one. So a green `serve-e2e` is
-    evidence for the two rows those tests carry below and for nothing else in the table.
+    composed binary. `just mcp-e2e` has no such case and cannot have one.
+
+    So a green `serve-e2e` is evidence for exactly two rows below, and they are named rather than left
+    to be counted: *the composition root arms leg 1 over the governed routes, or does not start*, and
+    *the caller a signature established reaches the answer's own record*. Nothing else in the table.
 
 ## Which venue answers which claim
 
@@ -60,7 +63,8 @@ everything *around* it, and shrinks to the one job only it can do.
 | `credential_unavailable` through the request path | - | **yes** | - | - | - |
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - |
 | The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | redundant |
-| The composition root arms leg 1, or does not start | - | **yes**, on the spawned binary | - | redundant | - |
+| The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | redundant | - |
+| The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | redundant | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **only here** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | - | **only here** |
@@ -132,16 +136,32 @@ is not a signature check - that is the router's job above - but the **compositio
   composition root read the key set its own settings file named, armed leg 1 before the listener
   opened, and mounted the gate over the governed routes: a caller's own token is answered with the
   example's number, and seven forgeries get one `401` that is byte-for-byte the same challenge. One of
-  the seven is the ID-token substitution `docs/adr/0014` records by name.
+  the seven is the ID-token substitution `docs/adr/0014` records by name. Two further assertions are
+  there because review found them missing and neither is visible from a status code:
+  **the caller the gate verified reaches the audit record** - `subject_established` and the subject the
+  token named - because `executed_as` reports the *source's* posture and the rows are the example's
+  number whether a caller was established or not, so a root that verifies and then answers as the
+  deployment would otherwise pass; and **the liveness probe still answers with no token**, because leg 1
+  is layered on the versioned router and merged beside the probe, and a change that layered the merged
+  one would `401` every orchestrator.
 - `a_published_key_set_this_deployment_cannot_use_stops_the_process` - a symmetric key in the set is a
   deployment that **does not start**, rather than one that starts, logs that it establishes a caller
   identity and answers `401` to everybody.
 
-**Both are asserted on the refusal's own sentence where they have to be**, and the reason is worth
-recording: a root that read the key set fine and then forgot to attach the gate also exits non-zero,
-also never logs `leg 1 is armed` and also never listens. The startup banner echoes the whole resolved
-configuration, so matching the key set's *path* passes for every refusal this deployment can produce -
-measured on a build changed to swallow exactly that failure.
+**The boot refusal is asserted on the refusal's own sentence, because nothing else separates the two
+ways this deployment can fail to start:** a root that read the key set fine and then forgot to attach
+the gate also exits non-zero, also never logs `leg 1 is armed` and also never listens. The startup
+banner echoes the whole resolved configuration, so matching the key set's *path* passes for every
+refusal this deployment can produce - measured on a build changed to swallow exactly that failure.
+**And the limit of that:** `docs/serving.md` documents the *behaviour*, not the wording, so the matched
+string is `sutura_http`'s own `Display` held by recall across a crate boundary. Tolerable for a startup
+refusal, and not a mechanism - the test says so at the assertion rather than calling it documented.
+
+**The audit assertion can only live here, which is the sharper reason this venue exists.** The record
+is written from the blocking pool, so `sutura_http`'s log-capture harness - a *thread-scoped*
+subscriber - cannot see it, and two of that crate's own tests stand in `tower_http`'s response line and
+say so. A suite reading the process's own streams sees every thread. It is also why the wait is a
+blocking read with a budget rather than a sweep: the record is not ordered against the response.
 
 **What the composed binary cannot host, and why the tests above stay at the router:** the key-set
 windows cannot be shortened from a settings file, so the rotation and rate-limit bounds would mean a
