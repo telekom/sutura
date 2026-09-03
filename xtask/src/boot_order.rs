@@ -59,11 +59,12 @@
 //! declaration is compared against a scan of `crates/`, and an emptied list, an undeclared root and a
 //! pre-flight renamed out of existence are each red.
 //!
-//! The scan costs what the listing costs: `repo::all_files` shells out to git twice, measured at 26 ms
-//! of this gate's 62 ms, against 3 ms for a bare directory walk. It is the listing every other
+//! The scan costs mostly what the LISTING costs, because `repo::all_files` shells out to git twice
+//! rather than walking the directory. Measured on this tree, 20 runs of the debug binary: **136 ms
+//! each**, against a `hygiene` sweep of six to ten seconds. It is the listing every other
 //! Rust-reading gate uses - tracked plus untracked-but-not-ignored, with a full walk as the sandbox
-//! fallback - and a gate that judged only what happened to be committed is the wrong trade at 1% of
-//! the `hygiene` sweep.
+//! fallback - and a gate that judged only what happened to be committed is the wrong trade at that
+//! price.
 
 use crate::Verdict;
 use crate::causality::regions::{self, PostImage, TestScope};
@@ -188,8 +189,8 @@ fn scan(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
         })?;
         count = count.saturating_add(1);
         // Before the lexer, because it only ever REMOVES text: a file whose raw bytes do not carry the
-        // call cannot carry it once comments and string interiors are blanked. Measured at half this
-        // gate's own work - two files under `crates/` carry the needle and 213 do not.
+        // call cannot carry it once comments and string interiors are blanked. Two files under
+        // `crates/` carry the needle and 213 do not, so this skips the lex for all but two.
         if !text.contains(PREFLIGHT) {
             continue;
         }
