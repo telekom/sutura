@@ -283,8 +283,10 @@ in
       cargo run -q -p xtask -- fmt
       cargo run -q -p xtask -- text-hygiene --fix
     '';
-    # `--all-features` is a no-op today, since no crate declares a feature. It stays so that
-    # coverage cannot silently drop the day an adapter goes behind one.
+    # `--all-features` is load-bearing rather than foresight: crates here declare features and make
+    # dependencies optional, so an entry point missing the flag lints and tests nothing behind
+    # them. `grep -rln '^\[features\]' --include=Cargo.toml .` is the current set.
+    # `cargo run -q -p xtask -- check-guidance` holds the retired claim, and this file IS in scope.
     lint.exec = onStable "cargo clippy --workspace --all-targets --all-features -- -D warnings";
     test.exec = onStable "cargo nextest run --workspace --all-features";
     boundaries.exec = onStable "cargo run -q -p xtask -- check-boundaries";
