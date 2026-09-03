@@ -1738,6 +1738,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#addendum-to-the-amendment-which-half-of-decision-7-the-deployment-still-owns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Addendum to the amendment: which half of decision 7 the deployment still owns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-this-addendum-does-not-establish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this addendum does NOT establish
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2743,6 +2765,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#addendum-to-the-amendment-which-half-of-decision-7-the-deployment-still-owns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Addendum to the amendment: which half of decision 7 the deployment still owns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-this-addendum-does-not-establish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this addendum does NOT establish
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2776,7 +2820,8 @@ metric layer. Everything it decides is tested against a fake reader over recorde
 client over the versioned OpenAPI entity surface is the open read-path-cost measurement this record
 leaves to a provisioned instance. <strong>Issue #202 changed the <em>no metric layer</em> half of that sentence,
 and the <em>Amendment, 2026-09-02</em> at the foot of this page is where the change is recorded - read it
-before citing <code>provides no measure</code> above.</strong></p>
+before citing <code>provides no measure</code> above, and read the <em>Addendum</em> under it before citing decision 7
+or the <em>Required filters</em> argument, both of which it narrows.</strong></p>
 <p><strong>Reframed after review, and the reframe is recorded rather than smoothed over.</strong> The measurements
 below are unchanged and were independently verified. What changed is the conclusion drawn from one of
 them: the first version read the catalog conformance matrix as every adapter's contract and concluded
@@ -3686,6 +3731,62 @@ register records that nothing serves it.</p>
 <li>The read path against a provisioned instance is <strong>still</strong> the open measurement this record leaves;
   nothing here reaches a network. <code>sutura-catalog-datahub</code> still has one <code>AspectReader</code> implementor,
   the recorded fixture source.</li>
+</ul>
+<h3 id="addendum-to-the-amendment-which-half-of-decision-7-the-deployment-still-owns">Addendum to the amendment: which half of decision 7 the deployment still owns<a class="headerlink" href="#addendum-to-the-amendment-which-half-of-decision-7-the-deployment-still-owns" title="Permanent link">&para;</a></h3>
+<p><strong>Status: accepted.</strong> The amendment above answered issue #202's feasibility question and left two of
+its own arguments standing unreconciled. Both are answered here rather than in place, because an
+accepted decision's body is not edited to agree with a later one - the amendment is the record.</p>
+<p><strong>Decision 7 says the sentence <em>"configure DataHub like this"</em> is not ours to say, and the amendment
+writes one property name and one document grammar.</strong> Read together they contradict, so the boundary
+is drawn rather than left to a reader:</p>
+<ul>
+<li><strong>The grammar of the decoded document is this repository's, and there was no version of this that
+  left it open.</strong> A decoder over a scalar has no way to negotiate the meaning of what it decodes:
+  the closedness IS <code>deny_unknown_fields</code> at every depth over one known key set, and a key set the
+  deployment chose would be no closedness at all - it would be the free-text escape hatch
+  <code>docs/adr/0002</code> exists to refuse, reached by a longer route. So the document is dictated, and that
+  is the price of the closed vocabulary rather than a preference.</li>
+<li><strong>Whether any metric carries it stays the deployment's, and that half is held by a mechanism.</strong>
+  The metric kinds are declared-and-empty may-provide (<code>DefinitionCapabilities::of_may_provide</code>) and
+  <code>Definitions::assemble</code> has no minimum-metric refusal, so a deployment that defined nothing loads
+  models, prose and joins. Decision 7's <em>"the absence of all of them is a supported configuration"</em>
+  therefore survives intact for the property too, as a type rather than as a sentence.</li>
+<li><strong>What the property is called IN DataHub is still the deployment's, and nothing here names it.</strong>
+  The <code>sutura</code> key is a field on this adapter's OWN canonical shape (<code>document::MetricAspect</code>), not a
+  DataHub structured-property urn - <code>document.rs</code>'s header is explicit that these shapes are the
+  adapter's statement of aspect CONTENT and not DataHub's envelope, and no urn appears anywhere in
+  the crate. Mapping a registered structured property - its namespace, its <code>SINGLE</code> cardinality, its
+  string value type, the entity types it binds to - onto that field is the unbuilt HTTP
+  <code>AspectReader</code>'s job. Until that reader exists, <em>"under which name"</em> is genuinely unanswered rather
+  than answered as <code>sutura</code>, and writing a urn here would be a claim about a registry this
+  repository has never read.</li>
+</ul>
+<p><strong>And the <em>Required filters: absent, and absent in the way that matters</em> section makes TWO arguments,
+where the amendment collapsed one.</strong> The amendment answered the SHAPE argument - a scalar cannot
+carry a predicate - and the second argument is untouched by it: <em>"a catalog that records a predicate
+as a property records a fact, not a duty"</em>, so enforcing one would substitute our reading for the
+author's, which <code>docs/adr/0001</code> refuses. That argument stands, and it is what still forbids reading
+DataHub's own <code>filters</code> structured property or its <code>aggregationFunction</code>. What passes it is narrower
+than a structured property in general: a deployment writing a predicate under the key
+<code>required_filters</code>, inside a document written in this repository's grammar, is not recording a fact
+for us to interpret - it is stating the duty in the one vocabulary where that key already MEANS
+<em>applied to every question about this metric</em>. The substitution 0001 refuses is inferring a duty from
+a field DataHub defines; reading one from a field the deployment wrote in our own grammar is the
+author speaking.</p>
+<h3 id="what-this-addendum-does-not-establish">What this addendum does NOT establish<a class="headerlink" href="#what-this-addendum-does-not-establish" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Nothing here has ever written or read the property through DataHub.</strong> The venue exists and is
+  reachable - <code>just datahub-acceptance</code> gets a <code>2xx</code> off the surface a reader would call - and the
+  instance is empty, so DataHub's server-side structured-property validator has never seen one of
+  these documents. <code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not wired</em> register is
+  where that limit is read from.</li>
+<li><strong>The document's size ceiling is unmeasured.</strong> It grows with the metric - dimensions, allowed
+  values, prose - and a deployment's DataHub validates the scalar for length. This crate adds no
+  bound of its own, and no measurement here says what the ceiling is or what a metric that exceeds it
+  does, because writing one through the platform is the same absent step as above.</li>
+<li><strong>Whether a per-deployment property is acceptable to MAINTAIN is still not decided by this record.</strong>
+  Issue #202 said that was not its job; it is not this addendum's either. What is decided is what the
+  shape is, who owns which half of it, and which of the original arguments against it survive.</li>
 </ul>
 
 
