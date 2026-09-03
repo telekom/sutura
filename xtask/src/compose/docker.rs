@@ -15,6 +15,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 /// The compose file, relative to the repository root. One file; per-worktree values come from the
 /// project name and from ephemeral publishing, never from a second file.
@@ -46,10 +47,55 @@ impl Missing {
     }
 }
 
+/// How long ONE probe may wait for an answer before the runtime counts as absent.
+///
+/// A WEDGED daemon is the case this exists for, and it is not hypothetical. Docker Desktop can go on
+/// accepting on its socket while never answering, and the CLI then waits forever because it has no
+/// timeout of its own. Measured on a developer machine here: `docker version` and `docker info`
+/// were both still running when a 25s external timeout killed them, twice, fifty minutes apart.
+///
+/// What that cost is the reason this is a constant and not a nicety. [`presence`] is the first thing
+/// every gate that touches a service calls, so an unbounded probe does not FAIL a gate - it HANGS
+/// one, with no output naming the cause. On that machine `just test`, `just causality`,
+/// `just ship-check` and every pre-commit tier blocked indefinitely, all of them behind the single
+/// unit test that calls this function.
+///
+/// Ten seconds because the question is "is a daemon answering at all", not "is it quick": a busy
+/// daemon on a cold start answers in a second or two, and nothing here needs to tell slow from dead
+/// more finely than that. Three probes, so a fully wedged host costs 30s once instead of forever.
+const PROBE_TIMEOUT_SECS: u64 = 10;
+
+/// How often a probe still running is checked for having finished.
+///
+/// Short enough that the ordinary case - a probe that answers at once - is not measurably delayed
+/// by the polling, long enough that waiting does not become a spin.
+const PROBE_POLL_MILLIS: u64 = 25;
+
+/// The per-probe budget, overridable for a host where ten seconds is genuinely too few.
+///
+/// Same shape as `SUTURA_DEV_READY_TIMEOUT_SECS` in the parent module, deliberately: an absent or
+/// unparseable value takes the default rather than refusing, because a probe helper is the wrong
+/// place to fail a startup over a malformed number.
+fn probe_budget() -> Duration {
+    Duration::from_secs(
+        std::env::var("SUTURA_DOCKER_PROBE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(PROBE_TIMEOUT_SECS),
+    )
+}
+
 /// Is there a usable container runtime, and if not, which part is absent?
 ///
 /// Three probes rather than one, because "docker is missing" and "docker is not running" send a
 /// reader to different places and the difference costs nothing to report.
+///
+/// Every probe is bounded (see [`PROBE_TIMEOUT_SECS`]), so this ANSWERS on a wedged host rather than
+/// blocking its caller. The limit worth stating: a probe that times out is reported as that part
+/// being absent. For `docker info` that is exactly right. For `docker --version` it is approximate,
+/// because a `docker` binary that hangs on `--version` is then reported as no CLI at all; the remedy
+/// that prints still points at the right half of the problem, and the alternative is a fourth
+/// variant no caller could act on differently.
 pub(crate) fn presence() -> Result<(), Missing> {
     if !succeeds(Command::new("docker").arg("--version")) {
         return Err(Missing::Cli);
@@ -63,13 +109,49 @@ pub(crate) fn presence() -> Result<(), Missing> {
     Ok(())
 }
 
-/// Did the command run and exit zero? Output discarded: this is a probe, not a query.
+/// Did the command run and exit zero inside the probe budget? Output discarded: this is a probe,
+/// not a query.
 fn succeeds(command: &mut Command) -> bool {
-    command
+    succeeds_within(command, probe_budget())
+}
+
+/// The bounded wait, with the budget passed in so the deciding half is testable without a daemon
+/// and without spending ten seconds to watch it work.
+///
+/// **Fails closed.** A probe that has not answered inside its budget is reported as a failure, so a
+/// wedged daemon surfaces as [`Missing::Daemon`] - something a caller can print a remedy for - and
+/// not as a gate that never returns. Failing the other way would be worse than the hang it
+/// replaces: it would report a runtime that cannot serve a container as present.
+///
+/// LIMIT: this kills the child it spawned, not that child's own descendants. `docker` runs CLI
+/// plugins as separate processes, and one of those can outlive the kill and stay blocked on the same
+/// socket. Nothing here waits on them, so it costs this function nothing - but a wedged daemon does
+/// leave them behind until it recovers, and somebody counting stray processes should know they are
+/// looking at that rather than at a leak in this loop.
+fn succeeds_within(command: &mut Command, budget: Duration) -> bool {
+    let spawned = command
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+        .spawn();
+    let Ok(mut child) = spawned else { return false };
+
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            // Nothing to distinguish: a wait that errors means no exit status is coming.
+            Err(_) => return false,
+            Ok(None) => {}
+        }
+        if started.elapsed() >= budget {
+            // Reaped as well as killed. A probe that timed out and was left unreaped would put a
+            // zombie behind every gate that runs, which is a second symptom to chase.
+            drop(child.kill());
+            drop(child.wait());
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(PROBE_POLL_MILLIS));
+    }
 }
 
 /// The arguments that scope every compose invocation to one worktree.
@@ -282,8 +364,12 @@ pub(crate) fn projects(root: &Path) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::process::Command;
+    use std::time::{Duration, Instant};
 
-    use super::{Missing, Readiness, Reported, parse_projects, parse_ps, presence, readiness, scoped_args};
+    use super::{
+        Missing, Readiness, Reported, parse_projects, parse_ps, presence, probe_budget, readiness, scoped_args, succeeds_within,
+    };
 
     fn row(service: &str, state: &str, health: &str) -> Reported {
         Reported {
@@ -423,7 +509,53 @@ mod tests {
         // Not an assertion about this machine: `presence` is allowed to say either thing. What is
         // asserted is that it answers rather than panicking, on a host with docker and on one
         // without - which is the property every other test here depends on.
+        //
+        // And that it answers AT ALL, which is the half this test used to leave out. On a host whose
+        // daemon had wedged, it blocked here forever and took `just test` and every pre-commit tier
+        // with it - so the test that was supposed to prove the probe usable was the thing hanging.
+        let started = Instant::now();
         let answer = presence();
+        let waited = started.elapsed();
         assert!(answer.is_ok() || answer.is_err());
+        // Three bounded probes plus slack for a loaded machine. Derived from the budget rather than
+        // written as a number, so raising `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` does not redden this.
+        let ceiling = probe_budget() * 3 + Duration::from_secs(10);
+        assert!(waited < ceiling, "`presence` was not bounded: waited {waited:?}");
+    }
+
+    /// `/bin/sh` rather than `sleep`, `true` or `false`: these run inside a nix check sandbox, whose
+    /// `PATH` is the derivation's and not the host's, and `/bin/sh` is the one interpreter the
+    /// sandbox is guaranteed to provide.
+    fn shell(script: &str) -> Command {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", script]);
+        command
+    }
+
+    #[test]
+    fn a_probe_that_never_answers_is_bounded_and_fails_closed() {
+        // The wedged daemon, which is the whole reason a budget exists. Before it this shape did not
+        // fail a gate, it hung one - and a hang has no output, so it read as a slow machine.
+        let started = Instant::now();
+        let answered = succeeds_within(&mut shell("sleep 60"), Duration::from_millis(200));
+        let waited = started.elapsed();
+
+        assert!(!answered, "a probe that never answered must fail closed");
+        // A generous ceiling on purpose: what is asserted is BOUNDED, not fast, and a loaded CI
+        // runner is allowed to be slow without turning this into a flake.
+        assert!(
+            waited < Duration::from_secs(10),
+            "the probe was not bounded: waited {waited:?}"
+        );
+    }
+
+    #[test]
+    fn a_probe_that_answers_is_read_rather_than_timed_out() {
+        // The other direction, and the one that catches a budget so tight that a healthy daemon
+        // reads as absent. A bound that fails closed on everything is not a bound, it is an outage -
+        // and it would disable every service test while still reporting a reason.
+        let budget = Duration::from_secs(30);
+        assert!(succeeds_within(&mut shell("exit 0"), budget), "a zero exit is a usable part");
+        assert!(!succeeds_within(&mut shell("exit 1"), budget), "a non-zero exit is not");
     }
 }
