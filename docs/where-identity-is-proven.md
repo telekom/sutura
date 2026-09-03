@@ -21,6 +21,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A fake at the port** | in process, every run | nothing | `just test`, `just validate` |
 | **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` |
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
+| **A real provider in the sandbox** | in process, every run | 19s of JVM per run - no network, no docker, no secret | `just test`, `just validate` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
 | **A real token exchange, and two grants** | nowhere yet | a workload-identity pool and two subjects with different access | not built |
 
@@ -40,26 +41,27 @@ everything *around* it, and shrinks to the one job only it can do.
 
 ## Which venue answers which claim
 
-| Claim | Fake at the port | Mock issuer | Real dataset, shared key | Real provider | Real exchange |
-| --- | --- | --- | --- | --- | --- |
-| A refusal is a result and every variant is reachable | **yes** | - | - | - | - |
-| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - |
-| A signature verifies, and a forged one does not | - | **yes** | - | redundant | - |
-| `kid` selection, and an unknown key id | - | **yes** | - | redundant | - |
-| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | redundant | - |
-| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | redundant | - |
-| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | redundant | - |
-| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | see below | - |
-| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | redundant | - |
-| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | painful to script | - |
-| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - |
-| `credential_unavailable` through the request path | - | **yes** | - | - | - |
-| Two subjects driving two different credentials to the port | - | **yes** | - | - | - |
-| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | redundant |
-| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **only here** | no |
-| Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | - | **only here** |
-| **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no | **only here** |
+| Claim | Fake at the port | Mock issuer | Real dataset, shared key | Provider in the sandbox | Real enterprise provider | Real exchange |
+| --- | --- | --- | --- | --- | --- | --- |
+| A refusal is a result and every variant is reachable | **yes** | - | - | - | - | - |
+| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - | - |
+| A signature verifies, and a forged one does not | - | **yes** | - | redundant | redundant | - |
+| `kid` selection, and an unknown key id | - | **yes** | - | redundant | redundant | - |
+| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | redundant | redundant | - |
+| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | redundant | redundant | - |
+| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | **can** - the audience mapper produces one, and the standing test is still at the gate | redundant | - |
+| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | - | see below | - |
+| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | - | redundant | - |
+| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | not asked - a realm's keys are rotatable through `kcadm.sh` and nothing does it; the mock issuer is the venue | painful to script | - |
+| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - |
+| `credential_unavailable` through the request path | - | **yes** | - | - | - | - |
+| Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - |
+| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | redundant |
+| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes, and only here** | redundant for the mechanism; **only there** for whether a given deployment's policy permits it | no |
+| Two subjects a provider distinguishes, each with a real signed ID token | no | **can** - `sub` is a parameter, so it shows the plumbing and not the provider | no | **yes** | redundant | - |
+| Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - | - |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | no - there is no exchange endpoint in it | - | **only here** |
+| **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - no data system is involved | no | **only here** |
 
 ## The fake at the port
 
@@ -132,7 +134,7 @@ it worth having: **every token it mints is one an issuer could have minted.**
 1. **Whether a real identity provider will mint an ID token whose `aud` is a third party's client id.**
    A mock answers *yes* by construction, because the audience is a parameter. So the substitution test
    above says *we refuse such a token* and says nothing about whether one can be obtained. That question
-   has exactly one venue, and this is not it.
+   is answered by *a real provider in the sandbox*, below, and not here.
 2. **How many times a source was read under concurrency.** A file cannot be counted, so the *exactly one
    read per window, whatever the interleaving* bound stays where it is measurable - at the cache, over a
    source that counts its own calls. The mock issuer venue asserts the *observable* half instead: a
@@ -146,10 +148,48 @@ it worth having: **every token it mints is one an issuer could have minted.**
 one identity for everybody who asks**, so what those legs establish is *accepted, and correct for that
 identity* - and nothing whatever about per-subject execution.
 
+## A real provider in the sandbox
+
+`nix/keycloak-tier.nix`, run by `checks.nextest` and by `just test` through `nix/with-tier.sh`, and
+asked by `dev/tests/keycloak.rs`. It brings up nixpkgs' `keycloak` over **loopback only** and
+provisions a realm, two clients, an audience mapper and two subjects through `kcadm.sh`, so **no
+human is ever needed** and the whole venue fits in a build sandbox with no network and no docker
+socket. `just keycloak-tier-up` starts it alone.
+
+**What it is here for is one row**, and that row is the one the mock issuer answers *yes* to by
+construction: **whether a real provider will mint an ID token whose `aud` is a third party's client
+id.** `docs/adr/0008` records, verified against the vendor's documentation, that a
+workforce-identity exchange requires exactly that - the provider's own configured client id in
+`aud`, which is not the `audience` value sent to the exchange endpoint - so the shape of the token
+a gateway would have to obtain is the provider's decision and not ours.
+
+Measured on 2026-09-03, in this venue: a subject authenticating to the gateway client received an ID
+token whose `aud` was `["tier-gateway", "tier-third-party"]` with `azp` of `tier-gateway`, and whose
+ACCESS token from the same exchange carried no such audience - which is what makes it the mapper's
+doing rather than something the provider does to every token.
+
+### What it cannot answer - read this before citing a green run
+
+1. **Whether any particular deployment will do it.** Keycloak is a real OIDC provider; it is not the
+   enterprise provider somebody will federate with, and an organisation's policy can forbid a mapper
+   that exists. What is shown is that the mechanism is real and configurable with no human. The row
+   below is still the venue for the policy question.
+2. **Nothing about leg 2.** `AGENTS.md` keeps the position that no source a deployment serves
+   executes as the asking subject, and two real subjects holding two real tokens do not move it:
+   what is missing is an adapter that can carry a per-subject credential.
+3. **Not `docs/adr/0008`'s two-subject test.** That test asserts two subjects READ TWO DIFFERENT ROW
+   SETS. This venue has no data system in it at all - it supplies two subjects whose tokens a
+   validator would accept, which is the prerequisite and not the test.
+4. **Nothing about verification.** The tests here decode a claim set and do not verify a signature,
+   deliberately: whether a signature verifies, whether a forgery is refused and whether a rotation
+   is noticed all belong to the mock issuer, over the code that does the verifying. Asking them here
+   would spend 19s of JVM per run to re-establish what a fake already holds.
+
 ## A real enterprise identity provider
 
-Not built. Its job is the one row above that only it can answer, and keeping it to that row is the point
-of this page.
+Not built. Its job is now narrower than it was: the row above moved the MECHANISM into the sandbox,
+and what is left here is whether a given organisation's provider and policy will actually issue such
+a token. Keeping it to that is the point of this page.
 
 ## A real token exchange, and two grants
 
@@ -169,5 +209,6 @@ A venue that cannot state its limit is how *verified* drifts. So:
 
 - A new venue arrives as a row in the table above **with its exclusions written**, in the same change.
 - A test moving from one venue to another moves its row, rather than gaining a second one.
-- `just validate` runs every venue that needs no network. The other three do not, and each says so where
-  it is invoked.
+- `just validate` runs every venue that needs no network - which is now three of them, because a
+  provisioned provider over loopback needs none. The other three do not, and each says so where it
+  is invoked.

@@ -135,13 +135,20 @@ x-datahub-backend-environment: &datahub-backend-environment
   # networks and volumes are namespaced, `container_name:` is refused by that same gate, and
   # `no_service_in_the_tier_mounts_a_host_directory` keeps the machine-wide `${HOME}` path upstream
   # binds out of the volume list. What is NOT held is the DISCOVERY FILE: `.sutura-dev/endpoints.json`
-  # has two writers and each rewrites it WHOLESALE, in both directions - measured on 2026-09-03,
+  # had two writers and each rewrote it WHOLESALE, in both directions - measured on 2026-09-03,
   # `xtask dev-up` left `provisioner: docker` with `clickhouse` and `datahub` while the nix
   # Postgres tier's postmaster was still alive and no longer named, and `sutura-postgres-tier start`
-  # does the same to the docker entries. So a running service can be invisible to the file that is
-  # the only way to learn its address. That is a defect with no gate - see the note on
-  # `just datahub-acceptance` - and it is NOT a port clash: parallelism survives it, discovery does
-  # not.
+  # did the same to the docker entries. So a running service could be invisible to the file that is
+  # the only way to learn its address, which is NOT a port clash: parallelism survived it, discovery
+  # did not.
+  #
+  # **HALF OF THAT IS FIXED, and only half.** A second nix tier made it unmissable rather than
+  # theoretical, so `nix/tier-endpoint.nix` is now the ONE writer for the nix side: it merges by
+  # service key, preserves the root `project` and `provisioner` that docker wrote, and removes the
+  # file only when nothing is left in it. What is unfixed is the docker side - `xtask dev-up` still
+  # rewrites the document, so bringing a compose service up after a nix tier still erases the nix
+  # entries. That direction has no gate either; it is `sutura_dev::discovery::publish`'s shape rather
+  # than a shell script's, which is why it did not move with the tier that exposed it.
   DATAHUB_GMS_PORT: "8080"
   DATAHUB_PRECREATE_TOPICS: "true"
   DATAHUB_SQL_SETUP_ENABLED: "true"
@@ -233,13 +240,17 @@ services:
   # runtime has never been measured. It turns on with the branch that gives an adapter somewhere for a
   # subject's credential to arrive.
   keycloak:
-    # CI venue: compose only.
-    # Because: no nix tier exists for it yet, and that is a limit of THIS REPOSITORY rather than of
-    #   the software. `nixpkgs` carries `keycloak`; in its file-backed development mode it needs no
-    #   external store; and `kcadm.sh` can create a realm, a client and users with no human at a
-    #   keyboard. So nothing about it forces the docker venue - the tier is simply unwritten.
-    # Converges: with `nix/keycloak-tier.nix`, on `nix/postgres-tier.nix`'s pattern. This block is
-    #   what a reader sees until then, so the absence is a declaration and not a default.
+    # CI venue: nix native - nix/keycloak-tier.nix
+    #
+    # So THIS BLOCK IS THE DEMO and no `checks.*` derivation runs it. What CI runs is the nix tier:
+    # nixpkgs' `keycloak` on loopback, with a realm, two clients, an audience mapper and two subjects
+    # provisioned by `kcadm.sh`, inside a sandbox with no network and no docker socket. That tier
+    # states what it can and cannot be cited for, and `dev/tests/keycloak.rs` is what asks it.
+    #
+    # Everything below about a mock not being able to do this is unchanged and is about a DIFFERENT
+    # claim - the data system validating a token it trusts, which no venue here has. The nix tier
+    # answers the identity provider's half: whether a real one will mint an ID token audienced at a
+    # third party's client id, which `docs/adr/0008` needs and which a mock answers by construction.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
     profiles:
       - identity

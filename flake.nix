@@ -236,6 +236,11 @@
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
 
+        # The second nix-native tier, on the same pattern and from the same file `devenv.nix`
+        # imports. It is what makes `docs/where-identity-is-proven.md`'s *real provider* venue exist
+        # at all, and `nix/keycloak-tier.nix` carries what it may and may not be cited for.
+        keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
+
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
@@ -439,9 +444,26 @@
             # gains the server. The same `nix/postgres-tier.nix` script `just test` runs starts
             # and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a tier
             # that quietly failed to provision a RED run rather than a loud skip.
-            nativeCheckInputs = [ postgresTier.tier ];
-            preCheck = "${postgresTier.tier}/bin/sutura-postgres-tier start";
-            postCheck = "${postgresTier.tier}/bin/sutura-postgres-tier stop";
+            #
+            # KEYCLOAK IS THE SECOND TIER HERE, and it is the one that makes a claim reachable
+            # rather than a cell run: `docs/where-identity-is-proven.md` has one row only a real
+            # provider can answer - whether such a provider will mint an ID token audienced at a
+            # THIRD PARTY's client id - and a mock answers it yes by construction. nixpkgs'
+            # `keycloak` binds loopback, its file-backed store needs no second server, and
+            # `kcadm.sh` provisions the realm with no human, so the venue fits in a sandbox with no
+            # network and no docker socket. `dev/tests/keycloak.rs` is what asks it.
+            #
+            # It costs 19s wall on an aarch64-darwin dev machine (measured 2026-09-03), which this
+            # derivation pays once per run and `nix/with-tier.sh` pays per local invocation.
+            nativeCheckInputs = [ postgresTier.tier keycloakTier.tier ];
+            preCheck = ''
+              ${postgresTier.tier}/bin/sutura-postgres-tier start
+              ${keycloakTier.tier}/bin/sutura-keycloak-tier start
+            '';
+            postCheck = ''
+              ${keycloakTier.tier}/bin/sutura-keycloak-tier stop
+              ${postgresTier.tier}/bin/sutura-postgres-tier stop
+            '';
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
 

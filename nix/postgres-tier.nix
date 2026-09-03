@@ -10,7 +10,16 @@
 #
 # `postgresql_18` pins the same minor the docker image once used, and like `nix/duckdb.nix` it is
 # the single path from nixpkgs to the server used by flake.nix AND devenv.nix.
+#
+# THE ENDPOINT FILE IS NO LONGER WRITTEN HERE, and that is what a second tier changed. This module
+# printed the whole document, which is indistinguishable from correct while it is the only nix tier
+# and is a defect the moment `nix/keycloak-tier.nix` publishes into the same file: whichever started
+# second erased the first. `nix/tier-endpoint.nix` is the one writer now, it merges by service key,
+# and it carries the measurement.
 { pkgs }:
+let
+  endpoint = import ./tier-endpoint.nix { inherit pkgs; };
+in
 {
   package = pkgs.postgresql_18;
 
@@ -42,7 +51,7 @@
   # worktree, which is where the harness looks.
   tier = pkgs.writeShellApplication {
     name = "sutura-postgres-tier";
-    runtimeInputs = [ pkgs.postgresql_18 ];
+    runtimeInputs = [ pkgs.postgresql_18 endpoint ];
     text = ''
       set -o errexit -o nounset
 
@@ -102,8 +111,8 @@
             -c "CREATE DATABASE sutura OWNER sutura TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8'"
         fi
         # The harness reads `<root>/.sutura-dev/endpoints.json` and treats the host as the socket dir.
-        printf '{"project":"sutura","provisioner":"nix","services":{"postgres":{"host":"%s","port":%s}}}\n' \
-          "$pg" "$port" > "$root/.sutura-dev/endpoints.json"
+        # Through the shared writer, which MERGES: a second nix tier's entry has to survive this.
+        sutura-tier-endpoint set "$root" postgres "$pg" "$port"
       }
 
       stop() {
@@ -113,7 +122,11 @@
         # The endpoint file is a claim that a server is there. Withdraw it, or discovery keeps
         # believing it and the cells fail on a dead socket instead of skipping. `|| true` because a
         # tier that was never started has no file to remove and that is not a failure.
-        rm -f "$root/.sutura-dev/endpoints.json" || true
+        #
+        # Withdraw THIS SERVICE rather than the file: another tier's entry beside it is a live claim
+        # and removing the document would retract it too. The shared writer removes the file when
+        # nothing is left in it, which is what this line used to do unconditionally.
+        sutura-tier-endpoint unset "$root" postgres || true
       }
 
       # Is a server up? Nothing is changed, and the answer is the exit code - so a wrapper can stop

@@ -413,6 +413,22 @@ drift. Postgres is NOT a compose service: no `dev-up` entry, and no `Provisioner
 harness can tell docker-written from nix-written endpoints). Docker orchestrates docker, and
 Postgres is not docker.
 
+> **Amended, for a nix-native service that DOES have a port.** The paragraph above reads *a
+> nix-native service is reached over a unix socket, so it has no port* - which was a property of the
+> one service there was, not of the venue. `nix/keycloak-tier.nix` is nix-native and speaks HTTP over
+> loopback, so it has a port, and the withdrawn hash-to-port scheme is therefore back on the table
+> for exactly one case. What makes it admissible there is not a better hash: it is that the tier
+> creates a REALM nobody else creates, so `status` asks whether the server on the port serves that
+> realm rather than whether the port is bound. A stranger holding the port fails that question, the
+> start then fails to bind with the server's own message, and nothing is written to the discovery
+> file - which converts *a test that passes against the wrong fixture* back into *a startup error
+> somebody reads*, the asymmetry this record's own withdrawal rests on. The endpoint is published
+> only after a document from that realm came back. Two nix tiers also made the discovery file's
+> single-writer assumption false, and `nix/tier-endpoint.nix` is the merge that replaced it.
+>
+> What did NOT change: a docker-published port still gets no derived number, because a container has
+> no equivalent question to ask. Do not read this amendment as re-opening that.
+
 **Absent docker is a SKIP locally and a FAILURE in CI, and those are not the same default.** An earlier
 version of this record said the tier prints SKIPPED and exits 0, and said in the same breath that a
 missing service cannot silently pass. Both cannot hold on one machine class. So: on a developer machine
