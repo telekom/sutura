@@ -22,44 +22,59 @@
 //! unambiguous about a sentence in that position: an invariant is held by a type, a lint, a hook or a
 //! gate, never by recall.
 //!
-//! # What it reads, and what that is worth
+//! # What it reads
 //!
 //! Text, in the order it appears, for `pins.rs`'s reason: a gate has to run on a host with no nix and
 //! no resolver. Per root it finds three call sites - the one that opens the adapters, the pre-flight,
-//! and the one that opens the transport - and requires them in that order.
+//! and the one that opens the transport - and requires them in that order. Comments, string interiors
+//! and test regions come out first, through the two readers the other Rust-reading gates use, so the
+//! prose that NAMES these calls cannot satisfy an anchor the code lost.
 //!
-//! **Two limits, stated next to the claim.** First, this is the order of three lines in one file, not
-//! execution order. A pre-flight moved into a helper that runs after the listener is bound, or one put
-//! behind a condition the serving path does not take, reads the same to this gate. What it does catch
-//! is the edit that is actually plausible here: a line moved while a root is restructured, and a
-//! rename that leaves the check called from nowhere - the second being the not-found half, which is a
-//! failure rather than a pass.
+//! # Three limits, stated next to the claim
 //!
-//! Second, the agent surface's transport anchor is inside `fn serve`, the helper **both** of that
-//! root's arms tail-call, so what is compared there is where that helper is *defined*: moving it above
-//! `fn run` would be a false RED. It cannot instead anchor on that root's own `serve(` call, because
+//! **It is line position, not execution order.** A pre-flight moved into a helper that runs after the
+//! listener is bound, or one put behind a condition the serving path does not take, reads the same to
+//! this gate. What it does catch is the edit that is actually plausible here: a line moved while a
+//! root is restructured, and a rename that leaves the check called from nowhere.
+//!
+//! **The agent surface's transport anchor is inside `fn serve`**, the helper *both* of that root's
+//! arms tail-call, so what is compared there is where that helper is *defined*: moving it above
+//! `fn run` would be a false RED. It cannot anchor on that root's own `serve(` call instead, because
 //! the `files` arm makes one *before* the pre-flight and legitimately makes no pre-flight at all - its
 //! engine is given its tables. A false red is a person reading a message; a false green is nobody
 //! reading anything.
 //!
-//! **Fails closed, and one of the three ways it does so was a hole.** An unreadable root, and a call
-//! site this gate cannot find, are each a failure naming what it could not find. The third way is the
-//! declaration itself, and it was measured rather than argued: with [`ROOTS`] emptied this gate printed
-//! `ok - 0 composition root(s)` and exited zero - a dead gate reading as enforcement, which is the one
-//! outcome an order-reading gate must not have. So the declaration is compared against a scan of
-//! `crates/` for the files that actually call the pre-flight, and an emptied list, an undeclared third
-//! root, and a pre-flight renamed out of existence are each red.
-
-use std::path::Path;
+//! **A root that omits the pre-flight ENTIRELY is invisible to both halves.** The scan keys on the
+//! pre-flight's own name, so it finds the roots that call it and cannot find one that never did, and
+//! [`ROOTS`] then has no entry to miss. Holding that wants a different mechanism - the registry
+//! threaded through the pre-flight by value, so a root cannot obtain servable engines without one -
+//! and that is an architecture decision rather than a line in this gate.
+//!
+//! # Fails closed, and one of the three ways it does so was a hole
+//!
+//! An unreadable file, and a call site this gate cannot find, are each a failure naming what it could
+//! not find. The third way is the declaration itself, and it was measured rather than argued: with
+//! [`ROOTS`] emptied this gate printed `ok - 0 composition root(s)` and exited zero - a dead gate
+//! reading as enforcement, which is the one outcome an order-reading gate must not have. So the
+//! declaration is compared against a scan of `crates/`, and an emptied list, an undeclared root and a
+//! pre-flight renamed out of existence are each red.
+//!
+//! The scan costs what the listing costs: `repo::all_files` shells out to git twice, measured at 26 ms
+//! of this gate's 62 ms, against 3 ms for a bare directory walk. It is the listing every other
+//! Rust-reading gate uses - tracked plus untracked-but-not-ignored, with a full walk as the sandbox
+//! fallback - and a gate that judged only what happened to be committed is the wrong trade at 1% of
+//! the `hygiene` sweep.
 
 use crate::Verdict;
+use crate::causality::regions::{self, PostImage, TestScope};
 use crate::repo;
+use crate::serde_parse::scan::code_lines;
 
 /// The pre-flight's spelling, and the one needle both halves of this gate use.
 ///
 /// One constant rather than a field per root: the two roots reach the same function under two paths -
 /// `boot::refuse_absent_tables` and a re-export - and the shorter is a suffix of the longer, so a
-/// second spelling would only be a second thing to keep true. It is also what [`callers`] scans for,
+/// second spelling would only be a second thing to keep true. It is also what [`scan`] looks for,
 /// which is what makes a rename ONE failure instead of a half-updated pair.
 const PREFLIGHT: &str = "refuse_absent_tables(";
 
@@ -98,90 +113,102 @@ const ROOTS: &[Root] = &[
 ];
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(root) = repo::root() else {
-        eprintln!("xtask check-boot-order: could not locate the repo root");
-        return Verdict::Fail;
-    };
-    let found = match callers(&root) {
-        Ok(found) => found,
+    let scanned = match check() {
+        Ok(scanned) => scanned,
         Err(why) => {
             eprintln!("xtask check-boot-order: {why}");
             eprintln!();
-            eprintln!("A file under crates/ could not be read, so the scan that decides WHICH roots");
-            eprintln!("this gate checks is incomplete. That is a failure on purpose.");
+            eprintln!("An operator told about a missing table while the credential is unreadable edits");
+            eprintln!("the catalog, which was never wrong; one told after the transport is open is told");
+            eprintln!("after a caller has been invited to ask questions. github.com/telekom/sutura#120.");
             return Verdict::Fail;
         }
     };
-    let declared: Vec<&str> = ROOTS.iter().map(|composition| composition.path).collect();
-    if let Err(why) = every_caller_is_declared(&declared, &found) {
-        eprintln!("xtask check-boot-order: {why}");
-        why_the_order_matters();
-        return Verdict::Fail;
-    }
-    for composition in ROOTS {
-        let text = match std::fs::read_to_string(root.join(composition.path)) {
-            Ok(text) => text,
-            Err(error) => {
-                eprintln!("xtask check-boot-order: could not read {}: {error}", composition.path);
-                eprintln!();
-                eprintln!("This gate reads the order of three calls in a composition root and could not");
-                eprintln!("read one of them, so it has checked NOTHING. That is a failure on purpose.");
-                return Verdict::Fail;
-            }
-        };
-        if let Err(why) = ordered(composition, &text) {
-            eprintln!("xtask check-boot-order: {why}");
-            why_the_order_matters();
-            return Verdict::Fail;
-        }
-    }
     println!(
-        "xtask check-boot-order: ok - {} composition root(s) call the pre-flight, all declared, each with its call site after the credential's and before the transport's",
+        "xtask check-boot-order: ok - {} composition root(s) call the pre-flight in {scanned} file(s) under crates/, all declared, each with its call site after the credential's and before the transport's",
         ROOTS.len()
     );
     Verdict::Pass
 }
 
-/// The paragraph an operator's morning is in, printed under either ordering failure.
+/// Which roots there are, and whether each one keeps the order. Returns how many files were read,
+/// which is what puts a scan that read nothing in the verdict line rather than leaving it implied.
 ///
-/// One function rather than two copies, because it is the argument for the gate and a copy that drifts
-/// is the shape this whole module exists to refuse.
-fn why_the_order_matters() {
-    eprintln!();
-    eprintln!("An operator told about a missing table while the credential is unreadable edits");
-    eprintln!("the catalog, which was never wrong; one told after the transport is open is told");
-    eprintln!("after a caller has been invited to ask questions. github.com/telekom/sutura#120.");
+/// One `Result` rather than a print-and-return block per failure: the task name and the paragraph
+/// under it are then written once, which is `api_docs`'s shape and the reason it has it.
+fn check() -> Result<usize, String> {
+    let repo::RepoFiles { root, files } = repo::all_files().ok_or_else(|| String::from("could not locate the repo root"))?;
+    let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+    let found = scan(&files, &read)?;
+    every_caller_is_declared(&declared(), &found.callers)?;
+    for composition in ROOTS {
+        let text = read(composition.path).ok_or_else(|| {
+            format!(
+                "could not read {}, and it is a declared composition root - so this gate has read NO \
+                 order for it. That is a failure on purpose",
+                composition.path
+            )
+        })?;
+        ordered(composition, &text, &regions::scope(composition.path, &read))?;
+    }
+    Ok(found.read)
 }
 
-/// Every file under `crates/` whose CODE calls the pre-flight, as repo-relative paths.
+/// The paths [`ROOTS`] declares, for comparison against what the tree actually calls.
+fn declared() -> Vec<&'static str> {
+    ROOTS.iter().map(|composition| composition.path).collect()
+}
+
+/// What the scan found.
+///
+/// A named pair rather than a tuple, because `type_complexity` is tightened in this workspace and
+/// because a reader of the verdict line has to be able to tell the two numbers apart.
+struct Scan {
+    /// The files whose code calls the pre-flight, repo-relative.
+    callers: Vec<String>,
+    /// How many Rust files under `crates/` were read to find them.
+    read: usize,
+}
+
+/// Every file whose CODE calls the pre-flight, and how many files were read.
 ///
 /// [`ROOTS`] is what makes a rename a failure; this is what makes an OMISSION one, and the module
 /// header records what the omission looked like while nothing checked it.
 ///
-/// **A file that IS a test module is skipped.** [`code_lines`] cuts at `mod tests`, and a file that is
-/// itself the test module carries no such line - every assertion in `crates/sutura-serve/src/tests.rs`
-/// would read as a serving path. Skipped by PATH, which is [`ROOTS`]'s own declaration-over-guessing
-/// choice pointed at the other side of the comparison.
-fn callers(root: &Path) -> Result<Vec<String>, String> {
-    let mut files = Vec::new();
-    repo::collect_files(root, &root.join("crates"), &["rs"], &mut files);
-    files.sort_unstable();
-    let mut found = Vec::new();
-    for path in files {
-        if is_test_module(&path) {
+/// A file that cannot be read is a failure and not a skip, because a scan that quietly shrank is how a
+/// third root goes unnoticed. Test code comes out by DECLARATION rather than by a name guess -
+/// `regions::scope` resolves `crates/sutura-serve/src/tests.rs` through the `#[cfg(test)] mod tests;`
+/// in its parent, which no rule about the file's own name can see.
+fn scan(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
+    let mut callers = Vec::new();
+    let mut count = 0_usize;
+    for rel in files.iter().filter(|rel| in_scope(rel)) {
+        let text = read(rel).ok_or_else(|| {
+            format!("could not read {rel}, so the scan that decides WHICH roots this gate checks is incomplete")
+        })?;
+        count = count.saturating_add(1);
+        // Before the lexer, because it only ever REMOVES text: a file whose raw bytes do not carry the
+        // call cannot carry it once comments and string interiors are blanked. Measured at half this
+        // gate's own work - two files under `crates/` carry the needle and 213 do not.
+        if !text.contains(PREFLIGHT) {
             continue;
         }
-        let text = std::fs::read_to_string(root.join(&path)).map_err(|error| format!("could not read {path}: {error}"))?;
-        if call_line(&code_lines(&text), PREFLIGHT).is_some() {
-            found.push(path);
+        if call_line(&code_lines(&text), &regions::scope(rel, read), PREFLIGHT).is_some() {
+            callers.push(rel.clone());
         }
     }
-    Ok(found)
+    Ok(Scan { callers, read: count })
 }
 
-/// Is this path a test module rather than a crate's serving code?
-fn is_test_module(path: &str) -> bool {
-    path.split('/').any(|segment| segment == "tests" || segment == "tests.rs")
+/// Is this a Rust file that could be a composition root?
+///
+/// `crates/` only. A root is a crate, and this gate's own fixture names the pre-flight in `xtask/`.
+fn in_scope(rel: &str) -> bool {
+    rel.starts_with("crates/")
+        && std::path::Path::new(rel)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
 }
 
 /// Whether the roots this gate declares are the files that call the pre-flight.
@@ -214,13 +241,13 @@ fn every_caller_is_declared(declared: &[&str], found: &[String]) -> Result<(), S
 
 /// Whether one root's three call sites appear in the order it has to keep.
 ///
-/// Separated from [`run`] so both verdicts are reachable with no tree to read - which is the half of a
+/// Separated from [`check`] so both verdicts are reachable with no tree to read - which is the half of a
 /// gate that is otherwise only ever exercised green.
-fn ordered(root: &Root, text: &str) -> Result<(), String> {
+fn ordered(root: &Root, text: &str, tests: &TestScope) -> Result<(), String> {
     let code = code_lines(text);
-    let opens = call_line(&code, root.opens).ok_or_else(|| missing(root, root.opens, "opens the adapters"))?;
-    let preflight = call_line(&code, PREFLIGHT).ok_or_else(|| missing(root, PREFLIGHT, "is the pre-flight"))?;
-    let serves = call_line(&code, root.serves).ok_or_else(|| missing(root, root.serves, "opens the transport"))?;
+    let opens = call_line(&code, tests, root.opens).ok_or_else(|| missing(root, root.opens, "opens the adapters"))?;
+    let preflight = call_line(&code, tests, PREFLIGHT).ok_or_else(|| missing(root, PREFLIGHT, "is the pre-flight"))?;
+    let serves = call_line(&code, tests, root.serves).ok_or_else(|| missing(root, root.serves, "opens the transport"))?;
     if preflight < opens {
         return Err(format!(
             "{}: the pre-flight is BEFORE the adapters are opened - `{PREFLIGHT}` on line {preflight}, `{}` \
@@ -254,41 +281,19 @@ fn missing(root: &Root, call: &str, role: &str) -> String {
     )
 }
 
-/// The lines of a composition root that are code, numbered from one.
-///
-/// **A comment line is dropped and a trailing comment is cut**, because every call site this gate
-/// reads is also NAMED in the prose beside it - that prose is the reason the gate exists - and a
-/// paragraph must not be able to satisfy an anchor the code lost.
-///
-/// **Everything from `mod tests` on is dropped**, which is the same rule pointed the other way: a
-/// fixture in a test module must not stand in for the serving path. It is `mod tests` rather than
-/// `#[cfg(test)]` deliberately - `sutura-serve`'s root has a `#[cfg(test)] const` two hundred lines
-/// above `run`, so cutting at the attribute would cut the whole file and the gate would find nothing.
-fn code_lines(text: &str) -> Vec<(usize, &str)> {
-    let mut lines = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("mod tests") {
-            break;
-        }
-        if trimmed.starts_with("//") {
-            continue;
-        }
-        let code = line.find("// ").map_or(line, |at| line.get(..at).unwrap_or_default());
-        lines.push((index.saturating_add(1), code));
-    }
-    lines
-}
-
-/// The line one call is first made on.
+/// The line one call is first made on, outside comments, string interiors and test code.
 ///
 /// **A definition is not a call**, and that is not a hypothetical distinction: `fn open_engine(` lives
 /// in the same file as the call to it in one of the two roots here, and a root reordered so the
 /// definition came first would otherwise be read as making the call at the top of the file.
-fn call_line(code: &[(usize, &str)], call: &str) -> Option<usize> {
-    code.iter()
-        .find(|(_, line)| line.match_indices(call).any(|(at, _)| !defines(line, at)))
-        .map(|(number, _)| *number)
+///
+/// **The FIRST call site**, so a root that opens its adapters twice is read at the first of them.
+fn call_line(code: &[String], tests: &TestScope, call: &str) -> Option<usize> {
+    code.iter().enumerate().find_map(|(index, line)| {
+        let number = index.saturating_add(1);
+        let called = line.match_indices(call).any(|(at, _)| !defines(line, at));
+        (called && !tests.covers(number)).then_some(number)
+    })
 }
 
 /// Whether the occurrence at `at` is this call's own signature rather than a call to it.
@@ -298,33 +303,56 @@ fn defines(line: &str, at: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{PREFLIGHT, ROOTS, Root, callers, code_lines, every_caller_is_declared, is_test_module, ordered};
+    use super::{
+        PREFLIGHT, ROOTS, Root, TestScope, call_line, code_lines, declared, every_caller_is_declared, ordered, regions, scan,
+    };
 
-    /// A composition root in miniature, with the decoys the real ones have: the order stated in
-    /// prose, the pre-flight named in a comment, a definition above the call, and a test module
-    /// underneath that makes the same call for its own reasons.
-    const ROOT: &str = concat!(
-        "//! It runs after `open_engine(` and before `serve_until_stopped(`, and this line is prose.\n",
-        "fn open_engine(pinned: &Pinned) -> Result<Opened, String> {\n",
-        "    Err(String::from(\"a fixture opens nothing\"))\n",
-        "}\n",
-        "fn run() -> Result<(), String> {\n",
-        "    let opened = open_engine(&pinned)?;\n",
-        "    // boot::refuse_absent_tables( is named here in prose, and this line is not a call.\n",
-        "    boot::refuse_absent_tables(&pinned, &engines)?;\n",
-        "    runtime.block_on(serve_until_stopped(router, address))\n",
-        "}\n",
-        "#[cfg(test)]\n",
-        "mod tests {\n",
-        "    fn a_fixture() { boot::refuse_absent_tables(&pinned, &engines); }\n",
-        "}\n",
-    );
+    /// The HTTP root's path, which the fixture below stands in for.
+    const SERVE: &str = "crates/sutura-serve/src/main.rs";
+
+    /// A composition root in miniature, with every decoy the real ones have: the order stated in
+    /// prose, the pre-flight named in a line comment AND in a block comment, a definition above the
+    /// call, and a test module underneath that makes the same call for its own reasons.
+    ///
+    /// A raw string rather than a `concat!`, so the assertions that name a line number can be read
+    /// off the gutter. The content starts immediately after the quote: line 1 is the `//!`.
+    const ROOT: &str = r#"//! It runs after `open_engine(` and before `serve_until_stopped(`, and this line is prose.
+fn open_engine(pinned: &Pinned) -> Result<Opened, String> {
+    Err(String::from("a fixture opens nothing"))
+}
+fn run() -> Result<(), String> {
+    let opened = open_engine(&pinned)?;
+    /* boot::refuse_absent_tables( in a block comment, which the line-comment rule never saw. */
+    // boot::refuse_absent_tables( is named here in prose, and this line is not a call.
+    boot::refuse_absent_tables(&pinned, &engines)?;
+    runtime.block_on(serve_until_stopped(router, address))
+}
+#[cfg(test)]
+mod tests {
+    fn a_fixture() { boot::refuse_absent_tables(&pinned, &engines); }
+}
+"#;
+
+    /// The fixture's one real call site, line 9. Named once, because a `replace` that misses its
+    /// target is a silent no-op.
+    const PREFLIGHT_LINE: &str = "    boot::refuse_absent_tables(&pinned, &engines)?;\n";
+
+    /// The call that opens the transport, line 10.
+    const SERVES_LINE: &str = "    runtime.block_on(serve_until_stopped(router, address))\n";
+
+    /// The call that opens the adapters, line 6.
+    const OPENS_LINE: &str = "    let opened = open_engine(&pinned)?;\n";
 
     fn serve_root() -> &'static Root {
         ROOTS
             .iter()
-            .find(|root| root.path == "crates/sutura-serve/src/main.rs")
+            .find(|root| root.path == SERVE)
             .expect("the HTTP root is declared")
+    }
+
+    /// The fixture's test regions, resolved the way a real root's are.
+    fn tests_in(text: &str) -> TestScope {
+        regions::scope(SERVE, &|path| (path == SERVE).then(|| String::from(text)))
     }
 
     #[test]
@@ -333,39 +361,50 @@ mod tests {
         // matches nothing makes its gate pass vacuously. This asserts each root is still shaped the
         // way the gate reads it AND that the order it keeps is the order issue 120 asked for.
         let root = crate::repo::root().expect("the repo root");
+        let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
         for composition in ROOTS {
-            let text = std::fs::read_to_string(root.join(composition.path)).expect("a declared composition root is readable");
-            assert_eq!(ordered(composition, &text), Ok(()), "{}", composition.path);
+            let text = read(composition.path).expect("a declared composition root is readable");
+            let tests = regions::scope(composition.path, &read);
+            assert_eq!(ordered(composition, &text, &tests), Ok(()), "{}", composition.path);
         }
     }
 
     #[test]
     fn every_file_that_calls_the_preflight_is_a_declared_root() {
-        // The OMISSION half, over the real tree: a third root would be a serving path whose order
-        // nothing reads. Non-vacuous by construction - `every_caller_is_declared` fails on an empty
-        // scan, so this cannot pass by finding nothing.
-        let root = crate::repo::root().expect("the repo root");
-        let found = callers(&root).expect("every file under crates/ is readable");
-        let declared: Vec<&str> = ROOTS.iter().map(|composition| composition.path).collect();
-        assert_eq!(every_caller_is_declared(&declared, &found), Ok(()), "{found:?}");
-        assert_eq!(found.len(), ROOTS.len(), "{found:?}");
+        // The OMISSION half, over the real tree: a third root that calls the pre-flight would be a
+        // serving path whose order nothing reads. Non-vacuous by construction - the scan has to have
+        // read more files than it found roots in, and `every_caller_is_declared` fails on an empty one.
+        let crate::repo::RepoFiles { root, files } = crate::repo::all_files().expect("the repo root");
+        let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+        let found = scan(&files, &read).expect("every Rust file under crates/ is readable");
+        assert_eq!(
+            every_caller_is_declared(&declared(), &found.callers),
+            Ok(()),
+            "{:?}",
+            found.callers
+        );
+        assert_eq!(found.callers.len(), ROOTS.len(), "{:?}", found.callers);
+        assert!(
+            found.read > found.callers.len(),
+            "a scan of {} file(s) is not this tree",
+            found.read
+        );
     }
 
     #[test]
     fn an_emptied_declaration_is_red_rather_than_ok() {
         // MEASURED, not hypothesised: with `ROOTS` emptied this gate printed
         // `ok - 0 composition root(s)` and exited zero, which is a dead gate reading as enforcement.
-        let found = vec![String::from("crates/sutura-serve/src/main.rs")];
+        let found = vec![String::from(SERVE)];
         let error = every_caller_is_declared(&[], &found).expect_err("a declaration that names no root checks none");
-        assert!(error.contains("crates/sutura-serve/src/main.rs"), "{error}");
+        assert!(error.contains(SERVE), "{error}");
         assert!(error.contains("held by nothing"), "{error}");
     }
 
     #[test]
     fn a_tree_that_calls_the_preflight_nowhere_is_red() {
         // The other way to check nothing: the pre-flight renamed, or deleted, so the scan is empty.
-        let error = every_caller_is_declared(&["crates/sutura-serve/src/main.rs"], &[])
-            .expect_err("a scan that found nothing has read no order");
+        let error = every_caller_is_declared(&[SERVE], &[]).expect_err("a scan that found nothing has read no order");
         assert!(error.contains("read NO order at all"), "{error}");
         assert!(error.contains(PREFLIGHT), "{error}");
         // Both sides empty is the same failure and not a quiet agreement.
@@ -376,26 +415,15 @@ mod tests {
     }
 
     #[test]
-    fn a_test_module_is_not_scanned_as_a_serving_path() {
-        // `code_lines` cuts at `mod tests`, and a file that IS the test module carries no such line -
-        // so its assertions would each read as a serving path this gate had never heard of.
-        assert!(is_test_module("crates/sutura-serve/src/tests.rs"));
-        assert!(is_test_module("crates/sutura-cli/tests/mcp_surface.rs"));
-        assert!(!is_test_module("crates/sutura-serve/src/main.rs"));
-        assert!(!is_test_module("crates/sutura-cli/src/mcp.rs"));
-    }
-
-    #[test]
     fn a_preflight_after_the_transport_opens_is_red() {
         // THE half nothing held before this gate: the refusal has to stop the process, not one
         // question asked through a transport that is already open.
-        let moved = ROOT
-            .replace("    boot::refuse_absent_tables(&pinned, &engines)?;\n", "")
-            .replace(
-                "    runtime.block_on(serve_until_stopped(router, address))\n",
-                "    runtime.block_on(serve_until_stopped(router, address));\n    boot::refuse_absent_tables(&pinned, &engines)\n",
-            );
-        let error = ordered(serve_root(), &moved).expect_err("a pre-flight after the listener opens is not the order");
+        let moved = ROOT.replace(PREFLIGHT_LINE, "").replace(
+            SERVES_LINE,
+            "    runtime.block_on(serve_until_stopped(router, address));\n    boot::refuse_absent_tables(&pinned, &engines)\n",
+        );
+        let error =
+            ordered(serve_root(), &moved, &tests_in(&moved)).expect_err("a pre-flight after the listener opens is not the order");
         assert!(error.contains("AFTER the transport opens"), "{error}");
         assert!(error.contains("the HTTP listener"), "{error}");
     }
@@ -405,12 +433,10 @@ mod tests {
         // The other half, and it is the one review kept mistaking for a property of a type: an
         // operator told about a table when their credential file is unreadable fixes the catalog.
         let early = ROOT
-            .replace("    boot::refuse_absent_tables(&pinned, &engines)?;\n", "")
-            .replace(
-                "    let opened = open_engine(&pinned)?;\n",
-                "    boot::refuse_absent_tables(&pinned, &engines)?;\n    let opened = open_engine(&pinned)?;\n",
-            );
-        let error = ordered(serve_root(), &early).expect_err("a pre-flight before the credential is not the order");
+            .replace(PREFLIGHT_LINE, "")
+            .replace(OPENS_LINE, &format!("{PREFLIGHT_LINE}{OPENS_LINE}"));
+        let error =
+            ordered(serve_root(), &early, &tests_in(&early)).expect_err("a pre-flight before the credential is not the order");
         assert!(error.contains("BEFORE the adapters are opened"), "{error}");
     }
 
@@ -419,32 +445,31 @@ mod tests {
         // A rename that leaves the check called from nowhere is the failure this gate is most likely
         // to meet, and the message has to say which of the two files to edit.
         let renamed = ROOT.replace("boot::refuse_absent_tables(", "boot::refuse_tables(");
-        let error = ordered(serve_root(), &renamed).expect_err("a root that makes no pre-flight is not verified");
+        let error =
+            ordered(serve_root(), &renamed, &tests_in(&renamed)).expect_err("a root that makes no pre-flight is not verified");
         assert!(error.contains("is the pre-flight"), "{error}");
         assert!(error.contains("xtask/src/boot_order.rs"), "{error}");
-        let no_root = ordered(serve_root(), "fn main() {}").expect_err("a file with none of the three calls checks nothing");
+        let bare = "fn main() {}";
+        let no_root =
+            ordered(serve_root(), bare, &tests_in(bare)).expect_err("a file with none of the three calls checks nothing");
         assert!(no_root.contains("opens the adapters"), "{no_root}");
     }
 
     #[test]
-    fn neither_prose_nor_a_test_module_can_stand_in_for_the_serving_path() {
-        // Both directions of `code_lines`, and both matter: the order is stated in prose next to
-        // every one of these calls, and every one of them is also made by a fixture underneath.
-        let only_prose = ROOT.replace(
-            "    boot::refuse_absent_tables(&pinned, &engines)?;\n",
-            "    // boot::refuse_absent_tables(&pinned, &engines)? used to be here.\n",
-        );
-        let error = ordered(serve_root(), &only_prose).expect_err("a call named in a comment is not a call");
-        assert!(error.contains("is the pre-flight"), "{error}");
-        let numbered = code_lines(ROOT);
+    fn neither_prose_nor_a_block_comment_nor_a_test_module_is_a_call_site() {
+        // Three decoys, and the order is stated in prose beside every one of these calls - that prose
+        // is why the gate exists. Line 9 is the only real call: 7 is a block comment, 8 is a line
+        // comment, 14 is under `mod tests`.
         assert_eq!(
-            numbered
-                .iter()
-                .filter(|(_, line)| line.contains(PREFLIGHT))
-                .map(|(number, _)| *number)
-                .collect::<Vec<usize>>(),
-            vec![8_usize],
-            "one call site: line 7 is prose and line 13 is the fixture's own, under `mod tests`"
+            call_line(&code_lines(ROOT), &tests_in(ROOT), PREFLIGHT),
+            Some(9),
+            "the call on line 9, not the block comment on 7, the prose on 8 or the fixture on 14"
+        );
+        let decoys_only = ROOT.replace(PREFLIGHT_LINE, "");
+        assert_eq!(
+            call_line(&code_lines(&decoys_only), &tests_in(&decoys_only), PREFLIGHT),
+            None,
+            "with the one real call removed, three mentions of it remain and none is a call site"
         );
     }
 
@@ -452,7 +477,7 @@ mod tests {
     fn a_definition_above_the_call_is_not_read_as_the_call() {
         // `fn open_engine(` really does live above its call site in one of the two roots, so reading
         // a signature as a call would report an order that is not the one the process runs in.
-        let opens = super::call_line(&code_lines(ROOT), "open_engine(").expect("the call is found");
+        let opens = call_line(&code_lines(ROOT), &tests_in(ROOT), "open_engine(").expect("the call is found");
         assert_eq!(opens, 6, "the CALL on line 6, not the signature on line 2");
     }
 }
