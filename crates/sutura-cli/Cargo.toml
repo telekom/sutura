@@ -13,6 +13,36 @@ description = "The sutura binary. Composes adapters; contains no business logic.
 name = "sutura"
 path = "src/main.rs"
 
+[features]
+# The BigQuery adapter, and with it the outbound HTTP stack its wire needs.
+#
+# **Default-off, and the reason is the FOUR CROSS BUILDS rather than a preference for narrow
+# defaults** - the same decision `sutura-serve`'s feature of the same name carries, and it is sharper
+# here because THIS is the crate those builds name. `sutura-exec-bigquery`'s own `wire` feature pulls
+# `ureq` and its rustls closure - `ring` included, which compiles C and assembly - and two of the four
+# release triples are musl. A non-optional dependency here would put that closure into every cross
+# build of the command-line tool, and `crane.buildDepsOnly` is deliberately unscoped so the checks can
+# share one dependency derivation, so it would land in all four dependency derivations as well.
+#
+# So the adapter arrives by asking: `cargo build -p sutura-cli --features bigquery`, or
+# `--all-features`, which is what `just lint`, `just test` and every nix check already pass - so the
+# registration is compiled, linted and tested on every run, and a bare `cargo build` is unchanged.
+#
+# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes both binaries
+# with cargo's DEFAULT features - so no published artefact links this adapter, and
+# `checks.shipped-features` reads `ureq`'s and `ring`'s absence out of each shipped binary's own
+# embedded dependency list rather than out of this manifest.
+#
+# **Which gate sees the feature OFF, because every other one passes `--all-features`.**
+# `cargo xtask check-default-features`, in `just gates`, derives its package list from
+# `nix/shipped.nix`'s `binaries` - so this crate is in it - and runs `cargo check` AND `cargo clippy`
+# at the DEFAULT set: that is what compiles the `cfg(not(feature = "bigquery"))` half of
+# `src/sources/bigquery.rs` and the one-variant `Opened` beside it, and clippy is in there because
+# `cargo check` cannot see a lint. Its limit is CI's: that gate is neither a nix check nor an app, so
+# what CI has for this lane is the four `cross` link builds for the compile half and nothing for the
+# lint half.
+bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
+
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
@@ -32,6 +62,9 @@ sutura-sql = { workspace = true }
 # anybody wants. It is pure Rust, so it cross-compiles to musl - which is what forced the DuckDB
 # adapter to be default-off, and is exactly the constraint this does not have.
 sutura-exec-datafusion = { workspace = true }
+# The BigQuery adapter, behind the `bigquery` feature above. `optional` is what makes the dependency
+# ABSENT from the default build rather than merely unused, which is the property the cross builds need.
+sutura-exec-bigquery = { workspace = true, optional = true }
 # The agent-facing surface, and the reason it is HERE rather than on `sutura-serve`: this binary is
 # the single-player composition. An agent client launches the process and speaks MCP on its pipes,
 # matching `examples/single-player` - which is exactly the shape roadmap wanted. The dependency is

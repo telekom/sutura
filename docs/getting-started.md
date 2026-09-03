@@ -236,8 +236,45 @@ with no access token configured stops this command too, and says so. That is one
 settings rather than two, and the refusal names the two variables that get you back to answering from
 the directory on the command line.
 
-Only `kind: files` is openable from this binary. `kind: bigquery` parses - that adapter exists - and
-the `sutura` command links none of it, so it is refused by name and points at the binary that can.
+`kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries do
+not, because the outbound TLS stack it links compiles C and assembly for four release triples. Build
+one, and the same command submits the plan to a dataset:
+
+```bash
+cargo build --release -p sutura-cli --features bigquery
+```
+
+**The `security:` block above is still required** - the snippet below replaces the `sources:` block
+and nothing else. Any non-empty `sources:` with no `security.identity` is refused at startup, naming
+that key; it is the same refusal a deployment gets, which is the point of there being one settings
+tree.
+
+```yaml
+# conf/base.yaml - the `security:` block from above, plus:
+sources:
+  warehouse:
+    kind: bigquery
+    billing_project: "your-project"
+    dataset: "marts"
+    credential_file: "/absolute/path/to/key.json"
+    max_bytes_billed: 1073741824
+    posture: shared-service-user
+```
+
+`posture: shared-service-user` is the honest declaration for a service-account key: one identity for
+everybody who asks. `impersonation-at-source` parses and is **refused** - the adapter can carry a
+subject's credential, and no binary attaches a broker that exchanges one, so serving it would read
+every row as the process while the declaration promised otherwise. `sutura doctor` says which build
+you have on its `data systems` line.
+
+**Two limits worth knowing before you rely on this.** No automated test in this repository has ever
+run a query from this command against a real dataset - the furthest any of them reaches is reading
+the credential file, because the transport's host is a compile-time constant with no loopback to
+point at. What HAS been accepted by a real dataset is the corpus, through `just bigquery-acceptance`,
+on the adapter's own suite. And the job's deadline comes off `server.request_timeout_seconds`: the
+default 30 leaves a job **10 seconds** and the maximum 300 leaves it **145**, because an answer makes
+two calls and each pays a connect margin. A slow question is cancelled by that bound with nothing
+waiting on any request.
 
 `table:` may also name where the table lives, when that is more than the connection's own default:
 

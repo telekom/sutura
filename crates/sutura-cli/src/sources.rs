@@ -54,10 +54,11 @@
 //! # Which adapter, and which BUILD
 //!
 //! The `kind:` an entry declares is dispatched by an exhaustive match, so a third kind is a compile
-//! error here. Which of the declared kinds THIS BINARY can open is a different question:
-//! `sutura_config`'s vocabulary is the repository's set of adapters, and the set a binary linked is
-//! this file's - so `kind: bigquery` parses and is refused here, by [`unlinked_bigquery`], naming
-//! what to do instead rather than reading as a typo.
+//! error here. Which of the declared kinds THIS BINARY can open is a different question, and it is
+//! answered by a `cfg`: [`bigquery::open`] has two definitions of one signature, and the one a build
+//! without the `bigquery` feature reaches is a refusal naming that feature. `sutura_config` cannot
+//! see a link and must not pretend to, which is why the vocabulary of kinds is the repository's and
+//! the set a binary opens is this file's.
 //!
 //! `Result<_, String>` throughout, for the reason [`crate::commands`] states at its own head.
 
@@ -70,14 +71,23 @@ use sutura_exec_datafusion::DataFusionWarehouse;
 
 use crate::commands::render;
 
+/// The `BigQuery` half of this module: the composed adapter, and the refusal a build without it gives.
+///
+/// **Its own file because `cargo xtask max-lines` fails at 1000 lines rather than warning**, and this
+/// one crossed it when the second adapter landed. The split follows the seam that was already there:
+/// everything below this line is kind-agnostic or files-only, and everything in that file is behind
+/// `#[cfg(feature = "bigquery")]` or is the refusal for its absence. Its suite travels with it, which
+/// is deliberate - an impl file whose tests live in the parent is the partition `test-causality`
+/// reads as a false *green against base*.
+mod bigquery;
+
 /// The FILES half of this module: the in-process engine over a directory, and the built-in
 /// declaration that answers when the deployment declared nothing.
 ///
-/// **Its own file because `cargo xtask max-lines` fails at 1000 lines rather than warning**, and
-/// this one crossed it. What stays here is what belongs to no kind in particular: the shared shapes,
-/// the settings door, the `kind:` dispatch and the two-load table check its callers run. Its suite
-/// travels with it, which is deliberate - an impl file whose tests live in the parent is the
-/// partition `test-causality` reads as a false *green against base*.
+/// **Its own file for the reason `bigquery`'s is** - `cargo xtask max-lines` fails at 1000 lines
+/// rather than warning, and this file crosses it if either kind lives here. What stays is what
+/// belongs to NEITHER kind: the shared shapes, the settings door, the `kind:` dispatch and the
+/// two-load table check both kinds' callers run.
 mod files;
 
 /// The data system this command declares for itself, and the name it answers to.
@@ -86,8 +96,25 @@ mod files;
 /// Renaming this is a catalog edit in every example plus a new digest, not a code change here.
 pub(crate) const BUILT_IN_SOURCE: &str = "local";
 
-/// What a command opened: the registry a plan is looked up in, what was attached, and what mints for
-/// it.
+/// Which adapter this command opened its one source with, and everything the next step needs from it.
+///
+/// **One variant per LINKED adapter**, which is the shape `sutura-serve`'s `OpenedSources` already
+/// holds and for the reason `sutura_app::warehouses` states: `sutura_app::Warehouses<W>` is generic in
+/// ONE adapter, so this is not a heterogeneous registry and does not try to be. It is the choice of
+/// which registry got built, made once, at the one place that can see both the declaration and the
+/// link. A build without the `bigquery` feature has a one-variant enum, and the match in each caller
+/// is still exhaustive - which is what makes adding a third adapter a compile error at those call
+/// sites rather than a `SourceUnavailable` on the first question.
+pub(crate) enum Opened {
+    /// The in-process engine over a directory of files.
+    Files(OpenedWith<DataFusionWarehouse>),
+    /// A `BigQuery` dataset, reached over the wire.
+    #[cfg(feature = "bigquery")]
+    BigQuery(OpenedWith<bigquery::BigQuerySource>),
+}
+
+/// What a command opened over one adapter: the registry a plan is looked up in, what was attached,
+/// and what mints for it.
 ///
 /// **A named struct rather than a tuple, and the third field is why.** The broker and the engines have
 /// to come from the same decision: a source opened from the `sources:` tree is minted for out of that
@@ -95,9 +122,12 @@ pub(crate) const BUILT_IN_SOURCE: &str = "local";
 /// call sites deciding that separately is a command whose leg carries an acknowledgement no adapter
 /// was opened with - which `Presented::agrees_with` would then refuse at query time, one step too
 /// late. One value carries both, so they cannot disagree.
-pub(crate) struct Opened {
+///
+/// Generic in the adapter so both arms of [`Opened`] are the same shape, and so a caller writes the
+/// answer path once: the monomorphisation ends at whichever `match` arm called it.
+pub(crate) struct OpenedWith<W> {
     /// The data systems this command holds, keyed by the name a plan selects them with.
-    pub(crate) engines: sutura_app::Warehouses<DataFusionWarehouse>,
+    pub(crate) engines: sutura_app::Warehouses<W>,
     /// Every table this command registered, or `None` for a data system it attached nothing to.
     ///
     /// `None` is not an empty set: an empty set means nothing was registered and the served bundle
@@ -118,10 +148,11 @@ pub(crate) struct Opened {
 /// defaults, which declare no source at all; that is the ordinary command-line case, and it is what
 /// sends [`open_engine`] to the built-in declaration.
 ///
-/// **The whole tree rather than its `sources:` alone**, because opening one needs a second value out
-/// of it: `runtime.working_set_max_bytes` is the one place a deployment says how much memory an
-/// answer may use, and a ceiling invented here would be the drifting duplicate the settings tree
-/// exists to prevent. Callers pass the accessor, which is what `sutura-serve`'s own root does.
+/// **The whole tree rather than its `sources:` alone**, because a networked adapter needs a second
+/// value out of it: `server.request_timeout_seconds` is the one place a deployment says how long a
+/// question may take, and a job bounded by a number invented here would be the drifting duplicate the
+/// settings tree exists to prevent. Callers pass the two accessors, which is what `sutura-serve`'s own
+/// root does.
 ///
 /// **The limit this introduces, which review found stated nowhere and reproduced.**
 /// `Settings::refusals` is a SERVER's refusal set - TLS termination, an access token, rate limiting,
@@ -177,6 +208,7 @@ pub(crate) fn open_engine(
     pinned: &PinnedDefinitions,
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
+    request_timeout: sutura_config::RequestTimeout,
     data: Option<&Path>,
 ) -> Result<Opened, String> {
     let sources = sutura_app::sources(pinned);
@@ -205,7 +237,7 @@ pub(crate) fn open_engine(
     let Some(declared) = registry.get(&named) else {
         return files::from_the_built_in_declaration(pinned, &named, data, runtime);
     };
-    from_the_registry(pinned, &named, declared, data, registry, runtime)
+    from_the_registry(pinned, &named, declared, data, registry, runtime, request_timeout)
 }
 
 /// Opens a source the deployment declared, under the identity that declaration names.
@@ -220,15 +252,18 @@ fn from_the_registry(
     data: Option<&Path>,
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
+    request_timeout: sutura_config::RequestTimeout,
 ) -> Result<Opened, String> {
     let identity = configured
         .identity()
         .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
-    // **The argument is checked PER KIND rather than once above this match**, because a remedy that
-    // is true of one kind is wrong for another: "remove the `sources.<alias>` entry to read that
-    // directory as a files source" only works when the catalog names the source `local`, because
-    // otherwise the built-in declaration refuses that name - a closed loop, where one refusal says
-    // delete the entry and the next says put it back. Each arm says the one true thing about itself.
+    // **The argument is checked PER KIND, and that is two corrections rather than one.** It used to
+    // be one check above this match, which made both of its remedies wrong somewhere: "remove the
+    // `sources.<alias>` entry to read that directory as a files source" only works when the catalog
+    // names the source `local`, because otherwise the built-in declaration refuses that name - a
+    // closed loop, where one refusal says delete the entry and the next says put it back. And a
+    // directory offered to a DATASET is not "two answers to one question" at all; it is an argument
+    // that means nothing for that kind. Each arm now says the one true thing about itself.
     match configured.kind() {
         sutura_config::SourceKind::Files => {
             let sutura_config::SourcePlacement::Files { ref data_dir } = *configured.placement() else {
@@ -239,7 +274,7 @@ fn from_the_registry(
             };
             files::refuse_a_second_directory(source, data_dir, data)?;
             let (engines, attached) = files::open(source, identity.posture(), pinned, data_dir, runtime)?;
-            Ok(Opened {
+            Ok(Opened::Files(OpenedWith {
                 engines,
                 attached: Some(attached),
                 // The deployment's own tree, so every source declared `shared-service-user` is minted
@@ -247,24 +282,20 @@ fn from_the_registry(
                 // `impersonation-at-source` gets nothing, which is a refused question rather than a
                 // leg that runs as this process.
                 broker: sutura_config::StaticCredentialBroker::from_registry(registry),
-            })
+            }))
         }
-        sutura_config::SourceKind::BigQuery => Err(unlinked_bigquery(source)),
+        sutura_config::SourceKind::BigQuery => {
+            if let Some(given) = data {
+                return Err(format!(
+                    "`sources.{source}` is a BigQuery dataset, and {} was given on the command line \
+                     as a data directory - a dataset has none, so the argument selects nothing. Drop \
+                     it; the dataset that entry declares is what will be read",
+                    given.display()
+                ));
+            }
+            bigquery::open(source, configured, registry, request_timeout)
+        }
     }
-}
-
-/// The refusal for a build that linked no `BigQuery` adapter.
-///
-/// It names the KIND and the two things an operator can change, because the fix is in one of two
-/// different files and a message that only said "this binary cannot open that" sends them looking for
-/// a typo. `sutura-serve` gives the same refusal from the same enum and points at its own feature;
-/// this binary has no `bigquery` feature to point at, so it points at the binary that does.
-fn unlinked_bigquery(source: &SourceName) -> String {
-    format!(
-        "`sources.{source}` is `kind: bigquery`, and the `sutura` command links no BigQuery adapter - \
-         it composes the in-process engine over files and nothing else. Declare a `files` source, or \
-         serve that dataset with `sutura-serve` built `--features bigquery`"
-    )
 }
 
 /// Every table the served bundle's models sit behind.
@@ -312,8 +343,8 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 /// correction and an application of this module's own rule rather than a new idea. The old body read
 /// `WorkingSetCeiling::DEFAULT_BYTES` and ignored the key, so an operator who lowered it because
 /// their laptop is small got no effect from `sutura query`; the doc comment even named the key it was
-/// not reading. [`configured`] is what puts the fix one accessor away: the tree this command reads is
-/// the tree the service reads, so a key an operator sets has one meaning.
+/// not reading. That is exactly the duplicate `bigquery::open` refuses to invent for the job
+/// deadline, and [`configured`] had already put the fix one accessor away.
 ///
 /// A ceiling is still not a FLAG: a flag would be a second number an operator could set, disagreeing
 /// with the one the service reads. `available_memory_bytes` is asked by `Settings::load`'s own parse,
@@ -349,7 +380,7 @@ fn declaring(alias: &str, body: &str, posture: &str) -> sutura_config::SourceReg
 /// A pinned bundle whose one model claims to live in `source`, over a table the example's data
 /// directory happens to have a file for.
 ///
-/// Module level rather than inside [`tests`] because [`files`]'s own suite needs it too, and
+/// Module level rather than inside [`tests`] because [`bigquery`]'s own suite needs it too, and
 /// `#[cfg(test)]` so it costs a real build nothing. The FILE is what makes a refusal mean something:
 /// without it the wrong branch would fail on a missing CSV and be indistinguishable from the branch
 /// under test.
@@ -445,6 +476,51 @@ fn runtime() -> sutura_config::RuntimeSettings {
         .runtime()
 }
 
+/// The request timeout every case hands in: the EMBEDDED default, read the same way [`runtime`] is.
+///
+/// It is the number a job's deadline is derived from, so a change to `defaults.yaml` reaches the
+/// dataset cases rather than a literal here going stale beside it.
+#[cfg(test)]
+fn timeout() -> sutura_config::RequestTimeout {
+    sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
+        .expect("the embedded defaults are a servable development deployment")
+        .server()
+        .request_timeout()
+}
+
+/// One `sources:` entry for a `BigQuery` dataset, with every key that kind is opened with.
+///
+/// The credential file points at a path that is not there ON PURPOSE, and each test that uses it says
+/// what it is proving with that: a refusal naming that key is proof the composition reached the
+/// credential layer, which is the furthest a test with no project can get. The shape is
+/// `sutura-serve`'s own `bigquery_entry`, because the composition under test is the same one.
+///
+/// Module level, so `bigquery.rs`'s suite and the dataset-argument case in [`tests`] - which belongs
+/// here, beside the arm that refuses it - share ONE entry builder.
+#[cfg(test)]
+fn declaring_bigquery(posture: &str, extra: &str) -> sutura_config::SourceRegistry {
+    declaring(
+        "warehouse",
+        &format!(
+            "    kind: bigquery\n    billing_project: \"acme-analytics\"\n    dataset: \"marts\"\n    \
+             credential_file: \"/nonexistent/sutura-cli-test-bigquery.json\"\n    max_bytes_billed: \
+             1073741824\n{extra}"
+        ),
+        posture,
+    )
+}
+
+/// The `workload_identity` block an `impersonation-at-source` entry must carry.
+#[cfg(feature = "bigquery")]
+#[cfg(test)]
+fn wif() -> String {
+    String::from(
+        "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
+         workloadIdentityPools/p/providers/sso\"\n      scope: \"https://www.googleapis.com/auth/\
+         bigquery.readonly\"\n",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -452,7 +528,25 @@ mod tests {
 
     use sutura_domain::model::{MetricName, TableName};
 
-    use super::{BUILT_IN_SOURCE, bundle_naming, bundle_over, declaring, open_engine, refuse_unattached, runtime, served_tables};
+    use sutura_exec_datafusion::DataFusionWarehouse;
+
+    use super::{
+        BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, declaring_bigquery, open_engine,
+        refuse_unattached, runtime, served_tables, timeout,
+    };
+
+    /// The files registry `open_engine` produced, or a failure saying which arm it took instead.
+    ///
+    /// An exhaustive match rather than an `if let`, so a third linked adapter is a compile error in
+    /// this suite too - the same property the two commands' own matches carry.
+    fn files_of(opened: Opened) -> OpenedWith<DataFusionWarehouse> {
+        match opened {
+            Opened::Files(opened) => Some(opened),
+            #[cfg(feature = "bigquery")]
+            Opened::BigQuery(_) => None,
+        }
+        .expect("this fixture declares a files source")
+    }
 
     fn example() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
@@ -492,8 +586,16 @@ mod tests {
         // because the deployment said what `warehouse` is. Before this, this function compared the
         // declared source against one constant and refused everything else, so the only catalog the
         // published binary could open was one that happened to call its data system `local`.
-        let opened = open_engine(&bundle_naming("warehouse"), &declaring_files("warehouse"), runtime(), None)
-            .expect("a declared files source opens");
+        let opened = files_of(
+            open_engine(
+                &bundle_naming("warehouse"),
+                &declaring_files("warehouse"),
+                runtime(),
+                timeout(),
+                None,
+            )
+            .expect("a declared files source opens"),
+        );
         assert_eq!(
             opened
                 .engines
@@ -527,6 +629,7 @@ mod tests {
             &bundle_naming("production_warehouse"),
             &nothing_declared(),
             runtime(),
+            timeout(),
             Some(&example().join("data")),
         )
         .map(|_| ())
@@ -547,8 +650,16 @@ mod tests {
         // a reader to run, with no configuration at all. This is the path
         // `crates/sutura-cli/tests/example.rs` and `docs/getting-started.md` both take.
         let pinned = crate::commands::load(&example().join("catalog")).expect("the example catalog loads");
-        let opened = open_engine(&pinned, &nothing_declared(), runtime(), Some(&example().join("data")))
-            .expect("the example catalog opens with nothing declared");
+        let opened = files_of(
+            open_engine(
+                &pinned,
+                &nothing_declared(),
+                runtime(),
+                timeout(),
+                Some(&example().join("data")),
+            )
+            .expect("the example catalog opens with nothing declared"),
+        );
         assert_eq!(
             opened
                 .engines
@@ -573,7 +684,7 @@ mod tests {
         // **THE OUTCOME issue 121 asks for, end to end - and the test review proved was missing.**
         // Everything else here builds an `Opened` and stops. This one verifies the bundle against the
         // engine the REGISTRY arm opened and answers a certified question through it, which is the
-        // only thing that exercises the seam [`Opened`]'s doc comment claims: the broker mints for
+        // only thing that exercises the seam `OpenedWith`'s doc comment claims: the broker mints for
         // the same decision the engines came from.
         //
         // Review demonstrated the gap with a mutation - minting the built-in acknowledgement while
@@ -587,8 +698,10 @@ mod tests {
         // CSVs behind it. A fixture bundle cannot answer - `bundle_naming` names a `signed_at` column
         // `dim_customer.csv` does not have, which review also measured.
         let pinned = crate::commands::load(&example().join("catalog")).expect("the example catalog loads");
-        let opened = open_engine(&pinned, &declaring_files(BUILT_IN_SOURCE), runtime(), None)
-            .expect("the example catalog opens through a declared files source");
+        let opened = files_of(
+            open_engine(&pinned, &declaring_files(BUILT_IN_SOURCE), runtime(), timeout(), None)
+                .expect("the example catalog opens through a declared files source"),
+        );
         let validated = sutura_app::verify_and_validate(pinned, &opened.engines).expect("every anchor reproduces");
         // The example's own certified window, which is the range `examples/single-player` documents
         // and the one its anchor covers.
@@ -624,24 +737,24 @@ mod tests {
     }
 
     #[test]
-    fn a_kind_this_build_did_not_link_is_refused_by_name_and_says_what_to_build() {
-        // The other half of reading the registry, and the reason the vocabulary of kinds is separate
-        // from the set of adapters a given binary linked: `kind: bigquery` parses, because
-        // `sutura-exec-bigquery` exists, and THIS binary links none of it. A message that only said
-        // "not a data system this build can open" would send an operator looking for a typo.
-        let registry = declaring(
-            "warehouse",
-            "    kind: bigquery\n    billing_project: \"acme-analytics\"\n    dataset: \"marts\"\n    \
-             credential_file: \"/nonexistent/sutura-cli-test-bigquery.json\"\n    max_bytes_billed: 100000000",
-            "shared-service-user",
-        );
-        let error = open_engine(&bundle_naming("warehouse"), &registry, runtime(), None)
-            .map(|_| ())
-            .expect_err("a kind this binary linked no adapter for must not open");
-        assert!(error.contains("kind: bigquery"), "the kind is not named: {error}");
+    fn a_data_directory_offered_to_a_dataset_is_refused_as_an_argument_that_selects_nothing() {
+        // NOT "two answers to one question", which is what the single pre-match check called it: a
+        // dataset has no directory, so the argument is not a competing answer - it is an argument
+        // that means nothing for that kind. Review reproduced the old message's remedy leading to a
+        // second refusal about the feature, which is a different problem than the one it named.
+        let error = open_engine(
+            &bundle_naming("warehouse"),
+            &declaring_bigquery("shared-service-user", ""),
+            runtime(),
+            timeout(),
+            Some(&example().join("data")),
+        )
+        .map(|_| ())
+        .expect_err("a data directory for a dataset source is refused");
+        assert!(error.contains("a dataset has none"), "{error}");
         assert!(
-            error.contains("--features bigquery"),
-            "the refusal must say what to build rather than only what is missing: {error}"
+            !error.contains("two answers to one question"),
+            "a dataset's directory is not a competing answer: {error}"
         );
     }
 
@@ -650,9 +763,15 @@ mod tests {
         // The arm the argument being OPTIONAL created: `[data-dir]` may be absent because a fully
         // declared deployment needs none, so the case where it is absent AND nothing is declared has
         // to say which of the two to supply rather than failing on a path built from nothing.
-        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &nothing_declared(), runtime(), None)
-            .map(|_| ())
-            .expect_err("no declaration and no directory is nothing to read");
+        let error = open_engine(
+            &bundle_naming(BUILT_IN_SOURCE),
+            &nothing_declared(),
+            runtime(),
+            timeout(),
+            None,
+        )
+        .map(|_| ())
+        .expect_err("no declaration and no directory is nothing to read");
         assert!(error.contains("no data directory was given"), "{error}");
     }
 
@@ -673,6 +792,7 @@ mod tests {
             ]),
             &nothing_declared(),
             runtime(),
+            timeout(),
             Some(&example().join("data")),
         )
         .map(|_| ())
@@ -708,6 +828,7 @@ mod tests {
             &bundle_over(&[]),
             &nothing_declared(),
             runtime(),
+            timeout(),
             Some(&example().join("data")),
         )
         .map(|_| ())

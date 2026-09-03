@@ -25,20 +25,21 @@ use sutura_domain::pinned::SemanticCatalog as _;
 use sutura_runtime::TracingAuditSink;
 
 use crate::commands::{arg, catalog_reader, render, report};
-use crate::sources::{Opened, configured, open_engine, refuse_unattached, served_tables};
+use crate::sources::{Opened, OpenedWith, configured, open_engine, refuse_unattached, served_tables};
 
-/// The service this command serves.
+/// The service this command serves, over one of the adapters this binary links.
 ///
 /// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
-/// and the broker are the three collaborators every command in this binary composes.
-type McpSurface =
-    LocalService<sutura_exec_datafusion::DataFusionWarehouse, TracingAuditSink, sutura_config::StaticCredentialBroker>;
+/// and the broker are the three collaborators every command in this binary composes. Generic in the
+/// warehouse since the `bigquery` feature landed; the other two are this binary's own choice and
+/// never vary.
+type McpSurface<W> = LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker>;
 
 /// What serving the surface amounts to: the service, and how catalog descriptions are treated.
 ///
-/// Named because even with `McpSurface` aliased, `(McpSurface, CatalogProse)` stays over
+/// Named because even with `McpSurface` aliased, `(McpSurface<W>, CatalogProse)` stays over
 /// `clippy::type_complexity` once the alias is expanded.
-type Served = (McpSurface, CatalogProse);
+type Served<W> = (McpSurface<W>, CatalogProse);
 
 /// `mcp <catalog-dir> [data-dir]`: serve the agent surface over standard input and output.
 ///
@@ -52,16 +53,31 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
         let catalog = catalog_reader(Path::new(&root))?;
         let pinned = catalog.load().map_err(|e| render(&e))?;
         let settings = configured()?;
-        let opened = open_engine(&pinned, settings.sources(), settings.runtime(), data.as_deref())?;
-        serve(&catalog, opened, settings.runtime())
+        // The exhaustive match is here for the reason `crate::commands::query`'s is: the service is
+        // monomorphised per adapter, so a third linked adapter is a compile error at this line.
+        match open_engine(
+            &pinned,
+            settings.sources(),
+            settings.runtime(),
+            settings.server().request_timeout(),
+            data.as_deref(),
+        )? {
+            Opened::Files(opened) => serve(&catalog, opened, settings.runtime()),
+            #[cfg(feature = "bigquery")]
+            Opened::BigQuery(opened) => serve(&catalog, opened, settings.runtime()),
+        }
     })())
 }
 
-/// Starts the service and serves the agent surface on this process's pipes.
+/// Starts the service over one adapter and serves the agent surface on this process's pipes.
 ///
-/// Its own function rather than the tail of [`mcp`], so what is not a per-source decision reads as
-/// one sequence: the runtime, the startup notice and the bounded teardown.
-fn serve(catalog: &LocalCatalog, opened: Opened, runtime: sutura_config::RuntimeSettings) -> Result<(), String> {
+/// Generic in the adapter, so the two arms above share every line after them - including the runtime,
+/// the startup notice and the bounded teardown, none of which is a per-adapter decision.
+fn serve<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, runtime: sutura_config::RuntimeSettings) -> Result<(), String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
     let (service, prose) = mcp_service(catalog, opened, runtime)?;
     // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
     // class: a pipe has no header a token could arrive in, so this surface grants every
@@ -104,7 +120,15 @@ fn serve(catalog: &LocalCatalog, opened: Opened, runtime: sutura_config::Runtime
 /// claims a record was kept when none was. The sink is only the writer, so any composition that
 /// does install a subscriber must send it to standard error - on this transport standard output is
 /// the protocol channel, which is why the startup notice is an `eprintln!`.
-fn mcp_service(catalog: &LocalCatalog, opened: Opened, runtime: sutura_config::RuntimeSettings) -> Result<Served, String> {
+fn mcp_service<W>(
+    catalog: &LocalCatalog,
+    opened: OpenedWith<W>,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<Served<W>, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
     let working_set = runtime.working_set().bytes().get() as u64;
     // `LocalService::start` loads the catalog again and re-runs every anchor - that is its contract,
     // the constructor that returns a service only if the bundle is fit to serve. `catalog` is handed
@@ -186,14 +210,24 @@ mod tests {
     fn the_mcp_composition_serves_every_tool_the_surface_declares() {
         let catalog = crate::commands::catalog_reader(&example().join("catalog")).expect("the example catalog is readable");
         let pinned = sutura_domain::pinned::SemanticCatalog::load(&catalog).expect("the example catalog loads");
+        // An exhaustive match into an `Option` rather than a refutable `let`: `clippy::unreachable`
+        // is denied here, and a match is also what makes a third linked adapter a compile error in
+        // this test the way it is in the command itself.
         let settings = crate::sources::configured().expect("the embedded defaults load");
-        let opened = crate::sources::open_engine(
+        let opened = match crate::sources::open_engine(
             &pinned,
             &sutura_config::SourceRegistry::default(),
             settings.runtime(),
+            settings.server().request_timeout(),
             Some(&example().join("data")),
         )
-        .expect("the example catalog opens with nothing declared");
+        .expect("the example catalog opens with nothing declared")
+        {
+            crate::sources::Opened::Files(opened) => Some(opened),
+            #[cfg(feature = "bigquery")]
+            crate::sources::Opened::BigQuery(_) => None,
+        }
+        .expect("the example declares a files source");
         let (service, prose) = mcp_service(&catalog, opened, settings.runtime()).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
         let service = std::sync::Arc::new(service);

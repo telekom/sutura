@@ -1,8 +1,9 @@
 //! One `files` source becomes the in-process engine: a declared directory, or the built-in one.
 //!
 //! **The half of [`crate::sources`] that belongs to a single kind**, split out when that file
-//! crossed the 1000-line cap. The parent keeps what belongs to no kind in particular: the shared
-//! shapes, the settings door, the `kind:` dispatch and the two-load table check.
+//! crossed the 1000-line cap - `bigquery.rs` is its sibling and took the same shape. The parent
+//! keeps what belongs to neither kind: the shared shapes, the settings door, the `kind:` dispatch
+//! and the two-load table check.
 //!
 //! Its suite is at the bottom of this file rather than in the parent, and that is deliberate: an
 //! impl file whose tests live one module up is the partition `cargo xtask test-causality` reads as a
@@ -16,7 +17,7 @@ use sutura_domain::pinned::PinnedDefinitions;
 use sutura_exec_datafusion::DataFusionWarehouse;
 
 use crate::commands::render;
-use crate::sources::{BUILT_IN_SOURCE, Opened, working_set};
+use crate::sources::{BUILT_IN_SOURCE, Opened, OpenedWith, working_set};
 
 /// What one files source becomes: the registry a plan is looked up in, and the tables attached to it.
 ///
@@ -93,13 +94,13 @@ pub(super) fn from_the_built_in_declaration(
         declared: declared.clone(),
     };
     let (engines, attached) = open(source, &posture, pinned, data, runtime)?;
-    Ok(Opened {
+    Ok(Opened::Files(OpenedWith {
         engines,
         attached: Some(attached),
         // Declared in code rather than in a file, which is what `for_one_shared_source` exists for:
         // what the leg presents and what the adapter was opened with come from ONE sentence.
         broker: sutura_config::StaticCredentialBroker::for_one_shared_source(source.clone(), declared),
-    })
+    }))
 }
 
 /// The engine over a directory, with one file registered per model on this source.
@@ -198,7 +199,11 @@ fn attach(engine: &DataFusionWarehouse, model: &ModelName, table: &TableName, da
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use crate::sources::{BUILT_IN_SOURCE, bundle_naming, bundle_over, declaring, open_engine, runtime};
+    use sutura_exec_datafusion::DataFusionWarehouse;
+
+    use crate::sources::{
+        BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, open_engine, runtime, timeout,
+    };
 
     /// The example deployment this suite reads its catalog and data from.
     fn example() -> PathBuf {
@@ -233,6 +238,19 @@ mod tests {
         sutura_config::SourceRegistry::default()
     }
 
+    /// The files registry `open_engine` produced, or a failure saying which arm it took instead.
+    ///
+    /// An exhaustive match rather than an `if let`, so a third linked adapter is a compile error in
+    /// this suite too - the same property the two commands' own matches carry.
+    fn files_of(opened: Opened) -> OpenedWith<DataFusionWarehouse> {
+        match opened {
+            Opened::Files(opened) => Some(opened),
+            #[cfg(feature = "bigquery")]
+            Opened::BigQuery(_) => None,
+        }
+        .expect("this fixture declares a files source")
+    }
+
     #[test]
     fn a_declared_directory_and_a_different_one_on_the_command_line_is_two_answers_to_one_question() {
         // Neither ordering is honest, so neither is chosen. Preferring the argument makes
@@ -243,6 +261,7 @@ mod tests {
             &bundle_naming("warehouse"),
             &declaring_files("warehouse"),
             runtime(),
+            timeout(),
             Some(&example().join("catalog")),
         )
         .map(|_| ())
@@ -273,13 +292,16 @@ mod tests {
         // runs `sutura-serve` has `SUTURA_CONFIG_DIR` exported - so refusing the documented command
         // for having a configuration directory was a real regression, found by review. Two answers
         // that AGREE are one answer.
-        let opened = open_engine(
-            &bundle_naming("warehouse"),
-            &declaring_files("warehouse"),
-            runtime(),
-            Some(&example().join("data")),
-        )
-        .expect("a declared directory and the same one on the command line is not a conflict");
+        let opened = files_of(
+            open_engine(
+                &bundle_naming("warehouse"),
+                &declaring_files("warehouse"),
+                runtime(),
+                timeout(),
+                Some(&example().join("data")),
+            )
+            .expect("a declared directory and the same one on the command line is not a conflict"),
+        );
         assert_eq!(
             opened
                 .engines
@@ -306,7 +328,7 @@ mod tests {
             ),
             "impersonation-at-source",
         );
-        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &registry, runtime(), None)
+        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &registry, runtime(), timeout(), None)
             .map(|_| ())
             .expect_err("a posture the linked engine cannot carry must not open");
         assert!(error.contains(BUILT_IN_SOURCE), "the refusal must name the source: {error}");
@@ -318,7 +340,9 @@ mod tests {
 
     /// The `workload_identity` block, for a FILES entry that declares the impersonating posture.
     ///
-    /// The parse requires the block for any impersonating entry, whatever its kind.
+    /// Its own helper rather than [`super::wif`], which is behind the `bigquery` feature because the
+    /// only case that needed it there was a dataset's. The parse requires the block for any
+    /// impersonating entry, whatever its kind.
     fn wif_for_files() -> String {
         String::from(
             "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
@@ -337,6 +361,7 @@ mod tests {
             &bundle_over(&[("orders", BUILT_IN_SOURCE, "fct_order")]),
             &nothing_declared(),
             runtime(),
+            timeout(),
             Some(&example().join("data")),
         )
         .map(|_| ())

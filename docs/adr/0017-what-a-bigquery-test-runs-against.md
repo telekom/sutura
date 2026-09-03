@@ -355,7 +355,10 @@ the request it is answering is billed for a result nobody is waiting for.
 
 ### Which binaries link it, and the one that deliberately does not
 
-**`sutura-serve`, behind a default-off `bigquery` feature. `sutura-cli`, not at all.** The reason is
+**`sutura-serve`, behind a default-off `bigquery` feature. `sutura-cli`, not at all.**
+*(The second half is SUPERSEDED by the fifth amendment at the end of this record: `sutura-cli` has a
+default-off `bigquery` feature of its own since telekom/sutura#121. The reason given below is why it
+took a feature rather than a plain dependency, and that half still holds.)* The reason is
 the four cross builds and it is measured rather than assumed:
 
 - the release derivations pass `--package sutura-cli`, so they never compile `sutura-serve` itself;
@@ -798,3 +801,92 @@ cannot answer that - the subject is a person, not a key - so it stays the one ve
 no run, owned by the enterprise-IdP half ([#105](https://github.com/telekom/sutura/issues/105)). This
 amendment changes nothing about it; it is recorded here so the two venues are not elided into one
 "identity is provisioned now".
+
+## Fifth amendment: the command-line tool opens a dataset too, behind its own default-off feature
+
+**This record decided `sutura-cli`, not at all, and telekom/sutura#121 reverses that half.** The
+reason it was refused is worth reading before the reversal, because the reason has not gone away: the
+release derivations pass `--package sutura-cli`, so a non-optional dependency there would put `ureq`,
+rustls and `ring` - which compile C and assembly - into four cross builds, two of them musl. What
+changed is not the cost but the shape of the answer: a **default-off feature** pays that cost only
+when somebody asks for it, which is the general rule `.agents/skills/sutura/crate-map` states for an
+adapter with a native or an outbound-TLS dependency, and it is the same shape this record's SECOND amendment already took
+for `sutura-serve`.
+
+**What #121 was actually about**, and why the reversal is not a change of mind about cost: the only
+binary a release publishes could answer questions from local files and nothing else, so every claim
+this record's acceptance legs establish - four dialects, pushdown, a real dataset accepting our SQL -
+was reachable only from a source checkout. That is a documentation and tutorial problem before it is
+a capability one.
+
+**What is built.** `crates/sutura-cli/src/sources/bigquery.rs`'s `open` composes the same three
+layers `sutura-serve`'s `build_bigquery` composes, through the same public constructors:
+`BigQueryWarehouse::new` over `BigQueryWire::new` over `Credential::read`, with one `WireAgent`
+cloned so the token exchange and the job share a pool. It is a **copy and not a shared function**,
+because the two composition roots are separate binaries and neither may depend on the other; what is
+genuinely shared is this adapter's own constructors, so a fix to the credential path lands once. The
+posture cross-check is called against that adapter's own `IMPERSONATION`, and an
+`impersonation-at-source` entry is refused **by name, before the credential file is read**, for the
+same reason the server refuses one: no broker that exchanges a subject's credential is attached, so
+answering would read every row as the process while the declaration promised otherwise.
+
+**The job's deadline comes off `server.request_timeout_seconds`**, through
+`QueryDeadline::within_request_timeout`, even though this binary has no listener a job could outlive.
+The alternative was a number invented in the composition root, which is the drifting duplicate the
+settings tree exists to prevent.
+
+**The limit that buys, stated as a number rather than a caveat, because review measured it:**
+`CALLS_PER_ANSWER` is 2 and the connect margin is 5 seconds, so the shipped default of 30 gives a job
+**10 seconds** and `RequestTimeout::MAX_SECONDS` of 300 caps it at **145** - against a
+`QueryDeadline::MAX_SECONDS` of six hours. On the command-line tool that key therefore bounds nothing
+that exists and imposes a ceiling designed to protect an HTTP connection the command does not have: a
+twelve-second question is cancelled by `jobTimeoutMs` with nobody waiting on any request. The
+adapter's own `QueryDeadline::parse` exists for "a deployment stating a budget outright" and is
+deliberately not used, because a second key on one binary is the duplicate the first half of this
+paragraph refuses. What would lift it is a settings key meaning *how long a QUESTION may take* rather
+than how long a REQUEST may - one number both roots read - and that is a settings decision rather
+than this record's.
+
+**Three more things no test observes on the command-line root**, listed because a composition that is
+tested reads as a path that is exercised. `OpenedWith::attached` is `None` for a dataset and no test
+sees that value, because every one of them stops at the credential read - what it feeds is `mcp`'s
+`if let Some(attached)`, and the files arm is what exercises that branch. The `mcp` command's
+`Opened::BigQuery` arm is instantiated by no test either: all three go through `open_engine` directly,
+and reaching it by hand gives the same `credential_file` refusal. And the credential refusal prints
+the operator's own absolute path out of their own settings - inherited unchanged from
+`sutura-exec-bigquery` and identical on the served path, noted only because *Design Principles* says
+an error is not a place for a path.
+
+**And what watches the feature-OFF lane, said at the sharper end than "a behaviour that differs by
+build":** `just test`, `just mcp-e2e` and `checks.nextest` all pass `--all-features`, so the
+`cfg(not(feature = "bigquery"))` refusal and the test that provokes it are run by none of them. What
+does compile that lane is `cargo xtask check-default-features`, in `just gates`: it derives its
+package list from `nix/shipped.nix`'s `binaries`, so this crate joined it the moment the feature
+existed, and it runs `cargo clippy` as well as `cargo check` because a check cannot see a lint - which
+is how a `doc_markdown` failure lived on such a line in both roots until somebody ran clippy at the
+default set. **Its limit is CI's:** `ci.yml` reaches every gate as a nix check or a nix app and that
+gate is neither, so what CI has for this lane is the four `cross` link builds for the compile half and
+nothing at all for the lint half.
+
+**The measurement this record's own rule asks for, taken 2026-09-02.** `cargo check -p sutura-cli
+--all-targets` on the default feature set touches neither `ring` nor `ureq`; the same command with
+`--features bigquery` compiles `ring` from C and assembly. That is the whole argument for default-off
+stated as a build rather than as a prediction, and it is also why the four `cross` jobs are
+**unchanged** by this branch: they pass no `--features`, so they compile exactly what they compiled
+before. What would price the alternative - the feature ON for four triples - is a build nothing asks
+for, so it has not been run.
+
+**And what still has not happened, because a feature reads like availability.** No published artefact
+links the adapter. `nix/shipped.nix` builds both binaries with cargo's DEFAULT features and its
+features paragraph now says so for both, which is telekom/sutura#121's third step decided as its own
+recommendation had it: the CLI ships without the feature, and a deployment that needs a dataset runs
+a build that carries it. `checks.shipped-features` is what keeps that from drifting - it reads
+`ureq`'s and `ring`'s absence out of each shipped binary's own embedded dependency list rather than
+out of a manifest, so a `bigquery` that stopped being optional on either crate fails a gate.
+
+**Two lines elsewhere in this record are dated by that and are corrected here rather than in place**,
+because each was right when it was written. *"The release derivations pass `--package sutura-cli`, so
+they never compile `sutura-serve` itself"* and *"`sutura-serve` is not a `nix` package at all"* were
+both spent by telekom/sutura#111, which publishes both binaries. And *"the image holds `sutura-cli`,
+which links the engine only"* needs the qualifier *as published*: the crate can now link a second
+adapter, and the artefact still does not.
