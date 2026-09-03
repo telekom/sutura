@@ -12,7 +12,8 @@ metric layer. Everything it decides is tested against a fake reader over recorde
 client over the versioned OpenAPI entity surface is the open read-path-cost measurement this record
 leaves to a provisioned instance. **Issue #202 changed the *no metric layer* half of that sentence,
 and the *Amendment, 2026-09-02* at the foot of this page is where the change is recorded - read it
-before citing `provides no measure` above.**
+before citing `provides no measure` above, and read the *Addendum* under it before citing decision 7
+or the *Required filters* argument, both of which it narrows.**
 
 **Reframed after review, and the reframe is recorded rather than smoothed over.** The measurements
 below are unchanged and were independently verified. What changed is the conclusion drawn from one of
@@ -786,3 +787,62 @@ register records that nothing serves it.
 - The read path against a provisioned instance is **still** the open measurement this record leaves;
   nothing here reaches a network. `sutura-catalog-datahub` still has one `AspectReader` implementor,
   the recorded fixture source.
+
+### Addendum to the amendment: which half of decision 7 the deployment still owns
+
+**Status: accepted.** The amendment above answered issue #202's feasibility question and left two of
+its own arguments standing unreconciled. Both are answered here rather than in place, because an
+accepted decision's body is not edited to agree with a later one - the amendment is the record.
+
+**Decision 7 says the sentence *"configure DataHub like this"* is not ours to say, and the amendment
+writes one property name and one document grammar.** Read together they contradict, so the boundary
+is drawn rather than left to a reader:
+
+- **The grammar of the decoded document is this repository's, and there was no version of this that
+  left it open.** A decoder over a scalar has no way to negotiate the meaning of what it decodes:
+  the closedness IS `deny_unknown_fields` at every depth over one known key set, and a key set the
+  deployment chose would be no closedness at all - it would be the free-text escape hatch
+  `docs/adr/0002` exists to refuse, reached by a longer route. So the document is dictated, and that
+  is the price of the closed vocabulary rather than a preference.
+- **Whether any metric carries it stays the deployment's, and that half is held by a mechanism.**
+  The metric kinds are declared-and-empty may-provide (`DefinitionCapabilities::of_may_provide`) and
+  `Definitions::assemble` has no minimum-metric refusal, so a deployment that defined nothing loads
+  models, prose and joins. Decision 7's *"the absence of all of them is a supported configuration"*
+  therefore survives intact for the property too, as a type rather than as a sentence.
+- **What the property is called IN DataHub is still the deployment's, and nothing here names it.**
+  The `sutura` key is a field on this adapter's OWN canonical shape (`document::MetricAspect`), not a
+  DataHub structured-property urn - `document.rs`'s header is explicit that these shapes are the
+  adapter's statement of aspect CONTENT and not DataHub's envelope, and no urn appears anywhere in
+  the crate. Mapping a registered structured property - its namespace, its `SINGLE` cardinality, its
+  string value type, the entity types it binds to - onto that field is the unbuilt HTTP
+  `AspectReader`'s job. Until that reader exists, *"under which name"* is genuinely unanswered rather
+  than answered as `sutura`, and writing a urn here would be a claim about a registry this
+  repository has never read.
+
+**And the *Required filters: absent, and absent in the way that matters* section makes TWO arguments,
+where the amendment collapsed one.** The amendment answered the SHAPE argument - a scalar cannot
+carry a predicate - and the second argument is untouched by it: *"a catalog that records a predicate
+as a property records a fact, not a duty"*, so enforcing one would substitute our reading for the
+author's, which `docs/adr/0001` refuses. That argument stands, and it is what still forbids reading
+DataHub's own `filters` structured property or its `aggregationFunction`. What passes it is narrower
+than a structured property in general: a deployment writing a predicate under the key
+`required_filters`, inside a document written in this repository's grammar, is not recording a fact
+for us to interpret - it is stating the duty in the one vocabulary where that key already MEANS
+*applied to every question about this metric*. The substitution 0001 refuses is inferring a duty from
+a field DataHub defines; reading one from a field the deployment wrote in our own grammar is the
+author speaking.
+
+### What this addendum does NOT establish
+
+- **Nothing here has ever written or read the property through DataHub.** The venue exists and is
+  reachable - `just datahub-acceptance` gets a `2xx` off the surface a reader would call - and the
+  instance is empty, so DataHub's server-side structured-property validator has never seen one of
+  these documents. `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired* register is
+  where that limit is read from.
+- **The document's size ceiling is unmeasured.** It grows with the metric - dimensions, allowed
+  values, prose - and a deployment's DataHub validates the scalar for length. This crate adds no
+  bound of its own, and no measurement here says what the ceiling is or what a metric that exceeds it
+  does, because writing one through the platform is the same absent step as above.
+- **Whether a per-deployment property is acceptable to MAINTAIN is still not decided by this record.**
+  Issue #202 said that was not its job; it is not this addendum's either. What is decided is what the
+  shape is, who owns which half of it, and which of the original arguments against it survive.
