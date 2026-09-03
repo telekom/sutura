@@ -309,10 +309,9 @@ fn a_metric_that_does_not_hold_together_is_refused_by_its_own_defect() {
 /// The domain guard over the measure's own grammar is the NEXT cell, and that one is a property
 /// inside the measure; the case an operator hits the day they write a key the document does not
 /// carry is the top level, and it must refuse naming the property rather than with a bare "did not
-/// decode". **What this does not reach is the typed error:** the refusal is asserted where the
-/// decode happens, on `SuturaProperty::assemble`, and nothing in this crate asserts
-/// `DataHubError::Sutura`, the variant `convert_metric` wraps it in - so the naming is proven and
-/// the wrapping is not.
+/// decode". This asserts the refusal where the decode happens, on `SuturaProperty::assemble`;
+/// `a_key_inside_an_anchor_range_is_refused_through_the_load_path` is the cell that carries the
+/// same refusal out through `DataHubError::Sutura`, the variant `convert_metric` wraps it in.
 #[test]
 fn an_unknown_key_at_the_sutura_level_is_refused_and_named() {
     let json = r#"{
@@ -350,6 +349,35 @@ fn an_unsupported_sutura_property_inside_the_closed_shapes_fails_to_read() {
         .expect_err("a measure carrying a property the domain does not define must not read")
         .to_string();
     assert!(message.contains("optimized"), "the refusal names the property: {message}");
+}
+
+/// The closedness reaches INSIDE an anchor's range, and the load path carries the refusal out as
+/// its own typed error.
+///
+/// Two things no other cell holds. The document's closedness used to stop one level above a range:
+/// `sutura_domain::calendar::TimeRangeInput` carried no `deny_unknown_fields`, so a key written
+/// inside `anchor.range` was discarded in silence and the metric was certified from a document
+/// nobody had read in full - the one place in this document where a typo was dropped rather than
+/// named. And the refusal is provoked through `DataHubCatalog::load` rather than on
+/// `SuturaProperty::assemble`, so [`DataHubError::Sutura`] is reached rather than assumed: it names
+/// the metric, and its source names the key.
+#[test]
+fn a_key_inside_an_anchor_range_is_refused_through_the_load_path() {
+    let json = r#"{
+            "name": "revenue",
+            "dialect": "ANSI_SQL",
+            "expression": "SUM(amount_cents)",
+            "sutura": { "string_value": "{\"model\":\"orders\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\",\"ends\":\"2026-08-01\"},\"value\":\"412345\"}}" }
+        }"#;
+    let metric: MetricAspect = serde_json::from_str(json).expect("the outer aspect decodes");
+    let corpus = corpus();
+    let snapshot = Snapshot::new(corpus.datasets().to_vec(), corpus.relationships().to_vec(), vec![metric]);
+    let error = over(snapshot).load().expect_err("a key inside a range must not read");
+    let DataHubError::Sutura { metric, cause } = &error else {
+        panic!("the scalar's refusal arrives as the load path's own error, not as {error:?}");
+    };
+    assert_eq!(metric, "revenue", "the error names the metric whose document did not read");
+    assert!(cause.to_string().contains("ends"), "the refusal names the key: {cause}");
 }
 
 /// The rest of a metric - a definitional filter, a dimension with its allowlist, an anchor and

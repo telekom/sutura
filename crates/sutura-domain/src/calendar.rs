@@ -380,7 +380,16 @@ pub struct TimeRange {
 /// It exists only to be converted. Without it the derived `Deserialize` would write into
 /// `TimeRange`'s private fields and skip the emptiness check below, and a catalog or question file
 /// is exactly the input that check exists for.
+///
+/// `deny_unknown_fields` because a range is the shape that sits INSIDE three closed documents - a
+/// question's `range`, a metric's `anchor.range`, and the structured property
+/// `sutura-catalog-datahub` decodes - each of which denies unknown fields at its own level and
+/// stopped one level short of this one. Until it was here, `range: { start, end, ends }`
+/// deserialized cleanly with `ends` discarded, which made a key inside a range the one key in a
+/// catalog or a question that nothing named. [`crate::measure`]'s and [`crate::knowledge`]'s input
+/// shapes already cited this type as the precedent for an attribute it did not carry.
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TimeRangeInput {
     start: Date,
     end: Date,

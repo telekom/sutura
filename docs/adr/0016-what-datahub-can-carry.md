@@ -730,17 +730,17 @@ value is the canonical `SuturaContent` document as JSON text: a `model`, a `meas
 non-empty `grains`, and optionally `description`, `required_filters`, `dimensions` and `anchor`.
 The measure, filter operators, grains and allowed values are the domain's closed vocabularies
 verbatim, and `deny_unknown_fields` - on the decoded document, on the measure and on the term inside
-it, on a filter, on a dimension and on the anchor - refuses a property this adapter does not define
-rather than guessing, naming the key.
+it, on a filter, on a dimension, on the anchor and on the range inside the anchor - refuses a
+property this adapter does not define rather than guessing, naming the key.
 
-**One level below the anchor does not refuse, and *at every depth* was the wrong phrase for it.** An
-anchor's `range` decodes through the domain's `TimeRangeInput`, which carries no
-`deny_unknown_fields`, so a key written inside the range object is dropped in silence instead of
-named. A range is two dates and the extra key is discarded, so nothing untyped reaches the query path
-through it - the hole is fidelity, not the escape hatch `docs/adr/0002` closes - and it is the same
-hole wherever a markdown catalog decodes a range. The attribute on that domain shape is what would
-close it, with the test that is red without it; until then this paragraph is the limit beside the
-claim rather than a green run nobody can read the gap out of.
+**The range was the one level at which *at every depth* was one depth short, and it is closed rather
+than recorded as a limit.** An anchor's `range` decodes through the domain's `TimeRangeInput`, which
+carried no `deny_unknown_fields`, so a key written inside the range object was discarded in silence
+instead of named - and because a question's `range` and a markdown metric's `anchor.range` decode
+that same one type, it was the same hole on all three paths. The attribute is on that shape now, held
+by `a_key_inside_an_anchor_range_is_refused_through_the_load_path` here and by
+`a_key_inside_a_range_is_an_error_and_not_a_dropped_field` over the YAML question path, each red
+without it.
 
 **A metric that carries the property becomes a certified `Metric`; a metric that does not
 stays the promotion candidate decision 4 describes, read and never converted.** The two halves are
