@@ -20,6 +20,8 @@
 //!   structural ones - so a section for a venue absent from the table fails too.
 //! * **Every test the page cites exists and is a test.** The page says those names are the list to
 //!   check a claim against, which a rename turns into a citation of nothing.
+//! * **The acceptance venue's limit is a workflow property**, so it is read out of the workflow -
+//!   see [`workflow_problems`] and [`one_credential_mechanism`].
 //!
 //! # What is not
 //!
@@ -36,6 +38,11 @@ use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
+
+// The acceptance venue's half. Its limit is a property of `.github/workflows/ci.yml` rather than of
+// the page, so it reads a different file with a different parser - and every assertion about it
+// lives beside that parser, where the fixture it needs is.
+mod acceptance;
 
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
@@ -375,6 +382,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-venues: {PAGE} is not readable - it IS the map");
         return Verdict::Fail;
     };
+    let Ok(workflow) = std::fs::read_to_string(root.join(acceptance::WORKFLOW)) else {
+        eprintln!("xtask check-venues: {} is not readable", acceptance::WORKFLOW);
+        return Verdict::Fail;
+    };
 
     let tests = test_names(&root, &files);
     if tests.len() < 100 {
@@ -385,10 +396,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let problems = page_problems(&page, &tests);
+    let mut problems = page_problems(&page, &tests);
+    problems.extend(acceptance::problems(&workflow));
 
     if problems.is_empty() {
-        println!("xtask check-venues: ok - {PAGE}, {} cited test(s)", cited_tests(&page).len());
+        println!(
+            "xtask check-venues: ok - {PAGE} and the `{}` job, {} cited test(s)",
+            acceptance::JOB,
+            cited_tests(&page).len()
+        );
         return Verdict::Pass;
     }
 

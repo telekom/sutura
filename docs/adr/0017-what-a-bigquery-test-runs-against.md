@@ -743,9 +743,33 @@ named: rotation somebody has to remember, and a credential that leaks if the env
 a second project needs a credential, move the acceptance leg to Workload Identity Federation - GitHub
 mints an OIDC JWT under `permissions: id-token: write`, Google STS exchanges it for a short-lived token,
 and **there is no key at all**. A workload pool accepts `subject_token_type: jwt` with an attribute
-condition pinning the repository. Neither `id-token` nor a Google auth action appears in any workflow
-today, so this is greenfield; the moment that changes is a workflow diff with no key to rotate. Until
-then the key is the cost of the evidence, and this paragraph is its expiry.
+condition pinning the repository. Until then the key is the cost of the evidence, and this paragraph is
+its expiry.
+
+**One sentence of that paragraph was wrong when it was merged, and it is corrected here rather than
+quietly**, because it was the half a reader would have used as the signal to watch. It said *neither
+`id-token` nor a Google auth action appears in any workflow*, and therefore that the moment either did
+was the diff to look for. Measured 2026-09-03: `git log -S` dates `id-token: write` in
+`.github/workflows/release.yml` to telekom/sutura#97, merged **two hours before this amendment
+landed** - the release path mints an OIDC token for Fulcio to sign a certificate against, which is a
+keyless-signing exchange with a different audience and no Google in it at all. So the permission is not
+the signal and never was; a workflow can hold it for years with the key untouched. **What is greenfield
+is the Google half**: no `google-github-actions/auth`, no workload pool, and no STS exchange anywhere in
+this repository. The signal is therefore a Google STS exchange in the acceptance job with no key placed
+beside it, **and that one is mechanical**: `cargo xtask check-venues` reads the job's own credential state
+and holds it to exactly one mechanism - a key and a federated token together is a half-finished migration,
+neither is a leg authenticating with nothing, and the keyless state fails asking for this paragraph to be
+amended. A gate whose failure is good news is the only shape that reaches a record.
+
+**The transferable part, since this record keeps finding the same shape:** a limit whose evidence is
+*nothing in the tree does X* is only as good as a search somebody ran. This one was written from
+recollection two hours after the tree stopped agreeing with it, and no gate could have known - which is
+why the sentence now names the command and the date, per this repository's own rule about a number in
+prose. **And the limit of this correction, stated rather than left to be discovered:** the wrong wording
+is NOT registered in `check-guidance`'s contradicted-claims table, so nothing stops it being written
+again. Measured 2026-09-03: `xtask/src/guidance/claims.rs` stands at 985 lines against `max-lines`' cap
+of 1000, and one entry costs sixteen once `rustfmt` has expanded it - so that table cannot take another
+claim until the file is split, which is a separate change with its own owner.
 
 ### The limit each venue must state
 
