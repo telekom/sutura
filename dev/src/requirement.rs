@@ -44,8 +44,9 @@ pub enum Requirement {
     /// [`FORCE`]: there, a green run that quietly tested nothing is the failure the whole tier
     /// exists to prevent.
     ///
-    /// **Not implied by `CI`.** No CI job provisions the tier today, so keying on that variable made
-    /// a missing tier fatal in the one place it is expected - see [`decide`].
+    /// **Not implied by `CI`.** A CI job has to opt a tier in explicitly, so keying on that variable
+    /// makes a missing tier fatal in the one place it is expected - see [`decide`]. Today the opt-ins
+    /// are `checks.nextest`'s Postgres, a docker tier, and `nix run .#keycloak-acceptance`.
     Required,
     /// A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.
     Optional,

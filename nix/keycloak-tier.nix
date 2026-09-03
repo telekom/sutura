@@ -66,15 +66,14 @@
         # In the sandbox the output dir is short by fiat; the private network namespace is ours, so
         # a fixed port cannot collide with anything.
         home="$NIX_BUILD_TOP/.sutura-dev/keycloak"
-        port=18080
+        sandbox_port=18080
       else
         # A worktree can be deep and a JVM home is not sizeable, so the writable distribution lives
         # in a short per-worktree directory under TMPDIR, keyed by a hash of the worktree's physical
-        # path - same shape as the postgres tier. The port is picked free: Keycloak is TCP-only, and
-        # on an unsandboxed Mac a fixed port is a collision waiting to happen.
+        # path - same shape as the postgres tier. The port is picked free (see `start`): Keycloak is
+        # TCP-only, and on an unsandboxed Mac a fixed port is a collision waiting to happen.
         key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
         home="''${TMPDIR:-/tmp}/sutura-keycloak-$key"
-        port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
       fi
 
       HOME_KC="$home"
@@ -117,11 +116,14 @@
           KC_BOOTSTRAP_ADMIN_USERNAME="$admin_user" KC_BOOTSTRAP_ADMIN_PASSWORD="$admin_password"
         # Idempotent against a persistent dev home; in the sandbox the home is fresh so every run is
         # a first boot. All sealed in `master` realm - see the comment on `realm`.
-        kcadm create clients -r "$realm" -s clientId="$client_id" -s enabled=true \
-          -s protocol=openid-connect -s 'redirectUris=["http://127.0.0.1/*"]' \
-          -s 'directAccessGrantsEnabled=true' -s 'serviceAccountsEnabled=true' \
-          -s "secret=$client_secret" \
-          --server "http://127.0.0.1:$port" --realm master --user "$admin_user" --password "$admin_password" >/dev/null 2>&1 || true
+        if ! kcadm get "clients?clientId=$client_id" -r "$realm" --server "http://127.0.0.1:$port" \
+            --realm master --user "$admin_user" --password "$admin_password" 2>/dev/null | grep -q '"id"'; then
+          kcadm create clients -r "$realm" -s clientId="$client_id" -s enabled=true \
+            -s protocol=openid-connect -s 'redirectUris=["http://127.0.0.1/*"]' \
+            -s 'directAccessGrantsEnabled=true' -s 'serviceAccountsEnabled=true' \
+            -s "secret=$client_secret" \
+            --server "http://127.0.0.1:$port" --realm master --user "$admin_user" --password "$admin_password" >/dev/null
+        fi
         for user in "$user_a" "$user_b"; do
           if ! kcadm get "users?username=$user" -r "$realm" --server "http://127.0.0.1:$port" \
               --realm master --user "$admin_user" --password "$admin_password" 2>/dev/null | grep -q '"id"'; then
@@ -141,12 +143,23 @@
           cp -a "${pkgs.keycloak}/." "$HOME_KC/"
           chmod -R u+w "$HOME_KC"
         fi
+        # Pick the port only when actually launching, and persist it (`$HOME_KC/port`). A re-`start`
+        # against a live tier must wait_ready on the port the JVM bound, not on a freshly chosen one
+        # nobody listens on - the copy inherited postgres' pid guard without its socket-fixed port.
+        if [ -f "$HOME_KC/keycloak.pid" ] && kill -0 "$(cat "$HOME_KC/keycloak.pid")" 2>/dev/null && [ -f "$HOME_KC/port" ]; then
+          port="$(cat "$HOME_KC/port")"
+        elif [ -n "''${NIX_BUILD_TOP:-}" ]; then
+          port="$sandbox_port"
+        else
+          port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+        fi
         export KC_HOME_DIR="$HOME_KC" KC_CONF_DIR="$HOME_KC/conf" \
           KC_BOOTSTRAP_ADMIN_USERNAME="$admin_user" KC_BOOTSTRAP_ADMIN_PASSWORD="$admin_password"
         if [ ! -f "$HOME_KC/keycloak.pid" ] || ! kill -0 "$(cat "$HOME_KC/keycloak.pid")" 2>/dev/null; then
           kc start --http-enabled=true --http-port "$port" --hostname-strict=false \
             >"$HOME_KC/keycloak.log" 2>&1 &
           echo $! > "$HOME_KC/keycloak.pid"
+          printf '%s\n' "$port" > "$HOME_KC/port"
         fi
         wait_ready
         provision

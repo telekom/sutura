@@ -21,7 +21,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A fake at the port** | in process, every run | nothing | `just test`, `just validate` |
 | **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` |
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
-| **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
+| **A real enterprise identity provider** | a hermetic nix tier, opt-in | a JVM boot - no secret, no human, no network | `just keycloak-acceptance` |
 | **A real token exchange, and two grants** | nowhere yet | a workload-identity pool and two subjects with different access | not built |
 
 The rule the middle row establishes: **the mock issuer is the default venue, and it may never be cited
@@ -56,7 +56,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | `credential_unavailable` through the request path | - | **yes** | - | - | - |
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - |
 | The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | redundant |
-| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **only here** | no |
+| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **can - the venue exists (`just keycloak-acceptance`) but no `aud` substitution is attempted yet** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | - | **only here** |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no | **only here** |
@@ -148,8 +148,20 @@ identity* - and nothing whatever about per-subject execution.
 
 ## A real enterprise identity provider
 
-Not built. Its job is the one row above that only it can answer, and keeping it to that row is the point
-of this page.
+`just keycloak-acceptance` (`nix run .#keycloak-acceptance`), through the hermetic
+`nix/keycloak-tier.nix` - a nixpkgs `keycloak` booted over loopback, no human, no secret, no network.
+It seeds the `master` realm with a confidential client and two test principals.
+
+What it establishes, and its row says no more than this: **a real issuer mints a non-empty token for
+each of two distinct principals** (their `sub` claims differ). That is *two principals exist*.
+
+What it does NOT establish, and the exclusions a reader is likeliest to get wrong:
+
+- **No `aud` substitution.** Nothing here tries to get the issuer to mint an ID token whose `aud` is
+  a third party's client id - the one row in the table below that *only* a real provider can answer.
+  `nix/keycloak-tier.nix`'s header names that as reason the tier exists, but the leg does not ask it.
+- **No two-subject row set.** Distinct `sub` values are not `docs/adr/0008`'s *two subjects read two
+  different row sets* - for that every column in the table, including *Real provider*, still says no.
 
 ## A real token exchange, and two grants
 

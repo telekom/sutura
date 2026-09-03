@@ -793,7 +793,7 @@ keycloak-acceptance:
     set -euo pipefail
     echo "keycloak-acceptance: scope sutura-http - the provisioned identity venue, through \`nix run .#keycloak-acceptance\`."
     echo "keycloak-acceptance: NOT a gate; \`just test\` for the workspace suite, which skips the \`#[ignore]\`d leg."
-    nix run .#keycloak-acceptance
+    nix run .#keycloak-acceptance -- --no-capture
 
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:

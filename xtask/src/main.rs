@@ -37,6 +37,7 @@ mod tasks;
 mod text;
 mod threshold_expect;
 mod unused_deps;
+mod venues;
 mod warm_start;
 mod workflows;
 
@@ -126,6 +127,15 @@ const TASKS: &[Task] = &[
         description: "the causality gate builds where nix warms its target directory",
         kind: Kind::Hygiene,
         run: warm_start::run,
+    },
+    Task {
+        // Beside `check-warm-start` because it is the same shape of gate for the same reason: a rule
+        // AGENTS.md would call a wish - here, "a new venue arrives as a row with its exclusions
+        // written" - held by recall until a venue (#235) shipped without a row. Once text, `hygiene`.
+        name: "check-venues",
+        description: "every identity acceptance task is a row in docs/where-identity-is-proven.md",
+        kind: Kind::Hygiene,
+        run: venues::run,
     },
     Task {
         name: "unused-deps",

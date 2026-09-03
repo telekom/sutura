@@ -832,9 +832,15 @@
           program = builtins.toString (pkgs.writeShellScript "sutura-keycloak-acceptance" ''
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
             ${cargoLinkEnv}
-            sutura-keycloak-tier start
             cleanup() { sutura-keycloak-tier stop; }
+            # Armed BEFORE `start`: a failure inside `start` (a JVM that never answers, a seeding
+            # error) has already launched the process but would otherwise escape a trap installed
+            # afterwards, leaving the JVM and a stale discovery claim behind. `set -eu` so a failed
+            # `start` stops here rather than falling through to nextest under the required-tier
+            # panic - the right colour for the wrong reason, and a log that reads as a test failure.
+            set -eu
             trap cleanup EXIT
+            sutura-keycloak-tier start
             SUTURA_DEV_REQUIRE_TIER=1 cargo nextest run --cargo-profile ci -p sutura-http --all-features --run-ignored only keycloak "$@"
           '');
         };

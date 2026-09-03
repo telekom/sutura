@@ -844,8 +844,11 @@ jobs:
   # **An app and NOT a check, and for the same reason `bigquery-acceptance` is.** The tier boots a
   # JVM (the nixpkgs `keycloak` package), which `checks.*` cannot - the sandbox has no loopback a
   # long-running process can claim - so it is not hermetic and it is not part of `just validate`.
-  # It is opt-in and it WAITS for `ci` only so the dependency closure that job fills is already in
-  # the cache when this one reaches the pinned toolchain.
+  # It is opt-in and it WAITS for `ci`: `needs: [ci]` means the dependency closure that job just
+  # filled is already in the cache when this one reaches the pinned toolchain, AND that a red `ci`
+  # is not shadowed by this job - a failing main gate skips the acceptance leg rather than reporting
+  # green through it (`crates/sutura-serve/src/boot.rs` records the measured case where `cross`, one
+  # of the other `needs: [ci]` jobs, did not so much as try).
   #
   # **A fork's pull request SKIPS and everything in-repo RUNS**, this repository's own rule: a fork
   # has no reason to boot a JVM and no maintainer action depends on it, so there is no
