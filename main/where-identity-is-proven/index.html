@@ -2744,6 +2744,22 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>redundant</td>
 </tr>
 <tr>
+<td>The document leg 1 verified is the <code>subject_token</code> the <strong>shipped</strong> exchanging broker offers</td>
+<td>-</td>
+<td><strong>yes</strong>, over a fake exchange - the two halves were each green against their own fixture</td>
+<td>-</td>
+<td>-</td>
+<td>redundant</td>
+</tr>
+<tr>
+<td>A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system</td>
+<td>-</td>
+<td><strong>yes</strong></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
 <td>The composition root arms leg 1 over the governed routes, or does not start</td>
 <td>-</td>
 <td><strong>yes</strong>, on the spawned binary</td>
@@ -2836,10 +2852,27 @@ source that ships:</p>
   on the <strong>material</strong>: each credential is derived from that caller's own assertion, so what is shown is
   that the document travelled and not only the name.</li>
 <li><code>an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_file_says</code></li>
+<li><code>the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified</code> - the <strong>join</strong>, and the one
+  assertion neither half could make alone. <code>sutura_exec_bigquery::WorkloadIdentityBroker</code> is driven
+  through this router over a fake <code>StsExchange</code>, and what is compared is the <em>bytes</em>: the <code>subject_token</code>
+  the shipped broker sent is character for character the compact JWT the gate verified. Each half was
+  already green against its own fixture, so a transport retaining a mangled assertion - the <code>Bearer</code>
+  scheme still on it, say - would have left both suites passing while the exchange received garbage. The
+  pool and the scope are asserted too, so what reached the exchange is the declaration held for that
+  source rather than anything the request carried.</li>
+<li><code>a_source_the_shipped_exchanging_broker_holds_nothing_for_is_refused_before_anything_is_exchanged</code> -
+  the same <code>403</code> as above, produced by the <strong>shipped</strong> exchanging broker rather than a fake that only
+  refuses, plus the two assertions a status code cannot carry: nothing reached the authorization server
+  and nothing reached the data system.</li>
 </ul>
-<p>The first six live in <code>crates/sutura-http/src/inbound/tests/published.rs</code> and the last three in
+<p>The first six live in <code>crates/sutura-http/src/inbound/tests/published.rs</code> and the last five in
 <code>crates/sutura-http/src/identity_e2e.rs</code>, which is the same split the code has: one file is about
 establishing who is asking and the other about what is minted for them.</p>
+<p><strong>What the two exchange-chain tests do NOT reach, and it is unchanged by them:</strong> the fake at the port
+is a fake, so nothing here says a real authorization server accepts that document - that stays the
+last venue's only claim. And they are router tests rather than composed-binary ones for the reason
+below: this composition root refuses to boot an <code>impersonation-at-source</code> source while no shipped
+broker exchanges for one, so the binary cannot host them at all.</p>
 <h3 id="and-on-the-composed-binary-which-is-a-different-claim-from-any-of-the-above">And on the composed binary, which is a different claim from any of the above<a class="headerlink" href="#and-on-the-composed-binary-which-is-a-different-claim-from-any-of-the-above" title="Permanent link">&para;</a></h3>
 <p><code>crates/sutura-serve/tests/served.rs</code> spawns the shipped binary over a settings file declaring
 <code>security.inbound</code>, with a key set this issuer published to a real path. Two tests, and what they add
@@ -2910,9 +2943,11 @@ identity</em> - and nothing whatever about per-subject execution.</p>
 <p>Not built. Its job is the one row above that only it can answer, and keeping it to that row is the point
 of this page.</p>
 <h2 id="a-real-token-exchange-and-two-grants">A real token exchange, and two grants<a class="headerlink" href="#a-real-token-exchange-and-two-grants" title="Permanent link">&para;</a></h2>
-<p>Not built. <code>sutura_exec_bigquery::WorkloadIdentityBroker</code> decides correctly against a fake exchange and
-<code>StsOverHttp</code> serializes the documented request; what has never happened is an exchange against a real
-endpoint, and no answer any deployment has produced was evaluated under an asker.</p>
+<p>Not built. <code>sutura_exec_bigquery::WorkloadIdentityBroker</code> decides correctly against a fake exchange,
+<code>StsOverHttp</code> serializes the documented request, and the mock-issuer venue above now shows that broker
+reached <strong>through the transport</strong> with the caller's own verified token as the <code>subject_token</code>. What has
+never happened is an exchange against a real endpoint, and no answer any deployment has produced was
+evaluated under an asker.</p>
 <p>Two things would make it a venue: a workload-identity pool to exchange against, and two subjects whose
 access at the data system genuinely differs. The second is what makes <em>two subjects read two row sets</em> a
 claim rather than a hope - and until it exists, <code>AGENTS.md</code> keeps the shipped position:</p>
