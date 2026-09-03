@@ -491,8 +491,11 @@ this became its second caller.
   argument-ORDER mistake and permits a ROLE mistake, and the role mistake is the one that happened.
 - **A refusal is told apart from an outage, and that is a port method rather than a status check at
   the call site.** `JobTransport::listing_was_refused` answers `true` for `401` and `403` only; the
-  adapter forwards it as `Warehouse::preflight_was_refused`, and `sutura-serve` refuses the boot
-  naming the grant. Everything else - unreachable, unreadable, a document that would not decode, a
+  adapter forwards it as `Warehouse::preflight_was_refused`, and **both serving composition roots**
+  refuse naming the grant - `sutura-serve` before its listener opens, and `sutura-cli`'s agent
+  surface before it announces itself on the pipe. `sutura query` asks nothing, deliberately: it
+  answers one question on a terminal and exits, so an absent table already reaches the person who
+  typed the command. Everything else - unreachable, unreadable, a document that would not decode, a
   `404` - stays a warning and the deployment serves. Without that split, a missing
   `bigquery.tables.list` grant and a momentarily dead endpoint were the same permanent warning, which
   turned the check off in the deployment least likely to read a startup log. **A `404` is deliberately
