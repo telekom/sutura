@@ -356,6 +356,7 @@ fn every_nix_check_is_named_by_the_task_that_runs_them() {
 
     let release_only = ["one-binary", "shipped-features"];
     let declared: Vec<String> = crate::workflows::declared_block(&flake, "checks = {")
+        .expect("flake.nix's `checks = {` block must close, or this gate is reading nothing")
         .into_iter()
         .filter(|name| !release_only.contains(&name.as_str()))
         .collect();
