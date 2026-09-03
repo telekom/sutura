@@ -210,14 +210,20 @@ impl Absent {
                     // reader whose missing service was `datahub` was told to bring up Keycloak. The
                     // replacement listed every profile and cited `xtask dev-up --with <profile>`,
                     // which is a raw command line where all four sibling remedies here cite a `just`
-                    // task - the one form `AGENTS.md` says a reader is never told to type, enforced
-                    // by `check-guidance` over prose and therefore by nothing over a string literal.
-                    // It also assumed the compose venue, which stops being true for a service the
-                    // day it gets a nix-native tier.
+                    // task - the one form `AGENTS.md` says a reader is never told to type, and at the
+                    // time enforced by `check-guidance` over prose and therefore by nothing over a
+                    // string literal. It also assumed the compose venue, which stops being true for
+                    // a service the day it gets a nix-native tier.
                     //
                     // So [`venue`] keeps the venue true and
                     // `every_command_this_remedy_names_is_a_just_task_that_exists` keeps the task
                     // name true. A remedy nothing checks is prose, and prose rots silently.
+                    //
+                    // The generalisation landed with `github.com/telekom/sutura#243`:
+                    // `check-guidance` now resolves a `just` or `cargo xtask` citation in every
+                    // `.rs` file the repository publishes, so the next module to print a task name
+                    // is held without a test of its own. It cannot resolve an INTERPOLATED name -
+                    // `just dev-up-{profile}` below is one - which is the half the test here keeps.
                     match venue(self.0.worktree.as_deref(), &self.0.service) {
                         Venue::NixTier { ref module } => format!(
                             "             `just test` provisions it - `{}` is a nix-native tier ({module}) and not a \
@@ -608,11 +614,19 @@ mod tests {
     #[test]
     fn every_command_this_remedy_names_is_a_just_task_that_exists() {
         // THE MECHANISM for `AGENTS.md`'s "cite a `just` task, never a raw command line", held where
-        // a reader is actually TOLD rather than where a reader is documented to. `check-guidance`
-        // filters to prose - `.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh` - and the justfile gate
-        // reads the justfile, so a citation inside a Rust string literal is outside every citation
-        // checker in this repository. This remedy said `xtask dev-up --with <profile>` while its
-        // four siblings cited `just` tasks, and nothing was red.
+        // a reader is actually TOLD rather than where a reader is documented to. When this was
+        // written it was the ONLY one: `check-guidance` filtered to prose - `.md`, `.nix`, `.yml`,
+        // `.yaml`, `.toml`, `.sh` - and the justfile gate reads the justfile, so a citation inside a
+        // Rust string literal was outside every citation checker in the repository. This remedy said
+        // `xtask dev-up --with <profile>` while its four siblings cited `just` tasks, and nothing
+        // was red.
+        //
+        // `github.com/telekom/sutura#243` then made that a gate, because one module's unit test is a
+        // mechanism for the module and not for the rule. TWO HALVES SURVIVE HERE, and neither is a
+        // duplicate of it: the gate resolves a written-out name in any `.rs` file and CANNOT resolve
+        // an interpolated one, which `just dev-up-{profile}` is; and the gate reads only the two
+        // invocation prefixes, so "a multi-word span must BEGIN `just `" - the half that caught the
+        // original defect - is still held only here, where four sibling remedies establish the form.
         //
         // Two halves, and the second is the one that fires on a rename: a multi-word backtick span
         // in a remedy IS an invocation, so it has to begin `just `; and the task it names has to be
@@ -621,7 +635,8 @@ mod tests {
         // WHAT IT DOES NOT REACH: a single-word span, deliberately. `` `datahub` ``, `` `identity` ``
         // and `` `endpoints.json` `` are single-word spans these messages need, so a bare
         // `` `docker` `` would not be read as an invocation. Nor does it reach any other module -
-        // this is one function's output and nothing else.
+        // this is one function's output and nothing else, which is what `check-guidance`'s `advice`
+        // check covers instead.
         let root = worktree_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("this crate is inside a checkout");
         let justfile = std::fs::read_to_string(root.join("justfile")).expect("the justfile is readable");
         let tasks = recipes(&justfile);

@@ -147,6 +147,22 @@ therefore does not see.
   and two gated counts. It fails a cited `just` task that does not exist and a cited `cargo` line
   missing `--all-features`. Its own stated blind spot: a comment marker is not stripped, so a claim
   wrapping inside a `#` block is not found.
+- **A `just` task cited in a printed Rust string is checked; a raw command line there is not.**
+  The scope split is deliberate and was measured before it was taken. What judges a SENTENCE stays
+  on prose files, because a rule table written in Rust holds the phrases it forbids and a scan over
+  `.rs` would report the gate's own reasoning. What RESOLVES a citation - is this a recipe, is this
+  a task - is answered against derived authorities and costs nothing on `.rs`, so `check-guidance`
+  reads every published `.rs` file, production regions only, for a backtick span beginning `just `
+  or `cargo xtask `. **Measured when it landed: 31 such citations in the workspace, and the check
+  found one of them already broken on its first run** - `sutura-dev` printed `just dev-endpoint`
+  while the recipe parser kept the `@` off a quiet header in the name, so the only authority for
+  "is that a recipe" said no. That is the argument for it. What it does NOT hold: an interpolated
+  task NAME, a citation with no backticks, a path, and the half that caught
+  `github.com/telekom/sutura#243` in the first place - *an invocation span has to begin `just `*.
+  That half stays a unit test in the module whose siblings establish the form, because this tree
+  prints `nix run .#…` and shell fragments in backticks legitimately and the general rule would
+  fire on correct advice. A citation rule widened past prose without a precision story becomes
+  noise, and noise is how a gate gets disabled.
 - **A derived number is only a control while a page still states it, and BOTH shapes here got
   that wrong.** A count and a version pin work the same way - derive the value from the tree, then
   compare it against pages under a `mentioned_in` glob - so both hold nothing when no page states

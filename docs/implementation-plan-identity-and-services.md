@@ -929,8 +929,10 @@ economise.
    `CONTRIBUTING.md` - and **a non-markdown asset under `docs/` still runs them**, because
    `check-docs` is what resolves it. That first clause is about what reads `AGENTS.md`, not about
    what `check-guidance` reads: `check-guidance` scans every `.md`, `.nix`, `.yml`, `.yaml`, `.toml`
-   and `.sh` in the tree. The point is that deferring it over that one file defers the whole of what
-   checks that file's content.
+   and `.sh` in the tree for the checks that judge a sentence, and - since the citation half was
+   widened past prose - every published `.rs` file for the one check that only resolves a cited task
+   name. The point is that deferring it over that one file defers the whole of what checks that
+   file's content.
 
    **The residual risk, stated rather than waved at, because the replacement is narrower than what it
    replaced.** What makes the skip safe is a CLASSIFICATION of the sweep rather than its size, so the
