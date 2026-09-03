@@ -2487,11 +2487,12 @@ nothing has to be written from scratch, and the cost is the corpus:</p>
   held exactly:</strong> 84 files under <code>crates/sutura-app/tests/snapshots/</code> now contain <code>LIMIT 10001</code>, and
   52 snapshot files were added in total - 42 for the question corpus and 10 for the five leg fixtures,
   which carry no row cap and so do not move the counted number. No EXISTING snapshot changed, which is
-  what makes the fourth dialect additive. <strong>The count later moved to 88:</strong> the <code>week</code>-grain question
-  below adds a twenty-second question, and its BigQuery statement carries the row cap too, so <code>88
-  files ... contain LIMIT 10001</code> is what <code>AGENTS.md</code> reads today - the same <code>check-guidance</code> gate holds
-  that number.</li>
-<li><strong><code>cargo xtask check-guidance</code> fails until AGENTS.md says the right number.</strong> Not incidentally - the check reads
+  what makes the fourth dialect additive. <strong>The count moved twice more:</strong> the <code>week</code>-grain question
+  below adds a twenty-second question and its BigQuery statement carries the row cap too. The
+  sentence stating the number has since moved out of <code>AGENTS.md</code> with the rest of the invariants
+  table - <code>.agents/skills/sutura/invariants/SKILL.md</code> is where it lives now, and the same
+  <code>check-guidance</code> gate holds it wherever it is stated.</li>
+<li><strong><code>cargo xtask check-guidance</code> fails until the page states the right number.</strong> Not incidentally - the check reads
   the number written before the marker <code>SQL goldens read</code> and compares it to what it counts, which is
   the mechanism that caught <code>39</code> after the corpus had grown. So the invariant row is part of the
   change, and the gate puts it in the diff rather than trusting anyone to remember.</li>

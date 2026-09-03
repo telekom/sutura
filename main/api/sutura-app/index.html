@@ -3289,6 +3289,108 @@ what it may do, and a transport calls it on every invocation whether or not it f
 advertisement.</p>
 <h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-preflight">Module <code>preflight</code><a class="headerlink" href="#module-preflight" title="Permanent link">&para;</a></h2>
+<p>Asking every open data system whether it holds the tables the bundle names.</p>
+<p><strong>The decision sequence, once, for every composition root that has one</strong> - and it is here rather
+than copied into each because review measured the copy: the two helpers underneath were
+byte-identical between <code>sutura-serve</code> and <code>sutura-cli</code>, and neither of them contains a word an
+operator reads. <code>models_by_table</code> is a pure query over <code>PinnedDefinitions</code>, which is a
+<code>sutura-domain</code> type, and <code>AbsentBehind</code>'s rendering is a list of names rather than a sentence.</p>
+<p><strong>What is NOT here is the sentence and the sink</strong>, and that is the seam rather than an omission.
+A root has to say what an operator should do about each outcome, in the words that fit its own
+transport, through the sink that transport actually delivers on - <code>tracing</code> behind a subscriber
+for a server, standard error for a process launched on a pipe with no subscriber installed. So
+<code>ask</code> returns one <code>Verdict</code> per source and prints nothing, which also makes each root's
+rendering a pure function its own suite can assert on. Before this the soft outcome was printed
+from inside the decision and no test could see it - so the mechanism the argument for that sink
+rests on was held by review, which <code>AGENTS.md</code> does not accept as held.</p>
+<p><code>sutura_domain::warehouse::Warehouse::preflight</code> is the port, and its own documentation carries
+why the answer has three shapes and why <em>could not verify</em> is an <code>Err</code> rather than a fourth.</p>
+<p><strong>The limit, stated with the claim:</strong> what a pre-flight establishes is that a table EXISTS. Not
+that the columns a model names are on it, and not that a question's identity may read it - a
+listing grant and a read grant are two grants. An anchor covers both, for the metrics that have
+one.</p>
+<h3 id="enum-verdict"><code>enum Verdict</code><a class="headerlink" href="#enum-verdict" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>What one data system answered about the tables one bundle names in it.</p>
+<p><strong>Five outcomes and not three, because a root treats two of the failures differently.</strong> The port
+answers three things and fails in one way, and that one failure splits on
+<code>Warehouse::preflight_was_refused</code>: a data system that REFUSED to be listed will refuse
+identically on every launch and the fix is one grant, while one that could not be reached is a
+condition that passes. A root that collapsed them would either stop a deployment that would have
+worked or hide the check being off in the deployment least likely to read a startup log.</p>
+<p>Generic in the adapter's error so the cause travels: nothing here can read <code>W::Error</code>, and the
+root that composed the adapter is the one that can flatten it.</p>
+<h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Present</code> - Asked, and every table is there. Carries how many, for a line that says so.</li>
+<li><code>NotReported</code> - The adapter did not report - <code>TablesPresent::NotAsked</code>, the port's default.</li>
+<li><code>Absent</code> - Asked, and these tables are not there. A refusal, and the models to name in it.</li>
+<li><code>Refused</code> - The data system refused to be asked: this identity may not list it.</li>
+<li><code>Unverified</code> - The data system could not be asked, for a reason that is not a refusal.</li>
+</ul>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code></p>
+<h3 id="struct-absentbehind"><code>struct AbsentBehind</code><a class="headerlink" href="#struct-absentbehind" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AbsentBehind</span>
+</span></code></pre></div>
+<p>The tables a data system does not hold, each with the models that named it.</p>
+<p><strong>Keyed by the TABLE and carrying the models, because that is the direction a refusal reads in:</strong>
+the data system answered about a table, and the operator has to open a model to fix it. Two
+models over one table is ordinary - a bundle may declare several over one fact table - so the
+value is a set, and <a href="fmt::Display"><code>Display</code></a> renders every one of them.</p>
+<p>Non-empty by construction: it is built only from a <code>TablesPresent::AllBut</code>, whose own newtype
+refuses an empty set, so a refusal that names nothing is unrepresentable rather than checked.</p>
+<h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Always <code>false</code>, and it exists because <code>clippy::len_without_is_empty</code> asks for it.</p>
+<p>The type is non-empty by construction, so this is a constant with a name rather than a
+question worth asking - which is itself the honest reading of the invariant.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">len</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many tables are absent.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">QualifiedTable</span><span class="p">,</span><span class="w"> </span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">ModelName</span><span class="o">&gt;&gt;</span>
+</span></code></pre></div>
+<p>The absent tables and the models behind each, for a root that renders its own shape.</p>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-asked"><code>struct Asked</code><a class="headerlink" href="#struct-asked" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Asked</span><span class="o">&lt;'</span><span class="na">source</span><span class="p">,</span><span class="w"> </span><span class="n">E</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>One data system's name and what it answered.</p>
+<p>The name is BORROWED from the registry rather than cloned: the registry outlives the answer at
+every call site, and a clone here would be one taken to satisfy a signature rather than to own
+anything.</p>
+<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The answer, owned, for a root that has to move the cause out of it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">source</span><span class="w"> </span><span class="nc">SourceName</span>
+</span></code></pre></div>
+<p>Which data system answered.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">verdict</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>What it answered.</p>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code></p>
+<h3 id="fn-ask"><code>fn ask</code><a class="headerlink" href="#fn-ask" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ask</span><span class="o">&lt;'</span><span class="na">engines</span><span class="p">,</span><span class="w"> </span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">engines</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">engines</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouses</span><span class="p">::</span><span class="n">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Asked</span><span class="o">&lt;'</span><span class="na">engines</span><span class="p">,</span><span class="w"> </span><span class="o">&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;&gt;</span>
+</span></code></pre></div>
+<p>Asks each open data system once whether it holds the tables the bundle names in it.</p>
+<p><strong>One call per data system, and per DATASET underneath, never per model</strong> - which is what makes
+this affordable at startup: the tables go over as a set, so a bundle of forty models on one
+dataset costs one metadata read. An adapter reading more than one dataset makes one call per
+dataset, which is still a set rather than a model.</p>
+<p>A data system the bundle names no model in is skipped rather than asked about nothing: it would
+otherwise cost a round trip to be told about an empty set, and the port's own empty-set arm
+answers <code>NotAsked</code>, which a root would then have to explain.</p>
+<p><strong>It prints nothing and refuses nothing.</strong> Both are the caller's, for the reason this module's
+own documentation gives: the words and the sink belong to the transport, and a decision that
+printed would not be assertable.</p>
+<p>The order is the registry's, which is the source name's - so two roots asking the same question
+report it in the same order, and a test can name the answer it expects rather than search for it.</p>
 
 
 
