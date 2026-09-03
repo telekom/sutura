@@ -235,6 +235,7 @@
         # is a third variable rather than an afterthought.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
+        keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
 
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
@@ -813,6 +814,29 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features --run-ignored only "$@"
+          '');
+        };
+        # `nix run .#keycloak-acceptance` - provision a REAL issuer and prove the venue.
+        #
+        # **An app and NOT a check, and for the same reason `bigquery-acceptance` is.** It boots a
+        # JVM that `checks.*` cannot - the sandbox kills a long-running process - so nothing here is
+        # hermetic and it is not part of `just validate`; it is opt-in, where the `sutura-http`
+        # consumer asks for it. It proves the VENUE and not leg 2: a real issuer mints two
+        # per-subject tokens at the discovered endpoint; nothing executes AS those subjects.
+        #
+        # It supplies the pinned cargo and `cargo-nextest` (for the reason `apps.deny` gives) and
+        # the tier's script from the SAME derivation the dev shell uses. The test reads only the
+        # discovery file `start` writes, with `SUTURA_DEV_REQUIRE_TIER=1` failing an absent venue.
+        apps.keycloak-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-keycloak-acceptance" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            sutura-keycloak-tier start
+            cleanup() { sutura-keycloak-tier stop; }
+            trap cleanup EXIT
+            SUTURA_DEV_REQUIRE_TIER=1 cargo nextest run --cargo-profile ci -p sutura-http --all-features --run-ignored only keycloak "$@"
           '');
         };
         # `nix run .#crap` - the CRAP gate, outside the sandbox.

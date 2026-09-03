@@ -778,6 +778,23 @@ datahub-acceptance:
     cargo run -q -p xtask -- dev-up --with datahub
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture
 
+# The provisioned Keycloak, asked whether it is there and mints two per-subject tokens.
+#
+# The `bigquery-acceptance` shape applied to an issuer, and deliberately one command for dev and CI:
+# this delegates to `nix run .#keycloak-acceptance`, so a laptop and a runner reach the SAME pinned
+# toolchain and the SAME nixpkgs `keycloak` package, and NEITHER of them needs a dev shell - which
+# is the argument `apps.keycloak-acceptance` makes in `flake.nix` and does not repeat here. It is
+# NOT a gate: the tier boots a JVM and is not hermetic, so it stays off the default suite, and the
+# leg it runs is `#[ignore]`d. What it proves is the VENUE - a real issuer at the discovered
+# endpoint mints alice's and bob's tokens, `docs/adr/0008`'s two-subject ground - and not leg 2,
+# which remains unbuilt on anything published.
+keycloak-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "keycloak-acceptance: scope sutura-http - the provisioned identity venue, through \`nix run .#keycloak-acceptance\`."
+    echo "keycloak-acceptance: NOT a gate; \`just test\` for the workspace suite, which skips the \`#[ignore]\`d leg."
+    nix run .#keycloak-acceptance
+
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:
     cargo run -q -p xtask -- dev-endpoints

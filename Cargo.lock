@@ -3840,6 +3840,7 @@ dependencies = [
  "tower-http",
  "tower_governor",
  "tracing",
+ "ureq",
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",

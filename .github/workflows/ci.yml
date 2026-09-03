@@ -838,6 +838,56 @@ jobs:
           set -eu
           rm -f "$RUNNER_TEMP/bq-key.json"
 
+  # Provision a REAL identity provider and prove the venue it makes reachable - the second job in
+  # this file that boots something outside the sandbox, and the first that is not a cloud service.
+  #
+  # **An app and NOT a check, and for the same reason `bigquery-acceptance` is.** The tier boots a
+  # JVM (the nixpkgs `keycloak` package), which `checks.*` cannot - the sandbox has no loopback a
+  # long-running process can claim - so it is not hermetic and it is not part of `just validate`.
+  # It is opt-in and it WAITS for `ci` only so the dependency closure that job fills is already in
+  # the cache when this one reaches the pinned toolchain.
+  #
+  # **A fork's pull request SKIPS and everything in-repo RUNS**, this repository's own rule: a fork
+  # has no reason to boot a JVM and no maintainer action depends on it, so there is no
+  # environment or secret mechanism here - just the same head-repository test the in-repo cloud
+  # job uses.
+  #
+  # `SUTURA_DEV_REQUIRE_TIER=1` makes the leg fail-closed: an absent tier is a red run, not a silent
+  # skip, which is the only direction a CI job that stated an intent may take.
+  keycloak-acceptance:
+    needs: [ci]
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: rust-mcp
+    # The JVM boots in seconds against the h2 store; what takes the time is compiling `sutura-http`
+    # under the pinned toolchain on a cold cache.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      # `nix run .#keycloak-acceptance` and not a check: `checks.*` run in the sandbox, which has no
+      # loopback a long-running process can claim. `check-workflows` verifies the app output exists.
+      # `--no-capture` puts the tier's own notices and the test's diagnostics on the log; the app
+      # starts the tier, runs only the `#[ignore]`d `keycloak` leg, and traps `stop` whatever the
+      # verdict, so a failed run does not leave a JVM or a stale discovery file behind.
+      - name: Acceptance leg
+        env:
+          SUTURA_DEV_REQUIRE_TIER: "1"
+        run: |
+          set -eu
+          nix run .#keycloak-acceptance -- --no-capture
+
   cross:
     needs: [ci]
     # Same `== 'true'` test the main-only steps use, against the classification `ci` published.

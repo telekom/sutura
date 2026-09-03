@@ -84,6 +84,10 @@ rcgen = { workspace = true }
 # `xtask` links the same library to learn a compose project name and should not compile a crypto
 # backend for it.
 sutura-dev = { workspace = true, features = ["mock-issuer"] }
+# The provisioned leg's HTTP client. `crates/sutura-catalog-datahub/tests/provisioned.rs` uses the
+# same client for the same job - a loopback probe with no redirects - so this adds no crate to
+# `Cargo.lock`, no licence to `deny.toml`'s allowlist and no second client to the workspace.
+ureq = { workspace = true }
 # The SAME dependency as above, with the log-capture writer turned on. The router's span is
 # observable only as bytes, so the harness builds a subscriber over a buffer and asserts on them -
 # and the writer comes from `sutura-runtime` rather than being copied here, because a second copy is
