@@ -13,10 +13,22 @@ A `SemanticCatalog` over `DataHub`'s entity aspects: the canonical **declaring**
 `DataHub` 1.7.0 holds a measure as a raw expression string in a dialect set that does not intersect
 this repository's, and its physical relationships default cardinality to many-to-many - so it
 supplies the physical model, the descriptions and the join columns, and supplies no measure this
-adapter will execute, no reliable cardinality, no definitional filter, no grain, no value
-allowlist and no anchor. That is the shape of a **declaring** adapter: it says which kinds it
-provides and which it does not, and it is measured against that declaration rather than against
-the golden adapters' oracle.
+adapter will execute **unless the deployment defines the metric itself**, no reliable cardinality,
+no definitional filter, no grain, no value allowlist and no anchor. That is the shape of a
+**declaring** adapter: it says which kinds it provides and which it does not, and it is measured
+against that declaration rather than against the golden adapters' oracle.
+
+**Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.**
+`DataHub`'s `structuredProperty` is scalar-only, so a deployment cannot define a nested metric
+object; what it CAN define is one string-valued structured property named `sutura`, and the
+reader decodes its scalar value into the closed-vocabulary content a certified metric needs -
+the flat-to-nested assembly `document::SuturaProperty::assemble` implements and the recorded
+fixture is kept in. Where that shape is present, this adapter reads it into a certified
+`Metric`, turning `provides no
+metrics` into `provides metrics for a metric that carries the custom shape`. Where it is absent,
+the metric stays the promotion candidate `docs/adr/0016` describes. The shape is closed - the
+measure and filter vocabularies are `sutura_domain`'s own, and `deny_unknown_fields` refuses a
+property this adapter does not recognise rather than guessing.
 
 # What is built here, and what is NOT
 
@@ -27,35 +39,45 @@ HTTP. What it does not contain is an HTTP client: `AspectReader` is the seam a r
 bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
 opening engineering question `docs/adr/0016` leaves open, to be measured against a provisioned
 instance the way `sutura-exec-bigquery`'s acceptance leg was. Until that lands, the only
-implementor of the port is the recorded fixture source in `fixture`.
+implementor of the port is the recorded fixture source in `fixture`. **And nothing serves it:**
+no composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency),
+and `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and
+tested; what is not is the read path against a provisioned instance and a served composition -
+the *Built and not wired* register in `.agents/skills/sutura/query-surface/SKILL.md` records
+it, and that register is the one place it may be read from - it is not an invariant.
 
 # The declaration, and what it means for the bundle
 
-`SemanticCatalog::KIND` is `CatalogKind::Declaring` and `SemanticCatalog::capabilities`
-provides `Structure`, `Descriptions` and `Relationships`, and no knowledge capability. A bundle a
-`DataHub`-only deployment loads therefore uses the physical model, the prose and the join columns,
-and carries no certified metric layer - which the prompt states as a fact derived from the bundle,
-exactly as `docs/adr/0011` decided. It loads and validates, because `Definitions::assemble` has no
-minimum-metric refusal.
+`SemanticCatalog::KIND` is `CatalogKind::Declaring`. `SemanticCatalog::capabilities`
+provides `Structure`, `Descriptions` and `Relationships` unconditionally, and declares
+`Metrics`, `Grains`, `RequiredFilters`, `AllowedValues` and `Anchors` as **declared-and-empty
+may-provide kinds** - the 0011 state `DefinitionCapabilities::of_may_provide` adds, whose whole
+job is exactly this: a `DataHub` metric's measure, grains, filters, dimension allowlists and anchor
+all arrive from the deployment-defined `sutura` structured property, so whether a bundle carries
+any of them is the deployment's decision and absence is a faithful bundle, not an aspirational
+claim. A `DataHub`-only deployment therefore uses the physical model, the prose, the join columns
+and whatever metrics and definitions the deployment wrote as structured properties, and a bundle
+with none of the deployment-authored kinds still loads and validates, because
+`Definitions::assemble` has no minimum-metric refusal.
 
-**The knowledge half is empty on purpose, and why is worth stating rather than glossed.** `DataHub`
-does have glossary-like content, but every `Knowledge` referent names a metric, a dimension of one
-or a declared value of one - and this adapter provides no metrics, so there is no referent for a
-phrase or a caveat to attach to. `docs/adr/0016` decision 3 marks glossary and caveats *provides,
-conditionally, where the bundle already declares a metric for a Referent to name*; that condition
-is met only by the composition of a separately-authored metric layer, which `docs/adr/0011`'s
-assembler (not built) is what would supply. So the honest standalone declaration is no knowledge
-at all, and this crate says so rather than advertising a conditional it cannot satisfy alone.
+**The knowledge half is empty on purpose, and why is worth stating rather than glossed.**
+`DataHub` keeps its glossary-like synonym content on a separate entity (`AiContext`), and nothing
+here reads it - so a standalone bundle carries no `Knowledge` referent for a phrase or a caveat to
+attach to, and the declaration says no knowledge rather than advertising a capability this crate
+cannot satisfy alone.
 
-# The two absences that are the point
+# The one nuance that is the point
 
-`Cardinality` and `Metrics` are both *present* in `DataHub` and both declared unsupported here,
-which is the interesting kind of absence `docs/adr/0016` calls out: reading them would be reading
-something the source does not guarantee. A relationship whose cardinality is absent or many-to-many
-is refused naming the relationship (not defaulted in either direction), because the `N_N` default
-makes an unconsidered relationship indistinguishable from a considered one. A metric whose measure
-is an expression string is read - `document::MetricAspect` is decoded - and never converted into
-a `Measure`, so it does not enter the certified bundle.
+`Cardinality` arrives in `DataHub` as an unreliable default (relationships default to
+many-to-many), so this adapter refuses a relationship it cannot vouch for rather than reading
+one: absent or many-to-many cardinality is refused naming the relationship, not defaulted in
+either direction. What the adapter WILL carry is a cardinality the deployment DECLARES a
+dimension through - a dimension with a `via` is observed as *a dimension reached through a
+relationship*, which is the only way `Cardinality` is produced here, and the declaration marks
+it declared-and-empty for exactly that reason. A metric whose measure is a raw expression string
+is read - `document::MetricAspect` is decoded - and never converted into a `Measure`,
+because that is the promotion-candidate half; only a metric carrying the deployment-defined
+`document::SuturaProperty` becomes a certified one.
 
 ## `trait AspectReader`
 
@@ -93,6 +115,7 @@ reader back to all of them.
 - `UnknownPlatform` - A model named a platform this deployment declared no `sources.<alias>` for.
 - `CardinalityUnrepresentable` - A relationship carries no cardinality, or one this adapter cannot represent.
 - `Identifier` - A name on a snapshot did not parse as the identifier kind it claims to be.
+- `Sutura` - The `sutura` structured property's scalar value is not the metric content it claims to be.
 - `Description` - Prose on a snapshot is not a usable description.
 - `Inconsistent` - The models, relationships and columns did not hold together.
 - `Knowledge` - The bundle's knowledge does not hold together.
@@ -151,15 +174,18 @@ description aspects, a `semanticModel`'s relationships with their cardinality, a
 expression. Everything an adapter DECIDES below this shape is tested against a fake reader that
 serves recorded documents, which is the port's own rule.
 
-`Cardinality` mirrors `DataHub`'s `ERModelRelationshipCardinality`, and `N_1`-to-`N_1` is refused by
-the conversion rather than carried, because `JoinType` has no many-to-many shape - the declaration
-says so (this adapter does NOT provide cardinality), and a relationship nobody vouched for
-licenses nothing.
+`Cardinality` mirrors `DataHub`'s `ERModelRelationshipCardinality` (declared-and-empty in this
+adapter, produced only by a deployment-defined dimension with a `via`), and `N_1`-to-`N_1` is
+refused by the conversion rather than carried, because `JoinType` has no many-to-many shape - a
+relationship nobody vouched for licenses nothing.
 
 The fields are private with constructors and accessors, per the workspace's `check-boundaries`
-rule that a library crate's types are its contract: a `pub` field lets a struct literal build a
-value the constructor would have rejected. These carriers are decoded by `serde`, which writes
-private fields, and built by a reader through the constructor.
+rule that a library crate's types are its contract. The guards are not in the constructors -
+these are carriers of already-typed values, and where a value is untyped (a `column`, a
+`model`) it is parsed during the conversion, not here - they are in the typed serde fields and
+the two closedness claims (an unknown key is refused by `deny_unknown_fields`, a value that is
+not a usable identifier is refused by the conversion's parse) that a `pub` field would let a
+struct literal walk past.
 
 ### `struct Snapshot`
 
@@ -168,6 +194,10 @@ pub struct Snapshot
 ```
 
 Everything a reader fetched, before any of it is converted.
+
+`deny_unknown_fields` here too - the three aspect groups are the whole of what a reader must
+extract, and a snapshot carrying a fourth is a reader this adapter has not been told to expect,
+which is exactly the silent-acceptance the attribute exists to refuse on the nested shapes.
 
 #### Methods
 
@@ -305,7 +335,13 @@ pub struct MetricAspect
 ```
 
 What a `metric` entity's `MetricInfo.expression` carries: a raw string in a dialect `DataHub`
-names. Never converted into a `Measure`.
+names.
+
+A metric that also carries the deployment-defined `SuturaContent` becomes a **certified**
+metric here; one that does not stays the promotion candidate whose measure is `expression` and
+is never converted. The two are the same entity and the distinction is an `Option` because which
+one a given metric is depends on what the deployment defined, not on anything this adapter
+decides.
 
 #### Methods
 
@@ -313,9 +349,22 @@ names. Never converted into a `Measure`.
 pub fn dialect(&self) -> &str
 ```
 
+The dialect the raw expression string is written in.
+
+Part of the promotion candidate's other half; see `Self::expression` for why nothing reads
+it yet.
+
 ```rust
 pub fn expression(&self) -> &str
 ```
+
+The promotion candidate's other half - the raw expression string in a dialect nothing here
+renders.
+
+No consumer today, and `docs/adr/0016` says so rather than pretending otherwise: the aspect
+is decoded and a metric without the `sutura` property is set aside, never converted, and its
+expression is not re-read. These accessors and `Self::dialect` are the readable shape a
+future reporter would use.
 
 ```rust
 pub fn name(&self) -> &str
@@ -325,11 +374,221 @@ pub fn name(&self) -> &str
 pub const fn new(name: String, dialect: String, expression: String) -> Self
 ```
 
-A metric aspect, whose measure is a raw expression string.
+A promotion-candidate metric aspect, whose measure is a raw expression string.
+
+```rust
+pub const fn sutura(&self) -> Option<&SuturaProperty>
+```
+
+The deployment-defined certified content, when the metric carries it.
+
+```rust
+pub fn with_sutura(name: String, dialect: String, expression: String, sutura: SuturaContent) -> Self
+```
+
+A certified metric aspect: the expression string beside a deployment-defined content.
+
+The two are both carried because `docs/adr/0016`'s *reconcile, never assume* rule still
+applies - the raw expression is a promotion candidate's other half and remains readable even
+where the structured property is what this adapter certifies. The content is serialized into
+the scalar form `SuturaProperty` stores, which is the shape the wire and the recorded
+fixtures carry.
 
 #### Implements
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
+### `struct SuturaProperty`
+
+```rust
+pub struct SuturaProperty
+```
+
+`DataHub`'s view of the deployment-defined metric content: ONE structured property named
+`sutura`, whose single scalar value is the JSON document below.
+
+**This is what makes the scalar-only constraint literal rather than prose.** `DataHub`'s
+`structuredProperty` has no nested or record value type, so a deployment cannot define a nested
+object under `sutura` at all; what it can define is one string-valued property, and
+`Self::assemble` is the step that turns that scalar into the nested `SuturaContent` - the
+issue #202 mechanism, implemented here and exercised by a fixture recorded in this flat form
+rather than left to a sentence. The scalar payload is still bounded by the value-type limits a
+deployment's `DataHub` enforces; this crate adds none of its own.
+
+#### Methods
+
+```rust
+pub fn assemble(&self) -> Result<SuturaContent, serde_json::Error>
+```
+
+The deployment-defined metric content, decoded from the scalar.
+
+The one place `DataHub`'s scalar store becomes this adapter's nested statement of what the
+deployment meant. A malformed value - which cannot arise from `with_sutura`, but can from
+any wire - is a refusal naming nothing, which is why the conversion maps it into a typed
+`DataHubError` rather than letting it fall through as a serde string.
+
+```rust
+pub const fn new(string_value: String) -> Self
+```
+
+A structured property whose string value is `json`.
+
+```rust
+pub fn string_value(&self) -> &str
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
+### `struct SuturaContent`
+
+```rust
+pub struct SuturaContent
+```
+
+What a metric needs to be certified, in the JSON document a deployment's `sutura` property
+carries.
+
+`SuturaProperty` is why the deployment's view is one scalar and this is the reader's decoded
+statement of what that scalar means.
+
+**Everything a markdown metric can carry arrives here, over the domain's own closed
+vocabularies.** The `measure` is the `sutura-domain` `Measure` type itself - the closed set,
+written exactly as this repository writes it - the `grains` and `required_filters` are the
+closed `Grain` and `RequiredFilter` enums, and a `dimension` and an `anchor` mirror the markdown
+document's shapes with `deny_unknown_fields` at every depth refusing a property this adapter
+does not recognise rather than guessing. An aggregate out of the closed set, an unknown operator,
+an unparseable value, an unknown grain, an unclosed namespace key - all fail the decode before
+the conversion sees them.
+
+The three free strings - `model`, `time_column`, and each nested `column` - are the one thing
+this shape cannot close, and they are parsed as domain identifier types during the conversion
+(through the same `try_from` every catalog identifier uses) rather than at decode, which is what
+turns an unparseable name into a typed `DataHubError::Identifier` naming the metric.
+
+The original issue #202 scope carried the measure, the time column and the grains, and this
+container of the rest of a metric is the closure of that scope: definitional filters, dimensions
+with their allowlists, an anchor and prose all arrive the same way a markdown document carries
+them, because `docs/adr/0011` closes the route by which any OTHER source could add them to a
+metric this adapter defines. The one absence that stays is `cardinality`, which `DataHub`
+carries but this adapter refuses to represent (see the crate header).
+
+#### Methods
+
+```rust
+pub const fn anchor(&self) -> Option<&SuturaAnchor>
+```
+
+The certified number, when the deployment declared one.
+
+```rust
+pub fn description(&self) -> &str
+```
+
+```rust
+pub fn dimensions(&self) -> &[SuturaDimension]
+```
+
+```rust
+pub const fn full(model: String, measure: Measure, time_column: String, grains: Vec<Grain>, description: String, required_filters: Vec<RequiredFilter>, dimensions: Vec<SuturaDimension>, anchor: Option<SuturaAnchor>) -> Self
+```
+
+The certified content of a metric in full, optional shapes included.
+
+```rust
+pub fn grains(&self) -> &[Grain]
+```
+
+```rust
+pub const fn measure(&self) -> &Measure
+```
+
+```rust
+pub fn model(&self) -> &str
+```
+
+```rust
+pub const fn new(model: String, measure: Measure, time_column: String, grains: Vec<Grain>) -> Self
+```
+
+The certified content of a metric, with the optional shapes defaulted to absent.
+
+```rust
+pub fn required_filters(&self) -> &[RequiredFilter]
+```
+
+```rust
+pub fn time_column(&self) -> &str
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct SuturaDimension`
+
+```rust
+pub struct SuturaDimension
+```
+
+One dimension, spelled exactly as a markdown metric's dimension is.
+
+A list entry with its own `name`, so a deployment declaring one name twice survives to
+`Definitions::assemble` to be refused rather than silently collapsing.
+
+#### Methods
+
+```rust
+pub fn into_domain(self) -> Dimension
+```
+
+Into the domain type `Definitions::assemble` holds.
+
+```rust
+pub const fn new(name: DimensionName, column: ColumnName, via: Option<RelationshipName>, allowed_values: Option<std::collections::BTreeSet<DimensionValue>>, description: Description) -> Self
+```
+
+A dimension, in the order `Definitions::assemble` wants it.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct SuturaAnchor`
+
+```rust
+pub struct SuturaAnchor
+```
+
+The number a metric is expected to produce, spelled exactly as a markdown metric's anchor is.
+
+#### Methods
+
+```rust
+pub fn into_domain(self) -> Anchor
+```
+
+Into the domain type `Definitions::assemble` holds.
+
+```rust
+pub const fn new(range: TimeRange, value: String) -> Self
+```
+
+An anchor.
+
+```rust
+pub const fn range(&self) -> TimeRange
+```
+
+```rust
+pub fn value(&self) -> &str
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ## Module `fixture`
 
@@ -338,12 +597,18 @@ The recorded fixture corpus and the fake reader that serves it.
 This is the only `AspectReader` implementor today, and it is the **fake** the port is tested
 against - recorded aspect documents, not mocked HTTP. `docs/adr/0016`'s transport note leaves the
 read path's cost open until a provisioned instance exists; until then this is what a
-`crate::DataHubCatalog` reads. The corpus is deliberately a **bundle of models and no metrics**:
-that is the requirement `docs/adr/0016` checks - a DataHub-only deployment loads, pins and
-validates with no certified metric layer - so the standalone declaration (`crate::DataHubCatalog`
-provides `Structure`, `Descriptions`, `Relationships` and nothing else) is faithful to it.
+`crate::DataHubCatalog` reads. The corpus is a bundle of models, one relationship and **one
+certified metric** - the metric is `revenue`, and it carries the deployment-defined `sutura`
+structured property that the adapter decodes into a domain `Metric`, which is the issue #202
+claim: `DataHub` provides metrics for a metric that carries the custom shape. The raw expression
+string beside it stays the promotion-candidate half and is never converted.
 
-The documents are embedded as text and decoded through `serde_json` at read time, so the same
+**The metric content is recorded in the FLAT form, and that is the point of keeping it as text.**
+`DataHub`'s `structuredProperty` is scalar-only, so a deployment defines metric content as one
+string-valued property named `sutura`; the corpus records exactly that - `"sutura": {
+"string_value": "..." }` with the closed-vocabulary document as the scalar's text - and the read
+path exercises `document::SuturaProperty::assemble`, the scalar-to-nested step issue #202 is
+about, on every load. The documents are decoded through `serde_json` at read time, so the same
 deserialization path a real reader would use is exercised, and `deny_unknown_fields` on the wire
 shapes holds over these recorded documents.
 

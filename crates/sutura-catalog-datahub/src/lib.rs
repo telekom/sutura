@@ -4,10 +4,22 @@
 //! `DataHub` 1.7.0 holds a measure as a raw expression string in a dialect set that does not intersect
 //! this repository's, and its physical relationships default cardinality to many-to-many - so it
 //! supplies the physical model, the descriptions and the join columns, and supplies no measure this
-//! adapter will execute, no reliable cardinality, no definitional filter, no grain, no value
-//! allowlist and no anchor. That is the shape of a **declaring** adapter: it says which kinds it
-//! provides and which it does not, and it is measured against that declaration rather than against
-//! the golden adapters' oracle.
+//! adapter will execute **unless the deployment defines the metric itself**, no reliable cardinality,
+//! no definitional filter, no grain, no value allowlist and no anchor. That is the shape of a
+//! **declaring** adapter: it says which kinds it provides and which it does not, and it is measured
+//! against that declaration rather than against the golden adapters' oracle.
+//!
+//! **Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.**
+//! `DataHub`'s `structuredProperty` is scalar-only, so a deployment cannot define a nested metric
+//! object; what it CAN define is one string-valued structured property named `sutura`, and the
+//! reader decodes its scalar value into the closed-vocabulary content a certified metric needs -
+//! the flat-to-nested assembly `document::SuturaProperty::assemble` implements and the recorded
+//! fixture is kept in. Where that shape is present, this adapter reads it into a certified
+//! `Metric`, turning `provides no
+//! metrics` into `provides metrics for a metric that carries the custom shape`. Where it is absent,
+//! the metric stays the promotion candidate `docs/adr/0016` describes. The shape is closed - the
+//! measure and filter vocabularies are `sutura_domain`'s own, and `deny_unknown_fields` refuses a
+//! property this adapter does not recognise rather than guessing.
 //!
 //! # What is built here, and what is NOT
 //!
@@ -18,35 +30,45 @@
 //! bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
 //! opening engineering question `docs/adr/0016` leaves open, to be measured against a provisioned
 //! instance the way `sutura-exec-bigquery`'s acceptance leg was. Until that lands, the only
-//! implementor of the port is the recorded fixture source in [`fixture`].
+//! implementor of the port is the recorded fixture source in [`fixture`]. **And nothing serves it:**
+//! no composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency),
+//! and `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and
+//! tested; what is not is the read path against a provisioned instance and a served composition -
+//! the *Built and not wired* register in `.agents/skills/sutura/query-surface/SKILL.md` records
+//! it, and that register is the one place it may be read from - it is not an invariant.
 //!
 //! # The declaration, and what it means for the bundle
 //!
-//! [`SemanticCatalog::KIND`] is [`CatalogKind::Declaring`] and [`SemanticCatalog::capabilities`]
-//! provides `Structure`, `Descriptions` and `Relationships`, and no knowledge capability. A bundle a
-//! `DataHub`-only deployment loads therefore uses the physical model, the prose and the join columns,
-//! and carries no certified metric layer - which the prompt states as a fact derived from the bundle,
-//! exactly as `docs/adr/0011` decided. It loads and validates, because `Definitions::assemble` has no
-//! minimum-metric refusal.
+//! [`SemanticCatalog::KIND`] is [`CatalogKind::Declaring`]. [`SemanticCatalog::capabilities`]
+//! provides `Structure`, `Descriptions` and `Relationships` unconditionally, and declares
+//! `Metrics`, `Grains`, `RequiredFilters`, `AllowedValues` and `Anchors` as **declared-and-empty
+//! may-provide kinds** - the 0011 state [`DefinitionCapabilities::of_may_provide`] adds, whose whole
+//! job is exactly this: a `DataHub` metric's measure, grains, filters, dimension allowlists and anchor
+//! all arrive from the deployment-defined `sutura` structured property, so whether a bundle carries
+//! any of them is the deployment's decision and absence is a faithful bundle, not an aspirational
+//! claim. A `DataHub`-only deployment therefore uses the physical model, the prose, the join columns
+//! and whatever metrics and definitions the deployment wrote as structured properties, and a bundle
+//! with none of the deployment-authored kinds still loads and validates, because
+//! `Definitions::assemble` has no minimum-metric refusal.
 //!
-//! **The knowledge half is empty on purpose, and why is worth stating rather than glossed.** `DataHub`
-//! does have glossary-like content, but every `Knowledge` referent names a metric, a dimension of one
-//! or a declared value of one - and this adapter provides no metrics, so there is no referent for a
-//! phrase or a caveat to attach to. `docs/adr/0016` decision 3 marks glossary and caveats *provides,
-//! conditionally, where the bundle already declares a metric for a Referent to name*; that condition
-//! is met only by the composition of a separately-authored metric layer, which `docs/adr/0011`'s
-//! assembler (not built) is what would supply. So the honest standalone declaration is no knowledge
-//! at all, and this crate says so rather than advertising a conditional it cannot satisfy alone.
+//! **The knowledge half is empty on purpose, and why is worth stating rather than glossed.**
+//! `DataHub` keeps its glossary-like synonym content on a separate entity (`AiContext`), and nothing
+//! here reads it - so a standalone bundle carries no `Knowledge` referent for a phrase or a caveat to
+//! attach to, and the declaration says no knowledge rather than advertising a capability this crate
+//! cannot satisfy alone.
 //!
-//! # The two absences that are the point
+//! # The one nuance that is the point
 //!
-//! `Cardinality` and `Metrics` are both *present* in `DataHub` and both declared unsupported here,
-//! which is the interesting kind of absence `docs/adr/0016` calls out: reading them would be reading
-//! something the source does not guarantee. A relationship whose cardinality is absent or many-to-many
-//! is refused naming the relationship (not defaulted in either direction), because the `N_N` default
-//! makes an unconsidered relationship indistinguishable from a considered one. A metric whose measure
-//! is an expression string is read - [`document::MetricAspect`] is decoded - and never converted into
-//! a `Measure`, so it does not enter the certified bundle.
+//! `Cardinality` arrives in `DataHub` as an unreliable default (relationships default to
+//! many-to-many), so this adapter refuses a relationship it cannot vouch for rather than reading
+//! one: absent or many-to-many cardinality is refused naming the relationship, not defaulted in
+//! either direction. What the adapter WILL carry is a cardinality the deployment DECLARES a
+//! dimension through - a dimension with a `via` is observed as *a dimension reached through a
+//! relationship*, which is the only way `Cardinality` is produced here, and the declaration marks
+//! it declared-and-empty for exactly that reason. A metric whose measure is a raw expression string
+//! is read - [`document::MetricAspect`] is decoded - and never converted into a `Measure`,
+//! because that is the promotion-candidate half; only a metric carrying the deployment-defined
+//! [`document::SuturaProperty`] becomes a certified one.
 
 pub mod document;
 pub mod fixture;
@@ -54,16 +76,18 @@ pub mod fixture;
 use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, InconsistentDefinitions, InvalidDescription, Model, Relationship};
+use sutura_domain::catalog::{
+    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeInput};
-use sutura_domain::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{ColumnName, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
 
-use crate::document::{Cardinality, RelationshipAspect, Snapshot};
+use crate::document::{Cardinality, RelationshipAspect, Snapshot, SuturaAnchor};
 
 /// The two halves of a bundle, read and checked but not yet pinned.
 ///
@@ -126,6 +150,13 @@ pub enum DataHubError {
         on: String,
         #[source]
         cause: sutura_domain::model::InvalidIdentifier,
+    },
+    /// The `sutura` structured property's scalar value is not the metric content it claims to be.
+    #[error("the sutura content of metric {metric} is not a usable metric definition")]
+    Sutura {
+        metric: String,
+        #[source]
+        cause: serde_json::Error,
     },
     /// Prose on a snapshot is not a usable description.
     #[error("the description of {on} is not usable")]
@@ -201,12 +232,21 @@ impl<R: AspectReader> DataHubCatalog<R> {
         for relationship in snapshot.relationships() {
             relationships.push(Self::convert_relationship(relationship)?);
         }
-        // Metrics are read (the snapshot decodes `MetricAspect`) and never converted into domain
-        // `Metric`s: this adapter declares it provides no metrics, so there is no `Measure` to build
-        // here and the raw expression string must not become one. `docs/adr/0016` decision 4.
+        // A metric is converted only where the deployment defined the `sutura` structured property
+        // that a certified metric needs. A metric without it is the promotion candidate `docs/adr/0016`
+        // decision 4 describes - its raw expression string is decoded and set aside, never converted -
+        // while one carrying the closed shape becomes a certified `Metric`. Both are the same entity
+        // and which half applies is the deployment's declaration, not this adapter's guess.
+        let mut metrics = Vec::with_capacity(snapshot.metrics().len());
+        for metric in snapshot.metrics() {
+            let Some(property) = metric.sutura() else {
+                continue;
+            };
+            metrics.push(Self::convert_metric(metric, property)?);
+        }
 
         let definitions =
-            Definitions::assemble(models, relationships, Vec::new()).map_err(|cause| DataHubError::Inconsistent { cause })?;
+            Definitions::assemble(models, relationships, metrics).map_err(|cause| DataHubError::Inconsistent { cause })?;
         // No knowledge: there is no metric for a `Referent` to name (see the crate header), so the
         // bundle carries none and the declaration agrees. The `Knowledge::assemble` call is what
         // would refuse undeclared content the day a snapshot produced any.
@@ -298,6 +338,56 @@ impl<R: AspectReader> DataHubCatalog<R> {
         ))
     }
 
+    /// One metric aspect carrying the deployment-defined [`SuturaContent`] into a certified domain
+    /// [`Metric`].
+    ///
+    /// The measure ALREADY is the domain's own [`Measure`], and the filters, grains, dimensions and
+    /// anchor are the domain's own closed vocabularies spelled as in a markdown metric - which is
+    /// what makes the namespace closed: an unknown aggregate, an unknown operator, an unparseable
+    /// value, a dimension unreachable through any relationship, a grainless metric or an unknown
+    /// property all fail before or at `Definitions::assemble`, never guessed at. The three free
+    /// strings (`model`, `time_column`, each nested `column`) are parsed here as the identifier
+    /// type each claims to be, which is what turns an unparseable name into a typed
+    /// [`DataHubError::Identifier`] naming the metric. `Definitions::assemble` is what finally
+    /// decides the metric holds together: an unknown model, a measure or time column the model does
+    /// not have, a filter whose column the model lacks, a dimension reachable only through a
+    /// relationship whose cardinality is not vouched for, or no grains are all its refusals, mapped
+    /// through [`DataHubError::Inconsistent`].
+    fn convert_metric(metric: &document::MetricAspect, property: &document::SuturaProperty) -> Result<Metric, DataHubError> {
+        let content = property.assemble().map_err(|cause| DataHubError::Sutura {
+            metric: metric.name().to_owned(),
+            cause,
+        })?;
+        let name = Self::identifier(metric.name(), |raw| MetricName::parse(raw), "metric", "a metric")?;
+        let model = Self::identifier(content.model(), |raw| ModelName::parse(raw), "model", metric.name())?;
+        let time_column = Self::identifier(content.time_column(), |raw| ColumnName::parse(raw), "column", metric.name())?;
+        let grains = content.grains().iter().copied().collect();
+        let required_filters = content.required_filters().to_vec();
+        let dimensions = content
+            .dimensions()
+            .iter()
+            .cloned()
+            .map(document::SuturaDimension::into_domain)
+            .map(|dimension| (dimension.name().clone(), dimension))
+            .collect();
+        let anchor = content.anchor().cloned().map(SuturaAnchor::into_domain);
+        let description = Description::parse(content.description()).map_err(|cause| DataHubError::Description {
+            on: metric.name().to_owned(),
+            cause,
+        })?;
+        Ok(Metric::new(
+            name,
+            model,
+            content.measure().clone(),
+            required_filters,
+            time_column,
+            grains,
+            dimensions,
+            anchor,
+            description,
+        ))
+    }
+
     /// Parses one identifier, mapping the domain refusal into this adapter's typed error.
     fn identifier<T>(
         raw: &str,
@@ -323,19 +413,43 @@ where
     /// A **declaring** adapter, measured against its own declaration rather than the golden oracle.
     const KIND: CatalogKind = CatalogKind::Declaring;
 
-    /// Provides `Structure`, `Descriptions` and `Relationships`, and no knowledge capability.
+    /// Provides `Structure`, `Descriptions` and `Relationships` unconditionally, and the kinds that
+    /// arrive from the deployment-defined `sutura` structured property
+    /// (`Metrics`, `Grains`, `RequiredFilters`, `AllowedValues`, `Anchors`) **plus `Cardinality`**
+    /// as **declared-and-empty may-provide kinds** - the first use of
+    /// [`DefinitionCapabilities::of_may_provide`]'s 0011 *declared-and-empty* state.
     ///
-    /// Written as `of([..])` with two explicit lists, the way an adapter over a fixed external schema
-    /// must, so a tenth definition kind or a fifth knowledge capability leaves this declaration alone
-    /// rather than silently widening it. Why the knowledge half is empty is the crate header's
-    /// subject; why `Cardinality` and `Metrics` are absent despite `DataHub` having the fields is
-    /// `docs/adr/0016`'s.
+    /// That distinction is the whole of this declaration, and it is why a metric-free `DataHub`
+    /// deployment stays servable: whether a bundle carries any of the may-provide kinds is the
+    /// deployment's decision (it defined the namespace or it did not), so absence is faithful rather
+    /// than an aspirational declaration - `checked_against`'s `Unprovided` direction exempts them -
+    /// while presence is still covered by the declared half. `Cardinality` is among them because it
+    /// is observed only as *a dimension reached through a relationship*, which happens exactly when
+    /// a deployment declares a dimension with a `via`; a bundle whose dimensions are all local
+    /// carries none, lawfully.
+    ///
+    /// A deployment that defined no metric content therefore loads a bundle with models, prose and
+    /// joins and no metrics, which is `docs/adr/0016` decision 3's narrow deployment rather than a
+    /// boot failure.
+    ///
+    /// Written as `of([..])` plus `and_may_provide([..])` with two explicit lists, the way an
+    /// adapter over a fixed external schema must, so a tenth definition kind or a fifth knowledge
+    /// capability leaves this declaration alone rather than silently widening it. Why the knowledge
+    /// half is empty is the crate header's subject.
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(
             DefinitionCapabilities::of([
                 DefinitionKind::Structure,
                 DefinitionKind::Descriptions,
                 DefinitionKind::Relationships,
+            ])
+            .and_may_provide([
+                DefinitionKind::Cardinality,
+                DefinitionKind::Metrics,
+                DefinitionKind::Grains,
+                DefinitionKind::RequiredFilters,
+                DefinitionKind::AllowedValues,
+                DefinitionKind::Anchors,
             ]),
             KnowledgeCapabilities::none(),
         )
@@ -355,270 +469,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
-
-    use sutura_domain::capabilities::{DeclarableKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Definitions, Description, Metric, Model};
-    use sutura_domain::knowledge::{
-        Capability, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase,
-        Referent,
-    };
-    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-    use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
-    use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
-
-    use crate::document::{Cardinality, DatasetAspect, MetricAspect, RelationshipAspect, Snapshot};
-    use crate::{AspectReader, DataHubCatalog, DataHubError};
-
-    fn name() -> SourceName {
-        SourceName::parse("local").expect("a test name is a name")
-    }
-
-    fn version() -> DefinitionVersion {
-        DefinitionVersion::parse("test").expect("a test version is a version")
-    }
-
-    /// A reader that serves exactly the snapshot a test hands it.
-    #[derive(Debug, Clone)]
-    struct Stub(Snapshot);
-
-    impl AspectReader for Stub {
-        fn read(&self) -> Result<Snapshot, DataHubError> {
-            Ok(self.0.clone())
-        }
-    }
-
-    fn over(snapshot: Snapshot) -> DataHubCatalog<Stub> {
-        let mut sources = BTreeMap::new();
-        drop(sources.insert(String::from("bigquery"), name()));
-        DataHubCatalog::new(name(), version(), sources, Stub(snapshot))
-    }
-
-    fn dataset(name: &str, table: &str, columns: &[&str], description: &str) -> DatasetAspect {
-        DatasetAspect::new(
-            name.to_owned(),
-            table.to_owned(),
-            String::from("bigquery"),
-            columns.iter().map(|c| String::from(*c)).collect(),
-            description.to_owned(),
-        )
-    }
-
-    /// The two models and one relationship the recorded corpus carries.
-    fn corpus() -> Snapshot {
-        Snapshot::new(
-            vec![
-                dataset(
-                    "orders",
-                    "fct_order",
-                    &["order_id", "customer_id", "amount_cents", "order_date"],
-                    "Net revenue orders, in minor units.",
-                ),
-                dataset(
-                    "customers",
-                    "dim_customer",
-                    &["customer_id", "segment"],
-                    "The customer dimension.",
-                ),
-            ],
-            vec![RelationshipAspect::new(
-                String::from("orders_to_customer"),
-                String::from("orders"),
-                String::from("customer_id"),
-                String::from("customers"),
-                String::from("customer_id"),
-                Some(Cardinality::NOne),
-            )],
-            Vec::new(),
-        )
-    }
-
-    /// THE requirement, stated first because it is the reason this adapter works alone at all.
-    ///
-    /// A DataHub-only deployment reads models, descriptions and joins and no certified metric layer,
-    /// and that must LOAD: `Definitions::assemble` has no minimum-metric refusal, so a bundle of
-    /// models with zero metrics assembles, pins and validates. `docs/adr/0016` decision 3.
-    #[test]
-    fn a_bundle_of_models_and_no_metrics_loads_and_validates() {
-        let pinned = over(corpus()).load().expect("the recorded corpus loads");
-        assert_eq!(pinned.definitions().models().len(), 2);
-        assert_eq!(pinned.definitions().relationships().len(), 1);
-        assert!(
-            pinned.definitions().metrics().is_empty(),
-            "no metrics in a DataHub-only bundle"
-        );
-    }
-
-    /// Declaration fidelity, the metrics half.
-    ///
-    /// `MetadataCapabilities::produced` reads what the bundle actually carries, and
-    /// `checked_against` compares it in BOTH directions to what the adapter declared. This adapter
-    /// declares no `Metrics`, and the bundle carries none - so the pair agrees, and a declaration
-    /// that (wrongly) claimed metrics would be reported as `Unprovided`.
-    #[test]
-    fn it_declares_it_provides_no_metrics_and_the_bundle_has_none() {
-        let catalog = over(corpus());
-        let pinned = catalog.load().expect("the recorded corpus loads");
-        let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
-        assert_eq!(
-            <DataHubCatalog<Stub> as SemanticCatalog>::capabilities().checked_against(&produced),
-            Ok(())
-        );
-        assert!(!produced.declares(DeclarableKind::Definition(
-            sutura_domain::capabilities::DefinitionKind::Metrics
-        )));
-    }
-
-    /// A metric whose measure is a raw expression string is READ and never DEFINED.
-    ///
-    /// `docs/adr/0016` decision 4: `MetricInfo.expression` is a promotion candidate, a string in a
-    /// dialect nothing here renders, and `aggregationFunction` beside it is authored independently
-    /// with nothing reconciling the two - so taking either would certify half a definition. The
-    /// adapter decodes the metric aspect (it is present in the snapshot) and does not convert it
-    /// into a domain `Metric`, which is exactly what `provides no metrics` means. A real instance
-    /// full of metrics therefore still loads into a bundle that declares none.
-    #[test]
-    fn a_metric_whose_measure_is_an_expression_string_is_reported_and_not_defined() {
-        let corpus = corpus();
-        let snapshot = Snapshot::new(
-            corpus.datasets().to_vec(),
-            corpus.relationships().to_vec(),
-            vec![MetricAspect::new(
-                String::from("revenue"),
-                String::from("ANSI_SQL"),
-                String::from("SUM(amount_cents)"),
-            )],
-        );
-        let pinned = over(snapshot).load().expect("a metric entity does not stop a load");
-        assert!(pinned.definitions().metrics().is_empty(), "the metric is not defined");
-    }
-
-    /// A relationship licenses no dimension, because this adapter provides no cardinality.
-    ///
-    /// `DataHub` relationships carry a cardinality that this adapter declines (the `N_N` default makes
-    /// an unconsidered relationship indistinguishable from a considered one), and the mere presence
-    /// of a relationship here - even one mapped to a representable `JoinType` - produces no
-    /// `Cardinality` capability, because a capability is observed only as *a dimension reached
-    /// through the relationship*, and this adapter never creates one. Both halves are pinned: the
-    /// fixture bundle carries the relationship and the declaration still holds, and a relationship
-    /// whose cardinality is absent or many-to-many is refused naming it (`docs/adr/0016` decision 5).
-    /// A snapshot whose one relationship carries a given cardinality.
-    fn relationship_with(cardinality: Option<Cardinality>) -> Snapshot {
-        let corpus = corpus();
-        Snapshot::new(
-            corpus.datasets().to_vec(),
-            vec![RelationshipAspect::new(
-                String::from("orders_to_customer"),
-                String::from("orders"),
-                String::from("customer_id"),
-                String::from("customers"),
-                String::from("customer_id"),
-                cardinality,
-            )],
-            Vec::new(),
-        )
-    }
-
-    #[test]
-    fn it_declares_it_provides_no_cardinality_so_a_relationship_licenses_no_dimension() {
-        let pinned = over(corpus()).load().expect("the recorded corpus loads");
-        let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
-        assert!(
-            !produced.declares(DeclarableKind::Definition(
-                sutura_domain::capabilities::DefinitionKind::Cardinality
-            )),
-            "a relationship may exist without licensing a dimension"
-        );
-
-        let refused = over(relationship_with(Some(Cardinality::NN)))
-            .load()
-            .expect_err("a many-to-many relationship is content this adapter does not provide");
-        assert!(
-            matches!(
-                refused,
-                DataHubError::CardinalityUnrepresentable { ref name, cardinality: "many-to-many" } if name == "orders_to_customer"
-            ),
-            "{refused:?}"
-        );
-
-        let refused = over(relationship_with(None))
-            .load()
-            .expect_err("an undeclared cardinality is refused, not defaulted");
-        assert!(
-            matches!(
-                refused,
-                DataHubError::CardinalityUnrepresentable { ref name, cardinality: "undeclared" } if name == "orders_to_customer"
-            ),
-            "{refused:?}"
-        );
-    }
-
-    /// Content for a knowledge kind the adapter did not declare fails the load.
-    ///
-    /// `Knowledge::assemble`'s `UndeclaredContent` guard refuses a bundle whose input carries notes
-    /// for a capability the declared `KnowledgeCapabilities` do not cover - the "content for a kind
-    /// it did not declare" shape. A standalone `DataHub` bundle never reaches it, because a note
-    /// needs a metric for its `Referent` to name and this adapter provides no metrics; the wiring is
-    /// the point here. Built and refused through the adapter's own types, so the guard is reachable
-    /// the day a composed bundle feeds one in, and the failure lands as `DataHubError::Knowledge`
-    /// rather than as prose.
-    #[test]
-    fn content_for_a_kind_it_did_not_declare_fails_the_load() {
-        let model = Model::new(
-            ModelName::parse("orders").expect("a model name is a name"),
-            name(),
-            TableName::parse("fct_order").expect("a table name is a name"),
-            [
-                ColumnName::parse("amount_cents").expect("a column is a name"),
-                ColumnName::parse("order_date").expect("a column is a name"),
-            ]
-            .into_iter()
-            .collect(),
-            Description::parse("Net revenue orders.").expect("a description is a description"),
-        );
-        let metric = Metric::new(
-            MetricName::parse("revenue").expect("a metric name is a name"),
-            ModelName::parse("orders").expect("a model name is a name"),
-            Measure::Simple(Term::Aggregate(AggregatedColumn::new(
-                Aggregate::Sum,
-                ColumnName::parse("amount_cents").expect("a column is a name"),
-            ))),
-            Vec::new(),
-            ColumnName::parse("order_date").expect("a column is a name"),
-            std::iter::once(Grain::Month).collect(),
-            BTreeMap::new(),
-            None,
-            Description::parse("").expect("empty is a description"),
-        );
-        let definitions =
-            Definitions::assemble(vec![model], Vec::new(), vec![metric]).expect("a model and a metric hold together");
-        let entry = GlossaryEntry::new(
-            Phrase::parse("revenue").expect("a phrase is a phrase"),
-            BTreeSet::new(),
-            Referent::Metric {
-                metric: MetricName::parse("revenue").expect("a metric name is a name"),
-            },
-            NoteBody::parse("Net revenue in minor units.").expect("a note body is a body"),
-        );
-
-        let refused = Knowledge::assemble(
-            &definitions,
-            KnowledgeInput::new(KnowledgeCapabilities::none(), vec![entry], Vec::new(), Vec::new(), Vec::new()),
-        )
-        .expect_err("a glossary under a declaration that provides none is undeclared content");
-        assert!(
-            matches!(
-                refused,
-                InconsistentKnowledge::UndeclaredContent {
-                    capability: Capability::Glossary,
-                    ..
-                }
-            ),
-            "{refused:?}"
-        );
-        // The adapter's typed error carries it, proving the load path maps it rather than swallowing
-        // it.
-        let _: DataHubError = DataHubError::Knowledge { cause: refused };
-    }
-}
+mod tests;

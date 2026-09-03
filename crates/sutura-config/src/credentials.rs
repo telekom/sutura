@@ -2,8 +2,8 @@
 //!
 //! **The first implementor of `sutura_domain::identity::CredentialBroker`, and it is a shipping
 //! deployment mode rather than test scaffolding.** `AGENTS.md`'s rule is that a port trait arrives
-//! with its first implementor, because a trait with no implementor is a guess at a signature - and
-//! `examples/multi-player/README.md` says the same thing about this port by name. What arrives with
+//! with its first implementor, because a trait with no implementor is a guess at a signature - and the
+//! calling-subject floor this port answers to is `docs/adr/0008` part 6. What arrives with
 //! it here is the static-credential broker single-user mode already needs: credentials as
 //! configuration, one user, one host.
 //!

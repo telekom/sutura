@@ -49,7 +49,7 @@ sutura has a request context and a credential broker now, and a deployment that 
 the part that matters: **no adapter in this build can carry a per-subject credential.** Every
 question executes with a credential a broker minted, and what that credential says is *the identity
 this process holds for that source*. `AGENTS.md` records which half is mechanised, and
-`examples/multi-player/README.md` explains why single-player makes "every query runs as the calling
+`examples/README.md` explains why single-player makes "every query runs as the calling
 principal" trivially true and worth nothing.
 
 That is a property of the runtime, so it is a property of every deployment this crate
@@ -515,8 +515,8 @@ The credential broker a deployment gets when its credentials are configuration.
 
 **The first implementor of `sutura_domain::identity::CredentialBroker`, and it is a shipping
 deployment mode rather than test scaffolding.** `AGENTS.md`'s rule is that a port trait arrives
-with its first implementor, because a trait with no implementor is a guess at a signature - and
-`examples/multi-player/README.md` says the same thing about this port by name. What arrives with
+with its first implementor, because a trait with no implementor is a guess at a signature - and the
+calling-subject floor this port answers to is `docs/adr/0008` part 6. What arrives with
 it here is the static-credential broker single-user mode already needs: credentials as
 configuration, one user, one host.
 

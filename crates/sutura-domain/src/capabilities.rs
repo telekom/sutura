@@ -178,22 +178,113 @@ impl core::fmt::Display for DefinitionKind {
 /// carries nothing but tables is a real source, and 0016 checked that a bundle of models with no
 /// metrics assembles, pins and validates. What is not legitimate is a bundle that disagrees with the
 /// declaration, and that is [`MetadataCapabilities::checked_against`]'s to report.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct DefinitionCapabilities(BTreeSet<DefinitionKind>);
+///
+/// **`conditional` is 0011's *declared-and-empty* state, and it is separate from `declared` on
+/// purpose.** A source maps a schema the deployment authors (datahub's `sutura.*` namespace is the
+/// first), so whether a KIND is produced is a property of the deployment rather than of the code:
+/// the adapter declares the kind, and a bundle that carries none is a faithful bundle rather than an
+/// aspirational declaration. [`Self::of_may_provide`] is what such an adapter writes. Everything
+/// else - the reference adapter, the goldens, an adapter over a fixed external schema - declares
+/// unconditionally through [`Self::of`], which is why the serialized form below carries only the
+/// declared set and why no existing digest moves.
+///
+/// **The conditional marking is a property of the CODE, not of the serialized declaration.** It is
+/// deliberately absent from the `Serialize`/`Deserialize` below, which emit and read the declared
+/// set exactly as the previous newtype did - the contribution manifest's digest therefore records
+/// which kinds a source declared (so widening any declaration moves the digest) and not whether a
+/// kind was conditional (a property `sutura-app`'s assembler and the conformance suite read off the
+/// adapter's own `capabilities()`, never off a wire). A value that round-trips through serde loses
+/// the marking and reads as unconditionally declared, which is the stricter direction and the honest
+/// one: nothing in this repository deserializes a live declaration to serve with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefinitionCapabilities {
+    declared: BTreeSet<DefinitionKind>,
+    /// Kinds in `declared` that a bundle may lawfully carry nothing of.
+    ///
+    /// `docs/adr/0011`'s *declared-and-empty*: absent from a bundle is a faithful bundle, and
+    /// present is still covered by the declared half. Not serialized - see the type's own doc, which
+    /// says why it traveling with the value but not the wire is the point.
+    conditional: BTreeSet<DefinitionKind>,
+}
+
+impl serde::Serialize for DefinitionCapabilities {
+    /// The declared set alone, preserving the shape the newtype had so a manifest digest is unmoved
+    /// for any adapter that declares unconditionally.
+    ///
+    /// The `expect` is the price of a hand-written impl in a workspace with the whole `restriction`
+    /// menu on: the signature `S: serde::Serializer` is forced by the trait and cannot be spelled
+    /// inline.
+    #[expect(
+        clippy::inline_trait_bounds,
+        reason = "the generic bound is part of the serde trait's own signature and cannot be inlined"
+    )]
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.declared.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DefinitionCapabilities {
+    /// Read as unconditionally declared: a code property does not survive the wire, and the stricter
+    /// reading is the honest one. Symmetric with `Serialize` over the vocabulary both emit.
+    #[expect(
+        clippy::inline_trait_bounds,
+        reason = "the generic bound is part of the serde trait's own signature and cannot be inlined"
+    )]
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self {
+            declared: BTreeSet::deserialize(deserializer)?,
+            conditional: BTreeSet::new(),
+        })
+    }
+}
 
 impl DefinitionCapabilities {
-    /// The kinds a provider says it supplies.
+    /// The kinds a provider says it supplies, unconditionally.
     ///
     /// **What an adapter over a fixed external schema writes**, so that a tenth kind added here
     /// leaves its declaration alone rather than silently widening it.
     pub fn of(kinds: impl IntoIterator<Item = DefinitionKind>) -> Self {
-        Self(kinds.into_iter().collect())
+        Self {
+            declared: kinds.into_iter().collect(),
+            conditional: BTreeSet::new(),
+        }
+    }
+
+    /// The kinds a provider may supply, where the deployment decides which a bundle carries.
+    ///
+    /// **What a source whose content is deployment-authored writes** - datahub's `sutura.*`
+    /// namespace - where the adapter can carry a kind but every given bundle may carry none of it.
+    /// The kinds are declared (the *not declared* direction still catches content), and absent from
+    /// a bundle is a faithful bundle rather than an aspirational declaration.
+    pub fn of_may_provide(kinds: impl IntoIterator<Item = DefinitionKind>) -> Self {
+        let kinds: BTreeSet<DefinitionKind> = kinds.into_iter().collect();
+        Self {
+            conditional: kinds.clone(),
+            declared: kinds,
+        }
+    }
+
+    /// Adds kinds a bundle may lawfully omit to this declaration, leaving the rest unchanged.
+    ///
+    /// What a source writes whose kinds split by whether the deployment authors them: structure,
+    /// prose and joins are per-instance unconditional, while the deployment-authored content is
+    /// declared-and-empty until a bundle carries any of it.
+    #[must_use]
+    pub fn and_may_provide(mut self, kinds: impl IntoIterator<Item = DefinitionKind>) -> Self {
+        for kind in kinds {
+            self.declared.insert(kind);
+            self.conditional.insert(kind);
+        }
+        self
     }
 
     /// A provider with none of them.
     #[must_use]
     pub const fn none() -> Self {
-        Self(BTreeSet::new())
+        Self {
+            declared: BTreeSet::new(),
+            conditional: BTreeSet::new(),
+        }
     }
 
     /// Every kind there is.
@@ -210,19 +301,25 @@ impl DefinitionCapabilities {
     /// Does this provider supply that kind at all?
     #[inline]
     pub fn declares(&self, kind: DefinitionKind) -> bool {
-        self.0.contains(&kind)
+        self.declared.contains(&kind)
     }
 
     /// Everything declared, in a deterministic order.
     #[inline]
     pub const fn declared(&self) -> &BTreeSet<DefinitionKind> {
-        &self.0
+        &self.declared
+    }
+
+    /// Is a declared kind one a bundle may lawfully omit?
+    #[inline]
+    pub fn is_conditional(&self, kind: DefinitionKind) -> bool {
+        self.conditional.contains(&kind)
     }
 
     /// Is nothing at all declared?
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.declared.is_empty()
     }
 }
 
@@ -380,6 +477,14 @@ impl MetadataCapabilities {
     /// aspirational; and nothing of an undeclared kind appears, so a declared absence is visibly
     /// absent rather than silently missing.
     ///
+    /// **One exemption, and it is the point of[`DefinitionCapabilities::of_may_provide`].** A kind
+    /// an adapter marks conditional - declared, yet absent from a bundle is lawful because whether a
+    /// bundle carries it is the deployment's decision - does not fail the *unprovided* direction. The
+    /// *undeclared* direction is unaffected, so a bundle carrying a conditional kind is still
+    /// checked against the declared half of it. A declaration that lost its marking (one that
+    /// round-tripped through the wire) reads as unconditional, which fails on an absent kind - the
+    /// stricter and therefore safe direction.
+    ///
     /// **The undeclared direction is checked first, and the order is not cosmetic.** That one is the
     /// safety failure - a caller was told an absence that is not one - and reporting it first means a
     /// suite that stops at the first error stops on the worse of the two. Named in the error either
@@ -398,11 +503,22 @@ impl MetadataCapabilities {
             }
         }
         for kind in Self::every_kind() {
-            if self.declares(kind) && !produced.declares(kind) {
+            if self.declares(kind) && !produced.declares(kind) && !Self::absent_is_conditional(&self.definitions, kind) {
                 return Err(UnfaithfulDeclaration::Unprovided { kind });
             }
         }
         Ok(())
+    }
+
+    /// Is an absent kind a lawful absence under this declaration's conditional marking?
+    ///
+    /// Knowledge kinds are never conditional - [`crate::knowledge::KnowledgeCapabilities`] carries
+    /// no may-provide state, so a knowledge declaration is unconditional.
+    fn absent_is_conditional(definitions: &DefinitionCapabilities, kind: DeclarableKind) -> bool {
+        match kind {
+            DeclarableKind::Definition(definition) => definitions.is_conditional(definition),
+            DeclarableKind::Knowledge(_) => false,
+        }
     }
 }
 
