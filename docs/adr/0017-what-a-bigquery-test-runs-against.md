@@ -766,15 +766,23 @@ amended. A gate whose failure is good news is the only shape that reaches a reco
 recollection two hours after the tree stopped agreeing with it, and no gate could have known - which is
 why the sentence now names the command and the date, per this repository's own rule about a number in
 prose. **And the correction is registered rather than merely made:** both halves of the wrong sentence -
-the claim about the tree and the *watch for the permission arriving* instruction it justified - are
-entries in `check-guidance`'s contradicted-claims table, resting on `.github/workflows/release.yml`
-still holding `id-token: write`, so the rule retires itself the day that stops being true instead of
-forbidding a sentence that has become correct again. **Two limits of that, stated rather than left to be
-discovered.** It matches a literal, so a paraphrase escapes - the same limit the gate records for every
-row in that table. And this page is `except`ed from the rule, because the quotation above would
-otherwise fail it: that exemption is a blind spot, and what keeps it from outliving its reason is
-`a_page_a_rule_exempts_holds_a_wording_that_rule_forbids`, which fails if this page stops quoting the
-sentence it corrects.
+the claim about the tree, and the *watch for the permission arriving* instruction it justified - are
+wordings of one entry in `check-guidance`'s contradicted-claims table, resting on
+`.github/workflows/release.yml` still holding `id-token: write`, so the rule retires itself the day that
+stops being true instead of forbidding a sentence that has become correct again. **Two limits of that,
+stated rather than left to be discovered.** It matches a literal, so a paraphrase escapes - the same
+limit the gate records for every row in that table. And this page is `except`ed from the rule, because
+the quotation above would otherwise fail it: that exemption is a blind spot, and what keeps it from
+outliving its reason is `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids`, which fails if this
+page stops quoting the sentence it corrects.
+
+**The gate named above had the same defect, one round later, and it is fixed here rather than shipped.**
+`check-venues` read this job for `id-token: write` - the very proxy this amendment exists to retire,
+narrowed from *any workflow* to *this job*. That retires the one false positive and keeps the class: the
+permission granted here for some other keyless exchange would report a half-finished **Google**
+migration that does not exist. What it reads now is what the paragraph above actually names - a Google
+auth action, a workload pool, or an STS endpoint in this job - and
+`an_id_token_grant_is_not_the_google_signal_this_record_corrected` is the test that keeps the proxy out.
 
 ### The limit each venue must state
 

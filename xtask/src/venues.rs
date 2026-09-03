@@ -21,8 +21,10 @@
 //! * **Every test the page cites exists and is a test.** The page says those names are the list to
 //!   check a claim against, which a rename turns into a citation of nothing.
 //! * **The acceptance venue's limit is a workflow property**, so it is read out of the workflow -
-//!   see the `acceptance` module, whose own header lists the nine properties it holds and the four
-//!   ways an earlier draft of it read a regression as compliance.
+//!   see the `acceptance` module, whose own header lists what it reads, what it does NOT reach, and
+//!   the seven ways two earlier drafts of it read a regression as compliance. **No count here**: the
+//!   same properties have been called five, seven and nine in one branch, which is what
+//!   `AGENTS.md` means by *write the command and the date, or delete the number*.
 //!
 //! # What is not
 //!

@@ -23,10 +23,17 @@ use std::path::Path;
 use super::matches_any;
 
 // Both split off under the 1000-line cap, on the seam the causality gate forces: the mechanism
-// moves and every assertion stays in `tests` below, beside the table it reads. `remedies` judges
-// the sentence a claim hands a reader; `counts` is the whole second check named in the header
-// above, and it went because [`CONTRADICTED`] is the table that grows by entry - one claim is
-// about twenty lines - so this is the file that has to have room.
+// moves and every assertion stays in `tests` below, in the file that DECLARES the module - a file
+// adding no `#[test]` is one that gate may revert, which would take the declaration with it and
+// orphan the tests. `remedies` judges the sentence a claim hands a reader; `counts` is the whole
+// second check named in the header above, and it went rather than the table because
+// [`CONTRADICTED`] is what grows by ENTRY - one claim is about twenty lines - so this is the file
+// that has to have room.
+//
+// **`counts` is a CHILD rather than a sibling of `claims`, and that is deliberate.** `guidance.rs`
+// lists the two as peers, which argues for a sibling; against that, `flatten` below is the one
+// thing they share, and a child reads it while private. A peer would need it exported to all of
+// `guidance` to borrow it, which is a wider change than the one the placement buys.
 mod counts;
 mod remedies;
 
@@ -378,15 +385,16 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
         // so the sentence would have gone on reading as an instruction long after it stopped being
         // one.
         //
-        // Every needle starts INSIDE the sentence, and that is measured rather than tidy: the match
+        // Both needles start INSIDE the sentence, and that is measured rather than tidy: the match
         // is case-sensitive, and `the moment that changes ...` - the wording as merged, mid-sentence
         // after a semicolon - was verified to walk straight past the same sentence written as `The
-        // moment that changes ...` at the start of one. Dropping the first word catches both
-        // capitalisations with one entry, which is what `no MCP surface` above pays two for. `a` and
-        // `any Google` are both in this sentence's own history rather than imagined.
+        // moment that changes ...` at the start of one. Dropping the leading words catches both
+        // capitalisations with one needle, which is what `no MCP surface` above pays two for, and it
+        // catches `nor a Google` and `nor any Google` - the merged form and the way the sentence is
+        // told elsewhere - without asserting that both are in this tree's history. Measured
+        // 2026-09-03: `git log --all -S 'any Google auth action'` finds only this entry.
         wordings: &[
-            "nor a Google auth action appears in any workflow",
-            "nor any Google auth action appears in any workflow",
+            "Google auth action appears in any workflow",
             "moment that changes is a workflow diff with no key to rotate",
         ],
         evidence: &[Evidence {
@@ -421,7 +429,7 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
 /// Stripping markers was rejected: `#` also starts a markdown heading, and joining a heading to the
 /// paragraph before it could match a "claim" spanning two sections. A claim written across two
 /// comment lines needs a needle that fits on one of them.
-pub(super) fn flatten(text: &str) -> (String, Vec<usize>) {
+fn flatten(text: &str) -> (String, Vec<usize>) {
     let mut flat = String::with_capacity(text.len());
     let mut lines = Vec::with_capacity(text.len());
     let mut line = 1_usize;
@@ -692,9 +700,16 @@ mod tests {
         // Over the glob rather than the literal, because `except` is matched as one - a directory
         // pattern that no longer covers a page that quotes the sentence is the same stale exemption
         // in a shape a path read would have missed.
+        //
+        // `is_live` for the same reason the gate reads it: a retired rule forbids nothing, so
+        // demanding the page keep quoting it would turn tidying that quote red for a rule that is
+        // no longer there. Both predicates, or this test and the check disagree about what a rule is.
         let root = crate::repo::root().expect("the repo root");
         let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
-        for rule in CONTRADICTED.iter().filter(|rule| !rule.except.is_empty()) {
+        for rule in CONTRADICTED
+            .iter()
+            .filter(|rule| !rule.except.is_empty() && rule.is_live(&root))
+        {
             let quoted = files
                 .iter()
                 .filter(|rel| super::matches_any(rule.except, rel))

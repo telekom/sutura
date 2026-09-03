@@ -3,7 +3,7 @@
 //! `docs/where-identity-is-proven.md`'s third venue - a real dataset under a shared key - carries
 //! one exclusion no page can enforce: **a fork's pull request gets no secret**, which is what
 //! `docs/adr/0017` refused CI over and what its first amendment reversed on the strength of an
-//! `environment:`. That, and the four other properties telekom/sutura#81 asks of the job, were
+//! `environment:`. That, and every other property telekom/sutura#81 asks of the job, were
 //! configured and held by nothing.
 //!
 //! What is read: its own job, an `environment:`, the fork rule on the HEAD REPOSITORY rather than
@@ -33,6 +33,36 @@
 //!   `continue` was clean as long as some other guard still exited - and *unset configuration
 //!   fails rather than skips* is the property telekom/sutura#81 states most exactly. Each guard now
 //!   has to reach one within [`GUARD_WINDOW`] lines.
+//!
+//! # And three found by review of the draft above, which is the same list one round later
+//!
+//! * **the expiry signal was the proxy this whole record exists to retire.** `federated` read
+//!   `id-token: write`, narrowed from *any workflow* to *this job* - which retires the one false
+//!   positive and keeps the class, because that permission granted here for any other keyless
+//!   exchange would report a half-finished GOOGLE migration that does not exist. [`FEDERATION`] is
+//!   what `docs/adr/0017` actually names;
+//! * **`!` before the rule and `!` anywhere are different questions.** `!line.contains('!')`
+//!   refuses a correct condition strengthened with `!cancelled()` or a `!=`, and a gate that fails
+//!   correct configuration is one somebody deletes. See [`states_fork_rule`];
+//! * **`/dev/null` is a redirect to a path and is not storage.** `printenv "$KEY" 2>/dev/null`
+//!   had a file redirect on the line and was therefore exempt from the print check while stdout
+//!   went to a public log. This job already writes `2>/dev/null` elsewhere, so the shape is live.
+//!
+//! # What this does not reach
+//!
+//! The file the group points at for limits had none of its own. Every row is a property of the
+//! scan rather than a property nobody wanted:
+//!
+//! | Not reached | Why |
+//! | --- | --- |
+//! | A multi-line `if: \|` condition | The condition is read off the `if:` key's own line, so a rule on a continuation line reads as absent - and this workflow writes that YAML style elsewhere |
+//! | A workflow-level `permissions:` | [`job`] returns the job's own lines, so a grant made once for the whole file is invisible here |
+//! | `>> "$GITHUB_OUTPUT"`, `\| tee`, `base64`, `jq` over the key file | [`redirects_to_file`] judges the target's SHAPE, not whether it is published, and [`PRINTS`] is a vocabulary. The check is a floor under a review, not a proof |
+//! | A guard whose `exit` is in the NEXT step | The job's shell is one flat line list, so [`GUARD_WINDOW`] can cross a step boundary. Strictly stronger than the whole-job search it replaced, not airtight |
+//! | Whether the name a guard mentions is the name it TESTS | `guarded` is a bag of environment-shaped words off any guard line, so a name merely appearing near one counts as tested |
+//! | A lower-case environment name | [`env_name_shaped`] requires upper case, so `bq_key: ${{ secrets.x }}` is read by neither the emptiness check nor the print check |
+//! | `::add-mask::` | The job's own comments call masking the mechanism that keeps a project, dataset and table out of a public log. Nothing here holds it |
+//! | Whether `environment: bq-test` withholds anything | That is a repository setting no file in this tree states. The key is necessary and is not sufficient |
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -55,6 +85,18 @@ const FORK_RULE: &str = "github.event.pull_request.head.repo.full_name == github
 /// prints the key instead of storing it, and a check that knew only `echo` read that as clean.
 const PRINTS: &[&str] = &["echo", "printf", "printenv", "cat "];
 
+/// What a Google token exchange looks like in a workflow.
+///
+/// **The signal `docs/adr/0017` names, rather than the one it used to name.** `id-token: write` is
+/// not on this list and must not be: that permission has been in `release.yml` since keyless
+/// signing landed, so its presence says nothing about Google. Any one of these is a workload-identity
+/// exchange - the action that performs it, the pool it names, or the endpoint it calls.
+const FEDERATION: &[&str] = &[
+    "google-github-actions/auth",
+    "workload_identity_provider",
+    "sts.googleapis.com",
+];
+
 /// How far after a guard a non-zero `exit` may sit.
 ///
 /// The shape in this job is three lines - the test, a message, the exit - and a `for` wrapping one
@@ -67,14 +109,13 @@ const GUARD_WINDOW: usize = 6;
 /// Two spaces is where a job's name sits and four is where its keys do, so a comment block
 /// introducing the NEXT job - which this file writes at two spaces - ends the block rather than
 /// joining it.
-fn job(text: &str, name: &str) -> Option<Vec<String>> {
+fn job<'a>(text: &'a str, name: &str) -> Option<Vec<&'a str>> {
     let header = format!("  {name}:");
     let mut lines = text.lines().skip_while(|line| *line != header);
     lines.next()?;
     Some(
         lines
             .take_while(|line| line.trim().is_empty() || line.starts_with("    "))
-            .map(str::to_owned)
             .collect(),
     )
 }
@@ -84,7 +125,7 @@ fn job(text: &str, name: &str) -> Option<Vec<String>> {
 /// A body ends at the first line indented no deeper than its own `run:` key, which is what keeps a
 /// comment written between two steps out of it. A shell comment INSIDE a body stays in, because an
 /// expression in one would still be an expression in the file.
-fn shell(block: &[String]) -> Vec<&str> {
+fn shell<'a>(block: &[&'a str]) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut inside: Option<usize> = None;
     for line in block {
@@ -93,7 +134,7 @@ fn shell(block: &[String]) -> Vec<&str> {
             if !line.trim().is_empty() && indent <= depth {
                 inside = None;
             } else {
-                out.push(line.as_str());
+                out.push(*line);
                 continue;
             }
         }
@@ -106,32 +147,85 @@ fn shell(block: &[String]) -> Vec<&str> {
     out
 }
 
+/// Where a value the job reads comes from.
+///
+/// A closed pair rather than the two string literals this used to hold, because the difference
+/// decides which checks apply - only a SECRET can be the key in a public log - and `kind ==
+/// "secrets"` is a decision spelled as a comparison that cannot fail to compile when it is wrong.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// `${{ secrets.<name> }}` - withheld from a fork by the `environment:`.
+    Secret,
+    /// `${{ vars.<name> }}` - not a secret, and still something the leg has to be pointed at.
+    Variable,
+}
+
+impl Source {
+    /// How a failure message spells it, which is how the workflow spells it.
+    const fn named(self) -> &'static str {
+        match self {
+            Self::Secret => "secrets",
+            Self::Variable => "vars",
+        }
+    }
+}
+
 /// The environment names this job takes from a secret or a variable, and which of the two.
-fn configured(block: &[String]) -> BTreeMap<String, String> {
+fn configured<'a>(block: &[&'a str]) -> BTreeMap<&'a str, Source> {
     let mut out = BTreeMap::new();
     for line in block {
-        let trimmed = line.trim();
-        let Some((name, value)) = trimmed.split_once(": ") else {
+        let Some((name, value)) = line.trim().split_once(": ") else {
             continue;
         };
-        if !name.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') {
+        if !env_name_shaped(name) {
             continue;
         }
-        for kind in ["secrets.", "vars."] {
-            if value.contains("${{") && value.contains(kind) {
-                out.insert(name.to_owned(), kind.trim_end_matches('.').to_owned());
-            }
+        if !value.contains("${{") {
+            continue;
+        }
+        // `secrets.` first and it WINS a value naming both, which the two-pass form decided by
+        // insertion order and therefore the other way. A secret interpolated beside a variable is
+        // still a secret, and the checks a secret carries are the strict ones.
+        if value.contains("secrets.") {
+            out.insert(name, Source::Secret);
+        } else if value.contains("vars.") {
+            out.insert(name, Source::Variable);
         }
     }
     out
+}
+
+/// Is this word shaped like an environment variable name?
+///
+/// One predicate, read by [`configured`] and by the guard scan, so what the job DECLARES and what a
+/// guard is credited with TESTING cannot disagree about what a name is.
+fn env_name_shaped(word: &str) -> bool {
+    !word.is_empty() && word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// Does this line send its output to a FILE rather than to the log?
 ///
 /// `>&1` and `>&2` ARE the log, so they are not an exemption - which is the distinction between
 /// the line that stores the key and every line that would reveal it.
+///
+/// **`/dev/null` is not an exemption either, and that was a real hole**: the test is per LINE, so
+/// `printenv "$KEY" 2>/dev/null` had a redirect whose target was a path and was therefore read as
+/// storing the key, while stdout went to a public log. This job already writes `2>/dev/null` on
+/// another line, so the shape is live rather than hypothetical.
 fn redirects_to_file(line: &str) -> bool {
-    line.split('>').skip(1).any(|rest| !rest.trim_start().starts_with('&'))
+    line.split('>').skip(1).any(|rest| {
+        let target = rest.trim_start();
+        !target.starts_with('&') && !target.starts_with("/dev/null")
+    })
+}
+
+/// Does this line put something in the log?
+///
+/// A print verb with nowhere else for the output to go. Its own predicate because it is a property
+/// of the LINE: it was evaluated once per configured name, including for the names it can never
+/// fire for.
+fn prints(line: &str) -> bool {
+    PRINTS.iter().any(|verb| line.contains(verb)) && !redirects_to_file(line)
 }
 
 /// Does this line turn shell tracing on? `set -x`, `set -eux` and `set -o xtrace` all do.
@@ -148,6 +242,22 @@ fn traces(line: &str) -> bool {
                 .strip_prefix('-')
                 .is_some_and(|set| !set.starts_with('-') && set.contains('x'))
     })
+}
+
+/// Does this condition state the fork rule, rather than its negation?
+///
+/// **`!` before the rule and `!` anywhere are different questions**, and the first draft asked the
+/// second: `!line.contains('!')`, which refuses the rule inverted - a job that runs on forks ONLY -
+/// and equally refuses `github.event_name != 'schedule'` or `!cancelled()` beside a correct rule.
+/// A gate that fails a correct strengthening is one somebody deletes, so what is read is the text
+/// immediately before the rule, past the spaces and open parentheses a writer may put there.
+fn states_fork_rule(condition: &str) -> bool {
+    let Some(at) = condition.find(FORK_RULE) else {
+        return false;
+    };
+    condition
+        .get(..at)
+        .is_some_and(|before| !before.trim_end_matches([' ', '(']).ends_with('!'))
 }
 
 /// Does this line exit non-zero? A guard that does not reach one is a skip.
@@ -173,7 +283,9 @@ pub(super) fn problems(text: &str) -> Vec<String> {
             "{WORKFLOW}: the `{JOB}` job has no shell - the scan is broken, not the job"
         )];
     }
-    let joined = bodies.join("\n");
+    // Once, and read twice below: two derivations of one fact can disagree, and this one was
+    // computed separately for the emptiness check and for the credential-mechanism check.
+    let config = configured(&block);
 
     if !block.iter().any(|line| line.trim().starts_with("environment:")) {
         problems.push(format!(
@@ -190,7 +302,7 @@ pub(super) fn problems(text: &str) -> Vec<String> {
         .iter()
         .find(|line| line.strip_prefix("    ").is_some_and(|key| key.starts_with("if:")))
     {
-        Some(line) if line.contains(FORK_RULE) && !line.contains('!') => {}
+        Some(line) if states_fork_rule(line) => {}
         Some(line) => problems.push(format!(
             "{WORKFLOW}: the `{JOB}` job's own condition is `{}`, which has to test `{FORK_RULE}` \
              and may not negate it - skip where the runner had no choice, run where somebody in \
@@ -233,12 +345,14 @@ pub(super) fn problems(text: &str) -> Vec<String> {
                      leak, and the secret sweep does not honour `.gitignore`"
                 ));
             }
-            let file = path.rsplit('/').next().unwrap_or(path);
+            let file = path.rsplit_once('/').map_or(path, |(_, file)| file);
             for (what, form) in [
                 ("written", format!("> \"$RUNNER_TEMP/{file}\"")),
                 ("removed", format!("rm -f \"$RUNNER_TEMP/{file}\"")),
             ] {
-                if !joined.contains(&form) {
+                // Per line, because neither form can span one - which is what the joined copy of
+                // every body was for.
+                if !bodies.iter().any(|line| line.contains(&form)) {
                     problems.push(format!(
                         "{WORKFLOW}: the `{JOB}` job never has the credential {what} as `{form}` - \
                          the path the leg reads and the path the job writes and deletes are one \
@@ -251,16 +365,20 @@ pub(super) fn problems(text: &str) -> Vec<String> {
 
     let mut guarded = BTreeSet::new();
     for (at, line) in bodies.iter().enumerate() {
-        let is_guard = line.contains("-z ");
-        let is_list = line.contains("for ") && line.contains(" in ");
-        if !(is_guard || is_list) {
+        // Two shapes, and both are guards: a `-z` emptiness test, and a `for name in A B` that
+        // tests each of several in turn.
+        if !(line.contains("-z ") || (line.contains("for ") && line.contains(" in "))) {
             continue;
         }
-        for word in line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            if word.len() > 2 {
-                guarded.insert(word.to_owned());
-            }
-        }
+        // Only words shaped like an environment name, through the SAME predicate `configured`
+        // reads - so what a guard is credited with testing and what the job declares cannot
+        // disagree. A `word.len() > 2` filter stood here and was wrong in both directions: it
+        // admitted `then`, `printenv` and `name`, and it dropped a one-character name, of which
+        // this job already has one.
+        guarded.extend(
+            line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .filter(|word| env_name_shaped(word)),
+        );
         if !bodies
             .iter()
             .skip(at.saturating_add(1))
@@ -276,17 +394,26 @@ pub(super) fn problems(text: &str) -> Vec<String> {
             ));
         }
     }
-    for (name, kind) in configured(&block) {
-        if !guarded.contains(&name) {
+    for (name, source) in &config {
+        if !guarded.contains(name) {
             problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job reads `{name}` from `{kind}` and never tests it for \
+                "{WORKFLOW}: the `{JOB}` job reads `{name}` from `{}` and never tests it for \
                  emptiness - unset configuration has to FAIL rather than skip, because the fixture \
-                 once reported three passes against no project"
+                 once reported three passes against no project",
+                source.named()
             ));
         }
-        for line in &bodies {
-            let prints = PRINTS.iter().any(|verb| line.contains(verb)) && !redirects_to_file(line);
-            if kind == "secrets" && line.contains(&name) && prints {
+    }
+    // Per LINE and not per name, because whether a line prints is a property of the line: the
+    // predicate was inside the loop above, asked once per configured value and asked at all for a
+    // `vars.` entry, which this branch can never fire for.
+    for line in bodies.iter().filter(|line| prints(line)) {
+        for name in config
+            .iter()
+            .filter(|(_, source)| **source == Source::Secret)
+            .map(|(name, _)| name)
+        {
+            if line.contains(*name) {
                 problems.push(format!(
                     "{WORKFLOW}: the `{JOB}` job puts `{name}` on a line that prints - `{}`. A \
                      workflow log on a public repository is public, and the only reason a print \
@@ -304,7 +431,7 @@ pub(super) fn problems(text: &str) -> Vec<String> {
             line.trim()
         ));
     }
-    problems.extend(one_credential_mechanism(&block, &configured(&block)));
+    problems.extend(one_credential_mechanism(&block, &config));
 
     problems
 }
@@ -316,35 +443,72 @@ pub(super) fn problems(text: &str) -> Vec<String> {
 /// this job holds exactly one - and holding both is the migration that stopped half way, where a
 /// key nobody rotates outlives the paragraph that justified it.
 ///
-/// **It reads THIS job because the record's own signal was wrong**: it named the arrival of
-/// `id-token` anywhere, and `release.yml` had granted it for keyless signing two hours earlier.
-fn one_credential_mechanism(block: &[String], config: &BTreeMap<String, String>) -> Vec<String> {
-    let federated = block.iter().any(|line| line.contains("id-token: write"));
-    let keyed = config.values().any(|kind| kind == "secrets");
+/// **It reads a GOOGLE exchange and deliberately not `id-token: write`**, because the record's own
+/// signal was that permission arriving and `release.yml` had granted it for keyless signing two
+/// hours earlier. An earlier draft of this function narrowed that proxy to this job instead of
+/// replacing it, which retired the one false positive and kept the class: `id-token: write` granted
+/// here for any other keyless exchange would have reported a half-finished GOOGLE migration that
+/// does not exist. What [`FEDERATION`] holds is what `docs/adr/0017` actually names as greenfield -
+/// no Google auth action, no workload pool, no STS endpoint.
+fn one_credential_mechanism(block: &[&str], config: &BTreeMap<&str, Source>) -> Option<String> {
+    let federated = block.iter().any(|line| FEDERATION.iter().any(|marker| line.contains(marker)));
+    let keyed = config.values().any(|source| *source == Source::Secret);
     match (federated, keyed) {
-        (true, true) => vec![format!(
-            "{WORKFLOW}: the `{JOB}` job mints an OIDC token AND places a secret - those are the \
-             two alternatives `docs/adr/0017` prices against each other, so holding both is a \
-             half-finished migration and the key is the half nobody will notice is still there"
-        )],
-        (false, false) => vec![format!(
-            "{WORKFLOW}: the `{JOB}` job authenticates with neither a secret nor `id-token: \
-             write`, so it cannot be reaching the endpoint at all - a leg that authenticates with \
-             nothing and passes is the fixture that once reported three passes against no project"
-        )],
-        (true, false) => vec![format!(
-            "{WORKFLOW}: the `{JOB}` job is federated and holds no key, which is the state \
-             `docs/adr/0017`'s expiry paragraph describes as the end of the service-account key. \
-             That record still says a key is the cost of the evidence - amend it, then delete this \
-             arm, because a gate whose failure is GOOD NEWS is one somebody will silence"
-        )],
-        (false, true) => Vec::new(),
+        (true, true) => Some(format!(
+            "{WORKFLOW}: the `{JOB}` job exchanges for a Google credential AND places a secret - \
+             those are the two alternatives `docs/adr/0017` prices against each other, so holding \
+             both is a half-finished migration and the key is the half nobody will notice is still \
+             there"
+        )),
+        (false, false) => Some(format!(
+            "{WORKFLOW}: the `{JOB}` job authenticates with neither an environment secret nor a \
+             Google token exchange, so it cannot be reaching the endpoint at all - a leg that \
+             authenticates with nothing and passes is the fixture that once reported three passes \
+             against no project"
+        )),
+        (true, false) => Some(format!(
+            "{WORKFLOW}: the `{JOB}` job exchanges for a Google credential and holds no key, which \
+             is the state `docs/adr/0017`'s expiry paragraph describes as the end of the \
+             service-account key. That record still says a key is the cost of the evidence - amend \
+             it, then delete this arm, because a gate whose failure is GOOD NEWS is one somebody \
+             will silence"
+        )),
+        (false, true) => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{JOB, WORKFLOW, problems};
+    use super::{FORK_RULE, JOB, WORKFLOW, problems};
+
+    /// The one line that makes the fixture keyed, so every test that removes it removes the same
+    /// thing.
+    const KEY_ENV: &str = "          SUTURA_BQ_KEY: ${{ secrets.a_key }}\n";
+
+    /// The job's own condition, built from the constant the gate reads - so a change to the rule
+    /// cannot leave a fixture perturbing a string nothing looks for any more.
+    fn condition() -> String {
+        format!("if: github.event_name == 'push' || {FORK_RULE}")
+    }
+
+    /// A Google token exchange in the job, which is the signal `docs/adr/0017` names.
+    fn with_google_exchange(ci: &str) -> String {
+        ci.replace(
+            "      - name: Acceptance leg\n",
+            "      - uses: google-github-actions/auth@v2\n      - name: Acceptance leg\n",
+        )
+    }
+
+    /// `id-token: write` on the job - the permission the record proves is NOT the signal.
+    ///
+    /// `needs: [ci]` appears twice below, so this grants it to `cross` as well. Harmless, because
+    /// [`super::job`] reads one block, and written here rather than rediscovered per test.
+    fn with_id_token(ci: &str) -> String {
+        ci.replace(
+            "    needs: [ci]\n",
+            "    needs: [ci]\n    permissions:\n      id-token: write\n",
+        )
+    }
 
     /// The real acceptance job, with each property removed in turn.
     const CI: &str = "\
@@ -396,10 +560,7 @@ jobs:
 
     #[test]
     fn an_event_name_test_in_place_of_the_head_repository_fails() {
-        let collapsed = CI.replace(
-            "if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository",
-            "if: github.event_name == 'push' || github.event_name == 'pull_request'",
-        );
+        let collapsed = CI.replace(FORK_RULE, "github.event_name == 'pull_request'");
         let found = problems(&collapsed);
         assert!(
             found.iter().any(|p| p.contains("skip where the runner had no choice")),
@@ -447,25 +608,27 @@ jobs:
     #[test]
     fn a_negated_fork_rule_states_the_rule_backwards_while_still_containing_it() {
         // The literal is present, so a text search finds it and the job runs on a fork ONLY.
-        let inverted = CI.replace(
-            "if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository",
-            "if: github.event_name == 'push' || !(github.event.pull_request.head.repo.full_name == github.repository)",
-        );
+        let inverted = CI.replace(FORK_RULE, &format!("!({FORK_RULE})"));
         let found = problems(&inverted);
         assert!(found.iter().any(|p| p.contains("may not negate it")), "{found:?}");
     }
 
     #[test]
+    fn a_condition_strengthened_beside_the_rule_is_not_a_negated_rule() {
+        // The other direction, and the draft failed it: `!line.contains('!')` refused any `!` in
+        // the condition, so this - a correct rule, guarded against a cancelled run - was reported
+        // as the rule stated backwards. A gate that fails correct configuration is one somebody
+        // deletes, so what is read is the text immediately before the rule.
+        let stronger = CI.replace(&condition(), &format!("if: !cancelled() && ({FORK_RULE})"));
+        assert_eq!(problems(&stronger), Vec::<String>::new());
+    }
+
+    #[test]
     fn a_fork_rule_demoted_to_one_step_leaves_the_job_itself_running_on_a_fork() {
-        let demoted = CI
-            .replace(
-                "    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository\n",
-                "",
-            )
-            .replace(
-                "      - name: Acceptance leg\n",
-                "      - name: Acceptance leg\n        if: github.event.pull_request.head.repo.full_name == github.repository\n",
-            );
+        let demoted = CI.replace(&format!("    {}\n", condition()), "").replace(
+            "      - name: Acceptance leg\n",
+            &format!("      - name: Acceptance leg\n        if: {FORK_RULE}\n"),
+        );
         let found = problems(&demoted);
         assert!(found.iter().any(|p| p.contains("has no condition of its own")), "{found:?}");
     }
@@ -485,6 +648,20 @@ jobs:
             assert!(found[0].contains("on a line that prints"), "{added}: {found:?}");
             assert!(found[0].contains(added), "{added}: {found:?}");
         }
+    }
+
+    #[test]
+    fn a_print_whose_only_redirect_is_dev_null_still_reaches_the_log() {
+        // `2>/dev/null` redirects to a PATH, so a per-line test read the whole line as storing the
+        // key while stdout went to a public log. The real job already writes `2>/dev/null` on
+        // another line, so this is a live shape and not a hypothetical.
+        let leaked = CI.replace(
+            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n",
+            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n          printenv SUTURA_BQ_KEY 2>/dev/null\n",
+        );
+        let found = problems(&leaked);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("on a line that prints"), "{found:?}");
     }
 
     #[test]
@@ -533,18 +710,24 @@ jobs:
     }
 
     #[test]
-    fn a_key_and_a_federated_token_in_one_job_is_a_migration_that_stopped_half_way() {
-        let both = CI.replace(
-            "    needs: [ci]\n",
-            "    needs: [ci]\n    permissions:\n      id-token: write\n",
-        );
-        let found = problems(&both);
+    fn a_key_and_a_google_exchange_in_one_job_is_a_migration_that_stopped_half_way() {
+        let found = problems(&with_google_exchange(CI));
         assert!(found.iter().any(|p| p.contains("half-finished migration")), "{found:?}");
     }
 
     #[test]
+    fn an_id_token_grant_is_not_the_google_signal_this_record_corrected() {
+        // THE correction, held as a test rather than as prose. `release.yml` has granted
+        // `id-token: write` for keyless signing since telekom/sutura#97, so the permission says
+        // nothing about Google - and a draft of this gate narrowed that proxy to this job instead
+        // of replacing it, which retires the one false positive and keeps the class. Granting it
+        // here for any other keyless exchange must not report a Google migration.
+        assert_eq!(problems(&with_id_token(CI)), Vec::<String>::new());
+    }
+
+    #[test]
     fn a_job_authenticating_with_nothing_fails_rather_than_passing_against_no_project() {
-        let neither = CI.replace("          SUTURA_BQ_KEY: ${{ secrets.a_key }}\n", "");
+        let neither = CI.replace(KEY_ENV, "");
         let found = problems(&neither);
         assert!(found.iter().any(|p| p.contains("authenticates with neither")), "{found:?}");
     }
@@ -553,13 +736,7 @@ jobs:
     fn the_day_the_key_is_gone_this_asks_for_the_record_to_be_amended() {
         // The gate whose failure is good news, and it says so in its own message: the alternative
         // is a record that goes on pricing a key nobody holds any more.
-        let federated = CI
-            .replace(
-                "    needs: [ci]\n",
-                "    needs: [ci]\n    permissions:\n      id-token: write\n",
-            )
-            .replace("          SUTURA_BQ_KEY: ${{ secrets.a_key }}\n", "");
-        let found = problems(&federated);
+        let found = problems(&with_google_exchange(CI).replace(KEY_ENV, ""));
         assert!(found.iter().any(|p| p.contains("expiry paragraph")), "{found:?}");
     }
 

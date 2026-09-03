@@ -6,9 +6,11 @@
 //! twenty lines - so the file holding it is the one that has to have room, which is what this move
 //! bought.
 //!
-//! The tests for what is here are in the parent's `tests` module, beside the table they read - the
-//! same reason `remedies` gives: a file that adds no `#[test]` is one the causality gate may
-//! revert, so moving them here would take this module's own declaration with them and orphan them.
+//! The tests for what is here are in the parent's `tests` module - **not** beside the table they
+//! read, which is where `remedies`' tests are and is the half of that sentence that stopped being
+//! true when the table moved with the check. The reason they stay is the other half, and it is
+//! unchanged: a file that adds no `#[test]` is one the causality gate may revert, so moving them
+//! here would take this module's own declaration with them and orphan them.
 //!
 //! Why the check exists: `39 SQL goldens read LIMIT 10001` was written when there were 39 and
 //! stayed written at 63, and no reviewer notices that twice. What makes it a gate rather than a
@@ -17,8 +19,8 @@
 
 use std::path::Path;
 
-use super::super::matches_any;
 use super::flatten;
+use crate::guidance::matches_any;
 
 /// What one file contributes to a count: itself, or every occurrence in it.
 ///
@@ -50,7 +52,7 @@ impl Granularity {
 
 /// A number in prose that counts something in the tree.
 ///
-/// The third shape of the same idea. [`Pin`](super::super::Pin) reads its value from a line in a file; this one
+/// The third shape of the same idea. [`Pin`](crate::guidance::Pin) reads its value from a line in a file; this one
 /// DERIVES it by counting, which is the only honest way to hold a number nobody is going to
 /// recount by hand. `39 SQL goldens read LIMIT 10001` was written when there were 39 and stayed
 /// written when there were 63, and no reviewer is going to notice that twice.
@@ -69,7 +71,7 @@ pub(in crate::guidance) struct Counted {
     pub(super) mentioned_in: &'static [&'static str],
     /// The noun phrase the number belongs to. The count is the integer IMMEDIATELY BEFORE it.
     ///
-    /// Deliberately that narrow, for the reason [`contradicts`](super::super::contradicts) is narrow: the sentence carrying
+    /// Deliberately that narrow, for the reason [`contradicts`](crate::guidance::contradicts) is narrow: the sentence carrying
     /// `39 SQL goldens read LIMIT 10001` also carries `10001`, and a check that read every number
     /// on the line would report the row cap as a wrong golden count.
     ///
@@ -97,7 +99,7 @@ pub(in crate::guidance) struct Counted {
 ///   The sentence it would serve is *the `--all-features` habit is load-bearing now rather than
 ///   cheap foresight*, which is true at any count above zero, so the number adds nothing the word
 ///   *several* does not carry. The direction that would falsify it - no crate declaring a feature
-///   at all - is held by the `no crate declares a feature` entry in [`CONTRADICTED`](super::CONTRADICTED), whose
+///   at all - is held by the `no crate declares a feature` entry in [`CONTRADICTED`](crate::guidance::claims::CONTRADICTED), whose
 ///   evidence is a manifest holding `[features]`.
 pub(in crate::guidance) const COUNTS: &[Counted] = &[
     Counted {
@@ -157,7 +159,7 @@ fn trailing_number(head: &str) -> Option<u64> {
 /// output because both of them look exactly like agreement: prose WRAPS, so a statement whose
 /// number ended one line above its marker was not found at all; and `line.find` reads the FIRST
 /// marker on a line, so a second statement on the same line was never read. Both are closed by
-/// asking the flattened view for every occurrence - the same view [`contradicted_claims`](super::contradicted_claims) has
+/// asking the flattened view for every occurrence - the same view [`contradicted_claims`](crate::guidance::claims::contradicted_claims) has
 /// used from the start, for the same reason.
 ///
 /// **What was rejected, because it would have failed correct prose.** The other candidate fix was
