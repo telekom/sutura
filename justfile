@@ -722,6 +722,32 @@ clean-branches *args:
 doctor:
     cargo run -q -p sutura-dev -- doctor
 
+# --------------------------------------------------- the nix-native tiers ---
+#
+# The CI venue. One start/stop/status script over a nixpkgs package, run by `checks.nextest` inside
+# the hermetic sandbox and by `just test` here through nix/with-tier.sh, so the two cannot drift. The
+# compose tier below is the OTHER venue - the demo - and `compose.services.yaml` declares which one
+# answers for each service.
+#
+# `just test` starts every tier already. These two exist for the case where the tier is wanted
+# WITHOUT the suite: driving the provider by hand, or running one test target repeatedly without
+# paying 19s of JVM per run.
+
+# Start the nix-native Keycloak tier: nixpkgs' keycloak on loopback, with a realm, two clients, an
+# audience mapper and two subjects provisioned by kcadm - no human, no docker, no network.
+#
+# What it is FOR is one question no mock can answer, and `nix/keycloak-tier.nix` says both halves:
+# whether a real provider will mint an ID token audienced at a third party's client id, and that
+# this establishes nothing about leg 2 or about any particular deployment's policy.
+keycloak-tier-up:
+    sutura-keycloak-tier start
+    cargo run -q -p xtask -- dev-endpoints
+
+# Stop it, and withdraw its endpoint - a claim left behind turns an honest skip into a connection
+# failure blamed on the code under test.
+keycloak-tier-down:
+    sutura-keycloak-tier stop
+
 # ------------------------------------------------------- the compose tier ---
 #
 # One independent service instance per worktree, provisioned through xtask rather than through the

@@ -48,5 +48,13 @@ base64 = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
 
+# `tests/keycloak.rs` reads the claim set out of an ID token a real provider issued, which means
+# base64url. Declared HERE rather than relied on through `mock-issuer`, because that feature is
+# about minting tokens and this test target is about reading one a provider minted - a test target
+# whose compilation depended on an unrelated feature being on is a test that silently is not there.
+# It is the same resolution the workspace already has, so `Cargo.lock` does not move.
+[dev-dependencies]
+base64 = { workspace = true }
+
 [lints]
 workspace = true

@@ -54,6 +54,11 @@ let
   # skip them, which keeps one provisioner for both the sandbox and the developer's shell.
   postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
 
+  # The second nix-native tier, exposed for the same reason and from the same file `flake.nix`
+  # imports. `just test` starts it through `nix/with-tier.sh` so the keycloak cells run here rather
+  # than skip, and `just keycloak-tier-up` starts it alone.
+  keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
+
   # NIGHTLY is what the interactive shell gets, because cranelift is nightly-only and it is
   # the reason the inner loop is fast. STABLE is what the gates get - see `stableBin` below.
   rustToolchain = toolchains.nightly;
@@ -126,6 +131,12 @@ in
     # in the developer's shell too. Listed here rather than in the `with pkgs` block for the same
     # reason as duckdb: `postgresTier` is a let-binding in this file.
     postgresTier.tier
+
+    # The nix-native Keycloak tier, shared with `checks.nextest`'s sandbox for the same reason. It
+    # is the only venue in the repository that can be asked whether a REAL provider will mint an ID
+    # token audienced at a third party's client id - `nix/keycloak-tier.nix` states what that does
+    # and does not establish.
+    keycloakTier.tier
 
     # The CRAP gate. Two tools because the metric needs two inputs and neither produces both:
     # cargo-llvm-cov runs the tests under LLVM coverage and writes LCOV, cargo-crap reads that

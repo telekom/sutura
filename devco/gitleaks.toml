@@ -42,6 +42,19 @@ paths = [
     # into a scanned directory is still scanned.
     '''\.devenv/.*''',
     '''\.pixi/.*''',
+
+    # The service tier's own runtime state, and the same argument as the two above with one
+    # addition worth stating: this directory holds a CREDENTIAL BY DESIGN. `nix/keycloak-tier.nix`
+    # keeps its server's home here - the endpoint file, the fixture record naming the throwaway
+    # subject password, and `kcadm.json`, which is the admin CLI's own session file and carries a
+    # live bearer token for a server bound to loopback. All of it is generated per run, gitignored,
+    # and removed by `stop`.
+    #
+    # What tripped: the push-tier sweep, which walks the whole tree, found two while the tier was
+    # up - on a branch whose own diff the commit-tier sweep had already passed. That is the
+    # cries-wolf shape the block above describes, and it arrives every time somebody runs
+    # `just test` with a tier up. Allowlisted by PATH, so nothing outside this directory is exempt.
+    '''\.sutura-dev/.*''',
     '''target/.*''',
     '''result(-[a-z0-9-]+)?/.*''',
 ]
