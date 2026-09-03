@@ -63,6 +63,8 @@ everything *around* it, and shrinks to the one job only it can do.
 | `credential_unavailable` through the request path | - | **yes** | - | - | - |
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - |
 | The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | redundant |
+| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | redundant |
+| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | redundant | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | redundant | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **only here** | no |
@@ -121,10 +123,28 @@ source that ships:
   on the **material**: each credential is derived from that caller's own assertion, so what is shown is
   that the document travelled and not only the name.
 - `an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_file_says`
+- `the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified` - the **join**, and the one
+  assertion neither half could make alone. `sutura_exec_bigquery::WorkloadIdentityBroker` is driven
+  through this router over a fake `StsExchange`, and what is compared is the *bytes*: the `subject_token`
+  the shipped broker sent is character for character the compact JWT the gate verified. Each half was
+  already green against its own fixture, so a transport retaining a mangled assertion - the `Bearer`
+  scheme still on it, say - would have left both suites passing while the exchange received garbage. The
+  pool and the scope are asserted too, so what reached the exchange is the declaration held for that
+  source rather than anything the request carried.
+- `a_source_the_shipped_exchanging_broker_holds_nothing_for_is_refused_before_anything_is_exchanged` -
+  the same `403` as above, produced by the **shipped** exchanging broker rather than a fake that only
+  refuses, plus the two assertions a status code cannot carry: nothing reached the authorization server
+  and nothing reached the data system.
 
-The first six live in `crates/sutura-http/src/inbound/tests/published.rs` and the last three in
+The first six live in `crates/sutura-http/src/inbound/tests/published.rs` and the last five in
 `crates/sutura-http/src/identity_e2e.rs`, which is the same split the code has: one file is about
 establishing who is asking and the other about what is minted for them.
+
+**What the two exchange-chain tests do NOT reach, and it is unchanged by them:** the fake at the port
+is a fake, so nothing here says a real authorization server accepts that document - that stays the
+last venue's only claim. And they are router tests rather than composed-binary ones for the reason
+below: this composition root refuses to boot an `impersonation-at-source` source while no shipped
+broker exchanges for one, so the binary cannot host them at all.
 
 ### And on the composed binary, which is a different claim from any of the above
 
@@ -206,9 +226,11 @@ of this page.
 
 ## A real token exchange, and two grants
 
-Not built. `sutura_exec_bigquery::WorkloadIdentityBroker` decides correctly against a fake exchange and
-`StsOverHttp` serializes the documented request; what has never happened is an exchange against a real
-endpoint, and no answer any deployment has produced was evaluated under an asker.
+Not built. `sutura_exec_bigquery::WorkloadIdentityBroker` decides correctly against a fake exchange,
+`StsOverHttp` serializes the documented request, and the mock-issuer venue above now shows that broker
+reached **through the transport** with the caller's own verified token as the `subject_token`. What has
+never happened is an exchange against a real endpoint, and no answer any deployment has produced was
+evaluated under an asker.
 
 Two things would make it a venue: a workload-identity pool to exchange against, and two subjects whose
 access at the data system genuinely differs. The second is what makes *two subjects read two row sets* a

@@ -3832,6 +3832,7 @@ dependencies = [
  "sutura-config",
  "sutura-dev",
  "sutura-domain",
+ "sutura-exec-bigquery",
  "sutura-runtime",
  "thiserror 2.0.20",
  "tokio",
