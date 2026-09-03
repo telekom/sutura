@@ -924,49 +924,37 @@ jobs:
       # the step above is *does what we publish link*, this one is *does the documented source
       # build link*. A failure here does not mean the shipped artefact is broken - it means the
       # feature-off decision in `nix/shipped.nix` was necessary, the outcome that record priced
-      # and never ran. What it costs is bounded by crane: `buildDepsOnly` is called on the same
-      # argument set as the default build, so the probe SHARES that dependency derivation and pays
-      # only for the feature's own closure plus the crate.
+      # and never ran. What it costs is one crate derivation: `buildDepsOnly` is called on the same
+      # argument set as the default build, so the probe SHARES that dependency derivation - the
+      # two `sutura-*` derivations differ only by an appended `--features`.
       #
-      # **THE SET IS DERIVED AND NOT A LITERAL**, unlike `BINARIES`, and that env block's reason
-      # does not apply here: nix is installed by the time this step runs and no matrix reads this
-      # list. So `nix/shipped.nix` is the single owner - a `probeFeatures` entry added there is
-      # measured without anybody editing this file, and a probe built by nothing is
-      # unrepresentable rather than something a gate has to be written to catch. The probes are
-      # every `-<target>-ci` package that is not a shipped binary's; the naming rule that lets the
-      # executable and the feature be read back off the name is stated beside `featurePackages`.
+      # **THE SET IS READ AND NOT RECONSTRUCTED**, which is a correction this step needed rather
+      # than a preference. It used to filter `nix eval`'s attribute names for `-<target>-ci`,
+      # subtract `BINARIES`, and split what was left to recover the executable and the feature -
+      # so `nix/shipped.nix`'s naming rule was a coupling nothing could check. Reordering
+      # `<bin>-<feature>-<triple>` there emptied the filter while `probeFeatures` still declared
+      # `bigquery`, and this step printed *no binary declares a probeFeatures entry* and exited
+      # ZERO. `feature-probes-<target>` is a fixed attribute name whose rows carry the package,
+      # the executable and the feature, so nothing here derives anything: a flake that stops
+      # producing probes fails `nix build`, an empty manifest is a REFUSAL rather than a notice,
+      # and the sentence printed below quotes fields instead of guessing at a name.
       - name: Link check, feature on
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -eu
-          system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
-          named="$(nix eval --raw ".#packages.${system}" --apply "p: builtins.concatStringsSep \" \" (builtins.filter (n: builtins.match \".*-${TARGET}-ci\" n != null) (builtins.attrNames p))")"
-          probes=""
-          for name in $named; do
-            shipped=""
-            for bin in $BINARIES; do
-              if [ "$name" = "${bin}-${TARGET}-ci" ]; then
-                shipped="yes"
-              fi
-            done
-            if [ -z "$shipped" ]; then
-              probes="$probes $name"
-            fi
-          done
-          if [ -z "$probes" ]; then
-            echo "::notice::${TARGET}: no binary declares a probeFeatures entry, so no feature-on build was measured."
+          manifest="$(nix build ".#feature-probes-${TARGET}" --no-link --print-out-paths)"
+          if [ ! -s "$manifest" ]; then
+            echo "::error::${TARGET}: nix/shipped.nix declares no probeFeatures for this triple, so nothing here measured the documented feature-on build. docs/adr/0017 claims that build is linked on every pull request - restore a probe, or withdraw the claim."
+            exit 1
           fi
-          for probe in $probes; do
-            # The inner expansion is quoted separately on purpose: unquoted it would be read as a
-            # GLOB rather than as the literal suffix to strip (shellcheck SC2295).
-            prefix="${probe%-"${TARGET}"-ci}"
+          while read -r probe exe feature; do
             started="$(date +%s)"
-            nix build ".#${probe}" -L -o "result-probe-${prefix}"
+            nix build ".#${probe}" -L -o "result-probe-${probe}"
             # The arch, not just the exit code - the same reason the step above does it.
-            file "result-probe-${prefix}/bin/${prefix%-*}"
-            echo "::notice::${TARGET}: ${prefix%-*} with --features ${prefix##*-} linked in $(( $(date +%s) - started ))s. That is the price of the feature ON, which is what nix/shipped.nix's feature-off decision is measured against."
-          done
+            file "result-probe-${probe}/bin/${exe}"
+            echo "::notice::${TARGET}: ${exe} with --features ${feature} linked in $(( $(date +%s) - started ))s. That is the price of the feature ON, which is what nix/shipped.nix's feature-off decision is measured against."
+          done < "$manifest"
 
       # DOES EVERY SHIPPED BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release
       # path uses read it back out? A local composite action; its header says why it is not

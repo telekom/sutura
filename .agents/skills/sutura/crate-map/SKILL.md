@@ -71,20 +71,20 @@ which stops at metadata and therefore says nothing about the musl link that is t
 declares - `sutura-serve`'s `tls` and `bigquery` are the same shape and are deliberately unprobed,
 because the closure is compiled per target and three probes would triple the job.
 
-**And the first run of it corrected the paragraph above.** Measured 2026-09-03 over the four `cross`
-jobs of run 33781193001, `sutura` alone with deps already in the store: 70.5→71.0s
-(x86_64-gnu), 69.2→69.1s (aarch64-gnu), 83.0→84.2s (x86_64-musl), 77.3→78.6s (aarch64-musl) - a
-delta of **at most +1.7%**, and all four linked. Repeated on run 33792642655, because one timing
-sample is not a measurement: -0.4% to +1.6%. The two runs agree that the delta is inside the noise,
-which is the claim - not the individual seconds. The reason it is that small is the reason the
-build-cost argument for default-off does not hold: `buildDepsOnly` is called on the UNSCOPED
-argument set so the checks can share one dependency derivation, so the deps build resolves the whole
-workspace at cargo's default features, and `sutura-exec-bigquery` takes `ureq` non-optionally -
-`ring`, `rustls` and `ureq` are therefore compiled inside `sutura-deps-<triple>` for all four
-triples **with the feature off**. A feature gate on a composition root cannot subtract a closure the
-deps derivation already pulled. **So default-off is a decision about what the ARTEFACT links, held
-by `checks.shipped-features`, and not a decision about build time** - cite it that way. What is
-still unmeasured is binary size, which no step prints.
+**Running it corrected the paragraph above, and default-off is a decision about the ARTEFACT and
+not about build time** - cite it that way, held by `checks.shipped-features`. `docs/adr/0017` carries
+the numbers; the transferable part is that `--features bigquery` adds exactly **12 compiled units**,
+the adapter plus the outbound TLS closure, and that they cost under 2% of a `cross` job. Two traps
+in reading that:
+
+| Trap | What is actually true |
+| --- | --- |
+| *The deps derivation already built `ring`, so the probe reuses it* | It does not. `buildDepsOnly` runs unscoped at the workspace feature union; a one-package build gets a narrower set, a different `-C metadata` and a **recompile**. The probe's log says `sutura> Compiling ring`. |
+| *So the feature is nearly free* | It is nearly free **in this graph**, because those units finish inside the slack ahead of `datafusion` on the critical path. A shorter critical path would expose them as time. |
+
+The deps derivation compiling that closure with the feature OFF is still what makes the musl C and
+assembly a cost paid on every pull request either way - that half was right. Binary size remains
+unmeasured; no step prints it.
 
 A feature-gated adapter's absence is a **startup refusal naming the feature**, never a silent
 degradation - and `sutura_config` cannot see a link, so which adapters a BUILD contains is not in

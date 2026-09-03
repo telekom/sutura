@@ -111,38 +111,49 @@ let
   # evidence was a native `cargo check` - which stops at metadata and so says nothing about the
   # link that a musl target is the whole risk of. An entry here is a build, not a promise.
   #
-  # **AND HERE IS THE NUMBER, taken 2026-09-03 from the four `cross` jobs of run 33781193001** -
-  # the first time `--features bigquery` was LINKED for any triple this project publishes. Each
-  # pair is the `sutura` crate derivation alone, deps already in the store, off and then on:
+  # **AND HERE IS WHAT THE FEATURE COSTS, stated as COMPILED UNITS rather than as seconds.** The
+  # probe and the shipped `-ci` build for one triple share a dependency derivation and differ by
+  # an appended `--features bigquery` - verified by diffing the two derivations, where the cargo
+  # line, the disabled check command and the output path are the only three keys that differ. So
+  # the unit counts out of their build logs are an exact A/B, and unlike a wall clock they do not
+  # drift with what else the runner was doing:
   #
-  #   | triple                     | OFF   | ON    | delta        |
-  #   | -------------------------- | ----- | ----- | ------------ |
-  #   | x86_64-unknown-linux-gnu   | 70.5s | 71.0s | +0.5s  +0.7% |
-  #   | aarch64-unknown-linux-gnu  | 69.2s | 69.1s | -0.1s  -0.2% |
-  #   | x86_64-unknown-linux-musl  | 83.0s | 84.2s | +1.2s  +1.4% |
-  #   | aarch64-unknown-linux-musl | 77.3s | 78.6s | +1.3s  +1.7% |
+  #   | where                          | OFF | ON  |
+  #   | ------------------------------ | --- | --- |
+  #   | x86_64-unknown-linux-gnu, CI   | 100 | 112 |
+  #   | aarch64-apple-darwin, laptop   | 105 | 117 |
   #
-  # All four linked, both musl triples included, with `file` reporting the right architecture on
-  # each - static-pie or statically linked on the musl pair, dynamically linked on the gnu pair, as
-  # the shipped builds are. The step's own printed wall clock is 73 / 72 / 87 / 82s in that order,
-  # which is the table plus one flake evaluation.
+  # **+12 units either way, none dropped, and every one of them named:** `ring`, `untrusted`,
+  # `rustls`, `rustls-pki-types`, `rustls-webpki`, `webpki-roots`, `ureq`, `ureq-proto`,
+  # `httparse`, `getrandom 0.2`, `utf8-zero`, `sutura-exec-bigquery`. That IS the feature: the
+  # adapter and the outbound TLS closure, and nothing else.
   #
-  # **REPEATED, because one timing sample is not a measurement.** Run 33792642655 on the next
-  # commit of the same branch: +0.4s / -0.3s / +1.3s / +0.9s in the same order, a range of -0.4% to
-  # +1.6% against the run above's -0.2% to +1.7%. Two independent runners agree that the delta is
-  # inside the noise, which is the claim - not the individual seconds, which drift a few percent
-  # with whatever else the runner was doing.
+  # **The seconds, from the four `cross` jobs of runs 33781193001 and 33792642655**, are +0.5 /
+  # -0.1 / +1.2 / +1.3s and +0.4 / -0.3 / +1.3 / +0.9s over a ~70-85s crate derivation - so -0.4%
+  # to +1.7% across two runs, which is noise. Cite the RANGE, never a cell, and prefer the unit
+  # counts above to either.
   #
-  # **SO: DEFAULT-OFF WAS NOT NECESSARY FOR BUILD COST, and this is where that is written down
-  # rather than in a commit message.** A delta under two percent is not what a feature gate is for,
-  # and the bullet above explains why it could not have been - the closure is in the deps
-  # derivation with the feature off. What default-off IS necessary for is the artefact: no
+  # **WHY THE DELTA IS THAT SMALL, corrected against what this comment first said.** It is NOT
+  # that the closure is reused from the deps derivation. The deps derivation does compile `ring`
+  # and `ureq` with the feature off - that is the bullet above, and it is why the musl C and
+  # assembly is paid on every pull request either way - but the crate derivation does not get to
+  # reuse those units: the deps build resolves the whole workspace at cargo's feature UNION while
+  # the probe asks for one package, so the v2 resolver gives a narrower set, a different
+  # `-C metadata`, and a recompile. `sutura> Compiling ring v0.17.14` in the probe's own log is
+  # that recompile. The reason it is nearly free is SLACK: those 12 units start in the first
+  # seconds of the build and finish long before `datafusion`, which is on the critical path
+  # ahead of `sutura-exec-datafusion` and the crate itself. Same structural cause
+  # `github.com/telekom/sutura#223` measured for the warm-start gate, reached from the other side.
+  #
+  # **SO: DEFAULT-OFF WAS NOT NECESSARY FOR BUILD COST.** Twelve units inside another crate's
+  # slack is not what a feature gate is for. What default-off IS necessary for is the artefact: no
   # published binary of either shipped executable links an outbound TLS stack, which
   # `checks.shipped-features` asserts out of the binary's own embedded dependency list. Keep the
   # decision, drop the build-cost reason for it. **What this measurement does NOT cover:** the
   # probe links and never runs; it says nothing about the artefact's SIZE, which nothing prints;
-  # and `sutura-serve`'s `tls` and `bigquery` remain unprobed, so the +1.7% ceiling is the CLI's
-  # and is not evidence about the server.
+  # the slack it hides in is a property of THIS dependency graph, so a shorter critical path would
+  # expose the 12 units as time; and `sutura-serve`'s `tls` and `bigquery` remain unprobed, so
+  # none of it is evidence about the server.
   binaries = [
     {
       bin = "sutura";
@@ -355,10 +366,8 @@ let
     binaries);
 
   # THE FEATURE-ON LINK CHECK, one package per binary per probe feature per release triple:
-  # `sutura-bigquery-<triple>-ci`. The binary's name, then the feature, then the triple, then
-  # `-ci` - so the last `-`-segment of the prefix IS the feature, and a shell can recover the
-  # executable's name from the prefix by dropping it. That is what `ci.yml`'s loop does, and it
-  # is why the order is not `<bin>-<triple>-<feature>`.
+  # `sutura-bigquery-<triple>-ci`. The name is for a human reading `nix build`; nothing parses it,
+  # because each manifest row below carries the executable and the feature as their own fields.
   #
   # **`ci` PROFILE AND NOTHING ELSE, which is what keeps this a link check rather than a second
   # release matrix.** Nothing executes the result and nothing publishes it; what is being asked is
@@ -368,12 +377,16 @@ let
   # workflow all read that one: a probe cannot reach an image or a published asset even by
   # mistake, the same guarantee the `-ci` variants already rest on.
   #
-  # Empty when no binary declares a probe feature, and then CI's loop builds nothing - a set with
-  # no members rather than a step that reads as having run.
-  featurePackages = builtins.listToAttrs (builtins.concatMap
+  # ONE FLAT LIST, and both views below read it, so the packages CI can build and the manifest CI
+  # reads to know WHICH to build cannot disagree about which probes exist.
+  probes = builtins.concatMap
     (b: builtins.concatMap
       (feature: map
         (t: {
+          target = t;
+          # The two fields the workflow would otherwise have to recover by splitting the name.
+          exe = b.bin;
+          inherit feature;
           name = "${b.bin}-${feature}-${t}-ci";
           value =
             if t == hostRustTarget
@@ -382,7 +395,36 @@ let
         })
         releaseTargets)
       b.probeFeatures)
-    binaries);
+    binaries;
+
+  featurePackages = builtins.listToAttrs (map (p: { inherit (p) name value; }) probes);
+
+  # WHAT TO BUILD FOR ONE TRIPLE, as a file at a FIXED attribute name: `feature-probes-<triple>`
+  # holds one row per probe - the package to build, the executable it installs, and the feature it
+  # was built with - and `ci.yml` reads the three fields rather than deriving any of them.
+  #
+  # **A FILE RATHER THAN A PATTERN IN THE WORKFLOW, and the reason is a dead gate this branch
+  # shipped and then measured.** The step used to RECONSTRUCT the set - every `-<triple>-ci`
+  # package minus the shipped ones - which made the naming rule above a coupling nothing could
+  # check. Measured 2026-09-03 by reordering `<bin>-<feature>-<triple>` to `<bin>-<triple>-<feature>`
+  # here: the reconstruction went empty while `probeFeatures` still declared `bigquery`, and the
+  # step then printed *no binary declares a probeFeatures entry* and exited ZERO. The measurement
+  # this file claims on every pull request would have stopped happening behind a green run and a
+  # reassuring sentence.
+  #
+  # Three properties close it. A flake that stops producing a manifest fails `nix build` instead
+  # of yielding nothing; an empty manifest then means what it says, so the step can refuse rather
+  # than guess why it found none; and the two fields a printed sentence quotes come from HERE, so
+  # renaming a package cannot make that sentence wrong. `file` cannot carry any of this - it exits
+  # zero on a path that is not there, measured on this repo's own runner shell.
+  probeManifests = builtins.listToAttrs (map
+    (t: {
+      name = "feature-probes-${t}";
+      value = pkgs.writeText "feature-probes-${t}"
+        (pkgs.lib.concatMapStrings (p: "${p.name} ${p.exe} ${p.feature}\n")
+          (builtins.filter (p: p.target == t) probes));
+    })
+    releaseTargets);
 
   # Every target that becomes a published artifact: the cross list plus the host triple,
   # which is built natively rather than cross-built. One list, so the packages, the
@@ -459,6 +501,7 @@ in
     nativeBinaries
     localImages
     ociImages
+    probeManifests
     releaseTargets
     ;
 }

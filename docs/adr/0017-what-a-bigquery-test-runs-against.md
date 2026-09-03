@@ -902,38 +902,54 @@ release triple, and the four `cross` jobs build them beside the shipped set on e
 The record's build-cost reasoning above it is corrected here rather than in place, per this page's
 own convention.
 
-**The number, from the four `cross` jobs of run 33781193001.** Each pair is the `sutura` crate
-derivation alone, dependencies already in the store, `--features bigquery` off and then on:
+**First, that the A/B is an A/B.** The probe derivation and the shipped `-ci` derivation for one
+triple were dumped and diffed: they agree on every environment key but three - the cargo build
+command, which gains a trailing `--features bigquery`; the disabled check command, which gains the
+same; and the output path. They name the **same** `cargoArtifacts` store path, so the dependency
+derivation is shared rather than rebuilt, which the job logs confirm by never building a second
+`sutura-deps-<triple>`. Nothing else varies between the two columns below.
 
-| triple | OFF | ON | delta |
-| --- | --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | 70.5s | 71.0s | +0.5s, +0.7% |
-| `aarch64-unknown-linux-gnu` | 69.2s | 69.1s | -0.1s, -0.2% |
-| `x86_64-unknown-linux-musl` | 83.0s | 84.2s | +1.2s, +1.4% |
-| `aarch64-unknown-linux-musl` | 77.3s | 78.6s | +1.3s, +1.7% |
+**The cost, as COMPILED UNITS.** Seconds drift with whatever else a runner is doing; a unit count
+does not. From the `Compiling` lines of the crate derivation's own log, feature off and then on:
 
-All four linked. `file` reported the right architecture on each - static-pie or statically linked on
-the musl pair, dynamically linked on the gnu pair, as the shipped builds are - so this is a link
-result and not an exit code.
+| where | OFF | ON |
+| --- | --- | --- |
+| `x86_64-unknown-linux-gnu`, CI run 33794910687 | 100 | 112 |
+| `aarch64-apple-darwin`, a laptop, 2026-09-03 | 105 | 117 |
 
-**And it was repeated, because one timing sample is not a measurement.** Run 33792642655, the next
-commit of the same branch: `+0.4s`, `-0.3s`, `+1.3s`, `+0.9s` in the same order - a range of -0.4% to
-+1.6% against the first run's -0.2% to +1.7%. What the two runs agree on is that **the delta is
-inside the noise**, and that is the claim being made here. The individual seconds are not: they drift
-a few percent with whatever else the runner was doing, so cite the range and not a cell.
+**+12 units on both, none dropped, and all twelve are the feature:** `ring`, `untrusted`, `rustls`,
+`rustls-pki-types`, `rustls-webpki`, `webpki-roots`, `ureq`, `ureq-proto`, `httparse`,
+`getrandom 0.2`, `utf8-zero`, `sutura-exec-bigquery`. That is the adapter plus the outbound TLS
+closure and nothing besides.
 
-**Was default-off necessary? For build cost, no - and the mechanism says why it could not have
-been.** `craneLib.buildDepsOnly` is called on the unscoped argument set, deliberately, so the checks
-can share one dependency derivation; `cargoExtraArgs` is set on the final attrset instead. The
-dependency derivation therefore resolves the WHOLE workspace at cargo's default features, and
-`sutura-exec-bigquery` is a workspace member that takes `ureq` non-optionally. `ring`, `rustls`,
-`rustls-webpki`, `rustls-pki-types`, `webpki-roots`, `ureq` and `ureq-proto` are consequently
-compiled inside `sutura-deps-<triple>` on all four triples **with the feature off** - visible in all
-four job logs. The `bigquery` feature gates the edge from `sutura-cli` to that crate, not the
-closure's arrival on the builder. So the musl C-and-assembly cost this record priced on 2026-09-02
-is paid on every pull request either way; the feature ON adds only the real compile of that closure
-plus the link, which is the delta in the table and hides inside the parallel slack behind
-`sutura-mcp` and `sutura-exec-datafusion` on the critical path.
+**The seconds, for whoever wants them.** Runs 33781193001 and 33792642655 gave `+0.5 / -0.1 / +1.2 /
++1.3s` and `+0.4 / -0.3 / +1.3 / +0.9s` over crate derivations of 69-84s - so **-0.4% to +1.7%
+across two runs**, which is noise. Cite that range, never a cell, and prefer the unit counts. All
+four triples LINKED in both runs, with `file` reporting the right architecture on each - static-pie
+on the musl pair, dynamically linked on the gnu pair, as the shipped builds are.
+
+**Was default-off necessary? For build cost, no. And the first version of this amendment got the
+REASON wrong, which is worth recording because the wrong reason was the plausible one.** It said the
+closure was already in the deps derivation with the feature off, so the probe could not have cost
+much. Half of that is right and half of it is not:
+
+- **Right:** `craneLib.buildDepsOnly` is called on the unscoped argument set, deliberately, so the
+  checks share one dependency derivation; `cargoExtraArgs` is set on the final attrset instead. That
+  derivation therefore resolves the WHOLE workspace at cargo's default features, and
+  `sutura-exec-bigquery` is a workspace member taking `ureq` non-optionally - so `ring`, `rustls`
+  and `ureq` are compiled inside `sutura-deps-<triple>` on all four triples **with the feature
+  off**, visible in all four job logs. The musl C-and-assembly cost this record priced on 2026-09-02
+  is paid on every pull request either way. The feature gates the edge from `sutura-cli` to that
+  crate, not the closure's arrival on the builder.
+- **Wrong:** that those units are then REUSED. They are not. The deps build compiles at the
+  workspace feature union while the probe asks for one package, so the v2 resolver hands it a
+  narrower feature set, a different `-C metadata`, and a recompile - `sutura> Compiling ring
+  v0.17.14`, in the probe's own derivation, is that recompile. This is the same structural effect
+  telekom/sutura#223 measured from the other side for the warm-start gate.
+- **So why is it nearly free?** Slack. The twelve units start in the first seconds and finish long
+  before `datafusion`, which sits on the critical path ahead of `sutura-exec-datafusion` and the
+  crate itself. **That is a property of this dependency graph, not of the feature** - a shorter
+  critical path would expose the same twelve units as wall clock.
 
 **What default-off IS still necessary for, unchanged and now the whole of the argument:** no
 published artefact links an outbound TLS stack, which `checks.shipped-features` asserts out of each
@@ -942,10 +958,43 @@ what does not stand is *the four cross builds* as its reason. **Keep the decisio
 build-cost justification for it** - an argument that a measurement contradicts is worth less than no
 argument, because it invites the next reader to trust the rest of the paragraph.
 
+**Verifying the lane found a dead gate IN the lane, and that is the part with the longest shelf
+life.** The first version of the workflow step RECONSTRUCTED which probes to build: it filtered the
+flake's attribute names for `-<triple>-ci`, subtracted the shipped binaries' names, and split what
+remained to recover the executable and the feature. So `nix/shipped.nix`'s package-naming rule was a
+coupling nothing could check. Measured 2026-09-03 by reordering that name from
+`<bin>-<feature>-<triple>` to `<bin>-<triple>-<feature>`, `probeFeatures` untouched: the
+reconstruction went **empty**, the step printed *"no binary declares a probeFeatures entry, so no
+feature-on build was measured"* - which was false, one was declared - and **exited zero**. This
+amendment's whole claim would have reverted to *assumed* behind a green run and a reassuring
+sentence, which is the failure mode this repository cares about most.
+
+The step reads a manifest now: `nix build .#feature-probes-<triple>` yields a file whose rows carry
+the package, the executable and the feature, so nothing in the shell derives anything. Three
+directions were then reproduced by hand rather than argued:
+
+| Break | Before | Now |
+| --- | --- | --- |
+| Probe package renamed, `probeFeatures` intact | empty set, false notice, exit 0 | probe still found and built, printed sentence still correct |
+| `probeFeatures = [ ]` | notice, exit 0 | `::error::` naming this record, **exit 1** |
+| Manifest attribute gone from the flake | not expressible | `nix build` fails, **exit 1** |
+
+`file` cannot carry any of this and is a readout rather than an assertion: it exits **zero** on a
+path that does not exist, measured. What asserts the link is `nix build` succeeding.
+
+**And the lane fails closed on the defect it exists to catch, reproduced rather than assumed.** A
+type error was planted behind `#[cfg(feature = "bigquery")]` in `crates/sutura-cli/src/sources/`
+and both host derivations built from the same tree: the shipped `-ci` build **succeeded** (exit 0,
+105 units) and the probe **failed** (exit 1, `error[E0308]: mismatched types`). That asymmetry is
+the whole argument for the step existing - before it, every one of those four jobs was green on a
+tree where the documented source build did not compile.
+
 **The limits of this measurement, next to it.** The probe links and never RUNS, so nothing here says
 the feature works - only that it builds. Binary size is unmeasured: no step prints it, so the
 artefact-closure argument above is still qualitative. `sutura-serve`'s `tls` and `bigquery` are
-deliberately unprobed, so the +1.7% ceiling is the CLI's and is not evidence about the server. And
-the cost of *having* the probe is real even though the cost of the feature is not: it adds roughly
-72-87s to each of four `cross` jobs on every pull request, which is the price of the answer rather
-than the price of the feature.
+deliberately unprobed, so none of this is evidence about the server. The planted-error red was
+reproduced on `aarch64-apple-darwin`, the one triple that host builds natively - **the musl link
+that is the actual risk has only ever been exercised green**, and CI is the only venue that can
+redden it. And the cost of *having* the probe is real even though the cost of the feature is not: it
+adds roughly 72-87s to each of four `cross` jobs on every pull request, which is the price of the
+answer rather than the price of the feature.
