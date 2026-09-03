@@ -63,21 +63,11 @@ fn cited(span: &str) -> Option<Cited<'_>> {
 
 /// Every citation in one remedy, in order.
 ///
-/// Fields 1, 3, 5 ... of a backtick split are the spans, and the bound stops an unterminated
-/// trailing backtick being read as one - the same walk `check-tasks` does over the justfile.
+/// The span walk is `guidance`'s, shared with the check over printed Rust that
+/// `github.com/telekom/sutura#243` added: "what is a backtick span" is one question, and the copy
+/// that used to live here was the second answer to it.
 fn citations(remedy: &str) -> Vec<Cited<'_>> {
-    let spans: Vec<&str> = remedy.split('`').collect();
-    let mut out = Vec::new();
-    let mut at = 1_usize;
-    while at.saturating_add(1) < spans.len() {
-        if let Some(span) = spans.get(at)
-            && let Some(one) = cited(span)
-        {
-            out.push(one);
-        }
-        at = at.saturating_add(2);
-    }
-    out
+    super::super::spans(remedy).into_iter().filter_map(cited).collect()
 }
 
 /// Does the tree hold what a citation names?
