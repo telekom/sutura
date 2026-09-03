@@ -505,7 +505,7 @@ this became its second caller.
   in the warning half:** a dataset that is not there cannot be told from a name somebody is about to
   fix, and the endpoint answers `404` for an invisible project too.
 
-**Four limits, in this record's own tradition of stating them next to the claim:**
+**Five limits, in this record's own tradition of stating them next to the claim:**
 
 - **A live dataset HAS now answered a listing, and the documents this suite decodes are still ours.**
   The three response documents were written here, which is this record's existing limit restated for
@@ -528,9 +528,15 @@ this became its second caller.
   only. That test asks a real endpoint about a dataset that is not there and pins the WARNING half:
   the call fails, the transport's own error survives on the chain, and `preflight_was_refused` answers
   `false` - so a deployment naming a dataset nobody can read is reported *could not verify* and
-  serves, rather than being stopped as though its tables were absent. **The REFUSAL half still is
-  not live:** it needs an identity holding no `bigquery.tables.list`, which the acceptance
-  environment's identity is not, so `401`/`403` remains a fake-transport claim.
+  serves, rather than being stopped as though its tables were absent. **Its control had to be added
+  after the fact, and what the leg claimed without one is the interesting part:** every variant that
+  is not a `401` or a `403` answers `false` and carries a `#[source]`, so a credential that would not
+  read, an unreachable host or a document that would not decode satisfied both assertions - the leg
+  would have reported *a dataset that is not there warns* out of a run in which nothing worked. It
+  now asks the fixture's own table FIRST and requires `All`, which makes the failure dataset-specific
+  rather than merely a failure. **The REFUSAL half still is not live:** it needs an identity holding
+  no `bigquery.tables.list`, which the acceptance environment's identity is not, so `401`/`403`
+  remains a fake-transport claim.
 - **A document whose shape the service changes decodes to an EMPTY listing**, because every field is
   `#[serde(default)]` - and an empty listing means *every table is absent*. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
@@ -547,6 +553,15 @@ this became its second caller.
   change and not another run: the field read as an `Option` that cannot refuse a document omitting
   it, reported by the acceptance leg, and only then a decision about the cross-check. Measure, then
   decide - with something that measures.
+- **The live run stops at the ADAPTER's answer, so *the boot refusal fires end to end* is not a
+  measured claim.** Issue #120's own verification asked for a run asserting the boot refusal; what
+  both green runs assert is the `TablesPresent` that `BigQueryWarehouse::preflight` returns, and the
+  decision above it - the shared one, plus each root's own sentence through its own sink - is
+  exercised against a `Warehouse` fake. The two greens do not meet: no test in the tree feeds a real
+  listing into a real boot decision. **Nor can this leg close it, and that is structural rather than
+  an omission:** the acceptance targets live in `sutura-exec-bigquery`, which the composition roots
+  depend ON, so a test here cannot reach a root's decision. What would close it is an acceptance leg
+  in a composition root - a different crate, and its own change.
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.

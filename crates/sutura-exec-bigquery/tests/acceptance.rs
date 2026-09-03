@@ -542,7 +542,18 @@ mod tests {
         // the developer's project into this repository.** The PROJECT is the fixture's own on
         // purpose: a dataset absent from a project the credential can see is the case being asked
         // about, and one in a project it cannot see is a different answer.
+        //
+        // **The control is inside this test, and without it the leg passed for any failure at all.**
+        // `preflight_was_refused` answers `false` for every variant that is not a `401` or a `403` -
+        // a credential that would not read, an unreachable host, a document that would not decode -
+        // and each of those also carries a `#[source]`. So both assertions below were satisfied by a
+        // run in which NOTHING worked, and the leg would have reported *a dataset that is not there
+        // warns* just as loudly. Asking the fixture's own table first and requiring `All` is what
+        // makes the failure dataset-SPECIFIC: the same warehouse, in the same call sequence, listed a
+        // real dataset before it failed to list this one. It costs one more `tables.list`, which is
+        // billed for nothing.
         let fixture = Fixture::required();
+        let present = fixture.unqualified();
         let nowhere = QualifiedTable::new(
             Some(TableQualifier::in_project(
                 ProjectName::parse(fixture.connection.billing_project.as_str()).expect("a project id is also a project name"),
@@ -551,6 +562,14 @@ mod tests {
             TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"),
         );
         let warehouse = warehouse(fixture);
+
+        assert_eq!(
+            warehouse
+                .preflight(&BTreeSet::from([present]))
+                .expect("the control: this credential really can list this project's own dataset"),
+            TablesPresent::All,
+            "the control: a set naming only a table the dataset holds has nothing absent in it"
+        );
 
         let unverified = warehouse
             .preflight(&BTreeSet::from([nowhere]))
