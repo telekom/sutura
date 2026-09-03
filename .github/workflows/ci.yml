@@ -585,8 +585,12 @@ jobs:
       # An app rather than a check for `Supply chain`'s reason: it shells out to cargo, which needs
       # a registry and a writable target directory the sandbox has not got.
       #
-      # AFTER `Tests`, which is not cosmetic - the app reuses the dependency closure that step just
-      # built, at the same `ci` profile, instead of compiling the graph a third time in this job.
+      # BEFORE `Test causality`, and that is the only thing the position decides. It does NOT make
+      # the warm start possible: the closure is `craneLib.buildDepsOnly`, so `Structural gates` puts
+      # it in the store before any of these steps, and `Tests` neither produces it nor is depended
+      # on for it. What the order settles is which of the two warmed apps pays the 756 MB unpack
+      # into `target/` - it is paid once either way. `nix/cargo-env.nix` carries how much of the
+      # graph that unpack actually saves this gate, measured, because it is well under all of it.
       #
       # `rust` and not a narrower classification: the package list is derived from
       # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
