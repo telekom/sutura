@@ -122,8 +122,9 @@ let
   #   | x86_64-unknown-linux-musl  | 83.0s | 84.2s | +1.2s  +1.4% |
   #   | aarch64-unknown-linux-musl | 77.3s | 78.6s | +1.3s  +1.7% |
   #
-  # All four linked, both musl triples included, `file` reporting a statically linked binary of the
-  # right architecture. The step's own printed wall clock is 73 / 72 / 87 / 82s in that order,
+  # All four linked, both musl triples included, with `file` reporting the right architecture on
+  # each - static-pie or statically linked on the musl pair, dynamically linked on the gnu pair, as
+  # the shipped builds are. The step's own printed wall clock is 73 / 72 / 87 / 82s in that order,
   # which is the table plus one flake evaluation.
   #
   # **SO: DEFAULT-OFF WAS NOT NECESSARY FOR BUILD COST, and this is where that is written down

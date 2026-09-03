@@ -912,8 +912,9 @@ derivation alone, dependencies already in the store, `--features bigquery` off a
 | `x86_64-unknown-linux-musl` | 83.0s | 84.2s | +1.2s, +1.4% |
 | `aarch64-unknown-linux-musl` | 77.3s | 78.6s | +1.3s, +1.7% |
 
-All four linked. `file` reported the right architecture on each, statically linked on both musl
-triples, so this is a link result and not an exit code.
+All four linked. `file` reported the right architecture on each - static-pie or statically linked on
+the musl pair, dynamically linked on the gnu pair, as the shipped builds are - so this is a link
+result and not an exit code.
 
 **Was default-off necessary? For build cost, no - and the mechanism says why it could not have
 been.** `craneLib.buildDepsOnly` is called on the unscoped argument set, deliberately, so the checks
