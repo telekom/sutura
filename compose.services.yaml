@@ -28,12 +28,40 @@
 # `every_service_in_the_tier_declares_a_healthcheck_unless_it_is_a_job` made it a gate. A container
 # something waits to COMPLETE is the one exemption, derived rather than listed.
 #
+# ## Two venues per service, and this file is one of them
+#
+# THIS FILE IS THE DEMO. It is what a person brings up on their own machine, and it needs a docker
+# socket, so no nix `checks.*` derivation can run any of it - the build sandbox has neither a socket
+# nor a network. The CI venue is the other one: a nix-native tier, one start/stop/status script over
+# a `nixpkgs` package, provisioned by `checks.nextest` inside the sandbox and by the dev shell from
+# the same script so the two cannot drift. `nix/postgres-tier.nix` is the reference implementation
+# and Postgres has no block here at all, which is what that split looks like when it is finished.
+#
+# So every DISCOVERABLE service - a row in `sutura_dev::scope::SERVICES` - declares which venue
+# answers for it in CI, in its own block, as three lines:
+#
+#     # CI venue: nix native - nix/<service>-tier.nix
+#
+# or
+#
+#     # CI venue: compose only.
+#     # Because: <why a nix check is not the venue>
+#     # Converges: <what has to exist before it is>
+#
+# `every_discoverable_service_declares_which_venue_answers_for_it_in_ci` is the gate, and it holds
+# both directions: a `compose only` declaration needs its reason and its convergence path, and a
+# service that HAS a `nix/<service>-tier.nix` may not declare `compose only`. The point is the
+# default: without a declaration, "CI uses docker for this" is a fact nobody decided and nobody
+# reads, and the reason it holds for one service (not packaged, needs a cluster) is not the reason
+# it holds for another (nothing reads it yet).
+#
 # ## What checks this file
 #
 # `xtask`'s own suite reads it, because NO OTHER GATE IN THIS REPOSITORY READS A COMPOSE FILE. It
 # fails on a `"5432:5432"`, on a literal `container_name:`, on an image that does not come through
 # the registry variable below, on two registry defaults that disagree, on a credential written
-# twice, on a service with no health probe, and on shared configuration anchored inside a service
+# twice, on a service with no health probe, on a discoverable service that does not declare its CI
+# venue, and on shared configuration anchored inside a service
 # block instead of in an `x-` block above the list. Those are review comments this file collected,
 # turned into checks rather than into paragraphs somebody has to remember - see
 # `xtask/src/compose.rs` and `xtask/src/compose/file.rs`.
@@ -146,6 +174,14 @@ services:
 
   # The columnar source. The HTTP interface, which is what an adapter would speak.
   clickhouse:
+    # CI venue: compose only.
+    # Because: nothing in this repository READS ClickHouse - there is no `-exec-clickhouse` adapter -
+    #   so a hermetic tier would provision a server no adapter asks a question of. Its one caller is
+    #   the tier's own wiring cell, and that cell is about docker having allocated an ephemeral host
+    #   port, which is a claim the compose venue is the only venue for.
+    # Converges: when an adapter exists. This half is a limit of the repository and not of the
+    #   software - `nixpkgs` carries the server - so the tier is the only missing piece and
+    #   `nix/postgres-tier.nix` is the shape it takes.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/clickhouse/clickhouse-server:26.7-alpine
     environment:
       CLICKHOUSE_USER: *fixture-user
@@ -197,6 +233,13 @@ services:
   # runtime has never been measured. It turns on with the branch that gives an adapter somewhere for a
   # subject's credential to arrive.
   keycloak:
+    # CI venue: compose only.
+    # Because: no nix tier exists for it yet, and that is a limit of THIS REPOSITORY rather than of
+    #   the software. `nixpkgs` carries `keycloak`; in its file-backed development mode it needs no
+    #   external store; and `kcadm.sh` can create a realm, a client and users with no human at a
+    #   keyboard. So nothing about it forces the docker venue - the tier is simply unwritten.
+    # Converges: with `nix/keycloak-tier.nix`, on `nix/postgres-tier.nix`'s pattern. This block is
+    #   what a reader sees until then, so the absence is a declaration and not a default.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
     profiles:
       - identity
@@ -403,6 +446,18 @@ services:
   # The one service anything discovers: `sutura_dev::scope::SERVICES` names `datahub`, this
   # publishes 8080 ephemerally, and `xtask dev-up` writes back whatever it landed on.
   datahub:
+    # CI venue: compose only - and unlike the two services above, this one is a property of the
+    #   SOFTWARE. It is the declaration this tier was missing, so CI reaching for docker here is a
+    #   decision a reader sees rather than a default nobody wrote down.
+    # Because: GMS is not packaged in `nixpkgs`, and it does not run alone - it needs Kafka, a search
+    #   index and a relational store, which is exactly the four containers above it. A nix `checks.*`
+    #   derivation has no docker socket and no network, so there is nothing there for it to bring up.
+    #   `docs/adr/0016` measured what this platform can carry and #82's Q4 settled the tiering; this
+    #   line neither re-opens nor restates either, it records which venue answers.
+    # Converges: when the pieces are packaged - a GMS derivation and its three stores as nix-native
+    #   tiers - at which point it takes `nix/postgres-tier.nix`'s shape like everything else. Until
+    #   then the provisioned instance is reached by `just datahub-acceptance` over this docker tier,
+    #   and NO nix check covers it: a green `just validate` says nothing about DataHub.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/acryldata/datahub-gms:v1.7.0
     profiles:
       - datahub
