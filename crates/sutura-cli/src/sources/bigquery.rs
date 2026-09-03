@@ -10,19 +10,14 @@
 //! reads as a false *green against base behaviour*.
 
 #[cfg(feature = "bigquery")]
-use std::collections::{BTreeMap, BTreeSet};
-
-#[cfg(feature = "bigquery")]
 use sutura_app::Warehouses;
-use sutura_domain::model::SourceName;
 #[cfg(feature = "bigquery")]
-use sutura_domain::model::{ModelName, QualifiedTable};
+use sutura_app::preflight::Verdict;
+use sutura_domain::model::SourceName;
 #[cfg(feature = "bigquery")]
 use sutura_domain::pinned::PinnedDefinitions;
 #[cfg(feature = "bigquery")]
 use sutura_domain::warehouse::Warehouse;
-#[cfg(feature = "bigquery")]
-use sutura_domain::warehouse::preflight::TablesPresent;
 
 use crate::sources::Opened;
 // Both reached only by the COMPOSING half below. A build without the feature gets the refusal, which
@@ -223,52 +218,92 @@ pub(super) fn open(
 /// produce, already produced, at no metadata read. What issue 120 is about is a SERVING process,
 /// where the operator learns from whoever asked.
 ///
-/// **A copy of `sutura-serve`'s function rather than a shared one**, for the reason [`open`] carries
-/// about the composition itself: the two roots are separate binaries and neither may depend on the
-/// other. What is genuinely shared is shared already - the port, its answer vocabulary and the
-/// one-call-per-dataset implementation, in `sutura_domain::warehouse::preflight` and
-/// `sutura-exec-bigquery`. What is duplicated is the operator-facing sentence, which is a
-/// composition root's own to write.
+/// **The DECISION is `sutura_app::preflight::ask` and is not duplicated**, which is a review
+/// correction to what the first version of this file claimed. It argued a copy on
+/// [`crate::sources::refuse_unattached`]'s precedent - two roots, separate binaries, neither may
+/// depend on the other - and that argument is sound for the operator sentence and reaches no
+/// further: review measured the two helpers underneath as byte-identical (`unmatched`) and identical
+/// modulo signature wrapping (`models_by_table`), and neither holds a word an operator reads.
+/// `sutura-app` is where both roots already get `Warehouses`, so a shared home points inward and
+/// adds no root-to-root edge. What is genuinely this root's is below: the words, and the sink.
 ///
-/// **The could-not-verify line is `eprintln!` and not `tracing::warn!`, which is the one real
-/// difference from `sutura-serve`'s copy.** A locally launched process installs no subscriber - the
-/// module doc on [`crate::mcp`] states that for the audit sink - so a `tracing` warning here would go
-/// nowhere for the whole session, and a check whose soft outcome is invisible is a silent pass.
-/// Standard error for the reason the startup notice in [`crate::mcp`] uses it: on that transport
-/// standard output is the protocol channel.
+/// **Three sinks changed relative to `sutura-serve`'s copy, not one**, which is the other half of
+/// that correction. Serve emits `warn!` for the soft outcome and `info!` for the two clean ones; all
+/// three are standard error here, and that is decided rather than inherited. A locally launched
+/// process installs no subscriber - [`crate::mcp`]'s own module doc states that for the audit sink -
+/// so `tracing` would drop every one of the three for the whole session, and a check whose outcome
+/// is invisible is a silent pass. Standard error rather than standard output because on this
+/// transport standard output is the protocol channel; unconditional rather than filtered because the
+/// capability notice beside it already is, and a surface granting every capability to whoever can
+/// reach it is not one to be quiet about. **And it is assertable now rather than review-held:**
+/// [`absent_tables_notices`] returns the lines instead of printing them, so this file's own suite
+/// pins that the soft outcome is emitted and what it says.
 ///
-/// **Two limits, the same two `sutura-serve` states.** What this establishes is that a table EXISTS:
-/// not that the model's columns are on it, and not that a question's identity may read it - a
-/// listing grant and a read grant are two grants, and an anchor is what covers both for the metrics
-/// that have one. And it reads the bundle this command loaded, so a catalog directory that changes
-/// while the surface is serving is seen by nothing here.
+/// **Two limits, the same two `sutura-serve` states**, and the second is a review correction too -
+/// the first version of this file swapped it for a sentence about the catalog changing while the
+/// surface serves, which is a window nothing re-reads and therefore nothing interesting. What a
+/// pre-flight establishes is that a table EXISTS: not that the model's columns are on it, and not
+/// that a question's identity may read it - an anchor is what covers both, for the metrics that have
+/// one. And it reads the bundle loaded FIRST, so a model added to the catalog directory between this
+/// root's two loads is caught on a `files` source by [`crate::sources::refuse_unattached`] and is not
+/// caught here. That window is open in this root exactly as it is in serve: [`crate::mcp`]'s
+/// `catalog.load()` is load one and this check reads it, `LocalService::start` inside `mcp_service`
+/// loads a second time, and `refuse_unattached` closes the gap for the `Files` arm only. Closing it
+/// here is an architecture decision rather than a call-site move - `sutura_app::surface::LocalService`
+/// exposes no accessor for the engines it was given, so there is nothing to re-ask after the second
+/// load.
 ///
 /// # Errors
 ///
 /// A dataset that REFUSED the listing - the identity may not ask - and a bundle naming a table the
-/// dataset does not hold. A dataset that could not be asked for any other reason is the
-/// standard-error line and not a refusal, because a process whose data system is briefly unreachable
-/// at startup still has to be able to serve when it comes back.
-/// `Warehouse::preflight_was_refused` is what splits the two, and the port documents why the split
-/// is the adapter's to make.
+/// dataset does not hold. A dataset that could not be asked for any other reason is a standard-error
+/// line and not a refusal, because a process whose data system is briefly unreachable at startup
+/// still has to be able to serve when it comes back. `Warehouse::preflight_was_refused` is what
+/// splits the two, and the port documents why the split is the adapter's to make.
 #[cfg(feature = "bigquery")]
 pub(crate) fn refuse_absent_tables<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<(), String>
 where
     W: Warehouse,
 {
-    for (source, engine) in engines.each() {
-        let behind = models_by_table(pinned, source);
-        if behind.is_empty() {
-            continue;
-        }
-        let asked: BTreeSet<QualifiedTable> = behind.keys().cloned().collect();
-        let present = match engine.preflight(&asked) {
-            Ok(present) => present,
+    for notice in absent_tables_notices(pinned, engines)? {
+        eprintln!("sutura: {notice}");
+    }
+    Ok(())
+}
+
+/// The pre-flight's outcome as the lines this root would print, or the refusal it would make.
+///
+/// **Split out from [`refuse_absent_tables`] so the soft outcome is a value rather than a side
+/// effect**, which is review's finding and the reason it is not simply a comment: the argument for
+/// standard error is *a check whose soft outcome is invisible is a silent pass*, and while that line
+/// was emitted from inside the decision no test could see it - so the mechanism the argument rests
+/// on was held by review, which `AGENTS.md` does not accept as held.
+///
+/// One line per data system that was asked, in the registry's order. An empty vector is possible and
+/// means the bundle names no model in anything this process opened, which
+/// [`crate::sources::open_engine`] already refuses upstream - so it is the honest empty answer rather
+/// than a case wanting a message of its own.
+///
+/// # Errors
+///
+/// [`refuse_absent_tables`]'s two, unchanged: this is the same decision with the printing lifted out.
+#[cfg(feature = "bigquery")]
+fn absent_tables_notices<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<Vec<String>, String>
+where
+    W: Warehouse,
+{
+    // `Warehouses` here always holds exactly ONE engine - `crate::sources::open_engine` refuses a
+    // deployment that declares none and refuses one that declares many - so this loop runs once. It
+    // is a loop anyway because `sutura_app::preflight::ask` answers per data system for both roots,
+    // and a root that indexed `[0]` would be asserting the single-source shape at the wrong layer.
+    let mut notices: Vec<String> = Vec::new();
+    for asked in sutura_app::preflight::ask(pinned, engines) {
+        let source = asked.source();
+        match asked.into_verdict() {
             // An authorization failure is a REFUSAL: the fix is one grant, it will fail identically
             // on every launch, and a soft line is what the person running an agent client never
-            // reads. Everything else - an endpoint that did not answer, a dataset that is not there -
-            // is the soft outcome.
-            Err(cause) if engine.preflight_was_refused(&cause) => {
+            // reads.
+            Verdict::Refused { cause } => {
                 return Err(format!(
                     "{source} refused to list the tables the catalog names, so this process cannot \
                      tell a mistyped `table:` from a table that is there. Grant the identity this \
@@ -277,80 +312,35 @@ where
                     render(&cause)
                 ));
             }
-            Err(cause) => {
-                eprintln!(
-                    "sutura: could not verify that {source} holds the {} table(s) the catalog names \
-                     - serving anyway, so a mistyped table name will fail the first question against \
-                     it. The data system said: {}",
-                    asked.len(),
-                    render(&cause)
-                );
-                continue;
+            Verdict::Absent(absent) => {
+                return Err(format!(
+                    "{source} does not hold {absent}. Refusing to serve a model whose questions \
+                     would fail at query time - fix the catalog's `table:`, or create the table"
+                ));
             }
-        };
-        if let Some(missing) = present.absent() {
-            return Err(format!(
-                "{source} does not hold {}. Refusing to serve a model whose questions would fail at \
-                 query time - fix the catalog's `table:`, or create the table",
-                unmatched(missing.named(), &behind)
-            ));
-        }
-        match present {
-            TablesPresent::All => eprintln!(
-                "sutura: every one of the {} table(s) the catalog names is in {source}",
-                asked.len()
-            ),
-            // `NotAsked` gets a line of its own for the reason `sutura-serve`'s copy does: it is the
-            // one outcome meaning *nothing verified this*, and silence makes it indistinguishable
-            // from a verified dataset. Unreachable through the `BigQuery` arm, which always asks, and
-            // reachable by any future adapter that takes the port's default.
-            TablesPresent::NotAsked => eprintln!(
-                "sutura: {source} does not report which tables it holds, so nothing here verified \
-                 the {} table(s) the catalog names",
-                asked.len()
-            ),
-            // Unreachable: refused above. Exhaustive rather than a wildcard, so a fourth answer is a
-            // compile error at this line instead of a silent nothing.
-            TablesPresent::AllBut(_) => {}
+            // Everything else that failed - an endpoint that did not answer, a dataset that is not
+            // there - is the soft outcome, because a process whose data system is briefly
+            // unreachable still has to be able to serve when it comes back.
+            Verdict::Unverified { asked: tables, cause } => notices.push(format!(
+                "could not verify that {source} holds the {tables} table(s) the catalog names - \
+                 serving anyway, so a mistyped table name will fail the first question against it. \
+                 The data system said: {}",
+                render(&cause)
+            )),
+            Verdict::Present { asked: tables } => {
+                notices.push(format!("every one of the {tables} table(s) the catalog names is in {source}"));
+            }
+            // **`NotReported` gets a line of its own** for the reason `sutura-serve`'s copy does: it
+            // is the one outcome meaning *nothing verified this*, and silence makes it
+            // indistinguishable from a verified dataset. Unreachable through the `BigQuery` arm,
+            // which always asks, and reachable by any future adapter taking the port's default.
+            Verdict::NotReported { asked: tables } => notices.push(format!(
+                "{source} does not report which tables it holds, so nothing here verified the \
+                 {tables} table(s) the catalog names"
+            )),
         }
     }
-    Ok(())
-}
-
-/// Which models sit behind each table one source's part of the bundle names.
-///
-/// Keyed by the TABLE and carrying the models, because that is the direction the refusal reads in:
-/// the dataset answers about a table, and the operator has to open a model to fix it. Two models on
-/// one table is ordinary, so the value is a set.
-#[cfg(feature = "bigquery")]
-fn models_by_table(pinned: &PinnedDefinitions, source: &SourceName) -> BTreeMap<QualifiedTable, BTreeSet<ModelName>> {
-    let mut behind: BTreeMap<QualifiedTable, BTreeSet<ModelName>> = BTreeMap::new();
-    for model in pinned.definitions().models().values() {
-        if model.source() == source {
-            behind.entry(model.table().clone()).or_default().insert(model.name().clone());
-        }
-    }
-    behind
-}
-
-/// The absent tables, each with the models that named it, as one line of a refusal.
-///
-/// It names the model AND the table, because the two things an operator can do are in the same file
-/// and one of them is a typo: the table path is what the dataset disagreed with, and the model is
-/// what they have to open to change it.
-#[cfg(feature = "bigquery")]
-fn unmatched(missing: &BTreeSet<QualifiedTable>, behind: &BTreeMap<QualifiedTable, BTreeSet<ModelName>>) -> String {
-    missing
-        .iter()
-        .map(|table| {
-            let models = behind
-                .get(table)
-                .map(|models| models.iter().map(ModelName::as_str).collect::<Vec<&str>>().join(", "))
-                .unwrap_or_default();
-            format!("table {table}, named by model(s) [{models}]")
-        })
-        .collect::<Vec<String>>()
-        .join("; ")
+    Ok(notices)
 }
 
 #[cfg(test)]
@@ -486,7 +476,7 @@ mod tests {
         use sutura_domain::warehouse::preflight::TablesPresent;
         use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
-        use crate::sources::bigquery::refuse_absent_tables;
+        use crate::sources::bigquery::{absent_tables_notices, refuse_absent_tables};
 
         /// A data system that answers the pre-flight from what a test handed it, and records the asking.
         ///
@@ -586,6 +576,11 @@ mod tests {
             ])
         }
 
+        /// TWO models over ONE table, which is what the refusal naming a set of models is for.
+        fn two_models_one_table() -> PinnedDefinitions {
+            crate::sources::bundle_over(&[("orders", "warehouse", "fct_orders"), ("returns", "warehouse", "fct_orders")])
+        }
+
         #[test]
         fn a_bigquery_bundle_naming_a_table_the_dataset_does_not_hold_does_not_serve() {
             // **The parity issue 120 is about, at the surface it was still missing from.** `sutura
@@ -603,10 +598,32 @@ mod tests {
             });
             let error = refuse_absent_tables(&bundle(), &engines).expect_err("a table that is not there stops the process");
             assert!(error.contains("fct_orders"), "the refusal must name the table: {error}");
-            assert!(error.contains("orders"), "the refusal must name the model: {error}");
+            // **The whole clause and not the bare model name, which is a review correction to an
+            // assertion that could not fail.** `"orders"` is a substring of `"fct_orders"`, so
+            // `contains("orders")` was entailed by the line above and stayed green even with the model
+            // set dropped entirely - coverage for the one property nothing checked.
+            assert!(
+                error.contains("named by model(s) [orders]"),
+                "the refusal must name the model: {error}"
+            );
             assert!(
                 !error.contains("dim_customer"),
                 "the refusal must not name a table the dataset holds: {error}"
+            );
+        }
+
+        #[test]
+        fn two_models_over_one_absent_table_are_both_named_in_the_refusal() {
+            // **The reason the refusal names a SET of models**, and nothing exercised it before: a
+            // bundle may declare several models over one fact table, and an operator told about only
+            // one of them has half the edit in front of them. One clause for the table, both names
+            // inside it, in reading order.
+            let engines = opened(|asked| Ok(TablesPresent::of(asked.clone())));
+            let error =
+                refuse_absent_tables(&two_models_one_table(), &engines).expect_err("a table that is not there stops the process");
+            assert!(
+                error.contains("table fct_orders, named by model(s) [orders, returns]"),
+                "both models that named the absent table must be in the refusal: {error}"
             );
         }
 
@@ -630,10 +647,64 @@ mod tests {
         #[test]
         fn a_dataset_that_could_not_be_reached_still_serves() {
             // The soft edge: a dataset that did not ANSWER is a condition that passes, so the surface
-            // serves and says so on standard error. Its twin below is what makes that defensible.
+            // serves. Its twin below is what makes that defensible, and the test after this one is
+            // what makes the *serving anyway* visible rather than merely argued.
             let engines = opened(|_asked| Err(CouldNotAsk));
             refuse_absent_tables(&bundle(), &engines)
                 .expect("an endpoint that did not answer at startup is a process that still has to serve");
+        }
+
+        #[test]
+        fn the_soft_outcome_is_emitted_and_says_what_went_unverified() {
+            // **The mechanism the choice of sink rests on, held by a test rather than by review.**
+            // The argument for standard error is *a check whose soft outcome is invisible is a silent
+            // pass* - and while the line was printed from inside the decision, nothing could assert
+            // it was printed at all. It is a value now: one line, naming the source, how many tables
+            // went unverified, that the process is serving anyway, and the data system's own reason.
+            let engines = opened(|_asked| Err(CouldNotAsk));
+            let notices = absent_tables_notices(&bundle(), &engines).expect("an outage is not a refusal");
+            assert_eq!(notices.len(), 1, "one line for the one data system asked: {notices:?}");
+            let notice = &notices[0];
+            assert!(notice.contains("could not verify"), "{notice}");
+            assert!(notice.contains("warehouse"), "the line must name the source: {notice}");
+            assert!(
+                notice.contains("2 table(s)"),
+                "the line must say how many went unverified: {notice}"
+            );
+            assert!(
+                notice.contains("serving anyway"),
+                "the line must say the process is serving: {notice}"
+            );
+            assert!(
+                notice.contains("the dataset could not be listed"),
+                "the data system's own reason must survive into the line: {notice}"
+            );
+        }
+
+        #[test]
+        fn a_verified_dataset_and_one_that_did_not_report_are_two_different_lines() {
+            // The other two sinks, and why they are not one: `Present` is *this was checked* and
+            // `NotReported` is *nothing checked this*. A root that printed the same words for both -
+            // or nothing for the second - would make the port's default read as verification, which
+            // is the property `TablesPresent` exists to keep. Serve says these at `info!`; here they
+            // are standard error, decided rather than inherited, because this process installs no
+            // subscriber.
+            let verified = opened(|_asked| Ok(TablesPresent::All));
+            let said = absent_tables_notices(&bundle(), &verified).expect("everything is there");
+            assert_eq!(
+                said,
+                vec![String::from("every one of the 2 table(s) the catalog names is in warehouse")],
+                "the verified line says the check happened and passed"
+            );
+
+            let silent = opened(|_asked| Ok(TablesPresent::NotAsked));
+            let said = absent_tables_notices(&bundle(), &silent).expect("an adapter that did not look refuses nothing");
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(
+                said[0].contains("nothing here verified"),
+                "the default must not read as verification: {}",
+                said[0]
+            );
         }
 
         #[test]

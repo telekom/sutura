@@ -8,15 +8,23 @@
 //! a reader of a composition root is looking for.
 //!
 //! The two that were already here refuse a bundle whose anchors cannot be verified and a bundle
-//! that changed between two loads. `refuse_absent_tables` is the new one, and it closes an
-//! asymmetry rather than adding a rule: see its own documentation.
+//! that changed between two loads. `refuse_absent_tables` is the third, and it closes an asymmetry
+//! rather than adding a rule: see its own documentation.
 //!
-//! **`refuse_absent_tables` and its two helpers are behind `#[cfg(feature = "bigquery")]`, and the
-//! reason is a build that ships rather than tidiness.** Its only non-test caller is the `bigquery`
-//! arm of `main.rs`'s dispatch, so with that default-off feature absent `dead_code = "deny"` makes
-//! all three hard errors - and `nix/shipped.nix` builds this package with cargo's DEFAULT features,
-//! so the published binary, its image and all four cross triples are exactly the configuration that
-//! would not compile.
+//! **What it no longer holds is the DECISION, and review is why.** Asking each data system, mapping
+//! the port's three answers plus the two shapes of failure, and rendering the absent tables with the
+//! models behind them all lived here and were copied verbatim into `sutura-cli`'s own root - review
+//! measured `unmatched` as byte-identical and `models_by_table` as identical modulo how the signature
+//! wraps. They are `sutura_app::preflight` now, which both roots already depend on for `Warehouses`
+//! itself, so the shared home points inward and adds no root-to-root edge. What stays here is the
+//! part that is genuinely this root's: the sentence an operator reads and the `tracing` sink a
+//! server delivers it through.
+//!
+//! **`refuse_absent_tables` is behind `#[cfg(feature = "bigquery")]`, and the reason is a build that
+//! ships rather than tidiness.** Its only non-test caller is the `bigquery` arm of `main.rs`'s
+//! dispatch, so with that default-off feature absent `dead_code = "deny"` makes it a hard error -
+//! and `nix/shipped.nix` builds this package with cargo's DEFAULT features, so the published binary,
+//! its image and all four cross triples are exactly the configuration that would not compile.
 //!
 //! **Which gate would have caught it, stated precisely, because the first version of this paragraph
 //! said *nothing in this repository* and review measured otherwise - in both directions.** The four
@@ -40,20 +48,16 @@
 //! wants a flake app sharing the warmed target directory, the way `apps.causality` does, which is a
 //! change to CI rather than to this crate.
 
-#[cfg(feature = "bigquery")]
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 #[cfg(feature = "bigquery")]
 use sutura_app::Warehouses;
-use sutura_domain::model::TableName;
 #[cfg(feature = "bigquery")]
-use sutura_domain::model::{ModelName, QualifiedTable};
+use sutura_app::preflight::Verdict;
+use sutura_domain::model::TableName;
 use sutura_domain::pinned::PinnedDefinitions;
 #[cfg(feature = "bigquery")]
 use sutura_domain::warehouse::Warehouse;
-#[cfg(feature = "bigquery")]
-use sutura_domain::warehouse::preflight::TablesPresent;
 
 #[cfg(feature = "bigquery")]
 use crate::flatten;
@@ -138,25 +142,22 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 /// metrics that have one. And it reads the bundle loaded FIRST, so a model added to the catalog
 /// directory between this root's two loads is caught on a `files` deployment by
 /// [`refuse_unattached`] and is not caught here.
+///
+/// The decision itself is `sutura_app::preflight::ask`; what this function is, is the words and the
+/// sink. Its limits are stated there too, because a caller reading the port's answer needs them
+/// whichever root it is in.
 #[cfg(feature = "bigquery")]
 pub(crate) fn refuse_absent_tables<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<(), String>
 where
     W: Warehouse,
 {
-    for (source, engine) in engines.each() {
-        let behind = models_by_table(pinned, source);
-        if behind.is_empty() {
-            continue;
-        }
-        let asked: BTreeSet<QualifiedTable> = behind.keys().cloned().collect();
-        let present = match engine.preflight(&asked) {
-            Ok(present) => present,
+    for asked in sutura_app::preflight::ask(pinned, engines) {
+        let source = asked.source();
+        match asked.into_verdict() {
             // **The split review asked for.** An authorization failure is a REFUSAL, because the fix
             // is one IAM grant and a permanent `WARN` hides it in the deployment least likely to
-            // read a startup log. Everything else - an endpoint that did not answer, a dataset that
-            // is not there - is the `WARN`, because a deployment that cannot reach a data system at
-            // boot still has to be able to serve when it comes back.
-            Err(cause) if engine.preflight_was_refused(&cause) => {
+            // read a startup log.
+            Verdict::Refused { cause } => {
                 return Err(format!(
                     "{source} refused to list the tables the catalog names, so this deployment cannot \
                      tell a mistyped `table:` from a table that is there. Grant the identity this \
@@ -165,84 +166,39 @@ where
                     flatten(cause)
                 ));
             }
-            Err(cause) => {
-                tracing::warn!(
-                    source = %source,
-                    tables = asked.len(),
-                    reason = %flatten(cause),
-                    "could not verify that this data system holds the tables the catalog names - \
-                     serving anyway, so a mistyped table name will fail the first question against it"
-                );
-                continue;
-            }
-        };
-        if let Some(missing) = present.absent() {
-            return Err(format!(
-                "{source} does not hold {}. Refusing to serve a model whose questions would fail at \
-                 query time - fix the catalog's `table:`, or create the table",
-                unmatched(missing.named(), &behind)
-            ));
-        }
-        match present {
-            TablesPresent::All => tracing::info!(
+            // Everything else that failed - an endpoint that did not answer, a dataset that is not
+            // there - is the `WARN`, because a deployment that cannot reach a data system at boot
+            // still has to be able to serve when it comes back.
+            Verdict::Unverified { asked: tables, cause } => tracing::warn!(
                 source = %source,
-                tables = asked.len(),
+                tables,
+                reason = %flatten(cause),
+                "could not verify that this data system holds the tables the catalog names - \
+                 serving anyway, so a mistyped table name will fail the first question against it"
+            ),
+            Verdict::Absent(absent) => {
+                return Err(format!(
+                    "{source} does not hold {absent}. Refusing to serve a model whose questions would \
+                     fail at query time - fix the catalog's `table:`, or create the table"
+                ));
+            }
+            Verdict::Present { asked: tables } => tracing::info!(
+                source = %source,
+                tables,
                 "every table the catalog names is in this data system"
             ),
-            // **`NotAsked` gets a line of its own, and review is why.** It used to be silent, which
+            // **`NotReported` gets a line of its own, and review is why.** It used to be silent, which
             // made the one outcome meaning *nothing verified this* the only one an operator could not
             // see - and indistinguishable from a source the bundle names no models for. The `files`
             // path never reaches here, so this cannot become a spurious line on the shipped engine.
-            TablesPresent::NotAsked => tracing::info!(
+            Verdict::NotReported { asked: tables } => tracing::info!(
                 source = %source,
-                tables = asked.len(),
+                tables,
                 "this adapter does not report which tables it holds, so nothing here verified them"
             ),
-            // Unreachable: refused above. An exhaustive match rather than a wildcard, so a fourth
-            // answer is a compile error at this line instead of a silent nothing.
-            TablesPresent::AllBut(_) => {}
         }
     }
     Ok(())
-}
-
-/// Which models sit behind each table one source's part of the bundle names.
-///
-/// **Keyed by the table and carrying the models, because that is the direction the refusal reads
-/// in:** the data system answers about a table, and the operator has to edit a model. Two models on
-/// one table is ordinary - a bundle may declare several over one fact table - so the value is a set.
-#[cfg(feature = "bigquery")]
-fn models_by_table(
-    pinned: &PinnedDefinitions,
-    source: &sutura_domain::model::SourceName,
-) -> BTreeMap<QualifiedTable, BTreeSet<ModelName>> {
-    let mut behind: BTreeMap<QualifiedTable, BTreeSet<ModelName>> = BTreeMap::new();
-    for model in pinned.definitions().models().values() {
-        if model.source() == source {
-            behind.entry(model.table().clone()).or_default().insert(model.name().clone());
-        }
-    }
-    behind
-}
-
-/// The absent tables, each with the models that named it, as one line of a refusal.
-///
-/// **It names the model AND the table**, because the two things an operator can do are in the same
-/// file and one of them is a typo: the table path is what the data system disagreed with, and the
-/// model is what they have to open to change it.
-#[cfg(feature = "bigquery")]
-fn unmatched(missing: &BTreeSet<QualifiedTable>, behind: &BTreeMap<QualifiedTable, BTreeSet<ModelName>>) -> String {
-    missing
-        .iter()
-        .map(|table| {
-            let models = behind
-                .get(table)
-                .map(|models| models.iter().map(ModelName::as_str).collect::<Vec<&str>>().join(", "))
-                .unwrap_or_default();
-            format!("table {table}, named by model(s) [{models}]")
-        })
-        .collect::<Vec<String>>()
-        .join("; ")
 }
 
 /// Refuses a bundle that declares an anchor on a source with no identity to re-run it under.
@@ -430,7 +386,14 @@ mod tests {
             });
             let error = refuse_absent_tables(&bundle(), &engines).expect_err("a table that is not there stops the process");
             assert!(error.contains("fct_orders"), "the refusal must name the table: {error}");
-            assert!(error.contains("orders"), "the refusal must name the model: {error}");
+            // **The whole clause and not the bare model name, which is a review correction to a test
+            // that could not fail.** `"orders"` is a substring of `"fct_orders"`, so an assertion on
+            // it was entailed by the line above and stayed green even with the model set dropped
+            // entirely - coverage for a property nothing checked.
+            assert!(
+                error.contains("named by model(s) [orders]"),
+                "the refusal must name the model: {error}"
+            );
             assert!(
                 !error.contains("dim_customer"),
                 "the refusal must not name a table the data system holds: {error}"

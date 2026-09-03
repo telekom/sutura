@@ -80,6 +80,14 @@ pub mod assemble;
 // it. The module's own documentation carries the argument and the limits.
 pub mod capability;
 
+// Asking every open data system whether it holds the tables the bundle names, once, for both
+// composition roots that ask it. Here for `warehouses`' reason applied one step on: the DECISION is
+// application logic - which data systems to ask, what a set of absent tables means, and which of two
+// failures is a refusal - while the sentence an operator reads and the sink it goes to belong to the
+// root, which is why nothing in this module prints. Review measured the alternative: the two helpers
+// under it were byte-identical in the two roots.
+pub mod preflight;
+
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
 

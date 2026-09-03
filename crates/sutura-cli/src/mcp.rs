@@ -81,6 +81,16 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
                 // In the `Files` arm this would be a call whose only possible answer is the port's
                 // default, because the engine is GIVEN its tables - `refuse_unattached`, inside
                 // `mcp_service`, is that arm's version of this check and compares the two sets it has.
+                //
+                // **The parity is one-sided, and saying so is the point.** `refuse_unattached` closes
+                // the window between this root's TWO loads: `catalog.load()` above is the first, this
+                // pre-flight reads that bundle, and `LocalService::start` inside `mcp_service` loads a
+                // second time. So a model added to the catalog directory between the two is caught on
+                // a `files` source and caught by nothing on a `bigquery` one - the same gap
+                // `sutura-serve`'s root states at its own call site, open here for the same reason.
+                // Closing it is an architecture decision rather than a call-site move:
+                // `LocalService` exposes no accessor for the engines it was handed, so there is
+                // nothing to re-ask once the second load has happened.
                 refuse_absent_tables(&pinned, &opened.engines)?;
                 serve(&catalog, opened, settings.runtime())
             }
