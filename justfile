@@ -108,8 +108,11 @@ fmt:
     cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
 
-# `--all-features` is a no-op today - no crate declares a feature - and stays on every entry point
-# so that coverage cannot silently drop the day an adapter goes behind one.
+# `--all-features` is load-bearing rather than foresight: crates here declare features and make
+# dependencies optional, so an entry point missing the flag lints and tests nothing behind them.
+# `grep -rln '^\[features\]' --include=Cargo.toml .` is the current set, and is not written down.
+# `check-guidance` holds the retired claim that no crate declares one, but NOT here: this file has
+# no extension, so it is outside that gate's scope and this comment is held by review alone.
 
 # Lint everything.
 lint:

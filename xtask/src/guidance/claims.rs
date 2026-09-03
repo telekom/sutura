@@ -151,14 +151,23 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
     },
     Contradicted {
         name: "no crate declares a feature",
-        wordings: &["no crate declares a `[features]` table today"],
+        // TWO wordings, and the second is the whole point of this edit. The first caught one file
+        // while the claim lived in three: `justfile` and `devenv.nix` both spelled the PARAPHRASE
+        // - "no crate declares a feature", with no `[features]` in it - and the skill page
+        // corrected itself in prose while both siblings survived, which is exactly the cause this
+        // module's header names. `justfile` has no extension and is outside this module's scope
+        // whatever is listed here, so it stays a hand fix held by review; `devenv.nix` is in
+        // scope, which is what makes the second wording a mechanism rather than a note.
+        wordings: &["no crate declares a `[features]` table today", "no crate declares a feature"],
         evidence: &[Evidence {
             path: "crates/sutura-http/Cargo.toml",
             holds: "[features]",
         }],
-        instead: "`sutura-config`, `sutura-http` and `sutura-serve` each declare `tls`. The habit \
-                  the passage is about - every entry point passing `--all-features` - is load \
-                  bearing now rather than cheap foresight, which is a better version of the point",
+        // Deliberately no count and no list: `grep -rln '^[features]' --include=Cargo.toml .`
+        // answers both, and a copy of it here is a second thing to keep true.
+        instead: "crates here declare features and make dependencies optional. The habit the \
+                  passage is about - every entry point passing `--all-features` - is load bearing \
+                  now rather than cheap foresight, which is a better version of the point",
         only: &[],
         except: &[],
     },
