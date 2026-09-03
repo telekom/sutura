@@ -143,7 +143,8 @@ struct Pin {
     source: &'static str,
     /// Line prefix in that file; the value is the rest, unquoted.
     key: &'static str,
-    /// Where the value may also appear, and must match if it does.
+    /// Where the value may also appear, and must match if it does. **At least one page here has
+    /// to state it**, or the pin is read and compared to nothing - see [`version_mismatches`].
     mentioned_in: &'static [&'static str],
     /// Regex-free detector: a line containing this marker must contain the value.
     marker: &'static str,
@@ -182,14 +183,19 @@ fn pinned_value(root: &Path, pin: &Pin) -> Option<String> {
     None
 }
 
-/// Does this line look like it states a version, other than the pinned one?
+/// The versions this line claims the pin IS, which is empty unless it names the pin file.
 ///
 /// Deliberately narrow: only lines that also name the pin file are judged, because those are
 /// the ones asserting what the pin is. A line mentioning some other version is not this
-/// check's business.
-fn contradicts(line: &str, pin: &Pin, value: &str) -> bool {
+/// check's business, and a line naming the pin file with no version is a legitimate sentence
+/// about where the pin lives.
+///
+/// Tokens rather than a verdict, because one walk answers both questions the gate has: *does this
+/// line contradict the pin*, and *does any page state it at all*. The second is what keeps the
+/// first from running over an empty set - see [`version_mismatches`].
+fn stated_versions(line: &str, pin: &Pin) -> Vec<String> {
     if !line.contains(pin.marker) {
-        return false;
+        return Vec::new();
     }
     let digits: String = line
         .chars()
@@ -201,7 +207,13 @@ fn contradicts(line: &str, pin: &Pin, value: &str) -> bool {
         // "1.98.0", and treating them as different is how a correct doc gets flagged.
         .map(|t| t.trim_matches('.'))
         .filter(|t| t.contains('.') && t.starts_with(|c: char| c.is_ascii_digit()))
-        .any(|t| t != value)
+        .map(String::from)
+        .collect()
+}
+
+/// Does this line look like it states a version, other than the pinned one?
+fn contradicts(line: &str, pin: &Pin, value: &str) -> bool {
+    stated_versions(line, pin).iter().any(|t| t != value)
 }
 
 /// Task names this binary actually dispatches, so prose cannot cite a deleted gate.
@@ -325,6 +337,7 @@ fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
             ));
             continue;
         };
+        let mut stated = 0_usize;
         for rel in files {
             if !matches_any(pin.mentioned_in, rel) {
                 continue;
@@ -333,6 +346,9 @@ fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
                 continue;
             };
             for (i, line) in text.lines().enumerate() {
+                if !stated_versions(line, pin).is_empty() {
+                    stated = stated.saturating_add(1);
+                }
                 if contradicts(line, pin, &value) {
                     problems.push(format!(
                         "{rel}:{}: names {} but the pin in {} is {value}\n      {}",
@@ -343,6 +359,19 @@ fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
                     ));
                 }
             }
+        }
+        if stated == 0 {
+            // The same failure `count_mismatches` fails for, on the shape whose documentation
+            // calls itself "the third shape of the same idea" - and it was LIVE, not latent, when
+            // this check was written: six pages named `rust-toolchain.toml` and not one carried a
+            // version, so the comparison ran over an empty set every run while the success line
+            // said `1 pin(s)`. A control over nothing reads as a control on the compiler version.
+            problems.push(format!(
+                "nothing under {:?} states the {} version - the pin is read and compared to \
+                 nothing, so this entry in PINS is a gate over silence. State it on a line naming \
+                 `{}`, or delete the entry",
+                pin.mentioned_in, pin.name, pin.marker
+            ));
         }
     }
     problems
@@ -452,6 +481,44 @@ mod tests {
             &PIN,
             "1.98.0"
         ));
+    }
+
+    #[test]
+    fn a_line_naming_the_pin_file_with_no_version_states_nothing_either() {
+        use super::stated_versions;
+        // The distinction the vacuity check rests on: *fine* and *a statement* are not the same
+        // verdict. Every marker line in this repo used to be the first kind, which is how a
+        // working comparison ended up with nothing to compare.
+        assert!(stated_versions("The compiler pin lives in rust-toolchain.toml and nowhere else.", &PIN).is_empty());
+        assert_eq!(
+            stated_versions("Pinned in rust-toolchain.toml at 1.98.0.", &PIN),
+            vec![String::from("1.98.0")]
+        );
+        assert!(stated_versions("DataFusion 53.0.0 is the upstream version.", &PIN).is_empty());
+    }
+
+    #[test]
+    fn a_pin_entry_is_compared_against_a_page_that_states_it() {
+        // The mirror of `claims::tests::a_count_entry_is_compared_against_a_page_that_states_it`,
+        // for the shape `Counted`'s own documentation calls the third of the same idea. This was
+        // RED when it was written: the pin was `1.98.0`, six pages named the pin file, and none of
+        // them said what the pin was.
+        let root = crate::repo::root().expect("the repo root");
+        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        for pin in super::PINS {
+            let value = super::pinned_value(&root, pin).expect("the pin value");
+            let stated = files
+                .iter()
+                .filter(|rel| super::matches_any(pin.mentioned_in, rel))
+                .filter_map(|rel| std::fs::read_to_string(root.join(rel)).ok())
+                .flat_map(|text| text.lines().map(|line| super::stated_versions(line, pin)).collect::<Vec<_>>())
+                .any(|versions| !versions.is_empty());
+            assert!(
+                stated,
+                "no page under {:?} states the {} version ({value}) beside `{}`",
+                pin.mentioned_in, pin.name, pin.marker
+            );
+        }
     }
 
     #[test]

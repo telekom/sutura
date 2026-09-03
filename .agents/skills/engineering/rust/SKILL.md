@@ -96,9 +96,13 @@ allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason. The whol
 paragraph is about.
 
 **The count is gated; the rows are not, and the difference is worth reading exactly.**
-`check-guidance` counts that same literal over that same glob - occurrences, so two declarations in
-one file are two - and fails this page when the number here disagrees, so `just hygiene` is what
-keeps it equal to the tree. Nothing compares the ROWS against anything: which ports the interior
+`check-guidance` counts that same literal over `crates/*/src/**/*.rs` - occurrences, so two
+declarations in one file are two - and fails this page when the number here disagrees, so
+`just hygiene` is what keeps it equal to the tree. **The glob is the authority and the command
+above is an approximation of it**, agreeing on today's tree rather than by construction: the
+trailing `grep '/src/'` filters output LINES, so a hit in a non-`src` file on a line that mentions
+a `/src/` path counts for the reader and not for the gate, and `*` does not cross `/`, so a crate
+nested deeper than `crates/<name>/src` would be inside the command and outside the glob. Nothing compares the ROWS against anything: which ports the interior
 owns, and which of them is driving, is prose. A port table is the shape this page is most prone to
 rotting into - the paragraph above once named `CredentialBroker` as a port deliberately ABSENT,
 accurate when written, and it has had two implementors since - so measure the rows rather than

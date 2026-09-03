@@ -147,14 +147,17 @@ therefore does not see.
   and two gated counts. It fails a cited `just` task that does not exist and a cited `cargo` line
   missing `--all-features`. Its own stated blind spot: a comment marker is not stripped, so a claim
   wrapping inside a `#` block is not found.
-- **A gated count has two silent-green failures, and one of them was live.** It derives the number
-  by walking the tree and compares it to the integer before a marker phrase, so it holds nothing if
-  no page states that number - which is what happened when the router rewrite carried the
-  invariants table out of `AGENTS.md` and the entry's `mentioned_in` list stayed behind. Both sides
-  are now checked: a glob matching nothing fails, and a number no page states fails. The second
-  failure is granularity - an entry counting FILES over a literal that can repeat inside one is
-  right only by coincidence - which is why each entry declares files or occurrences rather than
-  inheriting a default.
+- **A derived number is only a control while a page still states it, and BOTH shapes here got
+  that wrong.** A count and a version pin work the same way - derive the value from the tree, then
+  compare it against pages under a `mentioned_in` glob - so both hold nothing when no page states
+  the value. The count was in that state after the router rewrite carried the invariants table out
+  of `AGENTS.md` and its `mentioned_in` list stayed behind; the pin was in it from the start, with
+  six pages naming `rust-toolchain.toml` and not one carrying a version, while the success line
+  said `1 pin(s)`. **A glob matching nothing was already a failure** for counts; what is new is
+  that a value no page states is a failure too, for the count and for the pin, and that the pin is
+  now written down where it can be compared. The other silent-green mode is granularity: an entry
+  counting FILES over a literal that can repeat inside one is right only by coincidence, which is
+  why each entry declares files or occurrences rather than inheriting a default.
 - **A count in prose is only as good as the command beside it.** An anchored
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.

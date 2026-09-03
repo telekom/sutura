@@ -356,9 +356,9 @@ pub(super) struct Counted {
     /// `39 SQL goldens read LIMIT 10001` also carries `10001`, and a check that read every number
     /// on the line would report the row cap as a wrong golden count.
     ///
-    /// **Read per LINE, unlike a claim.** A number wrapped away from its marker is not found, which
-    /// is why the entry is worthless without the stated-side check below: prose wraps, and a gate
-    /// whose needle fell off the end of a line would report nothing and read as agreement.
+    /// Found in the FLATTENED view and at every occurrence - see [`stated_numbers`], which records
+    /// the two ways the per-line predecessor of this field read agreement out of prose it had not
+    /// managed to look at.
     marker: &'static str,
 }
 
@@ -385,7 +385,12 @@ pub(super) struct Counted {
 pub(super) const COUNTS: &[Counted] = &[
     Counted {
         name: "SQL goldens carrying the row cap",
-        over: &["crates/sutura-app/tests/snapshots/**"],
+        // EVERY crate's snapshot directory, not just the one that had them when this entry was
+        // written. `sutura-cli`'s 22 rendered-statement goldens carry the row cap and were outside
+        // the glob, so the sentence said *pinned across the corpus* over 93 of 115 files and 22
+        // goldens could have lost the cap with the gate silent. The claim is about the corpus, so
+        // the glob is too - and a new crate's snapshots are inside it the day they land.
+        over: &["crates/*/tests/snapshots/**"],
         holds: "LIMIT 10001",
         // FILES, and here that is a decision rather than the default it used to be: what is
         // claimed is how many goldens carry the row cap, and a golden carrying it twice is still
@@ -507,16 +512,45 @@ pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> 
     problems
 }
 
-/// The integer immediately before `marker` in `line`, if there is one there.
-fn count_before(line: &str, marker: &str) -> Option<u64> {
-    let at = line.find(marker)?;
-    let head = line.get(..at)?.trim_end();
-    let mut digits: Vec<char> = head.chars().rev().take_while(char::is_ascii_digit).collect();
+/// The integer at the end of `head`, if it ends in one.
+fn trailing_number(head: &str) -> Option<u64> {
+    let mut digits: Vec<char> = head.trim_end().chars().rev().take_while(char::is_ascii_digit).collect();
     if digits.is_empty() {
         return None;
     }
     digits.reverse();
     digits.into_iter().collect::<String>().parse().ok()
+}
+
+/// Every statement of a number before `marker` in `text`: the line it starts on, and the number.
+///
+/// **Flattened, not per line, and that is a fix rather than a refinement.** This was
+/// `count_before(line, marker)`, which had two blind spots a reviewer could not see from the
+/// output because both of them look exactly like agreement: prose WRAPS, so a statement whose
+/// number ended one line above its marker was not found at all; and `line.find` reads the FIRST
+/// marker on a line, so a second statement on the same line was never read. Both are closed by
+/// asking the flattened view for every occurrence - the same view [`contradicted_claims`] has
+/// used from the start, for the same reason.
+///
+/// **What was rejected, because it would have failed correct prose.** The other candidate fix was
+/// to require every page NAMING the marker to carry a number. `docs/implementation-plan-bigquery.md`
+/// names `SQL goldens read` in order to explain the gate, with no number and correctly so, and a
+/// gate that fails that sentence is one somebody switches off. Reading every occurrence needs no
+/// exemption list.
+fn stated_numbers(text: &str, marker: &str) -> Vec<(usize, u64)> {
+    let (flat, lines) = flatten(text);
+    let mut found = Vec::new();
+    let mut from = 0_usize;
+    while let Some(at) = flat.get(from..).and_then(|rest| rest.find(marker)) {
+        let offset = from.saturating_add(at);
+        if let Some(head) = flat.get(..offset)
+            && let Some(number) = trailing_number(head)
+        {
+            found.push((lines.get(offset).copied().unwrap_or(1), number));
+        }
+        from = offset.saturating_add(marker.len().max(1));
+    }
+    found
 }
 
 /// What the tree holds, at the granularity this entry declares.
@@ -558,14 +592,12 @@ fn statements(root: &Path, files: &[String], counted: &Counted) -> Vec<Stated> {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
             continue;
         };
-        for (i, line) in text.lines().enumerate() {
-            if let Some(number) = count_before(line, counted.marker) {
-                found.push(Stated {
-                    file: rel.clone(),
-                    line: i.saturating_add(1),
-                    number,
-                });
-            }
+        for (line, number) in stated_numbers(&text, counted.marker) {
+            found.push(Stated {
+                file: rel.clone(),
+                line,
+                number,
+            });
         }
     }
     found
@@ -714,15 +746,42 @@ mod tests {
 
     #[test]
     fn the_number_read_is_the_one_immediately_before_the_marker() {
-        use super::count_before;
+        use super::stated_numbers;
         // The real sentence, and the real trap in it: the line carries `10001` as well, so a
         // check that read every number on it would report the row cap as a golden count.
         let line = "Both legs pinned: 63 SQL goldens read `LIMIT 10001`, and the engine leg asserts the fetch.";
-        assert_eq!(count_before(line, "SQL goldens read"), Some(63));
+        assert_eq!(stated_numbers(line, "SQL goldens read"), vec![(1, 63)]);
         // No number there is not a claim about the count.
-        assert_eq!(count_before("The SQL goldens read the row cap.", "SQL goldens read"), None);
+        assert_eq!(
+            stated_numbers("The SQL goldens read the row cap.", "SQL goldens read"),
+            vec![]
+        );
         // Nor is a line that does not carry the marker at all.
-        assert_eq!(count_before("39 of something else entirely", "SQL goldens read"), None);
+        assert_eq!(stated_numbers("39 of something else entirely", "SQL goldens read"), vec![]);
+        // The page that EXPLAINS the marker states no number and must stay unread - this is the
+        // sentence a "every page naming the marker carries a number" rule would have failed.
+        assert_eq!(
+            stated_numbers(
+                "the number written before the marker `SQL goldens read` and compares",
+                "SQL goldens read"
+            ),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn a_statement_that_wraps_away_from_its_marker_is_still_read() {
+        use super::stated_numbers;
+        // THE hole this replaced. Both of these were invisible to the per-line reader, and both
+        // are indistinguishable from agreement in its output: the first because the number ended
+        // one line above the marker, the second because only the first marker on a line was read.
+        // A reflow of a paragraph is enough to produce the first, which is why a sentence saying
+        // "keep them on one line" was not the fix.
+        let wrapped = "the whole set is 10
+SQL goldens read the cap";
+        assert_eq!(stated_numbers(wrapped, "SQL goldens read"), vec![(2, 10)]);
+        let twice = "| 93 SQL goldens read here | 94 SQL goldens read there |";
+        assert_eq!(stated_numbers(twice, "SQL goldens read"), vec![(1, 93), (1, 94)]);
     }
 
     #[test]
