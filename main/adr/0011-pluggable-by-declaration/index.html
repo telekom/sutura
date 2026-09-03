@@ -3462,9 +3462,16 @@ That is this record's decision arriving in the second place it applies, not a ne
   documented command-line workflow.</li>
 </ul>
 <p><strong>And the limit, because a registry reads like availability:</strong> which KINDS a given binary can open is
-still a property of the build. <code>kind: bigquery</code> parses - the adapter exists - and the <code>sutura</code> command
-links none of it, so that entry is a refusal naming what to do instead: declare a <code>files</code> source, or
-serve that dataset with <code>sutura-serve</code> built <code>--features bigquery</code>.</p>
+still a property of the build. <code>kind: bigquery</code> parses - the adapter exists - and a build without the
+default-off <code>bigquery</code> feature links none of it, so that is a refusal naming the FEATURE and not the
+kind.</p>
+<p><strong>Amended, because the sentence here named an open question that is now closed.</strong> It read <em>"the
+<code>sutura</code> command links none of it … whether it gains a feature of its own is telekom/sutura#121's
+second step"</em>. That step landed: <strong>both</strong> composition roots now open <code>kind: bigquery</code>, each behind a
+default-off <code>bigquery</code> feature of its own, and <code>docs/adr/0017</code>'s fifth amendment is the decision.
+What is unchanged is the half that matters - <code>nix/shipped.nix</code> publishes both binaries with cargo's
+DEFAULT features, so no published artefact links the adapter, and <code>checks.shipped-features</code> reads
+<code>ureq</code>'s and <code>ring</code>'s absence off each shipped binary rather than off a manifest.</p>
 
 
 

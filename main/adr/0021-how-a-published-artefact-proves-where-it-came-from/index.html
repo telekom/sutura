@@ -3048,9 +3048,10 @@ it: a scan that inventoried nothing must fail rather than ship.</p>
 crate graph belongs in the artefact rather than beside it, which means <code>cargo auditable</code> on the four
 cross builds and a CycloneDX document scoped to the shipped package rather than to the workspace.
 <strong>Scoped, because the workspace graph is not the binary's graph and saying so would be the exact
-overstatement this section is about</strong> - <code>sutura-cli</code> links the engine only, while <code>libduckdb-sys</code>
-and the BigQuery wire put <code>ureq</code>, rustls and <code>ring</code> in the resolve graph for a binary that links
-none of them. <code>deny.toml</code> has carried that argument for longer than this record has existed.</p>
+overstatement this section is about</strong> - <code>sutura-cli</code> AS PUBLISHED links the engine only (its
+<code>bigquery</code> feature is default-off, and <code>nix/shipped.nix</code> passes no <code>--features</code>), while
+<code>libduckdb-sys</code> and the BigQuery wire put <code>ureq</code>, rustls and <code>ring</code> in the resolve graph for a binary
+that links none of them. <code>deny.toml</code> has carried that argument for longer than this record has existed.</p>
 <h2 id="what-this-costs-measured-where-it-can-be">What this costs, measured where it can be<a class="headerlink" href="#what-this-costs-measured-where-it-can-be" title="Permanent link">&para;</a></h2>
 <p><strong>No new packages, anywhere.</strong> <code>cosign</code> and <code>syft</code> are nixpkgs derivations reached through <code>nix
 run</code>; nothing enters <code>Cargo.lock</code>, nothing enters the shipped binary, and no image layer changes. The
@@ -3135,8 +3136,9 @@ document says so. A section <em>inside</em> the executable cannot drift from the
 repository's own rule is <em>prefer unrepresentable to checked</em>, and <code>Secret</code> and <code>TimeRange</code> are that
 rule applied to values; this is the same move applied to provenance.</p>
 <p><strong>And it would be the wrong list.</strong> <code>Cargo.lock</code> records what cargo RESOLVED, not what the linker
-KEPT. <code>sutura-cli</code> links the engine only, while <code>libduckdb-sys</code> and the BigQuery <code>wire</code> feature put
-<code>ureq</code>, rustls and <code>ring</code> into the resolve graph for a binary that links none of them - an argument
+KEPT. <code>sutura-cli</code> as published links the engine only, while <code>libduckdb-sys</code> and both composition roots'
+default-off <code>bigquery</code> features put <code>ureq</code>, rustls and <code>ring</code> into the resolve graph for a binary
+that links none of them - an argument
 <code>deny.toml</code> has carried at length for longer than this record has existed. A workspace-wide document
 names all three, and errs in the direction that matters: it overstates what ships. Scoping it to
 <code>--package sutura-cli</code> narrows that and does not fix it, because a feature-gated dependency is still

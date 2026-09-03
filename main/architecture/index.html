@@ -2802,18 +2802,29 @@ catalogue or a different data system, there is not one yet.</p>
 </tr>
 </tbody>
 </table>
-<p>So the supported combination today is <strong>local markdown with YAML frontmatter for the metadata, and
-the in-process engine over the CSV or Parquet files in a directory</strong>. <code>sutura query &lt;catalog-dir&gt;
-&lt;question.yaml&gt; [data-dir]</code> is the whole of it, and <code>sutura doctor</code> says the same thing in one line:
-<code>data systems : none - this build reads files, and pushes down to nothing</code>.</p>
+<p>So the combination a PUBLISHED binary supports is <strong>local markdown with YAML frontmatter for the
+metadata, and the in-process engine over the CSV or Parquet files in a directory</strong>. <code>sutura query
+&lt;catalog-dir&gt; &lt;question.yaml&gt; [data-dir]</code> is the whole of it there, and <code>sutura doctor</code> says the same
+thing in one line: <code>data systems : none - this build reads files, and pushes down to nothing</code>. A
+source build carrying <code>--features bigquery</code> supports one more, and the paragraph below says what that
+is and what has never been run.</p>
 <p><strong>The directory is optional because that command reads the same <code>sources:</code> tree the server does.</strong> A
 catalog whose models name <code>warehouse</code> is answered when <code>sources.warehouse</code> declares a <code>files</code>
 directory beside it, so the name a catalog uses is no longer required to be <code>local</code>; a caller with no
 configuration at all passes the directory instead, and that is the built-in declaration - a <code>files</code>
 source called <code>local</code>, over the directory given, read as whoever ran the command. Both, for one
-source, is refused as two answers to one question. What has NOT changed is which kinds that binary can
-open: <code>kind: bigquery</code> parses, because the adapter exists, and the <code>sutura</code> command links none of it -
-so it is a refusal naming the kind and pointing at <code>sutura-serve --features bigquery</code>.</p>
+source, is refused as two answers to one question.</p>
+<p><strong>And <code>kind: bigquery</code> is openable from that binary too, behind a default-off <code>bigquery</code> feature.</strong>
+<code>sutura query</code> then renders the plan into <code>GoogleSQL</code> and submits it to the dataset - <strong>which no
+automated test in this repository has ever watched answer.</strong> The furthest any of them reaches is
+reading the credential file, because the transport's host is a compile-time constant with no loopback
+to point at; what a real dataset HAS accepted is the corpus, on the adapter's own suite, through
+<code>just bigquery-acceptance</code>. So this is a composition that is tested and a path that is not - which is
+what makes "pushes down to nothing" above a statement about the DEFAULT build rather than about the
+code. No published artefact carries the feature: <code>nix/shipped.nix</code> builds both binaries with cargo's
+default features, because <code>--features bigquery</code> compiles <code>ring</code> from C and assembly and two of the
+four release triples are musl. On a build without it, a <code>kind: bigquery</code> source is a refusal naming
+the feature; <code>sutura doctor</code> prints which of the two builds you are holding.</p>
 <p><strong>Two things are easy to read as more than they are, and both are worth being exact about.</strong></p>
 <p><em><code>DuckDB</code> is a test dependency, not the runtime data source.</em> An earlier example did run through it,
 and the description outlived the code. The <code>DuckDB</code> adapter is still compiled and still executes on
@@ -2833,10 +2844,12 @@ default-off <code>wire</code> feature, with a second narrow port for the credent
 <p><strong>A statement generated here has now been accepted by a real dataset</strong>, on 2026-08-30, under a
 service-account key -
 <a href="../adr/0017-what-a-bigquery-test-runs-against/"><code>adr/0017</code></a>'s amendment records it and puts the repeat
-in CI. <strong>It is still not a data system this build can REACH</strong>, and that is now two facts rather than
-three: no composition root links the crate, and <code>sutura-serve</code> refuses <code>kind: bigquery</code> by name,
-correctly, because it links no <code>BigQuery</code> adapter. The <code>data_systems:</code> axis of the golden matrix still
-gains no entry - one live statement is not a registered data system.</p>
+in CI. <strong>Whether a build can REACH it is now a build's question rather than the repository's</strong>, and
+that is the fact this paragraph used to state the other way round: both composition roots register the
+adapter behind a default-off <code>bigquery</code> feature, so a build that carries it opens <code>kind: bigquery</code>
+and a build without it - every published artefact - refuses that entry by name, naming the feature.
+The <code>data_systems:</code> axis of the golden matrix still gains no entry: one live statement, and a
+composition no automated test has watched answer, is not a registered data system.</p>
 <p><strong>And that leg is a SMOKE test rather than the acceptance leg 0017 specifies</strong>, which is worth knowing
 before reading its green as closing the gap: one hand-built <code>SUM</code> over a two-column table, exercising
 none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer

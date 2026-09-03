@@ -3228,7 +3228,10 @@ constructors: a <code>WireAgent::pinned</code> carrying <code>JobBounds</code>, 
 what <code>wire::QueryDeadline</code>'s own documentation asks a composition root for by name. A job that outlives
 the request it is answering is billed for a result nobody is waiting for.</p>
 <h3 id="which-binaries-link-it-and-the-one-that-deliberately-does-not">Which binaries link it, and the one that deliberately does not<a class="headerlink" href="#which-binaries-link-it-and-the-one-that-deliberately-does-not" title="Permanent link">&para;</a></h3>
-<p><strong><code>sutura-serve</code>, behind a default-off <code>bigquery</code> feature. <code>sutura-cli</code>, not at all.</strong> The reason is
+<p><strong><code>sutura-serve</code>, behind a default-off <code>bigquery</code> feature. <code>sutura-cli</code>, not at all.</strong>
+<em>(The second half is SUPERSEDED by the fifth amendment at the end of this record: <code>sutura-cli</code> has a
+default-off <code>bigquery</code> feature of its own since telekom/sutura#121. The reason given below is why it
+took a feature rather than a plain dependency, and that half still holds.)</em> The reason is
 the four cross builds and it is measured rather than assumed:</p>
 <ul>
 <li>the release derivations pass <code>--package sutura-cli</code>, so they never compile <code>sutura-serve</code> itself;</li>
@@ -3673,6 +3676,84 @@ cannot answer that - the subject is a person, not a key - so it stays the one ve
 no run, owned by the enterprise-IdP half (<a href="https://github.com/telekom/sutura/issues/105">#105</a>). This
 amendment changes nothing about it; it is recorded here so the two venues are not elided into one
 "identity is provisioned now".</p>
+<h2 id="fifth-amendment-the-command-line-tool-opens-a-dataset-too-behind-its-own-default-off-feature">Fifth amendment: the command-line tool opens a dataset too, behind its own default-off feature<a class="headerlink" href="#fifth-amendment-the-command-line-tool-opens-a-dataset-too-behind-its-own-default-off-feature" title="Permanent link">&para;</a></h2>
+<p><strong>This record decided <code>sutura-cli</code>, not at all, and telekom/sutura#121 reverses that half.</strong> The
+reason it was refused is worth reading before the reversal, because the reason has not gone away: the
+release derivations pass <code>--package sutura-cli</code>, so a non-optional dependency there would put <code>ureq</code>,
+rustls and <code>ring</code> - which compile C and assembly - into four cross builds, two of them musl. What
+changed is not the cost but the shape of the answer: a <strong>default-off feature</strong> pays that cost only
+when somebody asks for it, which is the general rule <code>.agents/skills/sutura/crate-map</code> states for an
+adapter with a native or an outbound-TLS dependency, and it is the same shape this record's SECOND amendment already took
+for <code>sutura-serve</code>.</p>
+<p><strong>What #121 was actually about</strong>, and why the reversal is not a change of mind about cost: the only
+binary a release publishes could answer questions from local files and nothing else, so every claim
+this record's acceptance legs establish - four dialects, pushdown, a real dataset accepting our SQL -
+was reachable only from a source checkout. That is a documentation and tutorial problem before it is
+a capability one.</p>
+<p><strong>What is built.</strong> <code>crates/sutura-cli/src/sources/bigquery.rs</code>'s <code>open</code> composes the same three
+layers <code>sutura-serve</code>'s <code>build_bigquery</code> composes, through the same public constructors:
+<code>BigQueryWarehouse::new</code> over <code>BigQueryWire::new</code> over <code>Credential::read</code>, with one <code>WireAgent</code>
+cloned so the token exchange and the job share a pool. It is a <strong>copy and not a shared function</strong>,
+because the two composition roots are separate binaries and neither may depend on the other; what is
+genuinely shared is this adapter's own constructors, so a fix to the credential path lands once. The
+posture cross-check is called against that adapter's own <code>IMPERSONATION</code>, and an
+<code>impersonation-at-source</code> entry is refused <strong>by name, before the credential file is read</strong>, for the
+same reason the server refuses one: no broker that exchanges a subject's credential is attached, so
+answering would read every row as the process while the declaration promised otherwise.</p>
+<p><strong>The job's deadline comes off <code>server.request_timeout_seconds</code></strong>, through
+<code>QueryDeadline::within_request_timeout</code>, even though this binary has no listener a job could outlive.
+The alternative was a number invented in the composition root, which is the drifting duplicate the
+settings tree exists to prevent.</p>
+<p><strong>The limit that buys, stated as a number rather than a caveat, because review measured it:</strong>
+<code>CALLS_PER_ANSWER</code> is 2 and the connect margin is 5 seconds, so the shipped default of 30 gives a job
+<strong>10 seconds</strong> and <code>RequestTimeout::MAX_SECONDS</code> of 300 caps it at <strong>145</strong> - against a
+<code>QueryDeadline::MAX_SECONDS</code> of six hours. On the command-line tool that key therefore bounds nothing
+that exists and imposes a ceiling designed to protect an HTTP connection the command does not have: a
+twelve-second question is cancelled by <code>jobTimeoutMs</code> with nobody waiting on any request. The
+adapter's own <code>QueryDeadline::parse</code> exists for "a deployment stating a budget outright" and is
+deliberately not used, because a second key on one binary is the duplicate the first half of this
+paragraph refuses. What would lift it is a settings key meaning <em>how long a QUESTION may take</em> rather
+than how long a REQUEST may - one number both roots read - and that is a settings decision rather
+than this record's.</p>
+<p><strong>Three more things no test observes on the command-line root</strong>, listed because a composition that is
+tested reads as a path that is exercised. <code>OpenedWith::attached</code> is <code>None</code> for a dataset and no test
+sees that value, because every one of them stops at the credential read - what it feeds is <code>mcp</code>'s
+<code>if let Some(attached)</code>, and the files arm is what exercises that branch. The <code>mcp</code> command's
+<code>Opened::BigQuery</code> arm is instantiated by no test either: all three go through <code>open_engine</code> directly,
+and reaching it by hand gives the same <code>credential_file</code> refusal. And the credential refusal prints
+the operator's own absolute path out of their own settings - inherited unchanged from
+<code>sutura-exec-bigquery</code> and identical on the served path, noted only because <em>Design Principles</em> says
+an error is not a place for a path.</p>
+<p><strong>And what watches the feature-OFF lane, said at the sharper end than "a behaviour that differs by
+build":</strong> <code>just test</code>, <code>just mcp-e2e</code> and <code>checks.nextest</code> all pass <code>--all-features</code>, so the
+<code>cfg(not(feature = "bigquery"))</code> refusal and the test that provokes it are run by none of them. What
+does compile that lane is <code>cargo xtask check-default-features</code>, in <code>just gates</code>: it derives its
+package list from <code>nix/shipped.nix</code>'s <code>binaries</code>, so this crate joined it the moment the feature
+existed, and it runs <code>cargo clippy</code> as well as <code>cargo check</code> because a check cannot see a lint - which
+is how a <code>doc_markdown</code> failure lived on such a line in both roots until somebody ran clippy at the
+default set. <strong>Its limit is CI's:</strong> <code>ci.yml</code> reaches every gate as a nix check or a nix app and that
+gate is neither, so what CI has for this lane is the four <code>cross</code> link builds for the compile half and
+nothing at all for the lint half.</p>
+<p><strong>The measurement this record's own rule asks for, taken 2026-09-02.</strong> <code>cargo check -p sutura-cli
+--all-targets</code> on the default feature set touches neither <code>ring</code> nor <code>ureq</code>; the same command with
+<code>--features bigquery</code> compiles <code>ring</code> from C and assembly. That is the whole argument for default-off
+stated as a build rather than as a prediction, and it is also why the four <code>cross</code> jobs are
+<strong>unchanged</strong> by this branch: they pass no <code>--features</code>, so they compile exactly what they compiled
+before. What would price the alternative - the feature ON for four triples - is a build nothing asks
+for, so it has not been run.</p>
+<p><strong>And what still has not happened, because a feature reads like availability.</strong> No published artefact
+links the adapter. <code>nix/shipped.nix</code> builds both binaries with cargo's DEFAULT features and its
+features paragraph now says so for both, which is telekom/sutura#121's third step decided as its own
+recommendation had it: the CLI ships without the feature, and a deployment that needs a dataset runs
+a build that carries it. <code>checks.shipped-features</code> is what keeps that from drifting - it reads
+<code>ureq</code>'s and <code>ring</code>'s absence out of each shipped binary's own embedded dependency list rather than
+out of a manifest, so a <code>bigquery</code> that stopped being optional on either crate fails a gate.</p>
+<p><strong>Two lines elsewhere in this record are dated by that and are corrected here rather than in place</strong>,
+because each was right when it was written. <em>"The release derivations pass <code>--package sutura-cli</code>, so
+they never compile <code>sutura-serve</code> itself"</em> and <em>"<code>sutura-serve</code> is not a <code>nix</code> package at all"</em> were
+both spent by telekom/sutura#111, which publishes both binaries. And <em>"the image holds <code>sutura-cli</code>,
+which links the engine only"</em> needs the qualifier <em>as published</em>: the crate can now link a second
+adapter, and the artefact still does not.</p>
 
 
 

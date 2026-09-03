@@ -2561,12 +2561,42 @@ about; <a href="#being-refused">Being refused</a> is what a mismatch looks like 
 with no access token configured stops this command too, and says so. That is one door into the
 settings rather than two, and the refusal names the two variables that get you back to answering from
 the directory on the command line.</p>
-<p>Only <code>kind: files</code> is openable from this binary. <code>kind: bigquery</code> parses - that adapter exists - and
-the <code>sutura</code> command links none of it, so it is refused by name and points at the binary that can.</p>
+<p><code>kind: bigquery</code> is the other kind, and it needs a build that carries it - the published binaries do
+not, because the outbound TLS stack it links compiles C and assembly for four release triples. Build
+one, and the same command submits the plan to a dataset:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
+</span></code></pre></div>
+<p><strong>The <code>security:</code> block above is still required</strong> - the snippet below replaces the <code>sources:</code> block
+and nothing else. Any non-empty <code>sources:</code> with no <code>security.identity</code> is refused at startup, naming
+that key; it is the same refusal a deployment gets, which is the point of there being one settings
+tree.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># conf/base.yaml - the `security:` block from above, plus:</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bigquery</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">billing_project</span><span class="p">:</span><span class="w"> </span><span class="s">"your-project"</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">    </span><span class="nt">dataset</span><span class="p">:</span><span class="w"> </span><span class="s">"marts"</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">    </span><span class="nt">credential_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/absolute/path/to/key.json"</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">    </span><span class="nt">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1073741824</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared-service-user</span>
+</span></code></pre></div>
+<p><code>posture: shared-service-user</code> is the honest declaration for a service-account key: one identity for
+everybody who asks. <code>impersonation-at-source</code> parses and is <strong>refused</strong> - the adapter can carry a
+subject's credential, and no binary attaches a broker that exchanges one, so serving it would read
+every row as the process while the declaration promised otherwise. <code>sutura doctor</code> says which build
+you have on its <code>data systems</code> line.</p>
+<p><strong>Two limits worth knowing before you rely on this.</strong> No automated test in this repository has ever
+run a query from this command against a real dataset - the furthest any of them reaches is reading
+the credential file, because the transport's host is a compile-time constant with no loopback to
+point at. What HAS been accepted by a real dataset is the corpus, through <code>just bigquery-acceptance</code>,
+on the adapter's own suite. And the job's deadline comes off <code>server.request_timeout_seconds</code>: the
+default 30 leaves a job <strong>10 seconds</strong> and the maximum 300 leaves it <strong>145</strong>, because an answer makes
+two calls and each pays a connect margin. A slow question is cancelled by that bound with nothing
+waiting on any request.</p>
 <p><code>table:</code> may also name where the table lives, when that is more than the connection's own default:</p>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>table: fct_subscription_monthly              # the connection's default dataset
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>table: sales.fct_subscription_monthly        # a named dataset, or schema
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>table: analytics-prod.sales.fct_subscription # a named project above a named dataset
+<div class="language-markdown highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>table: fct_subscription_monthly              # the connection's default dataset
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>table: sales.fct_subscription_monthly        # a named dataset, or schema
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>table: analytics-prod.sales.fct_subscription # a named project above a named dataset
 </span></code></pre></div>
 <p>Each part is parsed on its own and quoted on its own in the statement, so a path is never a string
 somebody assembled. <strong>How deep a path is usable depends on the data system</strong>: BigQuery resolves all
@@ -2576,56 +2606,56 @@ per model and has nothing above it - a qualified model there fails at startup ra
 time. <code>docs/adr/0019</code> is the decision and states each dialect's arm.</p>
 <p>A metric names a model, what it measures, the grains it answers at and the dimensions it may be
 broken down by:</p>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>---
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>kind: metric
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>name: recurring_revenue
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>model: subscriptions
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>measure:
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>  simple: { aggregate: sum, column: mrr_cents }
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>required_filters:
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>equals: { column: status, value: active }
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>time_column: month
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>grains: [month]
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>dimensions:
-</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: contract_term
-</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>    column: contract_term
-</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>    values: [annual, monthly]
-</span><span id="__span-13-15"><a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>anchor:
-</span><span id="__span-13-16"><a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>  range:
-</span><span id="__span-13-17"><a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>    start: 2026-06-01
-</span><span id="__span-13-18"><a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>    end: 2026-07-01
-</span><span id="__span-13-19"><a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a><span class="gu">  value: 202121</span>
-</span><span id="__span-13-20"><a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a><span class="gu">---</span>
-</span><span id="__span-13-21"><a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>Recurring revenue recognised in the month, in minor units, from active subscriptions only.
+<div class="language-markdown highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>---
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>kind: metric
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>name: recurring_revenue
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>model: subscriptions
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>measure:
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>  simple: { aggregate: sum, column: mrr_cents }
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>required_filters:
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>equals: { column: status, value: active }
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>time_column: month
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>grains: [month]
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>dimensions:
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: contract_term
+</span><span id="__span-15-13"><a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>    column: contract_term
+</span><span id="__span-15-14"><a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>    values: [annual, monthly]
+</span><span id="__span-15-15"><a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a>anchor:
+</span><span id="__span-15-16"><a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a>  range:
+</span><span id="__span-15-17"><a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a>    start: 2026-06-01
+</span><span id="__span-15-18"><a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a>    end: 2026-07-01
+</span><span id="__span-15-19"><a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a><span class="gu">  value: 202121</span>
+</span><span id="__span-15-20"><a id="__codelineno-15-20" name="__codelineno-15-20" href="#__codelineno-15-20"></a><span class="gu">---</span>
+</span><span id="__span-15-21"><a id="__codelineno-15-21" name="__codelineno-15-21" href="#__codelineno-15-21"></a>Recurring revenue recognised in the month, in minor units, from active subscriptions only.
 </span></code></pre></div>
 <p><code>measure</code> has two levels. A <strong>term</strong> is what one number is computed from, and there are two of
 them: <code>aggregate</code> with a <code>column</code>, as above, or <code>count_if</code> over a boolean column. A <strong>shape</strong> says
 how terms combine, and there are two of those: <code>simple</code> is one term, <code>ratio</code> is one divided by
 another. Either term goes in either position:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># How many rows have a boolean column true. Its own term because COUNT(col) counts</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1"># the false ones too, which is a wrong number that raises no error.</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="nt">measure</span><span class="p">:</span>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span><span class="nt">simple</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> count_if</span><span class="p">:</span><span class="w"> </span><span class="nv">churned_in_month</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span></code></pre></div>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># A ratio: one term divided by another, over possibly different columns.</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nt">measure</span><span class="p">:</span>
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="nt">ratio</span><span class="p">:</span>
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">sum</span><span class="p p-Indicator">,</span><span class="nt">            column</span><span class="p">:</span><span class="w"> </span><span class="nv">mrr_cents</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">customer_key</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">    </span><span class="nt">zero_denominator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yields_null</span>
-</span></code></pre></div>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># A conditional count as the numerator of a rate - the combination the vocabulary</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="c1"># exists at two levels for. `examples/single-player` ships it as `churn_rate`.</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># How many rows have a boolean column true. Its own term because COUNT(col) counts</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="c1"># the false ones too, which is a wrong number that raises no error.</span>
 </span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="nt">measure</span><span class="p">:</span>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span><span class="nt">ratio</span><span class="p">:</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> count_if</span><span class="p">:</span><span class="w"> </span><span class="nv">churned_in_month</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">subscription_key</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">    </span><span class="nt">zero_denominator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yields_null</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span><span class="nt">simple</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> count_if</span><span class="p">:</span><span class="w"> </span><span class="nv">churned_in_month</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># A ratio: one term divided by another, over possibly different columns.</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="nt">measure</span><span class="p">:</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span><span class="nt">ratio</span><span class="p">:</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">sum</span><span class="p p-Indicator">,</span><span class="nt">            column</span><span class="p">:</span><span class="w"> </span><span class="nv">mrr_cents</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">customer_key</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">    </span><span class="nt">zero_denominator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yields_null</span>
+</span></code></pre></div>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># A conditional count as the numerator of a rate - the combination the vocabulary</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="c1"># exists at two levels for. `examples/single-player` ships it as `churn_rate`.</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nt">measure</span><span class="p">:</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span><span class="nt">ratio</span><span class="p">:</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> count_if</span><span class="p">:</span><span class="w"> </span><span class="nv">churned_in_month</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">subscription_key</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="w">    </span><span class="nt">zero_denominator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yields_null</span>
 </span></code></pre></div>
 <p>A metric may also carry <code>required_filters</code>, which are part of what it <em>means</em> rather than something
 a caller chooses:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">required_filters</span><span class="p">:</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">equals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">status</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">active</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nt">required_filters</span><span class="p">:</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">equals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">status</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">active</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </span></code></pre></div>
 <p>Four things matter before you write one:</p>
 <ul>
