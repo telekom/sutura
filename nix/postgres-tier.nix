@@ -19,7 +19,20 @@
   #
   # `start` brings up (or is a no-op restart of) a socket-only server and writes
   # `<cwd>/.sutura-dev/endpoints.json` naming its socket directory, so `sutura_dev::provisioned::here`
-  # can read it unchanged. `stop` tears it back down.
+  # can read it unchanged. `stop` tears it back down AND REMOVES THAT FILE, and `status` answers
+  # whether a server is up without changing anything.
+  #
+  # **The endpoint file is a CLAIM that a server is there, and `stop` used to leave it behind.** That
+  # is not cosmetic: discovery reads the file's existence as availability, so after any `stop` the
+  # next bare `cargo nextest` found the claim, tried to connect to a server that was gone, and the
+  # two postgres cells PANICKED - `postgres did not open at <dir>:5432: could not connect` - where
+  # the honest outcome is a skip. Measured on 2026-09-02: a `git commit` was blocked by exactly that,
+  # on a tree whose `.sutura-dev/endpoints.json` named a socket directory that no longer existed.
+  # Withdrawing the claim when the server goes is what makes "available" mean something.
+  #
+  # `status` exists so a caller can tear down only what it brought up. Every wrapper used to
+  # `start` unconditionally and `stop` on EXIT, so a nested run - or a developer who started the
+  # tier by hand - had their server stopped by somebody else's trap. See `nix/with-tier.sh`.
   #
   # WHERE the server lives is the one thing that differs between the two callers, and both choose
   # a SHORT path: a unix socket path is capped around 100 bytes on macOS, so the server can never
@@ -97,12 +110,23 @@
         if [ -d "$pg" ]; then
           pg_ctl -D "$pg" stop -m fast || true
         fi
+        # The endpoint file is a claim that a server is there. Withdraw it, or discovery keeps
+        # believing it and the cells fail on a dead socket instead of skipping. `|| true` because a
+        # tier that was never started has no file to remove and that is not a failure.
+        rm -f "$root/.sutura-dev/endpoints.json" || true
+      }
+
+      # Is a server up? Nothing is changed, and the answer is the exit code - so a wrapper can stop
+      # only what it started rather than trampling a tier somebody else brought up.
+      status() {
+        pg_ctl -D "$pg" status >/dev/null 2>&1
       }
 
       case "''${1:-}" in
         start) start ;;
         stop) stop ;;
-        *) echo "usage: $0 start|stop" >&2; exit 2 ;;
+        status) status ;;
+        *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
       esac
     '';
   };
