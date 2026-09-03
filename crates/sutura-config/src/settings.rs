@@ -46,6 +46,16 @@ use crate::telemetry::{
 /// One name, exported so a startup message and the documentation cannot disagree about it.
 pub const ENVIRONMENT_VARIABLE: &str = "SUTURA_ENVIRONMENT";
 
+/// The variable that points at the configuration directory a load layers files from.
+///
+/// **One name, here, because two binaries read it and neither may own it.** `sutura-serve` read it
+/// out of a private constant of its own while the `sutura` command took a directory positionally, so
+/// the two composition roots named the same operator-facing thing in two places and only one of them
+/// could be found by grepping this crate. It is exported for the same reason
+/// [`ENVIRONMENT_VARIABLE`] is: a startup message, a command's `--help` and the documentation cannot
+/// disagree about a name none of them owns.
+pub const CONFIG_DIR_VARIABLE: &str = "SUTURA_CONFIG_DIR";
+
 /// The prefix every configuration variable carries, and the separator between key segments.
 ///
 /// `SUTURA__SERVER__PORT` sets `server.port`. Two underscores for both, so a key segment that
@@ -150,6 +160,24 @@ pub fn environment_from_process() -> Result<Environment, SettingsError> {
         Err(std::env::VarError::NotPresent) => Ok(Environment::Development),
         Err(std::env::VarError::NotUnicode(_)) => Err(SettingsError::EnvironmentNotUnicode),
     }
+}
+
+/// Reads the configuration directory from the process, if one was named.
+///
+/// **An empty value is the same as an absent one, deliberately.** A container platform that
+/// templates `SUTURA_CONFIG_DIR` from an unset field sets it to the empty string, and
+/// `PathBuf::from("")` layers `base.yaml` relative to whatever the working directory happens to be -
+/// which is a file nobody wrote resolving somewhere nobody chose. The absence is the safe reading:
+/// the embedded defaults are complete.
+///
+/// Not fallible, and that is not a shortcut: unlike [`environment_from_process`] there is no
+/// permissive branch to fall into. A non-Unicode path is still a path this process can open, so it is
+/// carried through as an `OsString` rather than refused.
+#[must_use]
+pub fn config_dir_from_process() -> Option<PathBuf> {
+    std::env::var_os(CONFIG_DIR_VARIABLE)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 /// Why a configuration could not be turned into settings.

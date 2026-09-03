@@ -405,12 +405,16 @@ for being narrow.
 
 **The honest limit on that, stated next to the claim, and it is not about DataHub.** What a zero-metric
 bundle cannot do on its own is open a data system, and the two composition roots differ - which is
-worth getting right because the mechanism moved recently. `sutura-cli` takes one data directory on the
-command line, reads no source registry, and refuses a catalog declaring **no models** - *"this catalog
-declares no models, so there is nothing to open"* - which a DataHub bundle passes, and refuses one
-naming a source it has no adapter for. `sutura-serve` does **not** compare names: every source a
-catalog names needs a `sources.<alias>` entry declaring a `SourceKind`, and a missing one is
-*"this catalog reads from `<source>`, and no `sources.<source>` entry declares where that ..."*. So a
+worth getting right because the mechanism moved recently - **twice, and the second move dates this
+paragraph's own original wording, which said the command-line tool reads no source registry.** It does,
+since telekom/sutura#121. Both roots read the `sources:` tree: every source a catalog names is looked
+up there, and a missing entry is *"this catalog reads from `<source>`, and no `sources.<source>` entry
+declares where that ..."*. They differ in what an ABSENT entry means. `sutura-serve` refuses, full
+stop. `sutura-cli` falls back to its own built-in declaration - a `files` source called `local` over
+the directory on the command line - so an undeclared source must still be named `local` there, because
+nothing declared it and an engine wearing another name over the caller's own files would answer that
+catalog's certified numbers out of them. Both refuse a catalog declaring **no models** - *"this catalog
+declares no models, so there is nothing to open"* - which a DataHub bundle passes. So a
 DataHub bundle whose models carry platform URNs is servable exactly when a deployment has declared a
 source per platform it wants to read. **That is configuration, not a refusal of DataHub**, and it is
 the concrete thing the guidance below has to mention. It is written here so nobody reads *usable alone*

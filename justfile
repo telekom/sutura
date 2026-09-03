@@ -174,6 +174,28 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
+# The DECLARED source, asked a question: `crates/sutura-cli/tests/declared_source.rs` copies the
+# example catalog with `source: warehouse` in place of `source: local`, writes a `sources.warehouse`
+# entry over the example's own data, and spawns `sutura query` with `SUTURA_CONFIG_DIR` pointing at
+# it.
+#
+# **The one venue that exercises the door `github.com/telekom/sutura#121` is about.** Every case in
+# `crates/sutura-cli/src/sources.rs` builds its registry through an overlay, so
+# `environment_from_process`, `config_dir_from_process` and the `<dir>/base.yaml` layering are
+# reached by nothing else - and `std::env::set_var` is `unsafe` in this edition, so a spawned child is
+# what a test can decide the environment of. The same argument `just serve-e2e` makes for its own
+# binary. Also a gate: `checks.nextest` runs it, because files need no network and no credential.
+
+# Run the end-to-end suite against a source the deployment declared.
+declared-source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "declared-source: scope sutura-cli - a declared source, over the spawned binary."
+    echo "declared-source: run \`just test\` for the whole workspace's suite; this target is part of it."
+    cargo nextest run -p sutura-cli --all-features
+
 # `*paths`, not `+paths`, and the no-argument form is the one a PERSON uses: with nothing to go on
 # the gate reads the working tree itself, so `just check-changed` answers "does what I have touched
 # compile" without anybody having to type a path list. The commit hook keeps passing filenames.
