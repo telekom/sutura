@@ -364,6 +364,19 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.nextest -L
 
+      # The identity tier, brought up and provisioned inside the sandbox: a realm, a client and two
+      # subjects through `kcadm.sh`, and a token fetched AS each subject before the check passes. It
+      # is the mechanical form of "no human is needed in CI" - the claim `nix/keycloak-tier.nix` is
+      # built on - and it needs no docker socket and nothing off loopback.
+      #
+      # Gated on the venue's own inputs rather than on `rust`: nothing compiled here can change what
+      # the tier does, and a JVM on every Rust pull request is the cost `compose.services.yaml`
+      # declines for the same server. `nix/**` fails open to `run_all`, and `flake.nix`/`flake.lock`
+      # are the `nix` area, so between them the two conditions cover every file the tier reads.
+      - name: Identity tier
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
+        run: nix build .#checks.x86_64-linux.keycloak-tier -L
+
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
       # would pass unnoticed. A separate check, so the gap is visible rather than assumed.
       - name: Doctests

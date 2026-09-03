@@ -236,6 +236,15 @@
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
 
+        # The identity provider's CI venue, on the same pattern and from the same one file the
+        # `keycloak-tier` app runs, so the sandbox and a developer's shell cannot drift.
+        keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
+
+        # The one writer both tiers publish through. Named here as well, because the property
+        # that matters about it - two tiers in ONE endpoint file - needs a second service in the
+        # sandbox where `checks.keycloak-tier` can watch what happens to it.
+        tierEndpoints = import ./nix/tier-endpoints.nix { inherit pkgs; };
+
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
@@ -449,132 +458,94 @@
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
 
-          # A shipped package holds one executable, THAT executable is the one it was supposed to
-          # build, and no toolchain is in its closure. It held three binaries and a full cargo
-          # once, so this is a check rather than a sentence in a comment.
+          # The identity tier, brought up and provisioned INSIDE the sandbox - the nix-native venue
+          # for `compose.services.yaml`'s `keycloak`, whose demo venue is a docker profile.
           #
-          # EVERY shipped binary at EVERY shipped target, and both dimensions are the point. A
-          # cross build has its own dependency derivation and its own `cargoExtraArgs`, so "the
-          # native package holds one binary" says nothing about the musl one; and since #111 there
-          # are two binaries, so "the package built one thing" says nothing about WHICH thing. The
-          # price is that this check pulls every cross build in, which is what it costs for the
-          # assertion to be true rather than assumed.
+          # **What it holds, and it is not "a server started".** `sutura-keycloak-tier start`
+          # provisions a realm, a confidential client and two subjects through `kcadm.sh` and then
+          # asks the token endpoint for a token AS each subject, failing if either does not come
+          # back. So this check is the mechanical form of the claim that the tier needs NO HUMAN: a
+          # realm that came up half-provisioned, a flow a Keycloak upgrade turns off, or a required
+          # action that reappears is a red check here rather than a puzzling refusal in whatever
+          # reads it next. It asserts the harness contract on top of that - `endpoints.json` names
+          # the port the operating system chose, the realm file names both subjects, and `stop`
+          # withdraws both claims.
           #
-          # **THE NAME ASSERTION IS THE HALF THAT IS NEW, and it is the cheap guard against the
-          # defect #111 was.** `cargoExtraArgs` names a cargo PACKAGE while the image names an
-          # ENTRYPOINT PATH, and nothing relates the two: a `--package` pointing at the wrong
-          # crate builds, ships, and produces an image whose entrypoint does not exist - which
-          # fails at `docker run` on somebody else's machine. Two lines here turn that into a
-          # red gate.
-          one-binary =
-            let
-              cells = pkgs.lib.concatMap
-                (b: map (target: { inherit target; inherit (b) bin; drv = crossPackages."${b.bin}-${target}"; }) imageTargets)
-                binaries;
-              checkOne = p: ''
-                echo "one-binary: ${p.bin} ${p.target}"
-                count="$(ls ${p.drv}/bin | wc -l)"
-                if [ "$count" != "1" ]; then
-                  echo "${p.bin} ${p.target}: the shipped package holds $count binaries, expected 1:" >&2
-                  ls ${p.drv}/bin >&2
-                  exit 1
-                fi
-                if [ ! -x "${p.drv}/bin/${p.bin}" ]; then
-                  echo "${p.bin} ${p.target}: the shipped package holds no executable called '${p.bin}', so the image entrypoint would not exist:" >&2
-                  ls ${p.drv}/bin >&2
-                  exit 1
-                fi
-                # A toolchain in the closure means something baked a build-time path into the
-                # binary. That is how cargo got in: `env!("CARGO")` in a workspace member.
-                if grep -qE '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths; then
-                  echo "${p.bin} ${p.target}: a Rust toolchain is in the runtime closure:" >&2
-                  grep -E '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths >&2
-                  exit 1
-                fi
-              '';
-            in
-            pkgs.runCommand "sutura-one-binary" { } ''
-              set -eu
-              ${pkgs.lib.concatMapStrings checkOne cells}
+          # **Its own check rather than `nextest`'s `preCheck`, and the reason is what reads it.**
+          # Postgres is provisioned there because Rust cells connect to it in that pass. Nothing in
+          # this repository can carry a per-subject credential yet, so no cell reads this tier -
+          # paying a JVM's start-up on every test pass for a server nothing connects to is the cost
+          # `compose.services.yaml` declines for the same service on the same grounds. The
+          # convergence is one line: when a cell needs a real issuer, this tier moves into
+          # `nextest`'s `preCheck` beside Postgres and this check goes away.
+          #
+          # No network beyond loopback, no docker socket, no state outside the build directory.
+          keycloak-tier = pkgs.runCommand "keycloak-tier"
+            {
+              nativeBuildInputs = [ keycloakTier.tier tierEndpoints.script pkgs.jq ];
+            }
+            ''
+              tree="$NIX_BUILD_TOP/worktree"
+              mkdir -p "$tree"
+              cd "$tree"
+
+              sutura-keycloak-tier start
+              sutura-keycloak-tier status
+
+              # The discovery contract: a harness learns the port from this file and nowhere else,
+              # so a tier that started and published nothing is a tier no test can reach.
+              endpoints=.sutura-dev/endpoints.json
+              test -f "$endpoints"
+              test "$(jq -r '.provisioner' "$endpoints")" = nix
+              port="$(jq -r '.services.keycloak.port' "$endpoints")"
+              test "$port" -gt 0
+              test "$(jq -r '.services.keycloak.host' "$endpoints")" = 127.0.0.1
+
+              # Two subjects, because one is not the property `docs/adr/0008` draws.
+              realm=.sutura-dev/keycloak-realm.json
+              test "$(jq -r '.subjects | length' "$realm")" = 2
+              test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${keycloakTier.realm}"
+
+              # A SECOND TIER IN THE SAME FILE, which is the property `nix/tier-endpoints.nix`
+              # exists for and which no other check can see: `checks.nextest` provisions Postgres
+              # alone and this one provisions Keycloak alone, so the two-tier case only happens on
+              # a developer's machine - where the old single-`printf` writer silently dropped the
+              # first service's entry and discovery answered a truthful file about half a tier.
+              # A neighbour is published by hand here rather than by starting a real server,
+              # because what is under test is the writer and not the second service.
+              sutura-tier-endpoint publish "$tree" postgres "$tree/.sutura-dev/pg" 5432
+              test "$(jq -r '.services | length' "$endpoints")" = 2
+              test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
+
+              # `stop` withdraws BOTH of ITS OWN claims and NEITHER of the neighbour's. A stale
+              # endpoint is read as availability, which is how a fail-closed cell panics on a dead
+              # server instead of skipping; a withdrawal that took the whole file with it is the
+              # clobbering above, in the other direction.
+              sutura-keycloak-tier stop
+              test ! -f "$realm"
+              test -f "$endpoints"
+              test "$(jq -r '.services | has("keycloak")' "$endpoints")" = false
+              test "$(jq -r '.services.postgres.port' "$endpoints")" = 5432
+              if sutura-keycloak-tier status; then
+                echo "the tier reports itself up after stop" >&2
+                exit 1
+              fi
+
+              # The last service out takes the file with it, because its EXISTENCE is what
+              # discovery reads as "something is provisioned here".
+              sutura-tier-endpoint withdraw "$tree" postgres
+              test ! -f "$endpoints"
+
               touch $out
             '';
 
-          # WHICH FEATURES A PUBLISHED BINARY CARRIES, asserted from inside the binary.
-          #
-          # `nix/shipped.nix` decides that both shipped binaries are built with cargo's DEFAULT
-          # feature set, and the reason is the four cross builds: `sutura-serve`'s `tls` and
-          # `bigquery` features each pull a rustls closure with `ring` in it, and two of the four
-          # release triples are musl. Issue #111 asks for that to be a STATED choice rather than
-          # one somebody discovers, and a comment is not a mechanism - so this is the mechanism.
-          #
-          # READ OUT OF THE ARTIFACT, never out of a manifest. `nix/auditable.nix` builds every
-          # shipped binary with `cargo auditable`, which puts the crates the compiler actually
-          # linked into one ELF section, and `rust-audit-info` reads them back. A check over
-          # `Cargo.toml` would be asserting what somebody wrote down; this asserts what shipped.
-          # It is the same section `release.yml`'s SBOM and `ci.yml`'s cross job already depend
-          # on, so a build that stopped embedding it fails here too rather than passing quietly.
-          #
-          # TWO DIRECTIONS, because only checking the absence would pass on a binary that linked
-          # nothing at all: `axum` must be present in the server and `ring` absent from both.
-          #
-          # **What this does NOT claim.** It is a statement about a crate NAME in a list, not
-          # about reachable code: a future default feature that pulls TLS under a different crate
-          # name is invisible to it, and so is a crate present for a reason other than the feature
-          # this row is about. It is also the NATIVE build only - the cross artifacts get the same
-          # `cargoExtraArgs` from the same list, so the feature set cannot differ per target
-          # without `nix/shipped.nix` saying so, and pulling four cross builds in to re-read the
-          # same list would double this check's cost for nothing.
-          shipped-features =
-            let
-              # `axum` for the server and `datafusion` for both: one is the transport the
-              # published server exists to carry, the other is the engine neither binary can
-              # answer a question without.
-              required = { sutura = [ "datafusion" ]; sutura-serve = [ "axum" "datafusion" ]; };
-              # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
-              # variant of, while `ring` is the one that compiles C and assembly and is therefore
-              # the one the cross builds actually pay for.
-              #
-              # **Both binaries have a `bigquery` feature to leave off since issue #121, and this
-              # list is what says they left it off** - an assertion about the ARTIFACT rather than
-              # about a manifest, which is the whole reason it reads the embedded dependency list.
-              # A `bigquery` that stopped being optional on either crate fails here.
-              forbidden = [ "ring" "ureq" ];
-              quoted = name: "'\"" + name + "\"'";
-              wantOne = bin: name: ''
-                if ! grep -q ${quoted name} deps-${bin}.json; then
-                  echo "${bin}: the embedded dependency list does not name ${name}" >&2
-                  exit 1
-                fi
-              '';
-              banOne = bin: name: ''
-                if grep -q ${quoted name} deps-${bin}.json; then
-                  echo "${bin}: the embedded dependency list names ${name}, so the published binary carries a feature nix/shipped.nix says it does not - see the features paragraph there" >&2
-                  exit 1
-                fi
-              '';
-              checkOne = b:
-                let drv = shipped.nativeBinaries.${b.bin}; in ''
-                echo "shipped-features: ${b.bin}"
-                rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
-                crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
-                # A FLOOR, for the reason `ci.yml` gives at its own copy of this number: the exact
-                # count moves with every dependency bump, and what is checked is the difference
-                # between a list of crates and no list at all. `grep -o | wc -l`, never `grep -c`,
-                # because the document is one line.
-                if [ "''${crates:-0}" -lt 100 ]; then
-                  echo "${b.bin}: read $crates crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nothing below means anything" >&2
-                  exit 1
-                fi
-                echo "${b.bin}: $crates crate(s) embedded"
-                ${pkgs.lib.concatMapStrings (wantOne b.bin) required.${b.bin}}
-                ${pkgs.lib.concatMapStrings (banOne b.bin) forbidden}
-              '';
-            in
-            pkgs.runCommand "sutura-shipped-features" { nativeBuildInputs = [ pkgs.rust-audit-info ]; } ''
-              set -eu
-              ${pkgs.lib.concatMapStrings checkOne binaries}
-              touch $out
-            '';
+          # The two release-only assertions about a SHIPPED ARTEFACT - one executable per
+          # package, and which features it links - are in `nix/shipped.nix`, beside the list
+          # and the features paragraph they are assertions about. Declared here, because
+          # `checks = {` is the block `nix flake check` and two xtask gates read, and named
+          # one per line rather than `inherit`ed, because that is what those gates parse.
+          one-binary = shipped.artifactChecks.one-binary;
+          shipped-features = shipped.artifactChecks.shipped-features;
 
           # pixi exists because nix does not run on every host we develop on - so a few tools
           # are pinned twice, and a second pin is a second source of truth unless something
@@ -750,6 +721,22 @@
             export PATH="${rustToolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
             exec cargo deny check "$@"
           '');
+        };
+
+        # `nix run .#keycloak-tier -- start|stop|status` - the identity tier by hand.
+        #
+        # An app rather than a package on the dev shell's PATH, and the difference is who pays.
+        # `devenv.nix` carries the Postgres tier because `just test` provisions it on every run;
+        # nothing here reads Keycloak yet, so putting it in the shell would make every contributor
+        # fetch a JVM and a 186 MB server on `nix develop` for a tier they will not use. As an app
+        # it arrives when somebody asks for it - `just keycloak-tier start` - and `checks.keycloak-
+        # tier` is the venue that runs it unattended.
+        #
+        # The SAME derivation the check runs, from the same file, which is the property that keeps
+        # a demo and CI from drifting.
+        apps.keycloak-tier = {
+          type = "app";
+          program = "${keycloakTier.tier}/bin/sutura-keycloak-tier";
         };
 
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.

@@ -147,6 +147,22 @@ therefore does not see.
   and two gated counts. It fails a cited `just` task that does not exist and a cited `cargo` line
   missing `--all-features`. Its own stated blind spot: a comment marker is not stripped, so a claim
   wrapping inside a `#` block is not found.
+- **A `just` task cited in a printed Rust string is checked; a raw command line there is not.**
+  The scope split is deliberate and was measured before it was taken. What judges a SENTENCE stays
+  on prose files, because a rule table written in Rust holds the phrases it forbids and a scan over
+  `.rs` would report the gate's own reasoning. What RESOLVES a citation - is this a recipe, is this
+  a task - is answered against derived authorities and costs nothing on `.rs`, so `check-guidance`
+  reads every published `.rs` file, production regions only, for a backtick span beginning `just `
+  or `cargo xtask `. **Measured when it landed: 31 such citations in the workspace, and the check
+  found one of them already broken on its first run** - `sutura-dev` printed `just dev-endpoint`
+  while the recipe parser kept the `@` off a quiet header in the name, so the only authority for
+  "is that a recipe" said no. That is the argument for it. What it does NOT hold: an interpolated
+  task NAME, a citation with no backticks, a path, and the half that caught
+  `github.com/telekom/sutura#243` in the first place - *an invocation span has to begin `just `*.
+  That half stays a unit test in the module whose siblings establish the form, because this tree
+  prints `nix run .#…` and shell fragments in backticks legitimately and the general rule would
+  fire on correct advice. A citation rule widened past prose without a precision story becomes
+  noise, and noise is how a gate gets disabled.
 - **A derived number is only a control while a page still states it, and BOTH shapes here got
   that wrong.** A count and a version pin work the same way - derive the value from the tree, then
   compare it against pages under a `mentioned_in` glob - so both hold nothing when no page states
@@ -167,6 +183,23 @@ therefore does not see.
   is prose and nothing derives it, so a wording nobody has registered is held by review. The
   transferable part: when a mechanism's own data is prose, ask what reads THAT, and expect the
   answer to be nothing.
+- **A gate that scans a language must lex it, and the failure mode is INVENTING as well as losing.**
+  `check-workflows` counted `{` and `}` over `flake.nix`'s raw text to answer "which checks exist".
+  Three shapes broke it at once, and two of them were in the tree for months: a brace inside a `#`
+  comment (comments were skipped for names and counted for depth, so one sentence quoting the
+  block's own header shifted every line below it), a brace inside an indented `''...''` string (a
+  tier's body is shell, so `port=` and `realm=` were reported as declared checks), and a `let`
+  binding inside a check's value (`let` opens no brace, so seven bindings read as outputs). The
+  invented half is the worse one: a caller cannot tell a fabricated name from a real one, and the
+  report came out as eighteen workflow references to outputs "that do not exist" rather than as a
+  broken parse. **`check-newtype-leaks` had this right first** - it blanks comments and string
+  interiors before matching, and says so, because three doc comments in the tree state *there is
+  deliberately no `Deref`*. So the pattern to copy is that one. Two rules fell out: blank the
+  non-code half before counting anything, and make an unclosed block an ERROR rather than an answer.
+- **`nix eval` is the authority for a flake's outputs and cannot be the mechanism here.** Weighed
+  and rejected once, so it does not need weighing again: `check-workflows` runs inside
+  `checks.hygiene`, a derivation with no nix and no network, and evaluating `checks` needs the
+  flake's inputs. The authority is unreachable exactly where the check runs.
 - **A count in prose is only as good as the command beside it.** An anchored
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.
