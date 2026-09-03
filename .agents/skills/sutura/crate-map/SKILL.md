@@ -62,6 +62,15 @@ wider** - its package list is derived from the `binaries` list below, so a featu
 does not ship is reached by the `--all-features` gates and by nothing at the default set - and it is
 a developer lane: CI has the four `cross` builds for the compile half and nothing for the lint half.
 
+**What makes that rule a gate rather than a wish** is `probeFeatures` in `nix/shipped.nix`: a
+feature named there gets a `<bin>-<feature>-<triple>-ci` package per release triple, and the `cross`
+jobs build them beside the shipped set - so the price of the feature ON is a job time on every pull
+request rather than an argument. Until it existed the only evidence was a native `cargo check`,
+which stops at metadata and therefore says nothing about the musl link that is the whole risk.
+**What it does not cover:** it links and never runs, and it probes only the features a binary
+declares - `sutura-serve`'s `tls` and `bigquery` are the same shape and are deliberately unprobed,
+because the closure is compiled per target and three probes would triple the job.
+
 A feature-gated adapter's absence is a **startup refusal naming the feature**, never a silent
 degradation - and `sutura_config` cannot see a link, so which adapters a BUILD contains is not in
 the settings vocabulary.
