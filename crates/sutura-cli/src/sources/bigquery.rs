@@ -9,7 +9,20 @@
 //! an impl file whose tests live in the parent module is the partition `cargo xtask test-causality`
 //! reads as a false *green against base behaviour*.
 
+#[cfg(feature = "bigquery")]
+use std::collections::{BTreeMap, BTreeSet};
+
+#[cfg(feature = "bigquery")]
+use sutura_app::Warehouses;
 use sutura_domain::model::SourceName;
+#[cfg(feature = "bigquery")]
+use sutura_domain::model::{ModelName, QualifiedTable};
+#[cfg(feature = "bigquery")]
+use sutura_domain::pinned::PinnedDefinitions;
+#[cfg(feature = "bigquery")]
+use sutura_domain::warehouse::Warehouse;
+#[cfg(feature = "bigquery")]
+use sutura_domain::warehouse::preflight::TablesPresent;
 
 use crate::sources::Opened;
 // Both reached only by the COMPOSING half below. A build without the feature gets the refusal, which
@@ -195,6 +208,151 @@ pub(super) fn open(
     ))
 }
 
+/// Refuses a bundle naming a table the dataset behind it does not hold.
+///
+/// **Issue 120's asymmetry, at the OTHER serving composition root.** `sutura-serve`'s
+/// `boot::refuse_absent_tables` closed it for the HTTP surface; `sutura mcp` was left with it. The
+/// agent surface serves for as long as its peer keeps the pipe open, and the `BigQuery` arm attaches
+/// nothing - so [`crate::sources::refuse_unattached`] is skipped and, before this, nothing asked the
+/// dataset anything. A mistyped `table:` bought a process that started, announced its capabilities,
+/// and handed an agent a failure the first time it asked that metric.
+///
+/// **`crate::commands::query` deliberately does not call this**, and the difference is who finds
+/// out. That command answers one question on a terminal and exits, so a table that is not there is a
+/// failure the person who typed the command reads immediately - the outcome this check exists to
+/// produce, already produced, at no metadata read. What issue 120 is about is a SERVING process,
+/// where the operator learns from whoever asked.
+///
+/// **A copy of `sutura-serve`'s function rather than a shared one**, for the reason [`open`] carries
+/// about the composition itself: the two roots are separate binaries and neither may depend on the
+/// other. What is genuinely shared is shared already - the port, its answer vocabulary and the
+/// one-call-per-dataset implementation, in `sutura_domain::warehouse::preflight` and
+/// `sutura-exec-bigquery`. What is duplicated is the operator-facing sentence, which is a
+/// composition root's own to write.
+///
+/// **The could-not-verify line is `eprintln!` and not `tracing::warn!`, which is the one real
+/// difference from `sutura-serve`'s copy.** A locally launched process installs no subscriber - the
+/// module doc on [`crate::mcp`] states that for the audit sink - so a `tracing` warning here would go
+/// nowhere for the whole session, and a check whose soft outcome is invisible is a silent pass.
+/// Standard error for the reason the startup notice in [`crate::mcp`] uses it: on that transport
+/// standard output is the protocol channel.
+///
+/// **Two limits, the same two `sutura-serve` states.** What this establishes is that a table EXISTS:
+/// not that the model's columns are on it, and not that a question's identity may read it - a
+/// listing grant and a read grant are two grants, and an anchor is what covers both for the metrics
+/// that have one. And it reads the bundle this command loaded, so a catalog directory that changes
+/// while the surface is serving is seen by nothing here.
+///
+/// # Errors
+///
+/// A dataset that REFUSED the listing - the identity may not ask - and a bundle naming a table the
+/// dataset does not hold. A dataset that could not be asked for any other reason is the
+/// standard-error line and not a refusal, because a process whose data system is briefly unreachable
+/// at startup still has to be able to serve when it comes back.
+/// `Warehouse::preflight_was_refused` is what splits the two, and the port documents why the split
+/// is the adapter's to make.
+#[cfg(feature = "bigquery")]
+pub(crate) fn refuse_absent_tables<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<(), String>
+where
+    W: Warehouse,
+{
+    for (source, engine) in engines.each() {
+        let behind = models_by_table(pinned, source);
+        if behind.is_empty() {
+            continue;
+        }
+        let asked: BTreeSet<QualifiedTable> = behind.keys().cloned().collect();
+        let present = match engine.preflight(&asked) {
+            Ok(present) => present,
+            // An authorization failure is a REFUSAL: the fix is one grant, it will fail identically
+            // on every launch, and a soft line is what the person running an agent client never
+            // reads. Everything else - an endpoint that did not answer, a dataset that is not there -
+            // is the soft outcome.
+            Err(cause) if engine.preflight_was_refused(&cause) => {
+                return Err(format!(
+                    "{source} refused to list the tables the catalog names, so this process cannot \
+                     tell a mistyped `table:` from a table that is there. Grant the identity this \
+                     source is opened with `bigquery.tables.list` on the dataset. The data system \
+                     said: {}",
+                    render(&cause)
+                ));
+            }
+            Err(cause) => {
+                eprintln!(
+                    "sutura: could not verify that {source} holds the {} table(s) the catalog names \
+                     - serving anyway, so a mistyped table name will fail the first question against \
+                     it. The data system said: {}",
+                    asked.len(),
+                    render(&cause)
+                );
+                continue;
+            }
+        };
+        if let Some(missing) = present.absent() {
+            return Err(format!(
+                "{source} does not hold {}. Refusing to serve a model whose questions would fail at \
+                 query time - fix the catalog's `table:`, or create the table",
+                unmatched(missing.named(), &behind)
+            ));
+        }
+        match present {
+            TablesPresent::All => eprintln!(
+                "sutura: every one of the {} table(s) the catalog names is in {source}",
+                asked.len()
+            ),
+            // `NotAsked` gets a line of its own for the reason `sutura-serve`'s copy does: it is the
+            // one outcome meaning *nothing verified this*, and silence makes it indistinguishable
+            // from a verified dataset. Unreachable through the `BigQuery` arm, which always asks, and
+            // reachable by any future adapter that takes the port's default.
+            TablesPresent::NotAsked => eprintln!(
+                "sutura: {source} does not report which tables it holds, so nothing here verified \
+                 the {} table(s) the catalog names",
+                asked.len()
+            ),
+            // Unreachable: refused above. Exhaustive rather than a wildcard, so a fourth answer is a
+            // compile error at this line instead of a silent nothing.
+            TablesPresent::AllBut(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// Which models sit behind each table one source's part of the bundle names.
+///
+/// Keyed by the TABLE and carrying the models, because that is the direction the refusal reads in:
+/// the dataset answers about a table, and the operator has to open a model to fix it. Two models on
+/// one table is ordinary, so the value is a set.
+#[cfg(feature = "bigquery")]
+fn models_by_table(pinned: &PinnedDefinitions, source: &SourceName) -> BTreeMap<QualifiedTable, BTreeSet<ModelName>> {
+    let mut behind: BTreeMap<QualifiedTable, BTreeSet<ModelName>> = BTreeMap::new();
+    for model in pinned.definitions().models().values() {
+        if model.source() == source {
+            behind.entry(model.table().clone()).or_default().insert(model.name().clone());
+        }
+    }
+    behind
+}
+
+/// The absent tables, each with the models that named it, as one line of a refusal.
+///
+/// It names the model AND the table, because the two things an operator can do are in the same file
+/// and one of them is a typo: the table path is what the dataset disagreed with, and the model is
+/// what they have to open to change it.
+#[cfg(feature = "bigquery")]
+fn unmatched(missing: &BTreeSet<QualifiedTable>, behind: &BTreeMap<QualifiedTable, BTreeSet<ModelName>>) -> String {
+    missing
+        .iter()
+        .map(|table| {
+            let models = behind
+                .get(table)
+                .map(|models| models.iter().map(ModelName::as_str).collect::<Vec<&str>>().join(", "))
+                .unwrap_or_default();
+            format!("table {table}, named by model(s) [{models}]")
+        })
+        .collect::<Vec<String>>()
+        .join("; ")
+}
+
 #[cfg(test)]
 mod tests {
     // The fixtures live one module up so the dataset-argument refusal - which is `sources.rs`'s,
@@ -304,5 +462,212 @@ mod tests {
             !error.contains("credential_file"),
             "the posture is refused before the credential file is read: {error}"
         );
+    }
+
+    /// [`super::refuse_absent_tables`]'s own suite.
+    ///
+    /// **A nested module rather than a `cfg` on each item, and neither obvious form works** - the
+    /// same shape `sutura-serve`'s `boot::tests` had to invent. With the feature off there is no
+    /// `refuse_absent_tables` to call, so an ungated module fails to compile on the DEFAULT feature
+    /// set; writing `#[cfg(all(test, feature = "bigquery"))]` on the parent is what a reader reaches
+    /// for and makes every test in here a lint error, because `clippy::tests_outside_test_module` and
+    /// `clippy::expect_used` both key on the literal `#[cfg(test)]` attribute.
+    #[cfg(feature = "bigquery")]
+    mod preflight {
+        use core::cell::RefCell;
+        use std::collections::BTreeSet;
+
+        use sutura_app::Warehouses;
+        use sutura_domain::identity::Presented;
+        use sutura_domain::model::{QualifiedTable, SourceName};
+        use sutura_domain::pinned::PinnedDefinitions;
+        use sutura_domain::plan::{AnchorPlan, Executable};
+        use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+        use sutura_domain::warehouse::preflight::TablesPresent;
+        use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+
+        use crate::sources::bigquery::refuse_absent_tables;
+
+        /// A data system that answers the pre-flight from what a test handed it, and records the asking.
+        ///
+        /// **A fake above the port rather than a fake transport**, which is what makes every outcome
+        /// reachable here: `sutura_exec_bigquery::wire::BigQueryWire`'s host is a `const` and its
+        /// agent is `https_only`, so no test in this repository can point a real one at a loopback.
+        /// What is under test is this composition root's DECISION about each answer, and a `Warehouse`
+        /// fake is exactly what exercises that.
+        struct Answers {
+            source: SourceName,
+            answer: Answering,
+            asked: RefCell<Vec<usize>>,
+            /// What this fake says about its own failure - the `preflight_was_refused` half.
+            ///
+            /// A field rather than a second fake type, because what this root has to get right is
+            /// that it ASKS: two fakes whose `Err` is the same value and which answer this
+            /// differently is the only shape that shows the delegation happening.
+            refused: bool,
+        }
+
+        /// What a test hands the fake to answer a pre-flight with.
+        ///
+        /// A named function pointer, because the spelled-out type is over the `type_complexity`
+        /// threshold this workspace tightened.
+        type Answering = fn(&BTreeSet<QualifiedTable>) -> Result<TablesPresent, CouldNotAsk>;
+
+        /// The one failure this fake can report: the dataset could not be asked.
+        ///
+        /// Written by hand rather than derived, because `sutura-cli` declares no `thiserror`
+        /// dependency and `unused-deps` would be the next thing to complain if it did.
+        #[derive(Debug)]
+        struct CouldNotAsk;
+
+        impl core::fmt::Display for CouldNotAsk {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str("the dataset could not be listed")
+            }
+        }
+
+        impl core::error::Error for CouldNotAsk {}
+
+        impl Warehouse for Answers {
+            type Error = CouldNotAsk;
+
+            const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+            fn source(&self) -> &SourceName {
+                &self.source
+            }
+
+            fn posture(&self) -> &SourcePosture {
+                &SourcePosture::ImpersonationAtSource
+            }
+
+            fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+                Err(CouldNotAsk)
+            }
+
+            fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+                Err(CouldNotAsk)
+            }
+
+            fn preflight(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
+                self.asked.borrow_mut().push(tables.len());
+                (self.answer)(tables)
+            }
+
+            fn preflight_was_refused(&self, _error: &Self::Error) -> bool {
+                self.refused
+            }
+        }
+
+        /// One open registry over one fake, under the alias the test bundle's models declare.
+        fn opened(answer: Answering) -> Warehouses<Answers> {
+            registry(answer, false)
+        }
+
+        /// The same, over a dataset that says its failure was a REFUSAL rather than an outage.
+        fn refusing(answer: Answering) -> Warehouses<Answers> {
+            registry(answer, true)
+        }
+
+        fn registry(answer: Answering, refused: bool) -> Warehouses<Answers> {
+            Warehouses::of(Answers {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+                answer,
+                asked: RefCell::new(Vec::new()),
+                refused,
+            })
+        }
+
+        /// Two models on one source, one of which the dataset will be said not to hold.
+        fn bundle() -> PinnedDefinitions {
+            crate::sources::bundle_over(&[
+                ("customers", "warehouse", "dim_customer"),
+                ("orders", "warehouse", "fct_orders"),
+            ])
+        }
+
+        #[test]
+        fn a_bigquery_bundle_naming_a_table_the_dataset_does_not_hold_does_not_serve() {
+            // **The parity issue 120 is about, at the surface it was still missing from.** `sutura
+            // mcp` over a `files` source refuses this state through `refuse_unattached`, because the
+            // engine is GIVEN a file per model. Over a dataset it started, printed its capability
+            // notice, and handed the peer a failure the first time it asked that metric.
+            let engines = opened(|asked| {
+                Ok(TablesPresent::of(
+                    asked
+                        .iter()
+                        .filter(|table| table.name().as_str() == "fct_orders")
+                        .cloned()
+                        .collect(),
+                ))
+            });
+            let error = refuse_absent_tables(&bundle(), &engines).expect_err("a table that is not there stops the process");
+            assert!(error.contains("fct_orders"), "the refusal must name the table: {error}");
+            assert!(error.contains("orders"), "the refusal must name the model: {error}");
+            assert!(
+                !error.contains("dim_customer"),
+                "the refusal must not name a table the dataset holds: {error}"
+            );
+        }
+
+        #[test]
+        fn the_whole_bundle_is_one_question_and_not_one_per_model() {
+            // The control, and the cost argument the port is shaped around: two models behind two
+            // tables are ONE call carrying both, so a bundle of forty costs one metadata read rather
+            // than forty. This asserts it rather than claiming it.
+            let engines = opened(|_asked| Ok(TablesPresent::All));
+            refuse_absent_tables(&bundle(), &engines).expect("a bundle whose tables are all there serves");
+            let engine = engines
+                .get(&SourceName::parse("warehouse").expect("a test source is a source"))
+                .expect("the fake is registered under that alias");
+            assert_eq!(
+                *engine.asked.borrow(),
+                vec![2],
+                "one call carrying both tables, not one call per model"
+            );
+        }
+
+        #[test]
+        fn a_dataset_that_could_not_be_reached_still_serves() {
+            // The soft edge: a dataset that did not ANSWER is a condition that passes, so the surface
+            // serves and says so on standard error. Its twin below is what makes that defensible.
+            let engines = opened(|_asked| Err(CouldNotAsk));
+            refuse_absent_tables(&bundle(), &engines)
+                .expect("an endpoint that did not answer at startup is a process that still has to serve");
+        }
+
+        #[test]
+        fn a_credential_that_cannot_list_the_dataset_is_a_different_refusal_from_a_missing_table() {
+            // **The split, and the two tests either side of it are what make it mean something:** the
+            // same `Err` value, the same variant, and the only difference is what the dataset says
+            // about its own failure. A refusal to LIST is one grant and fails identically on every
+            // launch, so a soft line would hide the check being off - and the message an operator gets
+            // names the grant rather than a table, because the two fixes are in different places.
+            let engines = refusing(|_asked| Err(CouldNotAsk));
+            let error = refuse_absent_tables(&bundle(), &engines)
+                .expect_err("a dataset that refuses to be asked is a process that cannot verify itself");
+            assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+            assert!(
+                error.contains("bigquery.tables.list"),
+                "the refusal must name the grant an operator has to add: {error}"
+            );
+            assert!(
+                !error.contains("dim_customer") && !error.contains("fct_orders"),
+                "a listing that never happened must not be reported as a table that is absent: {error}"
+            );
+        }
+
+        #[test]
+        fn an_adapter_that_reports_nothing_still_serves() {
+            // Any adapter written before this port existed: `NotAsked` is not a claim that anything
+            // was verified, and it is not a refusal either.
+            //
+            // **It does not exercise the port's DEFAULT**, which is worth saying because the name
+            // invites the reading: this fake overrides `preflight` and returns `Ok(NotAsked)` by hand.
+            // What exercises the real default is `sutura_domain::warehouse::preflight`'s own test,
+            // whose fake omits the method entirely.
+            let engines = opened(|_asked| Ok(TablesPresent::NotAsked));
+            refuse_absent_tables(&bundle(), &engines).expect("an adapter that did not look refuses nothing");
+        }
     }
 }

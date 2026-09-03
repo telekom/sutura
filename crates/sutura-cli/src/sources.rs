@@ -81,6 +81,14 @@ use crate::commands::render;
 /// reads as a false *green against base*.
 mod bigquery;
 
+/// The pre-flight that closes issue 120 for this binary's serving surface.
+///
+/// Re-exported rather than reached as `bigquery::refuse_absent_tables`, so [`crate::mcp`] names it
+/// beside [`refuse_unattached`] - the two halves of one question, one per kind of source - and so
+/// the `bigquery` module stays private the way the dispatch expects.
+#[cfg(feature = "bigquery")]
+pub(crate) use bigquery::refuse_absent_tables;
+
 /// The FILES half of this module: the in-process engine over a directory, and the built-in
 /// declaration that answers when the deployment declared nothing.
 ///
