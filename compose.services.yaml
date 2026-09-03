@@ -24,15 +24,19 @@
 #
 # Every service declares a HEALTHCHECK, because provisioning gates on health rather than sleeping.
 # A service without one is treated as ready when it is running, which is why adding a service
-# without a probe silently weakens the gate.
+# without a probe silently weakens the gate - and that sentence was a rule held by recall until
+# `every_service_in_the_tier_declares_a_healthcheck_unless_it_is_a_job` made it a gate. A container
+# something waits to COMPLETE is the one exemption, derived rather than listed.
 #
 # ## What checks this file
 #
 # `xtask`'s own suite reads it, because NO OTHER GATE IN THIS REPOSITORY READS A COMPOSE FILE. It
 # fails on a `"5432:5432"`, on a literal `container_name:`, on an image that does not come through
-# the registry variable below, on two registry defaults that disagree, and on a credential written
-# twice. Those are review comments this file collected, turned into checks rather than into
-# paragraphs somebody has to remember - see `xtask/src/compose.rs`.
+# the registry variable below, on two registry defaults that disagree, on a credential written
+# twice, on a service with no health probe, and on shared configuration anchored inside a service
+# block instead of in an `x-` block above the list. Those are review comments this file collected,
+# turned into checks rather than into paragraphs somebody has to remember - see
+# `xtask/src/compose.rs` and `xtask/src/compose/file.rs`.
 #
 # ## Registry prefix, for a network with no route to the public registry
 #
@@ -77,6 +81,66 @@
 x-fixture-credentials:
   user: &fixture-user ${SUTURA_DEV_USER:-sutura}
   password: &fixture-password ${SUTURA_DEV_PASSWORD:-sutura}
+
+# The environment the two DataHub BACKEND containers share. The migration job and GMS read the same
+# three stores, so a key written twice is two answers to "which database" - one definition, both
+# merge it, exactly the argument `x-fixture-credentials` above makes about a password.
+#
+# Defined HERE rather than inside a service block, and that placement is the point: shared
+# configuration anchored inside one service reads as the other service INHERITING from that one. It
+# does not - both merge this map - and the misreading is not hypothetical. This block used to hang
+# off `datahub-system-update`, and review of the merge key there concluded GMS was missing from the
+# file. `shared_configuration_is_defined_above_the_service_list` in `xtask/src/compose/file.rs` is
+# what keeps a shared anchor above `services:` from now on.
+x-datahub-backend-environment: &datahub-backend-environment
+  DATAHUB_GMS_HOST: datahub-gms
+  # The port INSIDE the container, on the per-worktree compose network - and the distinction is the
+  # whole of whether two worktrees can run this tier at the same time. NOTHING here publishes 8080
+  # on the host: `datahub`'s `ports:` entry names only the container port, so docker and the
+  # operating system allocate the host port, `xtask dev-up` reads back what they chose, and
+  # `sutura_dev::discovery` is the only way to learn it - `Endpoint`'s fields are private, so a
+  # constant does not compile. Held by `the_compose_file_publishes_no_fixed_host_port`, not by this
+  # comment.
+  #
+  # **The limit, next to the claim.** What is held is the absence of a port clash and of a shared
+  # NAME: the compose project name is a digest of the worktree's canonical path, so containers,
+  # networks and volumes are namespaced, `container_name:` is refused by that same gate, and
+  # `no_service_in_the_tier_mounts_a_host_directory` keeps the machine-wide `${HOME}` path upstream
+  # binds out of the volume list. What is NOT held is the DISCOVERY FILE: `.sutura-dev/endpoints.json`
+  # has two writers and each rewrites it WHOLESALE, in both directions - measured on 2026-09-03,
+  # `xtask dev-up` left `provisioner: docker` with `clickhouse` and `datahub` while the nix
+  # Postgres tier's postmaster was still alive and no longer named, and `sutura-postgres-tier start`
+  # does the same to the docker entries. So a running service can be invisible to the file that is
+  # the only way to learn its address. That is a defect with no gate - see the note on
+  # `just datahub-acceptance` - and it is NOT a port clash: parallelism survives it, discovery does
+  # not.
+  DATAHUB_GMS_PORT: "8080"
+  DATAHUB_PRECREATE_TOPICS: "true"
+  DATAHUB_SQL_SETUP_ENABLED: "true"
+  # FIXTURES, and the same argument as the credential anchors above: nothing outside this host
+  # can reach these containers, because the one published port is ephemeral. A deployment's
+  # signing key is a secret; a throwaway container's is a value that has to be non-empty.
+  DATAHUB_TOKEN_SERVICE_SALT: sutura-dev-salt
+  DATAHUB_TOKEN_SERVICE_SIGNING_KEY: sutura-dev-signing-key
+  EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
+  EBEAN_DATASOURCE_HOST: mysql:3306
+  EBEAN_DATASOURCE_USERNAME: root
+  EBEAN_DATASOURCE_PASSWORD: *fixture-password
+  EBEAN_DATASOURCE_URL: jdbc:mysql://mysql:3306/datahub?verifyServerCertificate=false&useSSL=true&useUnicode=yes&characterEncoding=UTF-8&enabledTLSProtocols=TLSv1.2
+  ELASTICSEARCH_HOST: search
+  ELASTICSEARCH_PORT: "9200"
+  ELASTICSEARCH_PROTOCOL: http
+  ELASTICSEARCH_USE_SSL: "false"
+  ELASTICSEARCH_IMPLEMENTATION: opensearch
+  ELASTICSEARCH_INDEX_BUILDER_MAPPINGS_REINDEX: "true"
+  ELASTICSEARCH_INDEX_BUILDER_SETTINGS_REINDEX: "true"
+  ENTITY_REGISTRY_CONFIG_PATH: /datahub/datahub-gms/resources/entity-registry.yml
+  ENTITY_VERSIONING_ENABLED: "true"
+  GRAPH_SERVICE_IMPL: elasticsearch
+  KAFKA_BOOTSTRAP_SERVER: broker:29092
+  KAFKA_SCHEMAREGISTRY_URL: http://datahub-gms:8080/schema-registry/api/
+  SCHEMA_REGISTRY_TYPE: INTERNAL
+  DATAHUB_TELEMETRY_ENABLED: "false"
 
 services:
 
@@ -169,6 +233,12 @@ services:
   # recorded fixture, with the read path against a PROVISIONED instance named as the thing that
   # fixture cannot answer. This is that instance.
   #
+  # **`datahub` IS the GMS container.** The key is a DISCOVERY name and not an image name: it runs
+  # `acryldata/datahub-gms` on hostname `datahub-gms`, and it is spelled `datahub` because
+  # `sutura_dev::scope::SERVICES` names the service a harness asks for rather than the process
+  # inside it. The five, in the order they come up: `datahub-kafka`, `datahub-mysql`,
+  # `datahub-opensearch`, `datahub-system-update`, `datahub`.
+  #
   # **Only `datahub` is a service anything discovers.** The four below it are its stores and its
   # migration job: nothing in this repository speaks to Kafka, `MySQL` or `OpenSearch`, so none of
   # them publishes a host port and none is a row in `sutura_dev::scope::SERVICES`. Waiting on the
@@ -177,20 +247,39 @@ services:
   # healthy - which is the dependency chain doing the work a list of five readiness probes would
   # otherwise have to.
   #
-  # ## What is reproduced from upstream, and the four things deliberately dropped
+  # ## What is reproduced from upstream, and where the line is drawn
   #
-  # The environment below is `docker/quickstart/docker-compose.quickstart-profile.yml` at tag
-  # `v1.7.0`, read rather than remembered. Four departures, each because this tier's rules are
-  # narrower than a quickstart's:
+  # Upstream's ONE official compose example is
+  # `docker/quickstart/docker-compose.quickstart-profile.yml` - the only compose file under
+  # `docker/quickstart/` at tag `v1.7.0`, generated from `docker/profiles/docker-compose.yml`. Read
+  # at `v1.7.0` rather than at `master`, because `v1.7.0` is the release `docs/adr/0016` measured.
+  # It declares seven services selected by two dozen profiles.
+  #
+  # **This tier is upstream's own `quickstart-backend` selection, minus its actions container** - so
+  # "no frontend" is not a departure invented here. At `v1.7.0` the frontend service
+  # (`acryldata/datahub-frontend-react`) carries the profiles `quickstart` and `quickstart-frontend`
+  # and NOT `quickstart-backend`; the GMS service carries `quickstart-backend`. Upstream itself
+  # ships a frontend-less backend selection, and this is that selection.
+  #
+  # **What the omission costs, stated rather than left implicit: there is NO UI.** The frontend is
+  # the React application a person browses; `sutura-catalog-datahub` reads GMS's entity surface over
+  # HTTP, so a browser is not a reader this tier owes anything to. Adding it would also be red on
+  # two gates rather than merely unnecessary: upstream's definition publishes a FIXED host port
+  # (`published: ${DATAHUB_MAPPED_FRONTEND_PORT:-9002}`) and binds `${HOME}/.datahub/plugins`, which
+  # `the_compose_file_publishes_no_fixed_host_port` and
+  # `no_service_in_the_tier_mounts_a_host_directory` both refuse.
+  #
+  # Four departures, each because this tier's rules are narrower than a quickstart's:
   #
   #   * **No `${HOME}/.datahub` bind mounts.** Upstream binds a host directory into GMS and into the
   #     migration job. A host path is shared between every worktree on the machine, which is the one
   #     thing this file exists to prevent - so the plugin and search-config mounts are dropped, and
   #     nothing here loads a plugin.
-  #   * **No frontend and no actions container.** The adapter reads GMS's entity surface; the React
-  #     UI and the actions framework are two more JVMs nothing in this repository would call. A
-  #     container with no reader is cost with no coverage, which is the argument the deferral note at
-  #     the foot of this file makes about a whole platform and which applies just as well inside one.
+  #   * **No actions container.** The one member of `quickstart-backend` that is dropped:
+  #     `acryldata/datahub-actions` reacts to metadata change events, and nothing in this repository
+  #     emits one or subscribes to one. A container with no reader is cost with no coverage, which is
+  #     the argument the deferral note at the foot of this file makes about a whole platform and
+  #     which applies just as well inside one. Upstream also binds `${HOME}/.aws` into it.
   #   * **No `neo4j`.** `GRAPH_SERVICE_IMPL: elasticsearch` means the graph lives in `OpenSearch`, so
   #     the `NEO4J_*` keys upstream sets are read by nothing on this configuration and are not
   #     written here.
@@ -308,35 +397,8 @@ services:
         condition: service_healthy
       datahub-opensearch:
         condition: service_healthy
-    environment: &datahub-backend-environment
-      DATAHUB_GMS_HOST: datahub-gms
-      DATAHUB_GMS_PORT: "8080"
-      DATAHUB_PRECREATE_TOPICS: "true"
-      DATAHUB_SQL_SETUP_ENABLED: "true"
-      # FIXTURES, and the same argument as the credential anchors above: nothing outside this host
-      # can reach these containers, because the one published port is ephemeral. A deployment's
-      # signing key is a secret; a throwaway container's is a value that has to be non-empty.
-      DATAHUB_TOKEN_SERVICE_SALT: sutura-dev-salt
-      DATAHUB_TOKEN_SERVICE_SIGNING_KEY: sutura-dev-signing-key
-      EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
-      EBEAN_DATASOURCE_HOST: mysql:3306
-      EBEAN_DATASOURCE_USERNAME: root
-      EBEAN_DATASOURCE_PASSWORD: *fixture-password
-      EBEAN_DATASOURCE_URL: jdbc:mysql://mysql:3306/datahub?verifyServerCertificate=false&useSSL=true&useUnicode=yes&characterEncoding=UTF-8&enabledTLSProtocols=TLSv1.2
-      ELASTICSEARCH_HOST: search
-      ELASTICSEARCH_PORT: "9200"
-      ELASTICSEARCH_PROTOCOL: http
-      ELASTICSEARCH_USE_SSL: "false"
-      ELASTICSEARCH_IMPLEMENTATION: opensearch
-      ELASTICSEARCH_INDEX_BUILDER_MAPPINGS_REINDEX: "true"
-      ELASTICSEARCH_INDEX_BUILDER_SETTINGS_REINDEX: "true"
-      ENTITY_REGISTRY_CONFIG_PATH: /datahub/datahub-gms/resources/entity-registry.yml
-      ENTITY_VERSIONING_ENABLED: "true"
-      GRAPH_SERVICE_IMPL: elasticsearch
-      KAFKA_BOOTSTRAP_SERVER: broker:29092
-      KAFKA_SCHEMAREGISTRY_URL: http://datahub-gms:8080/schema-registry/api/
-      SCHEMA_REGISTRY_TYPE: INTERNAL
-      DATAHUB_TELEMETRY_ENABLED: "false"
+    environment:
+      <<: *datahub-backend-environment
 
   # The one service anything discovers: `sutura_dev::scope::SERVICES` names `datahub`, this
   # publishes 8080 ephemerally, and `xtask dev-up` writes back whatever it landed on.

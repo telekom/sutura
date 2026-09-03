@@ -43,6 +43,11 @@ mod docker;
 mod lock;
 mod teardown;
 
+/// Gates that read the compose file's TEXT rather than exercise the functions here. Their own
+/// module because they are a separable concern and this one is near its line budget.
+#[cfg(test)]
+mod file;
+
 use std::path::Path;
 
 use sutura_dev::discovery::{self, Endpoints};

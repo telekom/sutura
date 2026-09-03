@@ -95,6 +95,18 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   refuses `catalog.kind: datahub` by name and the crate's only dependant is `sutura-app`, as a
   dev-dependency. **Do not read the declaration as availability:** what is proved is that the adapter
   decides correctly against a fake reader.
+- **The provisioned DataHub tier proves the VENUE and not the reader.** `just dev-up-datahub` stands
+  up DataHub 1.7.0 behind a compose profile - upstream's own `quickstart-backend` selection minus its
+  actions container - and `just datahub-acceptance` gets a `2xx` off `openapi/v3/entity/dataset`.
+  That is reachability, and it is the whole of it. **Still absent:** any HTTP `AspectReader`; any
+  ingest, so the instance is empty and nothing says a `sutura` structured property survives a round
+  trip; any authentication (`METADATA_SERVICE_AUTH_ENABLED: "false"`, so the auth half is untested);
+  any frontend, so there is no UI; and any CI job, because the nix sandbox has no docker socket. **A
+  tier that boots is not a read path.** Per-worktree parallelism holds for the CONTAINERS - project
+  name from a path digest, ephemeral published ports, named volumes, all gated - but NOT for
+  discovery: `.sutura-dev/endpoints.json` has two writers and each rewrites it wholesale, **in both
+  directions** - measured, a live nix postmaster absent from a file `xtask dev-up` had just
+  rewritten, and the reverse for the whole of `just test`. Nothing gates that.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
   Everything above the wire is decided and tested against a fake; the wire exists behind a
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green
