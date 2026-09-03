@@ -916,6 +916,12 @@ All four linked. `file` reported the right architecture on each - static-pie or 
 the musl pair, dynamically linked on the gnu pair, as the shipped builds are - so this is a link
 result and not an exit code.
 
+**And it was repeated, because one timing sample is not a measurement.** Run 33792642655, the next
+commit of the same branch: `+0.4s`, `-0.3s`, `+1.3s`, `+0.9s` in the same order - a range of -0.4% to
++1.6% against the first run's -0.2% to +1.7%. What the two runs agree on is that **the delta is
+inside the noise**, and that is the claim being made here. The individual seconds are not: they drift
+a few percent with whatever else the runner was doing, so cite the range and not a cell.
+
 **Was default-off necessary? For build cost, no - and the mechanism says why it could not have
 been.** `craneLib.buildDepsOnly` is called on the unscoped argument set, deliberately, so the checks
 can share one dependency derivation; `cargoExtraArgs` is set on the final attrset instead. The

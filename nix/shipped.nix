@@ -127,6 +127,12 @@ let
   # the shipped builds are. The step's own printed wall clock is 73 / 72 / 87 / 82s in that order,
   # which is the table plus one flake evaluation.
   #
+  # **REPEATED, because one timing sample is not a measurement.** Run 33792642655 on the next
+  # commit of the same branch: +0.4s / -0.3s / +1.3s / +0.9s in the same order, a range of -0.4% to
+  # +1.6% against the run above's -0.2% to +1.7%. Two independent runners agree that the delta is
+  # inside the noise, which is the claim - not the individual seconds, which drift a few percent
+  # with whatever else the runner was doing.
+  #
   # **SO: DEFAULT-OFF WAS NOT NECESSARY FOR BUILD COST, and this is where that is written down
   # rather than in a commit message.** A delta under two percent is not what a feature gate is for,
   # and the bullet above explains why it could not have been - the closure is in the deps
