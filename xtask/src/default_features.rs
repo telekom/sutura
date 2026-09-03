@@ -219,7 +219,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     );
     println!("  cargo's DEFAULT feature set - the one `nix/shipped.nix` publishes and no other gate compiles.");
     if let Some(name) = profile {
-        println!("  profile `{name}` - the profile the warmed artifacts were built at, so this reuses them.");
+        println!(
+            "  profile `{name}` - the warmed artifacts' own, so the units matching this feature set are reused. Not most of them: see nix/cargo-env.nix."
+        );
     }
     let mut failed: Vec<String> = Vec::new();
     for package in &packages {
