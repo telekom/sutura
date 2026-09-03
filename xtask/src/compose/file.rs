@@ -24,6 +24,20 @@ impl Block<'_> {
     fn probes(&self) -> bool {
         self.body.iter().any(|line| line.trim() == "healthcheck:")
     }
+
+    /// The lines of this block that begin with `# <key>:`, with the key stripped.
+    ///
+    /// Reads comments rather than YAML keys deliberately: a venue declaration is a statement to a
+    /// reader and to this gate, and compose would reject a key it does not know.
+    fn declarations(&self, key: &str) -> Vec<&str> {
+        let prefix = format!("# {key}:");
+        self.body
+            .iter()
+            .map(|line| line.trim())
+            .filter_map(|line| line.strip_prefix(prefix.as_str()))
+            .map(str::trim)
+            .collect()
+    }
 }
 
 /// Every service block in the tier.
@@ -146,6 +160,104 @@ fn every_service_in_the_tier_declares_a_healthcheck_unless_it_is_a_job() {
                 block.probes(),
                 "`{name}` declares no healthcheck, so provisioning treats it as ready as soon as it \
                  is running - give it a probe, or make it a job something waits to complete"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_discoverable_service_declares_which_venue_answers_for_it_in_ci() {
+    // THE DEFAULT IS WHAT THIS IS ABOUT. There are two venues per provisioned service and they are
+    // not interchangeable: this file is the demo, and a nix-native tier - one start/stop/status
+    // script over a `nixpkgs` package, run by `checks.nextest` in the sandbox and by the dev shell
+    // from the same script - is the CI venue. `nix/postgres-tier.nix` is the reference, and Postgres
+    // has no block in this file at all.
+    //
+    // Without a declaration, "CI uses docker for this one" is a fact nobody decided. Worse, the
+    // reason differs per service and only the declaration can say which it is: DataHub cannot be
+    // hermetic (GMS is not packaged and needs Kafka, a search index and a store), while ClickHouse
+    // could be and has nothing reading it. A gate that only counted lines would let those two share
+    // an answer, so a `compose only` declaration carries its own reason AND its convergence path.
+    //
+    // The other direction is the half that keeps the pair honest: a service that HAS a nix tier may
+    // not declare `compose only`, because the venues would then disagree about which runs in CI.
+    //
+    // Scoped to `sutura_dev::scope::SERVICES` - the services a harness can DISCOVER - rather than to
+    // every block: a store nothing in this repository speaks to publishes no port, is nobody's
+    // venue, and a declaration on it would be a promise about an endpoint no test wants.
+    let Some(text) = compose_text() else { return };
+    let Some(root) = crate::repo::root() else { return };
+    let blocks = service_blocks(&text);
+
+    let discoverable: Vec<&str> = sutura_dev::scope::SERVICES
+        .iter()
+        .map(sutura_dev::scope::Service::name)
+        .collect();
+    assert!(
+        discoverable.len() >= 2,
+        "this scan found {} discoverable service(s) and would pass anything",
+        discoverable.len()
+    );
+
+    for name in discoverable {
+        // A service provisioned only by nix has no compose block to declare anything next to, which
+        // is Postgres exactly and is correct. Postgres is not in `SERVICES` either, so this arm is
+        // here for a service registered before its block exists.
+        let Some(block) = blocks.iter().find(|block| block.name == name) else {
+            continue;
+        };
+        let declared = block.declarations("CI venue");
+        assert_eq!(
+            declared.len(),
+            1,
+            "`{name}` declares {} CI venues; it needs exactly one `# CI venue:` line in its block, \
+             saying either `nix native - nix/{name}-tier.nix` or `compose only` with a reason",
+            declared.len()
+        );
+        let venue = declared[0];
+        let module = format!("nix/{name}-tier.nix");
+        let tier_exists = root.join(&module).is_file();
+
+        if let Some(rest) = venue.strip_prefix("nix native") {
+            assert!(
+                rest.contains(module.as_str()),
+                "`{name}` declares the nix-native venue without naming its module - write \
+                 `# CI venue: nix native - {module}`, so the declaration and the file it points at \
+                 cannot drift"
+            );
+            assert!(
+                tier_exists,
+                "`{name}` declares `nix native - {module}` and that file does not exist, so CI has \
+                 no tier to run and the declaration is the only thing claiming otherwise"
+            );
+            continue;
+        }
+
+        assert!(
+            venue.starts_with("compose only"),
+            "`{name}`'s CI venue is `{venue}`, which is neither `nix native - {module}` nor \
+             `compose only` - those are the two venues there are"
+        );
+        assert!(
+            !tier_exists,
+            "`{name}` declares `compose only` and {module} exists, so the two venues disagree about \
+             which one CI runs - the tier IS the CI venue, so the declaration is what is wrong"
+        );
+        for required in ["Because", "Converges"] {
+            let lines = block.declarations(required);
+            assert_eq!(
+                lines.len(),
+                1,
+                "`{name}` declares `compose only` with {} `# {required}:` line(s). A compose-only \
+                 service needs both: why a nix check is not the venue, and what has to exist before \
+                 it is. Without them the next reader cannot tell a limit of the software from a tier \
+                 nobody has written",
+                lines.len()
+            );
+            assert!(
+                lines[0].len() > 20,
+                "`{name}`'s `# {required}:` is `{}`, which is a placeholder rather than a reason",
+                lines[0]
             );
         }
     }
