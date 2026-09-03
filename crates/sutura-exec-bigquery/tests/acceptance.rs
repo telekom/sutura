@@ -102,6 +102,10 @@
 //! documentation states as the limit it is. The corpus leg needs no such table: it CREATES four, from
 //! the committed example CSVs.
 //!
+//! **The pre-flight leg reads that same variable for a weaker property: that the table EXISTS.** It
+//! submits no job at all - `tables.list` is a metadata read, billed for nothing - so it needs no
+//! `DATE` column and no `INT64` one, and it is the one leg here that costs nothing but wall clock.
+//!
 //! **The job is bounded before it is sent**, which matters more here than anywhere because this is
 //! the one path that spends real money: `support::bounds` sets a deadline and a `maximumBytesBilled`
 //! ceiling, and a job that would scan past the ceiling fails at the service without being charged.
@@ -126,6 +130,8 @@ mod support;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::model::{
         Aggregate, ColumnName, DatasetName, Grain, MetricName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
@@ -134,6 +140,7 @@ mod tests {
         Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
         StatementTables,
     };
+    use sutura_domain::warehouse::preflight::TablesPresent;
     use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
 
     use crate::support::{Connection, Wired, bounds, named, opened, presented};
@@ -447,6 +454,72 @@ mod tests {
         assert!(
             core::error::Error::source(&refused).is_some(),
             "the endpoint's own error did not survive #[source]: {refused:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn the_dataset_really_answers_a_listing_and_names_only_the_table_it_does_not_hold() {
+        // **Issue #120's own *Verification* section asks for this run, and the change that built the
+        // pre-flight delivered only the local half.** What is proved locally is everything this
+        // repository can prove without a project: the adapter's difference against a fake transport,
+        // and the composition root's refusal against a `Warehouse` fake. Neither is the claim *a real
+        // dataset answered a real `tables.list` and the absent table was named*.
+        //
+        // Three things this leg is the only place to reach, and each is a hole a local test cannot
+        // close:
+        //
+        // 1. `tables.list`'s real response document decodes the way `wire::tables::Listing` says it
+        //    does. The documents that suite reads were written HERE, not by the service - which
+        //    `docs/adr/0018` already carried as a limit for `jobs.query` and now carries for a second
+        //    endpoint.
+        // 2. `x-goog-user-project` carries a project the service accepts. That header was a live bug:
+        //    the listing attributed quota to the DATASET's project rather than the source's billing
+        //    project, and the fix is otherwise held by an assertion about a URL and a header rather
+        //    than by anything having sent them.
+        // 3. Whether a small dataset pages at all - and that it does not is itself worth knowing,
+        //    because the paging loop is the part of `list` no local document exercises against a real
+        //    token.
+        //
+        // **The control is inside this test rather than beside it, and that is the point of the
+        // shape.** The pre-flight fails toward reporting a table absent - `Listing`'s fields are all
+        // `#[serde(default)]`, so a document whose shape changed decodes as an empty listing and
+        // therefore as *everything is missing*. A test that only asserted `AllBut` would pass exactly
+        // as well in that world. So the clean set is asked FIRST, has to answer `All`, and a
+        // single-sided claim is not something a `--skip` can leave behind.
+        let fixture = Fixture::required();
+        let present = fixture.unqualified();
+        // A fictitious literal, so it is the one name in this leg nothing needs masking - and it is
+        // the same spelling the `dry_run` control above uses, because both are asking *what does this
+        // dataset do with a name it does not hold*.
+        let absent = QualifiedTable::from(TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"));
+        let warehouse = warehouse(fixture);
+
+        let clean = BTreeSet::from([present.clone()]);
+        let answered = warehouse
+            .preflight(&clean)
+            .expect("the dataset answered the listing - a refusal here is a grant, not a missing table");
+        assert_eq!(
+            answered,
+            TablesPresent::All,
+            "the control: a set naming only a table the dataset holds has nothing absent in it"
+        );
+        // `All` and not `NotAsked`, which is the difference a composition root reads: this adapter
+        // really listed, and a listing that decoded to nothing would have answered `AllBut` above.
+        assert!(answered.was_asked(), "this adapter really looked: {answered:?}");
+
+        let mixed = BTreeSet::from([present, absent.clone()]);
+        let answered = warehouse
+            .preflight(&mixed)
+            .expect("the dataset answered the listing for the mixed set too");
+        let named: Vec<String> = answered
+            .absent()
+            .map(|tables| tables.named().iter().map(ToString::to_string).collect())
+            .unwrap_or_default();
+        assert_eq!(
+            named,
+            vec![absent.to_string()],
+            "the dataset's own listing names the table that is not there and nothing else"
         );
     }
 }

@@ -633,9 +633,12 @@ infra-set:
 # network. CI runs the same suite in its own `bq-test` environment job for pushes and same-repository
 # pull requests; fork pull requests skip it because they cannot receive that environment's secret.
 #
-# `--run-ignored only` reaches the five endpoint tests in `tests/acceptance.rs` and the three corpus
-# tests in `tests/corpus.rs`; every other test task skips them. An unconfigured run fails rather than
-# reporting green without reaching a real project.
+# `--run-ignored only` reaches every `#[ignore]`d test in the crate - `tests/acceptance.rs` and
+# `tests/corpus.rs` - rather than a listed set, so a test added there is reached without this comment
+# being edited. That is deliberate: a count here is a second thing to keep true, and the copy of it
+# in `flake.nix` had already fallen out of step by five.
+# Every other test task skips them, and an unconfigured run fails rather than reporting green without
+# reaching a real project.
 #
 # Needs `just gcloud-login` once, and three values in the developer's own environment. Their names
 # are in that file's header; their values belong on the machine, which is what `.envrc` already
