@@ -23,10 +23,13 @@ says why they look the way they do.
 
 ## Serving is MCP
 
-**Partly built, and the built half is not the one this section describes.** `sutura-http` exists: a
-versioned `v1` tree, a liveness probe, a generated interface description, rate limiting and a bearer
-gate. **There is no MCP surface**, and MCP is what this section is about - so read it as the shape
-the second transport has to take, with the first one already standing beside it.
+**Both transports are built, and one property this section describes is not.** `sutura-http` serves
+a versioned `v1` tree, a liveness probe, a generated interface description, rate limiting and a
+bearer gate; `sutura-mcp` serves the tool surface over a process's own standard input and output,
+and `just mcp-e2e` drives that one end to end. What is absent is a caller identity on the agent
+surface: a pipe has no header a token could arrive in, so it answers as the deployment and offers
+every capability, and a network-reachable agent surface needs the identity leg
+[how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md) designs.
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.
@@ -41,9 +44,13 @@ That last property is the part that **is** enforced today, transport or no trans
 tool surface, it declares no such field, and `deny_unknown_fields` makes a question carrying one an
 error naming it. A transport can only narrow what the type already refuses.
 
-The tool schemas are meant to be derived from the domain types rather than written by hand, so
-widening the surface changes a generated schema and shows up in the diff of the review that widened
-it. That dump is not written yet, so today review is the only thing catching a widened surface.
+The tool schemas are derived from the types rather than written by hand, so widening the surface
+changes a generated schema and shows up in the diff of the review that widened it. That dump is
+written: `sutura-mcp` generates each tool's input schema with `schemars` over the wire type the
+deserializer uses, and snapshots it, so a new or widened field fails the byte-compare until
+somebody re-accepts the snapshot. **What review still owns** is whether a widened field should
+exist - a snapshot can be re-accepted without thought, which is why one test asserts the question
+tool's fields by name instead of by bytes.
 
 An HTTP surface sits beside the MCP one for callers that are not agents: a second transport over the
 same service, derived from the same types, so it cannot accept a question the MCP surface would
