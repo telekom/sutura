@@ -25,12 +25,19 @@
 //!
 //! **CI runs it as `nix run .#default-features`, and the PROFILE is why that is an argument.**
 //! `ci.yml` reaches every gate as a `nix build .#checks.*` or a `nix run .#<app>`, so this one is an
-//! app, warmed the way `apps.causality` is: it reuses the dependency closure `checks.nextest` built
-//! minutes earlier in the same job instead of compiling the graph a third time, and that reuse only
-//! happens if cargo is asked for the profile those artifacts were built at. Hence `--profile <name>`
-//! threaded through to both cargo lines, passed by the app and by nothing else - hard-coding `ci`
-//! would push a developer running `just gates` into a SECOND profile and a second dependency build,
-//! for a verdict that does not depend on the profile at all.
+//! app, warmed the way `apps.causality` is - and cargo keys artifacts per profile, so a mismatched
+//! one would unpack the closure and reuse none of it. Hence `--profile <name>` threaded through to
+//! both cargo lines, passed by the app and by nothing else: hard-coding `ci` would push a developer
+//! running `just gates` into a SECOND profile and a second dependency build, for a verdict that
+//! does not depend on the profile at all.
+//!
+//! **THE REUSE IS PARTIAL, and read that before costing this step.** The closure holds dependency
+//! units at the workspace-wide feature union; this gate deliberately asks the narrow question
+//! instead - one shipped package, no feature flags - and the v2 resolver gives that a different
+//! feature set, so much of the graph gets a fresh `-C metadata` and is compiled again. Measured,
+//! it is roughly a third of each graph and the expensive third; `nix/cargo-env.nix` carries the
+//! numbers beside the closure they are about. Matching the closure would mean asking about the
+//! whole workspace at once, which is the feature unification this gate exists to see past.
 //!
 //! Before that step existed, what CI had for this lane was the four `cross` link builds for the
 //! COMPILE half - and they are `needs: [ci]`, so a `ci` failure skips them - and nothing at all for
