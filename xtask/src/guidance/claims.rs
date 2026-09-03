@@ -303,6 +303,34 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
     },
 ];
 
+/// What one file contributes to a count: itself, or every occurrence in it.
+///
+/// A required field on [`Counted`] rather than a default, because the wrong answer is SILENTLY
+/// green. This used to be a sentence in `holds`'s documentation - *"files, not occurrences"* - and
+/// a sentence is held by recall: the row-cap entry wants files and says why, and the `pub trait`
+/// entry below is right at file granularity only for as long as no two declarations share a file.
+/// A closed enum matched exhaustively is what makes the next entry answer the question instead of
+/// inheriting an answer.
+#[derive(Clone, Copy)]
+pub(super) enum Granularity {
+    /// One per file, however often the literal appears in it.
+    Files,
+    /// Every occurrence, non-overlapping - what `grep -o` counts.
+    Occurrences,
+}
+
+impl Granularity {
+    /// What one file's `text` contributes to the total.
+    fn count_in(self, text: &str, holds: &str) -> u64 {
+        match self {
+            Self::Files => u64::from(text.contains(holds)),
+            // Saturating rather than `as`: a `usize` count cannot exceed `u64::MAX` on any target
+            // this builds for, and the cast lint is on for the case where that reasoning is wrong.
+            Self::Occurrences => u64::try_from(text.matches(holds).count()).unwrap_or(u64::MAX),
+        }
+    }
+}
+
 /// A number in prose that counts something in the tree.
 ///
 /// The third shape of the same idea. [`Pin`] reads its value from a line in a file; this one
@@ -314,34 +342,86 @@ pub(super) struct Counted {
     name: &'static str,
     /// Files to count over. Globs against repo-relative paths.
     over: &'static [&'static str],
-    /// The literal that makes a file count. Files, not occurrences: what is claimed is how many
-    /// goldens carry the row cap, and a golden carrying it twice is still one golden.
+    /// The literal that is counted. Whether a second one in the same file counts is
+    /// [`Counted::granularity`]'s question, not this field's.
     holds: &'static str,
-    /// Where the number may be stated.
+    /// Files, or occurrences within them.
+    granularity: Granularity,
+    /// Where the number may be stated. **At least one file here has to state it**, or the entry
+    /// counts the tree and compares it to nothing - see [`count_mismatches`].
     mentioned_in: &'static [&'static str],
     /// The noun phrase the number belongs to. The count is the integer IMMEDIATELY BEFORE it.
     ///
     /// Deliberately that narrow, for the reason [`contradicts`] is narrow: the sentence carrying
     /// `39 SQL goldens read LIMIT 10001` also carries `10001`, and a check that read every number
     /// on the line would report the row cap as a wrong golden count.
+    ///
+    /// Found in the FLATTENED view and at every occurrence - see [`stated_numbers`], which records
+    /// the two ways the per-line predecessor of this field read agreement out of prose it had not
+    /// managed to look at.
     marker: &'static str,
 }
 
-/// ONE entry, and that is a decision rather than an unfinished table: a number is worth a gate when
-/// it carries an ARGUMENT. This one does - it is the evidence for an invariant, and says the SQL leg
-/// of the row cap is pinned across the corpus rather than in one snapshot. `39` was written when
-/// there were 39 and read as current at 63.
+/// TWO entries, and the table is short on purpose: a number is worth a gate when it carries an
+/// ARGUMENT.
 ///
-/// `docs/crap.md` said `its 120 unit tests` at a real 170. That number was DELETED from the prose
-/// rather than gated, because it carried no argument - the sentence is about tests living in the
-/// crate they cover, true at any count - and gating it would fail every branch that adds a test.
-pub(super) const COUNTS: &[Counted] = &[Counted {
-    name: "SQL goldens carrying the row cap",
-    over: &["crates/sutura-app/tests/snapshots/**"],
-    holds: "LIMIT 10001",
-    mentioned_in: &["AGENTS.md", "docs/**", "README.md"],
-    marker: "SQL goldens read",
-}];
+/// The row cap's does - it says the SQL leg is pinned across the corpus rather than in one
+/// snapshot, and `39` was written when there were 39 and read as current at 63. The `pub trait`
+/// one is a COMPARISON: the port table in `.agents/skills/engineering/rust/SKILL.md` lists what
+/// the hexagon's interior owns, the tree holds more than that, and the gap is the whole point of
+/// the paragraph - which a reader cannot see without both numbers.
+///
+/// Two numbers that are NOT here, both deliberately:
+///
+/// * `docs/crap.md` said `its 120 unit tests` at a real 170. DELETED from the prose rather than
+///   gated, because it carried no argument - the sentence is about tests living in the crate they
+///   cover, true at any count - and gating it would fail every branch that adds a test.
+/// * *how many crates declare `[features]`* - proposed as an entry, declined for the same reason.
+///   The sentence it would serve is *the `--all-features` habit is load-bearing now rather than
+///   cheap foresight*, which is true at any count above zero, so the number adds nothing the word
+///   *several* does not carry. The direction that would falsify it - no crate declaring a feature
+///   at all - is held by the `no crate declares a feature` entry in [`CONTRADICTED`], whose
+///   evidence is a manifest holding `[features]`.
+pub(super) const COUNTS: &[Counted] = &[
+    Counted {
+        name: "SQL goldens carrying the row cap",
+        // EVERY crate's snapshot directory, not just the one that had them when this entry was
+        // written. `sutura-cli`'s 22 rendered-statement goldens carry the row cap and were outside
+        // the glob, so the sentence said *pinned across the corpus* over 93 of 115 files and 22
+        // goldens could have lost the cap with the gate silent. The claim is about the corpus, so
+        // the glob is too - and a new crate's snapshots are inside it the day they land.
+        over: &["crates/*/tests/snapshots/**"],
+        holds: "LIMIT 10001",
+        // FILES, and here that is a decision rather than the default it used to be: what is
+        // claimed is how many goldens carry the row cap, and a golden carrying it twice is still
+        // one golden.
+        granularity: Granularity::Files,
+        // `.agents/skills/**` is listed because that is where the sentence LIVES now. It was in
+        // `AGENTS.md` until the router rewrite moved the invariants table into the tree, and this
+        // list did not follow - so the only gated count in the repo was left counting the corpus
+        // and comparing it to nothing. `PINS` was carried and this was not, which is this module's
+        // own founding cause one layer up: the correction landed on one table and not its sibling.
+        // The stated-side check is what makes the next one of those a failure.
+        mentioned_in: &[".agents/skills/**", "AGENTS.md", "docs/**", "README.md"],
+        marker: "SQL goldens read",
+    },
+    Counted {
+        name: "`pub trait` declarations under `crates/*/src`",
+        over: &["crates/*/src/**/*.rs"],
+        holds: "pub trait ",
+        // OCCURRENCES, and this is the entry that could not be held honestly before. Every
+        // declaration sits in a file of its own today, so counting files would report the right
+        // number BY COINCIDENCE and go green on the wrong one the day two of them share a file.
+        //
+        // The literal is the one the page cites, character for character, so the gate and the
+        // command a reader is told to run answer the same question - a `pub trait ` inside a
+        // comment or a string counts for both. Blanking comments would make the gate disagree with
+        // the page, which is worse than the mention it would exclude.
+        granularity: Granularity::Occurrences,
+        mentioned_in: &[".agents/skills/**", "AGENTS.md", "CONTRIBUTING.md", "docs/**", "README.md"],
+        marker: "`pub trait` declarations under",
+    },
+];
 
 /// A file's text with every run of whitespace collapsed to one space, plus the line each byte
 /// came from.
@@ -432,11 +512,9 @@ pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> 
     problems
 }
 
-/// The integer immediately before `marker` in `line`, if there is one there.
-fn count_before(line: &str, marker: &str) -> Option<u64> {
-    let at = line.find(marker)?;
-    let head = line.get(..at)?.trim_end();
-    let mut digits: Vec<char> = head.chars().rev().take_while(char::is_ascii_digit).collect();
+/// The integer at the end of `head`, if it ends in one.
+fn trailing_number(head: &str) -> Option<u64> {
+    let mut digits: Vec<char> = head.trim_end().chars().rev().take_while(char::is_ascii_digit).collect();
     if digits.is_empty() {
         return None;
     }
@@ -444,7 +522,38 @@ fn count_before(line: &str, marker: &str) -> Option<u64> {
     digits.into_iter().collect::<String>().parse().ok()
 }
 
-/// How many files, or lines, in the tree hold what this entry counts.
+/// Every statement of a number before `marker` in `text`: the line it starts on, and the number.
+///
+/// **Flattened, not per line, and that is a fix rather than a refinement.** This was
+/// `count_before(line, marker)`, which had two blind spots a reviewer could not see from the
+/// output because both of them look exactly like agreement: prose WRAPS, so a statement whose
+/// number ended one line above its marker was not found at all; and `line.find` reads the FIRST
+/// marker on a line, so a second statement on the same line was never read. Both are closed by
+/// asking the flattened view for every occurrence - the same view [`contradicted_claims`] has
+/// used from the start, for the same reason.
+///
+/// **What was rejected, because it would have failed correct prose.** The other candidate fix was
+/// to require every page NAMING the marker to carry a number. `docs/implementation-plan-bigquery.md`
+/// names `SQL goldens read` in order to explain the gate, with no number and correctly so, and a
+/// gate that fails that sentence is one somebody switches off. Reading every occurrence needs no
+/// exemption list.
+fn stated_numbers(text: &str, marker: &str) -> Vec<(usize, u64)> {
+    let (flat, lines) = flatten(text);
+    let mut found = Vec::new();
+    let mut from = 0_usize;
+    while let Some(at) = flat.get(from..).and_then(|rest| rest.find(marker)) {
+        let offset = from.saturating_add(at);
+        if let Some(head) = flat.get(..offset)
+            && let Some(number) = trailing_number(head)
+        {
+            found.push((lines.get(offset).copied().unwrap_or(1), number));
+        }
+        from = offset.saturating_add(marker.len().max(1));
+    }
+    found
+}
+
+/// What the tree holds, at the granularity this entry declares.
 fn tally(root: &Path, all: &[String], counted: &Counted) -> u64 {
     let mut total = 0_u64;
     for rel in all {
@@ -454,9 +563,44 @@ fn tally(root: &Path, all: &[String], counted: &Counted) -> u64 {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
             continue;
         };
-        total = total.saturating_add(u64::from(text.contains(counted.holds)));
+        total = total.saturating_add(counted.granularity.count_in(&text, counted.holds));
     }
     total
+}
+
+/// One place a count is written down: where, and what it says.
+struct Stated {
+    /// Repo-relative path of the page stating it.
+    file: String,
+    /// One-based line, so a message names the line a reader will open.
+    line: usize,
+    /// The number that page states.
+    number: u64,
+}
+
+/// Every place this entry's number is actually written.
+///
+/// One implementation of *where is this number stated*, because the mismatch check and the
+/// vacuity check are two questions about one answer and a second walk of the tree would be a
+/// second thing to keep in step.
+fn statements(root: &Path, files: &[String], counted: &Counted) -> Vec<Stated> {
+    let mut found = Vec::new();
+    for rel in files {
+        if !matches_any(counted.mentioned_in, rel) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+            continue;
+        };
+        for (line, number) in stated_numbers(&text, counted.marker) {
+            found.push(Stated {
+                file: rel.clone(),
+                line,
+                number,
+            });
+        }
+    }
+    found
 }
 
 pub(super) fn count_mismatches(root: &Path, all: &[String], files: &[String]) -> Vec<String> {
@@ -473,24 +617,28 @@ pub(super) fn count_mismatches(root: &Path, all: &[String], files: &[String]) ->
             ));
             continue;
         }
-        for rel in files {
-            if !matches_any(counted.mentioned_in, rel) {
-                continue;
+        let stated = statements(root, files, counted);
+        for page in &stated {
+            if page.number != actual {
+                problems.push(format!(
+                    "{}:{}: says {} {} - the tree has {actual}",
+                    page.file, page.line, page.number, counted.name
+                ));
             }
-            let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-                continue;
-            };
-            for (i, line) in text.lines().enumerate() {
-                if let Some(stated) = count_before(line, counted.marker)
-                    && stated != actual
-                {
-                    problems.push(format!(
-                        "{rel}:{}: says {stated} {} - the tree has {actual}",
-                        i + 1,
-                        counted.name
-                    ));
-                }
-            }
+        }
+        if stated.is_empty() {
+            // The OTHER way this check goes vacuously green, and the one that actually happened:
+            // the count is measured, nothing states it, and the gate agrees with silence. The
+            // row-cap sentence lived in `AGENTS.md` until the router rewrite carried the
+            // invariants table into `.agents/skills/`; `mentioned_in` did not follow, and a gate
+            // that had caught `39` at 63 was left holding nothing. Failing here is the only way
+            // that is visible, because a deleted sentence looks exactly like a correct one.
+            problems.push(format!(
+                "nothing under {:?} states the {} count - the number is derived and compared to \
+                 nothing, so this entry in COUNTS is a gate over silence. State it before the \
+                 marker `{}`, or delete the entry",
+                counted.mentioned_in, counted.name, counted.marker
+            ));
         }
     }
     problems
@@ -598,15 +746,42 @@ mod tests {
 
     #[test]
     fn the_number_read_is_the_one_immediately_before_the_marker() {
-        use super::count_before;
+        use super::stated_numbers;
         // The real sentence, and the real trap in it: the line carries `10001` as well, so a
         // check that read every number on it would report the row cap as a golden count.
         let line = "Both legs pinned: 63 SQL goldens read `LIMIT 10001`, and the engine leg asserts the fetch.";
-        assert_eq!(count_before(line, "SQL goldens read"), Some(63));
+        assert_eq!(stated_numbers(line, "SQL goldens read"), vec![(1, 63)]);
         // No number there is not a claim about the count.
-        assert_eq!(count_before("The SQL goldens read the row cap.", "SQL goldens read"), None);
+        assert_eq!(
+            stated_numbers("The SQL goldens read the row cap.", "SQL goldens read"),
+            vec![]
+        );
         // Nor is a line that does not carry the marker at all.
-        assert_eq!(count_before("39 of something else entirely", "SQL goldens read"), None);
+        assert_eq!(stated_numbers("39 of something else entirely", "SQL goldens read"), vec![]);
+        // The page that EXPLAINS the marker states no number and must stay unread - this is the
+        // sentence a "every page naming the marker carries a number" rule would have failed.
+        assert_eq!(
+            stated_numbers(
+                "the number written before the marker `SQL goldens read` and compares",
+                "SQL goldens read"
+            ),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn a_statement_that_wraps_away_from_its_marker_is_still_read() {
+        use super::stated_numbers;
+        // THE hole this replaced. Both of these were invisible to the per-line reader, and both
+        // are indistinguishable from agreement in its output: the first because the number ended
+        // one line above the marker, the second because only the first marker on a line was read.
+        // A reflow of a paragraph is enough to produce the first, which is why a sentence saying
+        // "keep them on one line" was not the fix.
+        let wrapped = "the whole set is 10
+SQL goldens read the cap";
+        assert_eq!(stated_numbers(wrapped, "SQL goldens read"), vec![(2, 10)]);
+        let twice = "| 93 SQL goldens read here | 94 SQL goldens read there |";
+        assert_eq!(stated_numbers(twice, "SQL goldens read"), vec![(1, 93), (1, 94)]);
     }
 
     #[test]
@@ -624,5 +799,43 @@ mod tests {
                 counted.over
             );
         }
+    }
+
+    #[test]
+    fn a_count_entry_is_compared_against_a_page_that_states_it() {
+        // The mirror of the test above, and it is here because the failure it describes HAPPENED:
+        // the row-cap sentence lived in `AGENTS.md`, the router rewrite carried the invariants
+        // table into `.agents/skills/`, `mentioned_in` stayed as it was, and the gate went on
+        // counting 93 goldens against a number no page stated any more. A count nobody writes
+        // down is not a gate - it is a walk of the tree whose verdict is always agreement.
+        let root = crate::repo::root().expect("the repo root");
+        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        for counted in COUNTS {
+            assert!(
+                !super::statements(&root, &files, counted).is_empty(),
+                "no page under {:?} states the {} count before `{}`",
+                counted.mentioned_in,
+                counted.name,
+                counted.marker
+            );
+        }
+    }
+
+    #[test]
+    fn a_second_occurrence_in_one_file_counts_twice_only_where_the_entry_says_so() {
+        use super::Granularity;
+        // THE capability this table lacked, and the reason it could not hold the `pub trait`
+        // count: two declarations in one file are two ports and one file. Both entries are right
+        // about their own literal, and neither answer is a safe default for the other - a golden
+        // carrying the row cap twice is still one golden.
+        let twice = "pub trait One {}\npub trait Two {}\n";
+        assert_eq!(Granularity::Files.count_in(twice, "pub trait "), 1);
+        assert_eq!(Granularity::Occurrences.count_in(twice, "pub trait "), 2);
+        // Absent counts zero either way, which is what the tally check above reads.
+        assert_eq!(Granularity::Files.count_in("mod tests {}\n", "pub trait "), 0);
+        assert_eq!(Granularity::Occurrences.count_in("mod tests {}\n", "pub trait "), 0);
+        // Non-overlapping, like `grep -o`: `aa` in `aaaaa` is two, not the four an overlapping
+        // scan would report.
+        assert_eq!(Granularity::Occurrences.count_in("aaaaa", "aa"), 2);
     }
 }
