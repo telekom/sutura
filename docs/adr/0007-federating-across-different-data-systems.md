@@ -745,7 +745,10 @@ reconcile them. The plan owns the numbering and the dependency graph. What is be
   guard is dismantled: red against a build with that arm removed. The corpus exists here rather than
   later because every subsequent entry needs a real on-disk two-source catalog, and because in this
   entry it demonstrates the refusal that holds TODAY - which is what makes the later flip from refusal
-  to answer a visible behaviour change in a diff rather than a new test appearing.
+  to answer a visible behaviour change in a diff rather than a new test appearing. *The home this
+  entry names was later repurposed:* `examples/multi-player` is the served-deployment DataHub example
+  (`docs/adr/0016`'s amendment, issue #202), so the two-source corpus it asserts against remains
+  unbuilt and is a prerequisite this entry still owns.
   **Not the single-player corpus:** moving a model there was costed and flips 7 questions from planned
   to refused, deletes 21 SQL goldens, and moves a sentence a gate counts.
 - **`feat/source-registry` - per-source configuration, a keyed set of warehouses, and the two startup
@@ -801,8 +804,8 @@ And the honest statement of where this stands, written the way the `SourceUnavai
 written: **no security property currently held is at stake, because none is held.** There is no
 per-caller identity, `describes_identity()` is a `const fn` returning `false` printed on every boot,
 and the bearer token authenticates the deployment. What changes with this milestone is that the gap
-acquires a victim: against three systems with grants, reading under a service identity is what
-`examples/multi-player/README.md` calls turning a row-level security policy into decoration. **This
+acquires a victim: against three systems with grants, reading under a service identity is exactly the silent downgrade the multi-player deployment shape
+exists against (`examples/multi-player/README.md`). **This
 is the milestone that cannot honestly ship without the credential port**, and single-player DuckDB
 federation is not.
 

@@ -574,6 +574,10 @@ the domain query type and the wire body, with a test that provokes it.
   model in the existing corpus to a second source was costed and is not viable as an incremental step:
   the definitions and digest snapshots move, every question joining the moved model flips from planned
   to refused, and the SQL golden count drops, which moves a sentence in AGENTS.md that a gate counts.
+  *Superseded for the directory, not for the reasoning:* `examples/multi-player` was later taken for
+  the served-deployment DataHub example (`docs/adr/0016`'s amendment, issue #202), so the multi-source
+  corpus this entry prices still has no home and is unbuilt - it awaits the federation work `docs/adr/0007`
+  lists, which is where the "two connections, not two attachments" reasoning above continues to apply.
 - **The engine stays behind the port for now.** AGENTS.md says it belongs above the port once
   federation lands, and that stays a design target whose terms ADR 0007 sets. What "above the port"
   means concretely: the port stops carrying a whole plan and a finished aggregate and starts carrying

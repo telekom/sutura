@@ -15,5 +15,11 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+# The compiler: the multi-player example test (`tests/multi_player.rs`) proves the recorded
+# DataHub catalog answers a question all the way to a plan, which is the "integration" its README
+# promises. Dev-only, so the library closure stays serde + thiserror + sutura-domain.
+sutura-semantic = { workspace = true }
+
 [lints]
 workspace = true

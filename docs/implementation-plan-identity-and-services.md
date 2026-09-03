@@ -53,8 +53,8 @@ can consume the credential's life before the last one starts. That case does not
 execution and it is created deliberately here, so it is checked rather than noted.
 
 **The broker port arrives with a real implementor, not a fake.** `AGENTS.md` says a port trait arrives
-with its first implementor, and `examples/multi-player/README.md` says the same thing about
-`CredentialBroker` specifically - "a trait with no implementor is a guess at a signature". The
+with its first implementor, because a trait with no implementor is a guess at a signature, and the
+calling-subject floor it answers to is `docs/adr/0008` part 6. The
 implementor here is the **static-credential broker single-user mode already needs**: credentials as
 configuration, one user, one host, which is a shipping deployment mode rather than test scaffolding.
 So no rule bends and no fake stands in for one.
