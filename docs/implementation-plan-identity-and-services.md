@@ -923,29 +923,66 @@ economise.
    classification fails open the same way `xtask classify` does - a diff it cannot compute, and any
    path that is not markdown under `docs/` or `mkdocs.yml`, runs everything. Two consequences of that
    were checked case by case and must stay true: **`AGENTS.md` still runs the gates**, because
-   `check-guidance` reads it and reads nothing else, and **a non-markdown asset under `docs/` still
-   runs them**, because `check-docs` is what resolves it.
+   `check-guidance` is the only gate that judges what it SAYS - the other gates that read it at all,
+   `text-hygiene`, `line-endings` and `max-lines`, read it as bytes, and `mkdocs --strict` never
+   renders it, because `docs_dir` is `docs/` and the only snippet includes are `CHANGELOG.md` and
+   `CONTRIBUTING.md` - and **a non-markdown asset under `docs/` still runs them**, because
+   `check-docs` is what resolves it. That first clause is about what reads `AGENTS.md`, not about
+   what `check-guidance` reads: `check-guidance` scans every `.md`, `.nix`, `.yml`, `.yaml`, `.toml`
+   and `.sh` in the tree. The point is that deferring it over that one file defers the whole of what
+   checks that file's content.
 
    **The residual risk, stated rather than waved at, because the replacement is narrower than what it
-   replaced.** `hygiene` is thirteen gates. Seven read Rust, manifests, lock files or workflow YAML -
-   `check-boundaries`, `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`,
-   `check-workflows`, `check-crap` - and a markdown-only diff cannot change what any of them reads, so
-   skipping those loses nothing. Six read prose, and only part of one is replaced:
+   replaced.** What makes the skip safe is a CLASSIFICATION of the sweep rather than its size, so the
+   classification is where the mechanism went: `Kind::Hygiene` in `xtask/src/main.rs` carries a
+   `Reads`, which the compiler makes every gate declare, and `check-gate-classification` fails unless
+   the two tables below are exactly the two groups that registry declares, in both directions - so a
+   gate named here that the sweep does not collect fails it too. **There is deliberately no count
+   here.** A gated number stays green while a new code-reading gate joins the set unclassified, and
+   that is what happened to this paragraph: it carried a count that had been true of a smaller sweep,
+   gates joined that the argument had never seen, and one gate it did name - `check-crap`, which
+   reads `docs/crap.md` - was on the wrong side of the line.
+
+   **Reads code.** A diff of `docs/*.md` and `mkdocs.yml` cannot change a byte any of these reads, so
+   skipping them loses nothing:
+
+   | Gate | What it reads |
+   | --- | --- |
+   | `check-boundaries` | the domain crate's manifest and the Rust under `crates/` |
+   | `check-pins` | `flake.nix` and `pixi.toml` |
+   | `check-warm-start` | `nix/cargo-env.nix`, `flake.nix`, `xtask/src/causality.rs` |
+   | `unused-deps` | every member manifest and that member's own Rust |
+   | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
+   | `check-shared-client` | `Cargo.lock` |
+   | `check-shipped-binaries` | `nix/shipped.nix` and every workflow and action under `.github/` |
+   | `check-attribution` | `Cargo.lock`, the root manifest, `ATTRIBUTION.md` |
+   | `check-serde-parse` | the Rust under `crates/` |
+   | `check-newtype-leaks` | the Rust under `crates/` |
+   | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
+   | `check-expect-thresholds` | every tracked `*.rs` |
+   | `check-skills` | `.agents/skills/**` and the router - prose, and none of it under `docs/` |
+   | `check-scope` | the `justfile`, which no other gate reads |
+   | `check-hook-tiers` | `.pre-commit-config.yaml` |
+   | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares |
+
+   **Reads prose.** Each of these reads at least one file such a diff CAN change, so skipping one
+   defers a verdict rather than costing nothing - and only part of one is replaced:
 
    | Gate | On a prose-only pull request |
    | --- | --- |
    | `check-guidance` | Citations replaced by the text-only check. **Stale phrases, version-against-pin, contradicted claims and counts are deferred to the `main` push** |
    | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
-   | `check-skills` | Deferred. A prose-only edit to `.agents/skills/**` is not under `docs/`, so this only bites a page that names a skill |
+   | `check-crap` | Deferred, and the row easiest to get wrong: it reads `docs/crap.md` for the `cargo-crap` version `nix/crap.nix` pins, so a page edit that drops that version merges green |
+   | `check-gate-classification` | Deferred, and it reads the two tables above - so a pull request can break this classification and only the `main` push says so |
    | `text-hygiene`, `line-endings` | Deferred. Whitespace and CRLF in a new page |
    | `max-lines` | Deferred, and **this is the sharpest one**: a new 1200-line page merges green and fails the publish |
 
    Every one of those still runs on the `main` push, in `publish`, whose cache posture and
    unconditional gates are unchanged. So the trade is explicit: **one property was moved forward onto
-   the pull request, five were left behind it**, and the reason the trade is acceptable is that the
-   moved one is the only one whose post-merge failure blocks a publish on something a reviewer could
-   not see coming - the other five are visible in the diff and fail loudly with the page in front of
-   whoever wrote it.
+   the pull request and every other row above was left behind it**, and the reason the trade is
+   acceptable is that the moved one is the only one whose post-merge failure blocks a publish on
+   something a reviewer could not see coming - the rest are visible in the diff and fail loudly with
+   the page in front of whoever wrote it.
 
    **What that means for the rest of this section:** the 15m45s is still owed a measurement, and that
    is what point 2 is for - it decides whether points 3 and 4 are needed at all now that the text-only

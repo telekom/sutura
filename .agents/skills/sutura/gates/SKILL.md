@@ -163,6 +163,15 @@ therefore does not see.
   this repo was wrong six times. Write the command and the date, or delete the number.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
+- **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
+  `Kind::Hygiene` carries a `Reads`, so the compiler makes every gate in the sweep say whether a
+  `docs/*.md`-only diff can reach what it reads, and the gate fails unless the implementation plan's
+  two tables are exactly those two groups - in both directions. What it cannot see is a gate whose
+  INPUTS grow into `docs/` while its `Reads` still says `Code`: that is how `check-crap` sat in the
+  code group while reading `docs/crap.md` for the `cargo-crap` version. **The reason it gates the
+  classification rather than the sweep's size:** a count goes green the moment a new gate is added,
+  including one added without being classified, so it holds a number while the sentence the number
+  serves rots.
 
 ## The causality gate, and how it can lie
 

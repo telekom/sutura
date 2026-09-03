@@ -21,6 +21,7 @@ mod crap;
 mod default_features;
 mod docs;
 mod fmt;
+mod gate_classification;
 mod guidance;
 mod hooks;
 mod line_endings;
@@ -75,11 +76,41 @@ type Gate = fn(&[String]) -> Verdict;
 /// Whether a task belongs to the `hygiene` sweep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    /// Cheap, argument-free, judges the whole repo. Collected into `hygiene`.
-    Hygiene,
+    /// Cheap, argument-free, judges the whole repo. Collected into `hygiene`, and it says what
+    /// it reads - see [`Reads`], and `gate_classification` for what that buys.
+    Hygiene(Reads),
     /// Everything else: takes arguments, changes files, or runs other tasks. Never collected,
     /// which is also what stops `hygiene` from recursing into itself.
     Standalone,
+}
+
+/// Which side of the prose/code line a hygiene gate's INPUTS fall on.
+///
+/// A payload on [`Kind::Hygiene`] rather than a separate field, so a new gate cannot be added
+/// without answering the question: the compiler asks it, no test has to. It exists because a
+/// workflow skips the `hygiene` build for a diff of `docs/*.md` and `mkdocs.yml` alone, and the
+/// argument for that skip is a CLASSIFICATION of the sweep - not its size. A count would stay
+/// green while a gate joined the set unclassified, which is the drift that already happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reads {
+    /// Nothing a `docs/*.md`-or-`mkdocs.yml` diff can change: Rust, manifests, lock files, nix,
+    /// workflow YAML, the justfile, the hook configuration, the skills tree, `ATTRIBUTION.md`.
+    /// Prose OUTSIDE `docs/` is on this side too - the classification is about reachability from
+    /// that diff, not about whether a gate reads English. Skipping it on such a diff loses nothing.
+    Code,
+    /// At least one file such a diff CAN change - so skipping it DEFERS a real verdict, and
+    /// which verdict is what the plan's table has to say.
+    Prose,
+}
+
+impl Reads {
+    /// The word the plan's table is keyed by. One spelling, in the type.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Code => "code",
+            Self::Prose => "prose",
+        }
+    }
 }
 
 /// A task: the name, the `--help` line, whether it is a hygiene gate, and the code it runs.
@@ -104,19 +135,19 @@ const TASKS: &[Task] = &[
     Task {
         name: "check-boundaries",
         description: "the domain crate depends on no framework",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: boundaries::run,
     },
     Task {
         name: "max-lines",
         description: "no file over 1000 lines (exemptions: devco/max-lines-ignore)",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Prose),
         run: max_lines::run,
     },
     Task {
         name: "check-pins",
         description: "no tool is pinned by both nix and pixi",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: pins::run,
     },
     Task {
@@ -124,19 +155,19 @@ const TASKS: &[Task] = &[
         // rather than evaluated, one value that has to be the same in both.
         name: "check-warm-start",
         description: "the causality gate builds where nix warms its target directory",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: warm_start::run,
     },
     Task {
         name: "unused-deps",
         description: "every declared dependency is actually used",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: unused_deps::run,
     },
     Task {
         name: "check-arrow",
         description: "one Arrow major in Cargo.lock, or an explained exception",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: arrow_major::run,
     },
     Task {
@@ -147,7 +178,7 @@ const TASKS: &[Task] = &[
         // wish rather than a rule.
         name: "check-shared-client",
         description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018)",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: shared_client::run,
     },
     Task {
@@ -158,7 +189,7 @@ const TASKS: &[Task] = &[
         // matrix takes literals and a job cannot evaluate a flake before installing nix.
         name: "check-shipped-binaries",
         description: "every release-path binary literal equals nix/shipped.nix",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: shipped::run,
     },
     Task {
@@ -179,7 +210,7 @@ const TASKS: &[Task] = &[
         // `just attribution` is the fix every failure message names.
         name: "check-attribution",
         description: "ATTRIBUTION.md names every third-party crate in Cargo.lock",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: attribution::run_check,
     },
     Task {
@@ -189,7 +220,7 @@ const TASKS: &[Task] = &[
         // one owns the two serde rules that were *review* in the Rust skill's own table.
         name: "check-serde-parse",
         description: "a validated newtype's serde goes through its constructor, both ways",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: serde_parse::run,
     },
     Task {
@@ -198,7 +229,7 @@ const TASKS: &[Task] = &[
         // one. `AGENTS.md`: a variant no test can provoke is what that enum refuses to carry.
         name: "check-refusal-coverage",
         description: "every RefusalReason variant is provoked, or excused in devco/refusals-unprovoked-allow",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: refusals::run,
     },
     Task {
@@ -208,25 +239,25 @@ const TASKS: &[Task] = &[
         // one most likely to earn its keep years from now.
         name: "check-newtype-leaks",
         description: "no first-party Deref or Borrow - both leak a newtype's invariant",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: newtype_leaks::run,
     },
     Task {
         name: "line-endings",
         description: "every text file uses LF, not CRLF",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Prose),
         run: line_endings::run,
     },
     Task {
         name: "text-hygiene",
         description: "conflict markers, whitespace, final newline, file size; --fix",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Prose),
         run: text::run,
     },
     Task {
         name: "check-skills",
         description: "the skill router and the skill tree agree",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: skills::run,
     },
     Task {
@@ -236,7 +267,7 @@ const TASKS: &[Task] = &[
         // is in neither its scan nor the citation script's `*.md` one. This gate is that file's.
         name: "check-scope",
         description: "a narrowed just recipe prints the scope it covered",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: tasks::run,
     },
     Task {
@@ -246,26 +277,36 @@ const TASKS: &[Task] = &[
         // decision lives and where deleting one block silently un-tiers it.
         name: "check-hook-tiers",
         description: "the push stage compiles, with the commit stage's own invocation",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: hooks::run,
     },
     Task {
         name: "check-guidance",
         description: "docs and comments still describe this repo",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Prose),
         run: guidance::run,
     },
     Task {
         name: "check-workflows",
         description: "every flake output a workflow names exists",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: workflows::run,
     },
     Task {
         name: "check-docs",
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Prose),
         run: docs::run,
+    },
+    Task {
+        // `Reads::Prose`, and it has to be: the page it reads is a `docs/*.md` one, so the
+        // classification it holds is itself deferred by the skip it describes. That is not a
+        // circularity - the `main` push runs it unconditionally, and a wrong classification
+        // merged is exactly what the row for this gate in that table says is deferred.
+        name: "check-gate-classification",
+        description: "every hygiene gate is in exactly one of the plan's two groups",
+        kind: Kind::Hygiene(Reads::Prose),
+        run: gate_classification::run,
     },
     Task {
         // A threshold lint's cause is a NUMBER, which is a property of the surrounding
@@ -273,7 +314,7 @@ const TASKS: &[Task] = &[
         // move that number correctly and only their merge is wrong. See the module doc.
         name: "check-expect-thresholds",
         description: "no #[expect] on a count-threshold lint (too_many_lines / too_many_arguments / cognitive_complexity)",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Code),
         run: threshold_expect::run,
     },
     Task {
@@ -283,7 +324,7 @@ const TASKS: &[Task] = &[
         // on every commit and inside the Nix sandbox, so nothing in it may need a coverage build.
         name: "check-crap",
         description: "the CRAP policy is a gate, its allowlist annotated, its scope real",
-        kind: Kind::Hygiene,
+        kind: Kind::Hygiene(Reads::Prose),
         run: crap::run_check,
     },
     Task {
@@ -448,12 +489,23 @@ pub(crate) fn task_names() -> impl Iterator<Item = &'static str> {
     TASKS.iter().map(|t| t.name)
 }
 
+/// Every gate the `hygiene` sweep collects, with what it reads.
+///
+/// Derived from the same table and the same predicate `run_hygiene` filters on, because a second
+/// list of the sweep's members is the drift this table was built to end.
+pub(crate) fn hygiene_gates() -> impl Iterator<Item = (&'static str, Reads)> {
+    TASKS.iter().filter_map(|t| match t.kind {
+        Kind::Hygiene(reads) => Some((t.name, reads)),
+        Kind::Standalone => None,
+    })
+}
+
 /// Run every hygiene gate, in declaration order, stopping at the first failure.
 ///
 /// Stopping rather than collecting: these are ordered cheapest-first, so the first failure is
 /// usually the cheapest to read, and a wall of output from eight gates is worse than one.
 fn run_hygiene(_args: &[String]) -> Verdict {
-    let gates: Vec<&Task> = TASKS.iter().filter(|t| t.kind == Kind::Hygiene).collect();
+    let gates: Vec<&Task> = TASKS.iter().filter(|t| matches!(t.kind, Kind::Hygiene(_))).collect();
     for task in &gates {
         // No arguments: a hygiene gate takes none, which is what `Kind::Hygiene` asserts.
         match (task.run)(&[]) {
@@ -498,7 +550,7 @@ fn usage() {
     for task in TASKS {
         // A leading dot marks a member of the `hygiene` sweep, so the set is readable here
         // rather than only in the source.
-        let mark = if task.kind == Kind::Hygiene { "." } else { " " };
+        let mark = if matches!(task.kind, Kind::Hygiene(_)) { "." } else { " " };
         eprintln!("{mark} {:<18} {}", task.name, task.description);
     }
     eprintln!();
@@ -550,7 +602,32 @@ mod tests {
     fn the_hygiene_set_is_not_empty() {
         // An empty set would make `hygiene` a green no-op - the failure this whole change
         // exists to prevent, arrived at from the other direction.
-        assert!(TASKS.iter().any(|t| t.kind == super::Kind::Hygiene));
+        assert!(TASKS.iter().any(|t| matches!(t.kind, super::Kind::Hygiene(_))));
+    }
+
+    #[test]
+    fn the_sweep_has_a_gate_on_each_side_of_the_prose_line() {
+        // `Kind::Hygiene(Reads)` makes the classification total - a gate cannot join the sweep
+        // without declaring a side - so what is left to check is that neither side is EMPTY.
+        // An empty side is how the plan's argument passes vacuously: with nothing classified as
+        // reading prose there is no table of deferred verdicts to be wrong, and with nothing
+        // classified as reading code the skip it justifies covers nothing.
+        let mut code = 0_usize;
+        let mut prose = 0_usize;
+        for (_, reads) in super::hygiene_gates() {
+            match reads {
+                super::Reads::Code => code += 1,
+                super::Reads::Prose => prose += 1,
+            }
+        }
+        assert!(
+            code > 0,
+            "no hygiene gate reads code - the skip in docs.yml justifies nothing"
+        );
+        assert!(
+            prose > 0,
+            "no hygiene gate reads prose - the deferred-verdict table is then empty"
+        );
     }
 
     #[test]
@@ -607,7 +684,7 @@ mod tests {
         // Its configuration half IS cheap and must stay in the sweep: that is what stops the
         // policy file from rotting on a tree nobody has run the expensive half against.
         let cheap = TASKS.iter().find(|t| t.name == "check-crap").expect("task is registered");
-        assert_eq!(cheap.kind, super::Kind::Hygiene);
+        assert!(matches!(cheap.kind, super::Kind::Hygiene(_)));
         // And the DELTA half is standalone for a third reason: it needs a baseline that arrives
         // over the network in CI, and the hygiene sweep runs in a sandbox with no network.
         let delta = TASKS.iter().find(|t| t.name == "crap-delta").expect("task is registered");
