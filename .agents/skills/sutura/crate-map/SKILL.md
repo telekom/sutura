@@ -60,7 +60,8 @@ and `just gates` adds a DEFAULT-feature lane, because a `#[cfg(feature = ..)]` c
 the feature on is the shipped set's blind spot. **That lane's scope is the shipped set and no
 wider** - its package list is derived from the `binaries` list below, so a feature on a crate that
 does not ship is reached by the `--all-features` gates and by nothing at the default set - and it is
-a developer lane: CI has the four `cross` builds for the compile half and nothing for the lint half.
+gated in both venues: `just gates` locally, `nix run .#default-features` on a pull request. The four
+`cross` builds are still the only thing that LINKS the default set, on the triples a release targets.
 
 A feature-gated adapter's absence is a **startup refusal naming the feature**, never a silent
 degradation - and `sutura_config` cannot see a link, so which adapters a BUILD contains is not in
