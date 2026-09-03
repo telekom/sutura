@@ -563,6 +563,27 @@ jobs:
         if: steps.classify.outputs.api == 'true'
         run: nix build .#checks.x86_64-linux.api-docs -L
 
+      # THE SHIPPED FEATURE SET, and it is the only step here that compiles anything at cargo's
+      # DEFAULT features. Every other compiling gate above passes `--all-features` - the `Clippy`
+      # and `Tests` checks included - while `nix/shipped.nix` publishes the default set, so a
+      # `#[cfg(feature = ..)]` arm only ever compiled with the feature ON was a hard error in the
+      # exact configuration a release builds and every gate here was green. That shipped once.
+      #
+      # An app rather than a check for `Supply chain`'s reason: it shells out to cargo, which needs
+      # a registry and a writable target directory the sandbox has not got.
+      #
+      # AFTER `Tests`, which is not cosmetic - the app reuses the dependency closure that step just
+      # built, at the same `ci` profile, instead of compiling the graph a third time in this job.
+      #
+      # `rust` and not a narrower classification: the package list is derived from
+      # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
+      #
+      # WHAT IT STILL DOES NOT COVER: it stops at metadata, so the four `cross` jobs below stay the
+      # authority on a musl LINK, and nothing here compiles a feature no shipped binary enables.
+      - name: The shipped feature set compiles and lints
+        if: steps.classify.outputs.rust == 'true'
+        run: nix run .#default-features
+
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.
       - name: Test causality

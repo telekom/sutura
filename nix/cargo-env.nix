@@ -105,6 +105,23 @@ let
     # The app's own `cargo run -p xtask` compiles here too, rather than into a second
     # directory that would have to build xtask's dependencies from scratch.
     export CARGO_TARGET_DIR="$warmTarget"
+
+    # THE ONE ARTIFACT THE UNPACK CANNOT BE TRUSTED WITH, and it is here rather than in the app
+    # that first hit it because it is a property of THIS unpack and not of that gate.
+    # `utoipa-swagger-ui`'s build script embeds an ABSOLUTE `OUT_DIR` path into the rust-embed
+    # `#[folder]` attribute it generates (`<target>/ci/build/utoipa-swagger-ui-*/out/embed.rs`).
+    # The closure above was produced in a sandbox whose source root is `/build/source`, so any
+    # consumer that then RECOMPILES the crate - a different feature set, or a `cargo check` unit,
+    # which is a different unit from the `cargo build` one the closure carries - reuses that stale
+    # `embed.rs` and fails with `#[derive(RustEmbed)] folder ... does not exist`. Purging the
+    # crate's build output makes `build.rs` rerun and regenerate it against the current root.
+    #
+    # `apps.causality` carried these lines inline and `apps.bigquery-acceptance` did not, which is
+    # the shape of a fix that only the app that was measured has: both warm the same closure and
+    # both compile `sutura-http`, so both were exposed and one was patched.
+    rm -rf -- "$warmTarget/ci/build/utoipa-swagger-ui-"* \
+              "$warmTarget/ci/.fingerprint/utoipa-swagger-ui-"* \
+              2>/dev/null || true
   '';
 in
 {
