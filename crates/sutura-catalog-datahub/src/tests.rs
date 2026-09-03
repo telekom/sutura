@@ -54,7 +54,7 @@ fn dataset(name: &str, table: &str, columns: &[&str], description: &str) -> Data
 
 /// The two models and one relationship the recorded corpus carries, plus one certified metric.
 ///
-/// Since issue #202 the corpus carries a metric with the deployment-defined `sutura.*` content,
+/// Since issue #202 the corpus carries a metric with the deployment-defined `sutura` property,
 /// because the adapter now DECLARES it provides metrics and a declaration measured against a
 /// bundle that carried none would be aspirational. The metric is `revenue` over `orders`.
 fn corpus() -> Snapshot {
@@ -133,7 +133,7 @@ fn the_bundle_of_models_and_one_certified_metric_loads_and_validates() {
 /// `MetadataCapabilities::produced` reads what the bundle actually carries, and
 /// `checked_against` compares it in BOTH directions to what the adapter declared. The declaration
 /// now includes `Metrics` and `Grains`, the bundle here carries one certified metric with a grain,
-/// and the pair agrees. A metric with no `sutura.*` content is absent from this bundle, which is
+/// and the pair agrees. A metric with no `sutura` property is absent from this bundle, which is
 /// the other half of the claim: `DataHub` `provides metrics for a metric that carries the custom
 /// shape`.
 #[test]
@@ -155,7 +155,7 @@ fn it_declares_metrics_and_the_bundle_carries_one() {
 /// `docs/adr/0016` decision 4: `MetricInfo.expression` is a promotion candidate, a string in a
 /// dialect nothing here renders, and `aggregationFunction` beside it is authored independently
 /// with nothing reconciling the two - so taking either would certify half a definition. A metric
-/// entity with no `sutura.*` content stays exactly that: the adapter decodes the aspect and does
+/// entity with no `sutura` property stays exactly that: the adapter decodes the aspect and does
 /// not convert it, and the bundle carries no metric it did not certify.
 #[test]
 fn a_metric_without_the_defined_shape_is_reported_and_not_defined() {
@@ -500,11 +500,13 @@ fn a_relationship_alone_licenses_no_dimension() {
 ///
 /// `Knowledge::assemble`'s `UndeclaredContent` guard refuses a bundle whose input carries notes
 /// for a capability the declared `KnowledgeCapabilities` do not cover - the "content for a kind
-/// it did not declare" shape. A standalone `DataHub` bundle never reaches it, because a note
-/// needs a metric for its `Referent` to name and this adapter provides no metrics; the wiring is
-/// the point here. Built and refused through the adapter's own types, so the guard is reachable
-/// the day a composed bundle feeds one in, and the failure lands as `DataHubError::Knowledge`
-/// rather than as prose.
+/// it did not declare" shape. A standalone `DataHub` bundle never reaches it, and since issue #202
+/// the reason is no longer "there is no metric for a `Referent` to name" - the corpus carries a
+/// certified one. It is that nothing here reads a knowledge aspect: the snapshot has no field for
+/// one, so `assemble` hands `Knowledge::assemble` a `KnowledgeInput::none()`. The wiring is the
+/// point here. Built and refused through the adapter's own types, so the guard is reachable the day
+/// a composed bundle feeds one in, and the failure lands as `DataHubError::Knowledge` rather than
+/// as prose.
 #[test]
 fn content_for_a_kind_it_did_not_declare_fails_the_load() {
     let model = Model::new(
