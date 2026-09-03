@@ -21,7 +21,8 @@
 //! * **Every test the page cites exists and is a test.** The page says those names are the list to
 //!   check a claim against, which a rename turns into a citation of nothing.
 //! * **The acceptance venue's limit is a workflow property**, so it is read out of the workflow -
-//!   see [`workflow_problems`] and [`one_credential_mechanism`].
+//!   see the `acceptance` module, whose own header lists the nine properties it holds and the four
+//!   ways an earlier draft of it read a regression as compliance.
 //!
 //! # What is not
 //!
