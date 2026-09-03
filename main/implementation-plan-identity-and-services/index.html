@@ -3623,8 +3623,10 @@ economise.</p>
    <code>CONTRIBUTING.md</code> - and <strong>a non-markdown asset under <code>docs/</code> still runs them</strong>, because
    <code>check-docs</code> is what resolves it. That first clause is about what reads <code>AGENTS.md</code>, not about
    what <code>check-guidance</code> reads: <code>check-guidance</code> scans every <code>.md</code>, <code>.nix</code>, <code>.yml</code>, <code>.yaml</code>, <code>.toml</code>
-   and <code>.sh</code> in the tree. The point is that deferring it over that one file defers the whole of what
-   checks that file's content.</p>
+   and <code>.sh</code> in the tree for the checks that judge a sentence, and - since the citation half was
+   widened past prose - every published <code>.rs</code> file for the one check that only resolves a cited task
+   name. The point is that deferring it over that one file defers the whole of what checks that
+   file's content.</p>
 <p><strong>The residual risk, stated rather than waved at, because the replacement is narrower than what it
    replaced.</strong> What makes the skip safe is a CLASSIFICATION of the sweep rather than its size, so the
    classification is where the mechanism went: <code>Kind::Hygiene</code> in <code>xtask/src/main.rs</code> carries a
