@@ -2803,10 +2803,17 @@ catalogue or a different data system, there is not one yet.</p>
 </tbody>
 </table>
 <p>So the supported combination today is <strong>local markdown with YAML frontmatter for the metadata, and
-the in-process engine over the CSV or Parquet files in the directory you name on the command
-line</strong>. <code>sutura query &lt;catalog-dir&gt; &lt;question.yaml&gt; &lt;data-dir&gt;</code> is the whole of it, and
-<code>sutura doctor</code> says the same thing in one line: <code>data systems : none - this build reads files, and
-pushes down to nothing</code>.</p>
+the in-process engine over the CSV or Parquet files in a directory</strong>. <code>sutura query &lt;catalog-dir&gt;
+&lt;question.yaml&gt; [data-dir]</code> is the whole of it, and <code>sutura doctor</code> says the same thing in one line:
+<code>data systems : none - this build reads files, and pushes down to nothing</code>.</p>
+<p><strong>The directory is optional because that command reads the same <code>sources:</code> tree the server does.</strong> A
+catalog whose models name <code>warehouse</code> is answered when <code>sources.warehouse</code> declares a <code>files</code>
+directory beside it, so the name a catalog uses is no longer required to be <code>local</code>; a caller with no
+configuration at all passes the directory instead, and that is the built-in declaration - a <code>files</code>
+source called <code>local</code>, over the directory given, read as whoever ran the command. Both, for one
+source, is refused as two answers to one question. What has NOT changed is which kinds that binary can
+open: <code>kind: bigquery</code> parses, because the adapter exists, and the <code>sutura</code> command links none of it -
+so it is a refusal naming the kind and pointing at <code>sutura-serve --features bigquery</code>.</p>
 <p><strong>Two things are easy to read as more than they are, and both are worth being exact about.</strong></p>
 <p><em><code>DuckDB</code> is a test dependency, not the runtime data source.</em> An earlier example did run through it,
 and the description outlived the code. The <code>DuckDB</code> adapter is still compiled and still executes on
@@ -2843,11 +2850,25 @@ does not cover: no second dataset and no second project, because the acceptance 
 refuses <code>datasets.create</code>.</p>
 <p>0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
 one target the parse check cannot see a function's argument order.</p>
-<p>The engine refuses a catalogue that declares any data system other than the one it is: naming the
-engine after whatever the catalogue said was a real bug, because it satisfied the composition root's
-own <code>plan.source() != warehouse.source()</code> guard by construction, and a catalogue naming a production
-warehouse then got its certified metric answered out of the caller's files under that bundle's digest.
-Today a catalogue that names something else gets an error saying there is no adapter for it.</p>
+<p><strong>A catalogue may name its data system anything, and an UNDECLARED name is still refused - both
+halves matter, and this paragraph said the opposite of each until #121.</strong> A declared source is opened
+under its own name and its own posture; a source no <code>sources:</code> entry names falls back to the
+command-line tool's built-in <code>files</code> declaration, which answers to <code>local</code> only.</p>
+<p>Why the undeclared name is still checked: <code>sutura_app::answer</code> and <code>verify_anchors</code> both do
+<code>warehouses.get(plan.source())</code> - a LOOKUP keyed on the name the catalogue declared, not a
+comparison. (An earlier version of this paragraph named a <code>plan.source() != warehouse.source()</code>
+guard, which exists nowhere in the tree; <code>sutura-app</code>'s own source says <em>"The plan SELECTS its
+warehouse - it is not compared against one."</em>) So an engine registered under whatever the catalogue
+said makes that lookup succeed by construction, and a catalogue naming a production warehouse would
+get its certified metric answered out of the caller's files under that bundle's digest. An engine
+registered under a fixed name misses instead, and a miss is a refusal - <code>SourceUnavailable</code> from a
+question, <code>SourceNotConfigured</code> from an anchor.</p>
+<p><strong>The limit a declaration does NOT close</strong>, stated next to the claim: an entry says where a data
+system is, never that the files there hold what the bundle certifies. The only thing that checks
+content is an ANCHOR, and <code>verify_anchors</code> walks the metrics that declare one - so a bundle of
+unanchored metrics is answered under its real digest out of whatever directory the entry points at.
+That is true of <code>sutura-serve</code> too and always was; #121 is the change that makes it the documented
+command-line workflow.</p>
 <p><strong>What it costs to add a fourth adapter.</strong> A <code>Warehouse</code> or <code>SemanticCatalog</code> implementation, one line
 in the workspace manifest, one line in the composition root - and, in the test suite, one <code>impl</code> of
 <code>adapters::CatalogUnderTest</code> or <code>adapters::DataSystemUnderTest</code> plus one line in
@@ -3285,8 +3306,11 @@ sink. The spliced-statement path is designed, documented above, and unimplemente
 is <em>for</em>: <strong>runtime selection of a data system.</strong> <code>sutura-serve</code> reads a <code>sources:</code> tree, opens one
 adapter per source the catalog names, and hands each the posture its entry declared - so a <code>SourceName</code>
 now <em>selects</em> a warehouse out of a registry rather than being compared for equality against the one
-adapter that was linked, and a source with no entry is a startup refusal naming it. <code>sutura-cli</code> is
-unchanged: it takes one data directory on the command line and reads no registry.</p>
+adapter that was linked, and a source with no entry is a startup refusal naming it. <code>sutura-cli</code> reads
+the same tree now: a declared source is opened under its own name and its own posture, an undeclared
+one falls back to that binary's own built-in <code>files</code> declaration, and a declared kind it linked no
+adapter for is refused by name. What it still will not do is answer a question spanning two data
+systems - it answers one question against one, and federation is the HTTP surface's.</p>
 <p><strong>Half, and the honest half is the one that is missing:</strong> which <em>kind</em> of data system a source may be
 is still decided at compile time, because <code>files</code> is the only kind an adapter ships for. So a
 deployment chooses how many sources it has, where each one is and which identity reaches it, and cannot

@@ -2456,8 +2456,10 @@ dimensions compiles to a plan and executes, and every metric that declares a cer
 reproduces it before the bundle can be served.</p>
 <p>The plan can also be <em>rendered</em> as SQL for <code>DuckDB</code>, Postgres or <code>ClickHouse</code>, and there is a <code>DuckDB</code>
 adapter that pushes a statement down - but that adapter is a <strong>test dependency</strong>, not the runtime data
-source, and the shipped binary links neither it nor any driver. Which adapter is used is a compile-time
-decision in the binary; there is no configuration that selects one.
+source, and the shipped binary links neither it nor any driver. Which DATA SYSTEM is opened is a
+declaration - <code>sources.&lt;alias&gt;.kind</code>, the same tree the service reads - and which KINDS a given build
+can open is a compile-time decision: a published binary opens files, and <code>kind: bigquery</code> needs a
+build carrying the default-off feature, which is a refusal naming that feature rather than a silence.
 <a href="architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
 is the table, and it is the section to read before assuming otherwise.</p>
 <p>What is not built is the part that makes the first sentence of this page true of a warehouse, and it

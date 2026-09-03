@@ -1553,6 +1553,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-the-second-composition-root-reads-the-tree-too" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the second composition root reads the tree too
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2648,6 +2659,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-the-second-composition-root-reads-the-tree-too" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the second composition root reads the tree too
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3404,6 +3426,45 @@ deployment this amendment enables therefore composes a narrow structural source 
 source that is self-contained, and the cross-source-reference case - the literal "DataHub's model,
 metrics certified here" - lands with the raw-contribution port, which is a separate decision and not
 this amendment's.</p>
+<h2 id="amendment-the-second-composition-root-reads-the-tree-too">Amendment: the second composition root reads the tree too<a class="headerlink" href="#amendment-the-second-composition-root-reads-the-tree-too" title="Permanent link">&para;</a></h2>
+<p><strong>One line of this record was left behind by the code and is corrected here rather than left to be
+re-derived.</strong> <em>The composition roots already name the adapters</em> was written when <code>sutura-cli</code> compared
+a catalog's declared source name against one constant and refused everything else. Since
+telekom/sutura#121 it reads the same <code>sources:</code> tree <code>sutura-serve</code> reads, dispatches the declared
+<code>SourceKind</code> through an exhaustive match of its own, and hands the adapter the posture that entry
+declared - so <em>pluggable by declaration</em> is now true of both binaries rather than of the server alone.
+That is this record's decision arriving in the second place it applies, not a new one.</p>
+<p><strong>Two differences are the command-line tool's own, and both are stated where the code is.</strong></p>
+<ul>
+<li><strong>An absent entry is a fallback there and a refusal on the server.</strong> <code>sutura</code> is a tool a person
+  runs against a directory they name, so a source the tree does not declare gets that binary's own
+  built-in declaration: a <code>files</code> source called <code>local</code>, over the directory on the command line, read
+  as whoever ran the command. It is a declaration in code rather than an absence treated as
+  permission, and it is why <code>[data-dir]</code> is optional now - a fully declared deployment needs none, and
+  supplying both for one source is refused as two answers to one question.</li>
+<li><strong>The built-in declaration keeps its NAME</strong>, which is the control the registry did not replace, and
+  the reason is a LOOKUP rather than a comparison. <em>An earlier version of this bullet named a
+  <code>plan.source() != warehouse.source()</code> guard; that guard does not exist anywhere in the tree, and
+  <code>sutura-app</code>'s own source says the opposite - "The plan SELECTS its warehouse - it is not compared
+  against one."</em> What happens is <code>warehouses.get(plan.source())</code>, in <code>answer</code> and again in
+  <code>verify_anchors</code>, keyed on the name the CATALOG declared. So an engine registered under whatever
+  the catalog said makes that lookup succeed by construction and a bundle certifying a metric against
+  a real data system gets it answered out of the caller's CSV files under the real bundle's digest;
+  an engine under a fixed name misses, and a miss is <code>SourceUnavailable</code> / <code>SourceNotConfigured</code> - a
+  clean refusal. A DECLARED source replaces the name check with the declaration; an UNDECLARED one
+  replaces it with nothing, so the name still has to match.</li>
+<li><strong>And a declaration is not a claim about CONTENT</strong>, which is the limit this decision introduces and
+  which belongs beside it: an entry says where a data system is, and the only thing that checks the
+  data there is an anchor - <code>verify_anchors</code> walks the metrics that declare one, and the table-set
+  comparison at boot reads names. So a bundle of unanchored metrics is answered under its real digest
+  out of whatever directory an operator points the entry at. Parity with <code>sutura-serve</code> rather than
+  something the second root opened, and stated because this is the change that makes it the
+  documented command-line workflow.</li>
+</ul>
+<p><strong>And the limit, because a registry reads like availability:</strong> which KINDS a given binary can open is
+still a property of the build. <code>kind: bigquery</code> parses - the adapter exists - and the <code>sutura</code> command
+links none of it, so that entry is a refusal naming what to do instead: declare a <code>files</code> source, or
+serve that dataset with <code>sutura-serve</code> built <code>--features bigquery</code>.</p>
 
 
 

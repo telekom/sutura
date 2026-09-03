@@ -3707,7 +3707,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>catalog.data_dir</code></td>
 <td><code>data</code></td>
-<td>Read by the <code>sutura</code> command. <strong>Not read by the service</strong> - a served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code></td>
+<td><strong>Printed by the startup banner and read by nothing that opens a data system.</strong> A served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code>, and the <code>sutura</code> command reads that same entry or else the directory on its command line</td>
 </tr>
 <tr>
 <td><code>catalog.version</code></td>

@@ -3279,12 +3279,16 @@ a prompt that tells the truth about it, and a path to add metrics. It does not g
 for being narrow.</p>
 <p><strong>The honest limit on that, stated next to the claim, and it is not about DataHub.</strong> What a zero-metric
 bundle cannot do on its own is open a data system, and the two composition roots differ - which is
-worth getting right because the mechanism moved recently. <code>sutura-cli</code> takes one data directory on the
-command line, reads no source registry, and refuses a catalog declaring <strong>no models</strong> - <em>"this catalog
-declares no models, so there is nothing to open"</em> - which a DataHub bundle passes, and refuses one
-naming a source it has no adapter for. <code>sutura-serve</code> does <strong>not</strong> compare names: every source a
-catalog names needs a <code>sources.&lt;alias&gt;</code> entry declaring a <code>SourceKind</code>, and a missing one is
-<em>"this catalog reads from <code>&lt;source&gt;</code>, and no <code>sources.&lt;source&gt;</code> entry declares where that ..."</em>. So a
+worth getting right because the mechanism moved recently - <strong>twice, and the second move dates this
+paragraph's own original wording, which said the command-line tool reads no source registry.</strong> It does,
+since telekom/sutura#121. Both roots read the <code>sources:</code> tree: every source a catalog names is looked
+up there, and a missing entry is <em>"this catalog reads from <code>&lt;source&gt;</code>, and no <code>sources.&lt;source&gt;</code> entry
+declares where that ..."</em>. They differ in what an ABSENT entry means. <code>sutura-serve</code> refuses, full
+stop. <code>sutura-cli</code> falls back to its own built-in declaration - a <code>files</code> source called <code>local</code> over
+the directory on the command line - so an undeclared source must still be named <code>local</code> there, because
+nothing declared it and an engine wearing another name over the caller's own files would answer that
+catalog's certified numbers out of them. Both refuse a catalog declaring <strong>no models</strong> - <em>"this catalog
+declares no models, so there is nothing to open"</em> - which a DataHub bundle passes. So a
 DataHub bundle whose models carry platform URNs is servable exactly when a deployment has declared a
 source per platform it wants to read. <strong>That is configuration, not a refusal of DataHub</strong>, and it is
 the concrete thing the guidance below has to mention. It is written here so nobody reads <em>usable alone</em>
