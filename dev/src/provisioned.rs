@@ -158,7 +158,14 @@ impl Absent {
                 ],
                 DiscoveryError::UnknownService { .. } => vec![
                     String::from("run        `just dev-endpoints` to see what this worktree actually has, and"),
-                    String::from("             `just dev-up-identity` if the service you want is behind a profile"),
+                    // The profiles are DERIVED rather than named: this line used to cite
+                    // `just dev-up-identity`, which was the only profile there was, and the day a
+                    // second one arrived it became advice that starts the wrong stack. A reader
+                    // whose missing service is `datahub` was being told to bring up Keycloak.
+                    format!(
+                        "             `xtask dev-up --with <profile>` if it is behind a profile - there is {:?}",
+                        crate::scope::profiles()
+                    ),
                 ],
                 DiscoveryError::Unreadable { .. }
                 | DiscoveryError::Malformed { .. }
@@ -430,6 +437,14 @@ mod tests {
         let message = problem.to_string();
         assert!(message.contains("behind a profile"), "{message}");
         assert!(!message.contains("`just dev-up` - it starts"), "wrong advice: {message}");
+        // And it names EVERY profile rather than one of them. This line used to cite
+        // `just dev-up-identity`, which was correct while `identity` was the only profile and became
+        // advice that starts the wrong stack the day a second one arrived: a reader whose missing
+        // service was `datahub` was being told to bring up Keycloak. Derived from `SERVICES`, so a
+        // third profile cannot leave this message behind.
+        for profile in super::super::scope::profiles() {
+            assert!(message.contains(profile), "`{profile}` is not in the advice: {message}");
+        }
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 

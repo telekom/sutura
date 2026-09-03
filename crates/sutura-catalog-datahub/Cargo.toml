@@ -21,5 +21,17 @@ thiserror = { workspace = true }
 # promises. Dev-only, so the library closure stays serde + thiserror + sutura-domain.
 sutura-semantic = { workspace = true }
 
+# The provisioned-instance probe (`tests/provisioned.rs`) asks the compose tier's `datahub` profile
+# whether GMS is reachable on the port this worktree allocated. Both are DEV-ONLY and that is the
+# load-bearing part: the library still declares no HTTP client, because there is no `AspectReader`
+# over one yet - `docs/adr/0016` leaves the read path's cost open, and a transport dependency in the
+# library closure would be this crate claiming a reader it has not got.
+#
+# `ureq` rather than a second client: `sutura-exec-bigquery`'s wire already resolves this version and
+# feature set, so nothing new enters `Cargo.lock` - the same argument `docs/adr/0018` makes, and
+# `cargo xtask check-shared-client` is what holds it.
+sutura-dev = { workspace = true }
+ureq = { workspace = true }
+
 [lints]
 workspace = true
