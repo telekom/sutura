@@ -2287,7 +2287,7 @@ naming the key, not an override that silently did not happen.</p>
 the part that matters: <strong>no adapter in this build can carry a per-subject credential.</strong> Every
 question executes with a credential a broker minted, and what that credential says is <em>the identity
 this process holds for that source</em>. <code>AGENTS.md</code> records which half is mechanised, and
-<code>examples/multi-player/README.md</code> explains why single-player makes "every query runs as the calling
+<code>examples/README.md</code> explains why single-player makes "every query runs as the calling
 principal" trivially true and worth nothing.</p>
 <p>That is a property of the runtime, so it is a property of every deployment this crate
 configures. An <a href="security::AccessToken"><code>AccessToken</code></a> authenticates <em>the deployment</em>: a caller
@@ -2564,8 +2564,8 @@ what a reviewer reads and manifest determinism does not depend on it surviving a
 <p>The credential broker a deployment gets when its credentials are configuration.</p>
 <p><strong>The first implementor of <code>sutura_domain::identity::CredentialBroker</code>, and it is a shipping
 deployment mode rather than test scaffolding.</strong> <code>AGENTS.md</code>'s rule is that a port trait arrives
-with its first implementor, because a trait with no implementor is a guess at a signature - and
-<code>examples/multi-player/README.md</code> says the same thing about this port by name. What arrives with
+with its first implementor, because a trait with no implementor is a guess at a signature - and the
+calling-subject floor this port answers to is <code>docs/adr/0008</code> part 6. What arrives with
 it here is the static-credential broker single-user mode already needs: credentials as
 configuration, one user, one host.</p>
 <h1 id="why-this-crate">Why this crate<a class="headerlink" href="#why-this-crate" title="Permanent link">&para;</a></h1>

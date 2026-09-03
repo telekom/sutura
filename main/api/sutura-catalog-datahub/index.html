@@ -2259,10 +2259,21 @@
 <code>DataHub</code> 1.7.0 holds a measure as a raw expression string in a dialect set that does not intersect
 this repository's, and its physical relationships default cardinality to many-to-many - so it
 supplies the physical model, the descriptions and the join columns, and supplies no measure this
-adapter will execute, no reliable cardinality, no definitional filter, no grain, no value
-allowlist and no anchor. That is the shape of a <strong>declaring</strong> adapter: it says which kinds it
-provides and which it does not, and it is measured against that declaration rather than against
-the golden adapters' oracle.</p>
+adapter will execute <strong>unless the deployment defines the metric itself</strong>, no reliable cardinality,
+no definitional filter, no grain, no value allowlist and no anchor. That is the shape of a
+<strong>declaring</strong> adapter: it says which kinds it provides and which it does not, and it is measured
+against that declaration rather than against the golden adapters' oracle.</p>
+<p><strong>Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.</strong>
+<code>DataHub</code>'s <code>structuredProperty</code> is scalar-only, so a deployment cannot define a nested metric
+object; what it CAN define is one string-valued structured property named <code>sutura</code>, and the
+reader decodes its scalar value into the closed-vocabulary content a certified metric needs -
+the flat-to-nested assembly <code>document::SuturaProperty::assemble</code> implements and the recorded
+fixture is kept in. Where that shape is present, this adapter reads it into a certified
+<code>Metric</code>, turning <code>provides no
+metrics</code> into <code>provides metrics for a metric that carries the custom shape</code>. Where it is absent,
+the metric stays the promotion candidate <code>docs/adr/0016</code> describes. The shape is closed - the
+measure and filter vocabularies are <code>sutura_domain</code>'s own, and <code>deny_unknown_fields</code> refuses a
+property this adapter does not recognise rather than guessing.</p>
 <h1 id="what-is-built-here-and-what-is-not">What is built here, and what is NOT<a class="headerlink" href="#what-is-built-here-and-what-is-not" title="Permanent link">&para;</a></h1>
 <p>This crate contains everything <code>DataHubCatalog</code> DECIDES about the aspects it reads, and it is
 tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
@@ -2271,30 +2282,40 @@ HTTP. What it does not contain is an HTTP client: <code>AspectReader</code> is t
 bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
 opening engineering question <code>docs/adr/0016</code> leaves open, to be measured against a provisioned
 instance the way <code>sutura-exec-bigquery</code>'s acceptance leg was. Until that lands, the only
-implementor of the port is the recorded fixture source in <code>fixture</code>.</p>
+implementor of the port is the recorded fixture source in <code>fixture</code>. <strong>And nothing serves it:</strong>
+no composition root links this crate (its only dependant is <code>sutura-app</code>, as a dev-dependency),
+and <code>sutura-serve</code> refuses <code>catalog.kind: datahub</code> by name. Everything here is decided and
+tested; what is not is the read path against a provisioned instance and a served composition -
+the <em>Built and not wired</em> register in <code>.agents/skills/sutura/query-surface/SKILL.md</code> records
+it, and that register is the one place it may be read from - it is not an invariant.</p>
 <h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
-<p><code>SemanticCatalog::KIND</code> is <code>CatalogKind::Declaring</code> and <code>SemanticCatalog::capabilities</code>
-provides <code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code>, and no knowledge capability. A bundle a
-<code>DataHub</code>-only deployment loads therefore uses the physical model, the prose and the join columns,
-and carries no certified metric layer - which the prompt states as a fact derived from the bundle,
-exactly as <code>docs/adr/0011</code> decided. It loads and validates, because <code>Definitions::assemble</code> has no
-minimum-metric refusal.</p>
-<p><strong>The knowledge half is empty on purpose, and why is worth stating rather than glossed.</strong> <code>DataHub</code>
-does have glossary-like content, but every <code>Knowledge</code> referent names a metric, a dimension of one
-or a declared value of one - and this adapter provides no metrics, so there is no referent for a
-phrase or a caveat to attach to. <code>docs/adr/0016</code> decision 3 marks glossary and caveats <em>provides,
-conditionally, where the bundle already declares a metric for a Referent to name</em>; that condition
-is met only by the composition of a separately-authored metric layer, which <code>docs/adr/0011</code>'s
-assembler (not built) is what would supply. So the honest standalone declaration is no knowledge
-at all, and this crate says so rather than advertising a conditional it cannot satisfy alone.</p>
-<h1 id="the-two-absences-that-are-the-point">The two absences that are the point<a class="headerlink" href="#the-two-absences-that-are-the-point" title="Permanent link">&para;</a></h1>
-<p><code>Cardinality</code> and <code>Metrics</code> are both <em>present</em> in <code>DataHub</code> and both declared unsupported here,
-which is the interesting kind of absence <code>docs/adr/0016</code> calls out: reading them would be reading
-something the source does not guarantee. A relationship whose cardinality is absent or many-to-many
-is refused naming the relationship (not defaulted in either direction), because the <code>N_N</code> default
-makes an unconsidered relationship indistinguishable from a considered one. A metric whose measure
-is an expression string is read - <code>document::MetricAspect</code> is decoded - and never converted into
-a <code>Measure</code>, so it does not enter the certified bundle.</p>
+<p><code>SemanticCatalog::KIND</code> is <code>CatalogKind::Declaring</code>. <code>SemanticCatalog::capabilities</code>
+provides <code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code> unconditionally, and declares
+<code>Metrics</code>, <code>Grains</code>, <code>RequiredFilters</code>, <code>AllowedValues</code> and <code>Anchors</code> as <strong>declared-and-empty
+may-provide kinds</strong> - the 0011 state <code>DefinitionCapabilities::of_may_provide</code> adds, whose whole
+job is exactly this: a <code>DataHub</code> metric's measure, grains, filters, dimension allowlists and anchor
+all arrive from the deployment-defined <code>sutura</code> structured property, so whether a bundle carries
+any of them is the deployment's decision and absence is a faithful bundle, not an aspirational
+claim. A <code>DataHub</code>-only deployment therefore uses the physical model, the prose, the join columns
+and whatever metrics and definitions the deployment wrote as structured properties, and a bundle
+with none of the deployment-authored kinds still loads and validates, because
+<code>Definitions::assemble</code> has no minimum-metric refusal.</p>
+<p><strong>The knowledge half is empty on purpose, and why is worth stating rather than glossed.</strong>
+<code>DataHub</code> keeps its glossary-like synonym content on a separate entity (<code>AiContext</code>), and nothing
+here reads it - so a standalone bundle carries no <code>Knowledge</code> referent for a phrase or a caveat to
+attach to, and the declaration says no knowledge rather than advertising a capability this crate
+cannot satisfy alone.</p>
+<h1 id="the-one-nuance-that-is-the-point">The one nuance that is the point<a class="headerlink" href="#the-one-nuance-that-is-the-point" title="Permanent link">&para;</a></h1>
+<p><code>Cardinality</code> arrives in <code>DataHub</code> as an unreliable default (relationships default to
+many-to-many), so this adapter refuses a relationship it cannot vouch for rather than reading
+one: absent or many-to-many cardinality is refused naming the relationship, not defaulted in
+either direction. What the adapter WILL carry is a cardinality the deployment DECLARES a
+dimension through - a dimension with a <code>via</code> is observed as <em>a dimension reached through a
+relationship</em>, which is the only way <code>Cardinality</code> is produced here, and the declaration marks
+it declared-and-empty for exactly that reason. A metric whose measure is a raw expression string
+is read - <code>document::MetricAspect</code> is decoded - and never converted into a <code>Measure</code>,
+because that is the promotion-candidate half; only a metric carrying the deployment-defined
+<code>document::SuturaProperty</code> becomes a certified one.</p>
 <h2 id="trait-aspectreader"><code>trait AspectReader</code><a class="headerlink" href="#trait-aspectreader" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">AspectReader</span>
 </span></code></pre></div>
@@ -2320,6 +2341,7 @@ reader back to all of them.</p>
 <li><code>UnknownPlatform</code> - A model named a platform this deployment declared no <code>sources.&lt;alias&gt;</code> for.</li>
 <li><code>CardinalityUnrepresentable</code> - A relationship carries no cardinality, or one this adapter cannot represent.</li>
 <li><code>Identifier</code> - A name on a snapshot did not parse as the identifier kind it claims to be.</li>
+<li><code>Sutura</code> - The <code>sutura</code> structured property's scalar value is not the metric content it claims to be.</li>
 <li><code>Description</code> - Prose on a snapshot is not a usable description.</li>
 <li><code>Inconsistent</code> - The models, relationships and columns did not hold together.</li>
 <li><code>Knowledge</code> - The bundle's knowledge does not hold together.</li>
@@ -2360,18 +2382,24 @@ into that crate's own <code>wire::document</code> shapes.</p>
 description aspects, a <code>semanticModel</code>'s relationships with their cardinality, and a <code>metric</code>'s
 expression. Everything an adapter DECIDES below this shape is tested against a fake reader that
 serves recorded documents, which is the port's own rule.</p>
-<p><code>Cardinality</code> mirrors <code>DataHub</code>'s <code>ERModelRelationshipCardinality</code>, and <code>N_1</code>-to-<code>N_1</code> is refused by
-the conversion rather than carried, because <code>JoinType</code> has no many-to-many shape - the declaration
-says so (this adapter does NOT provide cardinality), and a relationship nobody vouched for
-licenses nothing.</p>
+<p><code>Cardinality</code> mirrors <code>DataHub</code>'s <code>ERModelRelationshipCardinality</code> (declared-and-empty in this
+adapter, produced only by a deployment-defined dimension with a <code>via</code>), and <code>N_1</code>-to-<code>N_1</code> is
+refused by the conversion rather than carried, because <code>JoinType</code> has no many-to-many shape - a
+relationship nobody vouched for licenses nothing.</p>
 <p>The fields are private with constructors and accessors, per the workspace's <code>check-boundaries</code>
-rule that a library crate's types are its contract: a <code>pub</code> field lets a struct literal build a
-value the constructor would have rejected. These carriers are decoded by <code>serde</code>, which writes
-private fields, and built by a reader through the constructor.</p>
+rule that a library crate's types are its contract. The guards are not in the constructors -
+these are carriers of already-typed values, and where a value is untyped (a <code>column</code>, a
+<code>model</code>) it is parsed during the conversion, not here - they are in the typed serde fields and
+the two closedness claims (an unknown key is refused by <code>deny_unknown_fields</code>, a value that is
+not a usable identifier is refused by the conversion's parse) that a <code>pub</code> field would let a
+struct literal walk past.</p>
 <h3 id="struct-snapshot"><code>struct Snapshot</code><a class="headerlink" href="#struct-snapshot" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Snapshot</span>
 </span></code></pre></div>
 <p>Everything a reader fetched, before any of it is converted.</p>
+<p><code>deny_unknown_fields</code> here too - the three aspect groups are the whole of what a reader must
+extract, and a snapshot carrying a fourth is a reader this adapter has not been told to expect,
+which is exactly the silent-acceptance the attribute exists to refuse on the nested shapes.</p>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">datasets</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">DatasetAspect</span><span class="p">]</span>
 </span></code></pre></div>
@@ -2445,39 +2473,180 @@ cardinality this adapter may or may not be able to represent.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricAspect</span>
 </span></code></pre></div>
 <p>What a <code>metric</code> entity's <code>MetricInfo.expression</code> carries: a raw string in a dialect <code>DataHub</code>
-names. Never converted into a <code>Measure</code>.</p>
+names.</p>
+<p>A metric that also carries the deployment-defined <code>SuturaContent</code> becomes a <strong>certified</strong>
+metric here; one that does not stays the promotion candidate whose measure is <code>expression</code> and
+is never converted. The two are the same entity and the distinction is an <code>Option</code> because which
+one a given metric is depends on what the deployment defined, not on anything this adapter
+decides.</p>
 <h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dialect</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
+<p>The dialect the raw expression string is written in.</p>
+<p>Part of the promotion candidate's other half; see <code>Self::expression</code> for why nothing reads
+it yet.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expression</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
+<p>The promotion candidate's other half - the raw expression string in a dialect nothing here
+renders.</p>
+<p>No consumer today, and <code>docs/adr/0016</code> says so rather than pretending otherwise: the aspect
+is decoded and a metric without the <code>sutura</code> property is set aside, never converted, and its
+expression is not re-read. These accessors and <code>Self::dialect</code> are the readable shape a
+future reporter would use.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">expression</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>A metric aspect, whose measure is a raw expression string.</p>
+<p>A promotion-candidate metric aspect, whose measure is a raw expression string.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">sutura</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">SuturaProperty</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The deployment-defined certified content, when the metric carries it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_sutura</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">expression</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">sutura</span><span class="p">:</span><span class="w"> </span><span class="nc">SuturaContent</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A certified metric aspect: the expression string beside a deployment-defined content.</p>
+<p>The two are both carried because <code>docs/adr/0016</code>'s <em>reconcile, never assume</em> rule still
+applies - the raw expression is a promotion candidate's other half and remains readable even
+where the structured property is what this adapter certifies. The content is serialized into
+the scalar form <code>SuturaProperty</code> stores, which is the shape the wire and the recorded
+fixtures carry.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-suturaproperty"><code>struct SuturaProperty</code><a class="headerlink" href="#struct-suturaproperty" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SuturaProperty</span>
+</span></code></pre></div>
+<p><code>DataHub</code>'s view of the deployment-defined metric content: ONE structured property named
+<code>sutura</code>, whose single scalar value is the JSON document below.</p>
+<p><strong>This is what makes the scalar-only constraint literal rather than prose.</strong> <code>DataHub</code>'s
+<code>structuredProperty</code> has no nested or record value type, so a deployment cannot define a nested
+object under <code>sutura</code> at all; what it can define is one string-valued property, and
+<code>Self::assemble</code> is the step that turns that scalar into the nested <code>SuturaContent</code> - the
+issue #202 mechanism, implemented here and exercised by a fixture recorded in this flat form
+rather than left to a sentence. The scalar payload is still bounded by the value-type limits a
+deployment's <code>DataHub</code> enforces; this crate adds none of its own.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">assemble</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">SuturaContent</span><span class="p">,</span><span class="w"> </span><span class="n">serde_json</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The deployment-defined metric content, decoded from the scalar.</p>
+<p>The one place <code>DataHub</code>'s scalar store becomes this adapter's nested statement of what the
+deployment meant. A malformed value - which cannot arise from <code>with_sutura</code>, but can from
+any wire - is a refusal naming nothing, which is why the conversion maps it into a typed
+<code>DataHubError</code> rather than letting it fall through as a serde string.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">string_value</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A structured property whose string value is <code>json</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">string_value</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-suturacontent"><code>struct SuturaContent</code><a class="headerlink" href="#struct-suturacontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SuturaContent</span>
+</span></code></pre></div>
+<p>What a metric needs to be certified, in the JSON document a deployment's <code>sutura</code> property
+carries.</p>
+<p><code>SuturaProperty</code> is why the deployment's view is one scalar and this is the reader's decoded
+statement of what that scalar means.</p>
+<p><strong>Everything a markdown metric can carry arrives here, over the domain's own closed
+vocabularies.</strong> The <code>measure</code> is the <code>sutura-domain</code> <code>Measure</code> type itself - the closed set,
+written exactly as this repository writes it - the <code>grains</code> and <code>required_filters</code> are the
+closed <code>Grain</code> and <code>RequiredFilter</code> enums, and a <code>dimension</code> and an <code>anchor</code> mirror the markdown
+document's shapes with <code>deny_unknown_fields</code> at every depth refusing a property this adapter
+does not recognise rather than guessing. An aggregate out of the closed set, an unknown operator,
+an unparseable value, an unknown grain, an unclosed namespace key - all fail the decode before
+the conversion sees them.</p>
+<p>The three free strings - <code>model</code>, <code>time_column</code>, and each nested <code>column</code> - are the one thing
+this shape cannot close, and they are parsed as domain identifier types during the conversion
+(through the same <code>try_from</code> every catalog identifier uses) rather than at decode, which is what
+turns an unparseable name into a typed <code>DataHubError::Identifier</code> naming the metric.</p>
+<p>The original issue #202 scope carried the measure, the time column and the grains, and this
+container of the rest of a metric is the closure of that scope: definitional filters, dimensions
+with their allowlists, an anchor and prose all arrive the same way a markdown document carries
+them, because <code>docs/adr/0011</code> closes the route by which any OTHER source could add them to a
+metric this adapter defines. The one absence that stays is <code>cardinality</code>, which <code>DataHub</code>
+carries but this adapter refuses to represent (see the crate header).</p>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">anchor</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">SuturaAnchor</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The certified number, when the deployment declared one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dimensions</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">SuturaDimension</span><span class="p">]</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">full</span><span class="p">(</span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">measure</span><span class="p">:</span><span class="w"> </span><span class="nc">Measure</span><span class="p">,</span><span class="w"> </span><span class="n">time_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">grains</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Grain</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">required_filters</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">RequiredFilter</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">dimensions</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">SuturaDimension</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">anchor</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">SuturaAnchor</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The certified content of a metric in full, optional shapes included.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grains</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Grain</span><span class="p">]</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">measure</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Measure</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">measure</span><span class="p">:</span><span class="w"> </span><span class="nc">Measure</span><span class="p">,</span><span class="w"> </span><span class="n">time_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">grains</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Grain</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The certified content of a metric, with the optional shapes defaulted to absent.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">required_filters</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">RequiredFilter</span><span class="p">]</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">time_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h3 id="struct-suturadimension"><code>struct SuturaDimension</code><a class="headerlink" href="#struct-suturadimension" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SuturaDimension</span>
+</span></code></pre></div>
+<p>One dimension, spelled exactly as a markdown metric's dimension is.</p>
+<p>A list entry with its own <code>name</code>, so a deployment declaring one name twice survives to
+<code>Definitions::assemble</code> to be refused rather than silently collapsing.</p>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_domain</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Dimension</span>
+</span></code></pre></div>
+<p>Into the domain type <code>Definitions::assemble</code> holds.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">DimensionName</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="nc">ColumnName</span><span class="p">,</span><span class="w"> </span><span class="n">via</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">RelationshipName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">allowed_values</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">DimensionValue</span><span class="o">&gt;&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nc">Description</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A dimension, in the order <code>Definitions::assemble</code> wants it.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h3 id="struct-suturaanchor"><code>struct SuturaAnchor</code><a class="headerlink" href="#struct-suturaanchor" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SuturaAnchor</span>
+</span></code></pre></div>
+<p>The number a metric is expected to produce, spelled exactly as a markdown metric's anchor is.</p>
+<h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_domain</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Anchor</span>
+</span></code></pre></div>
+<p>Into the domain type <code>Definitions::assemble</code> holds.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">range</span><span class="p">:</span><span class="w"> </span><span class="nc">TimeRange</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>An anchor.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">range</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TimeRange</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">value</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
 <p>The recorded fixture corpus and the fake reader that serves it.</p>
 <p>This is the only <code>AspectReader</code> implementor today, and it is the <strong>fake</strong> the port is tested
 against - recorded aspect documents, not mocked HTTP. <code>docs/adr/0016</code>'s transport note leaves the
 read path's cost open until a provisioned instance exists; until then this is what a
-<code>crate::DataHubCatalog</code> reads. The corpus is deliberately a <strong>bundle of models and no metrics</strong>:
-that is the requirement <code>docs/adr/0016</code> checks - a DataHub-only deployment loads, pins and
-validates with no certified metric layer - so the standalone declaration (<code>crate::DataHubCatalog</code>
-provides <code>Structure</code>, <code>Descriptions</code>, <code>Relationships</code> and nothing else) is faithful to it.</p>
-<p>The documents are embedded as text and decoded through <code>serde_json</code> at read time, so the same
+<code>crate::DataHubCatalog</code> reads. The corpus is a bundle of models, one relationship and <strong>one
+certified metric</strong> - the metric is <code>revenue</code>, and it carries the deployment-defined <code>sutura</code>
+structured property that the adapter decodes into a domain <code>Metric</code>, which is the issue #202
+claim: <code>DataHub</code> provides metrics for a metric that carries the custom shape. The raw expression
+string beside it stays the promotion-candidate half and is never converted.</p>
+<p><strong>The metric content is recorded in the FLAT form, and that is the point of keeping it as text.</strong>
+<code>DataHub</code>'s <code>structuredProperty</code> is scalar-only, so a deployment defines metric content as one
+string-valued property named <code>sutura</code>; the corpus records exactly that - <code>"sutura": {
+"string_value": "..." }</code> with the closed-vocabulary document as the scalar's text - and the read
+path exercises <code>document::SuturaProperty::assemble</code>, the scalar-to-nested step issue #202 is
+about, on every load. The documents are decoded through <code>serde_json</code> at read time, so the same
 deserialization path a real reader would use is exercised, and <code>deny_unknown_fields</code> on the wire
 shapes holds over these recorded documents.</p>
 <h3 id="struct-fixturereader"><code>struct FixtureReader</code><a class="headerlink" href="#struct-fixturereader" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
 </span></code></pre></div>
 <p>The fake <code>AspectReader</code> that serves the recorded corpus.</p>
-<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
 <p><code>AspectReader</code>, <code>Clone</code>, <code>Debug</code></p>
 <h3 id="fn-over_fixture_source"><code>fn over_fixture_source</code><a class="headerlink" href="#fn-over_fixture_source" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">DataHubCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">DataHubCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A <code>crate::DataHubCatalog</code> over the recorded corpus.</p>
 <p>The source mapping answers the one platform the corpus names - <code>bigquery</code> - with the deployment's
