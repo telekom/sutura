@@ -365,6 +365,45 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // **The shape this whole table is for, caught late and worth naming as a class:** a limit
+        // whose evidence is *nothing in the tree does X* is only as good as a search somebody ran.
+        // This one was written from recollection into `docs/adr/0017`'s fifth amendment and merged
+        // 2 h 10 min after `github.com/telekom/sutura#97` had put `id-token: write` in
+        // `release.yml`, so it was false on the day it landed and no gate could have known.
+        name: "no workflow mints an OIDC token",
+        // TWO halves of one sentence, because they fail differently. The first is a claim about the
+        // tree and is refuted by the evidence below. The second is what made it a SIGNAL - a reader
+        // was handed the permission's arrival as the diff to watch for, and it had already arrived,
+        // so the sentence would have gone on reading as an instruction long after it stopped being
+        // one.
+        //
+        // Every needle starts INSIDE the sentence, and that is measured rather than tidy: the match
+        // is case-sensitive, and `the moment that changes ...` - the wording as merged, mid-sentence
+        // after a semicolon - was verified to walk straight past the same sentence written as `The
+        // moment that changes ...` at the start of one. Dropping the first word catches both
+        // capitalisations with one entry, which is what `no MCP surface` above pays two for. `a` and
+        // `any Google` are both in this sentence's own history rather than imagined.
+        wordings: &[
+            "nor a Google auth action appears in any workflow",
+            "nor any Google auth action appears in any workflow",
+            "moment that changes is a workflow diff with no key to rotate",
+        ],
+        evidence: &[Evidence {
+            path: ".github/workflows/release.yml",
+            holds: "id-token: write",
+        }],
+        instead: "`.github/workflows/release.yml` has held `id-token: write` since \
+                  `github.com/telekom/sutura#97`, for keyless signing, with no Google in it at all - \
+                  so the permission was never the signal. What is greenfield is the Google half, and \
+                  the signal is a Google STS exchange in the acceptance job with no key beside it, \
+                  which `cargo xtask check-venues` reads out of `.github/workflows/ci.yml`",
+        only: &[],
+        // The record that quotes the wrong sentence in order to correct it - the only copy left in
+        // the tree, and the reason `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` exists:
+        // an exemption is also a blind spot, so it has to keep earning itself.
+        except: &["docs/adr/0017-what-a-bigquery-test-runs-against.md"],
+    },
 ];
 
 /// A file's text with every run of whitespace collapsed to one space, plus the line each byte
@@ -638,6 +677,39 @@ mod tests {
             // An empty list is vacuously true, so an entry with no evidence can never retire and
             // the loop above would check nothing about it.
             assert!(!rule.evidence.is_empty(), "`{}` rests on nothing", rule.name);
+        }
+    }
+
+    #[test]
+    fn a_page_a_rule_exempts_holds_a_wording_that_rule_forbids() {
+        // `except` is for the record that quotes the wrong sentence in order to CORRECT it - and it
+        // is therefore also the one copy of that sentence in the tree no scan reads. Those two facts
+        // together are how an exemption outlives its reason: the correction gets reworded, the quote
+        // goes, and what is left is a rule registered against a sentence nobody wrote plus a page
+        // permanently exempt from it. Neither half reports itself, so the exemption is made to keep
+        // earning itself here.
+        //
+        // Over the glob rather than the literal, because `except` is matched as one - a directory
+        // pattern that no longer covers a page that quotes the sentence is the same stale exemption
+        // in a shape a path read would have missed.
+        let root = crate::repo::root().expect("the repo root");
+        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        for rule in CONTRADICTED.iter().filter(|rule| !rule.except.is_empty()) {
+            let quoted = files
+                .iter()
+                .filter(|rel| super::matches_any(rule.except, rel))
+                .filter_map(|rel| std::fs::read_to_string(root.join(rel)).ok())
+                .any(|text| {
+                    rule.wordings
+                        .iter()
+                        .any(|wording| !super::wording_lines(&text, wording).is_empty())
+                });
+            assert!(
+                quoted,
+                "`{}` exempts {:?}, and nothing there states any wording it forbids - so the \
+                 exemption protects nothing. Delete it, or delete the rule",
+                rule.name, rule.except
+            );
         }
     }
 

@@ -765,11 +765,16 @@ amended. A gate whose failure is good news is the only shape that reaches a reco
 *nothing in the tree does X* is only as good as a search somebody ran. This one was written from
 recollection two hours after the tree stopped agreeing with it, and no gate could have known - which is
 why the sentence now names the command and the date, per this repository's own rule about a number in
-prose. **And the limit of this correction, stated rather than left to be discovered:** the wrong wording
-is NOT registered in `check-guidance`'s contradicted-claims table, so nothing stops it being written
-again. Measured 2026-09-03: `xtask/src/guidance/claims.rs` stands at 985 lines against `max-lines`' cap
-of 1000, and one entry costs sixteen once `rustfmt` has expanded it - so that table cannot take another
-claim until the file is split, which is a separate change with its own owner.
+prose. **And the correction is registered rather than merely made:** both halves of the wrong sentence -
+the claim about the tree and the *watch for the permission arriving* instruction it justified - are
+entries in `check-guidance`'s contradicted-claims table, resting on `.github/workflows/release.yml`
+still holding `id-token: write`, so the rule retires itself the day that stops being true instead of
+forbidding a sentence that has become correct again. **Two limits of that, stated rather than left to be
+discovered.** It matches a literal, so a paraphrase escapes - the same limit the gate records for every
+row in that table. And this page is `except`ed from the rule, because the quotation above would
+otherwise fail it: that exemption is a blind spot, and what keeps it from outliving its reason is
+`a_page_a_rule_exempts_holds_a_wording_that_rule_forbids`, which fails if this page stops quoting the
+sentence it corrects.
 
 ### The limit each venue must state
 
