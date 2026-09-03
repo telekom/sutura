@@ -1175,3 +1175,163 @@ advertisement.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+## Module `preflight`
+
+Asking every open data system whether it holds the tables the bundle names.
+
+**The decision sequence, once, for every composition root that has one** - and it is here rather
+than copied into each because review measured the copy: the two helpers underneath were
+byte-identical between `sutura-serve` and `sutura-cli`, and neither of them contains a word an
+operator reads. `models_by_table` is a pure query over `PinnedDefinitions`, which is a
+`sutura-domain` type, and `AbsentBehind`'s rendering is a list of names rather than a sentence.
+
+**What is NOT here is the sentence and the sink**, and that is the seam rather than an omission.
+A root has to say what an operator should do about each outcome, in the words that fit its own
+transport, through the sink that transport actually delivers on - `tracing` behind a subscriber
+for a server, standard error for a process launched on a pipe with no subscriber installed. So
+`ask` returns one `Verdict` per source and prints nothing, which also makes each root's
+rendering a pure function its own suite can assert on. Before this the soft outcome was printed
+from inside the decision and no test could see it - so the mechanism the argument for that sink
+rests on was held by review, which `AGENTS.md` does not accept as held.
+
+`sutura_domain::warehouse::Warehouse::preflight` is the port, and its own documentation carries
+why the answer has three shapes and why *could not verify* is an `Err` rather than a fourth.
+
+**The limit, stated with the claim:** what a pre-flight establishes is that a table EXISTS. Not
+that the columns a model names are on it, and not that a question's identity may read it - a
+listing grant and a read grant are two grants. An anchor covers both, for the metrics that have
+one.
+
+### `enum Verdict`
+
+```rust
+pub enum Verdict<E>
+```
+
+What one data system answered about the tables one bundle names in it.
+
+**Five outcomes and not three, because a root treats two of the failures differently.** The port
+answers three things and fails in one way, and that one failure splits on
+`Warehouse::preflight_was_refused`: a data system that REFUSED to be listed will refuse
+identically on every launch and the fix is one grant, while one that could not be reached is a
+condition that passes. A root that collapsed them would either stop a deployment that would have
+worked or hide the check being off in the deployment least likely to read a startup log.
+
+Generic in the adapter's error so the cause travels: nothing here can read `W::Error`, and the
+root that composed the adapter is the one that can flatten it.
+
+#### Variants
+
+- `Present` - Asked, and every table is there. Carries how many, for a line that says so.
+- `NotReported` - The adapter did not report - `TablesPresent::NotAsked`, the port's default.
+- `Absent` - Asked, and these tables are not there. A refusal, and the models to name in it.
+- `Refused` - The data system refused to be asked: this identity may not list it.
+- `Unverified` - The data system could not be asked, for a reason that is not a refusal.
+
+#### Implements
+
+`Debug`
+
+### `struct AbsentBehind`
+
+```rust
+pub struct AbsentBehind
+```
+
+The tables a data system does not hold, each with the models that named it.
+
+**Keyed by the TABLE and carrying the models, because that is the direction a refusal reads in:**
+the data system answered about a table, and the operator has to open a model to fix it. Two
+models over one table is ordinary - a bundle may declare several over one fact table - so the
+value is a set, and [`Display`](fmt::Display) renders every one of them.
+
+Non-empty by construction: it is built only from a `TablesPresent::AllBut`, whose own newtype
+refuses an empty set, so a refusal that names nothing is unrepresentable rather than checked.
+
+#### Methods
+
+```rust
+pub fn is_empty(&self) -> bool
+```
+
+Always `false`, and it exists because `clippy::len_without_is_empty` asks for it.
+
+The type is non-empty by construction, so this is a constant with a name rather than a
+question worth asking - which is itself the honest reading of the invariant.
+
+```rust
+pub fn len(&self) -> usize
+```
+
+How many tables are absent.
+
+```rust
+pub const fn named(&self) -> &BTreeMap<QualifiedTable, BTreeSet<ModelName>>
+```
+
+The absent tables and the models behind each, for a root that renders its own shape.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+### `struct Asked`
+
+```rust
+pub struct Asked<'source, E>
+```
+
+One data system's name and what it answered.
+
+The name is BORROWED from the registry rather than cloned: the registry outlives the answer at
+every call site, and a clone here would be one taken to satisfy a signature rather than to own
+anything.
+
+#### Methods
+
+```rust
+pub fn into_verdict(self) -> Verdict<E>
+```
+
+The answer, owned, for a root that has to move the cause out of it.
+
+```rust
+pub const fn source(&self) -> &'source SourceName
+```
+
+Which data system answered.
+
+```rust
+pub const fn verdict(&self) -> &Verdict<E>
+```
+
+What it answered.
+
+#### Implements
+
+`Debug`
+
+### `fn ask`
+
+```rust
+pub fn ask<'engines, W>(pinned: &sutura_domain::pinned::PinnedDefinitions, engines: &'engines crate::warehouses::Warehouses<W>) -> Vec<Asked<'engines, <W as >::Error>>
+```
+
+Asks each open data system once whether it holds the tables the bundle names in it.
+
+**One call per data system, and per DATASET underneath, never per model** - which is what makes
+this affordable at startup: the tables go over as a set, so a bundle of forty models on one
+dataset costs one metadata read. An adapter reading more than one dataset makes one call per
+dataset, which is still a set rather than a model.
+
+A data system the bundle names no model in is skipped rather than asked about nothing: it would
+otherwise cost a round trip to be told about an empty set, and the port's own empty-set arm
+answers `NotAsked`, which a root would then have to explain.
+
+**It prints nothing and refuses nothing.** Both are the caller's, for the reason this module's
+own documentation gives: the words and the sink belong to the transport, and a decision that
+printed would not be assertable.
+
+The order is the registry's, which is the source name's - so two roots asking the same question
+report it in the same order, and a test can name the answer it expects rather than search for it.

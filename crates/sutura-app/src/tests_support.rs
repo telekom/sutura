@@ -464,3 +464,48 @@ impl CredentialBroker for CountingBroker {
             .map_err(|_uncoverable| BrokerUnreachable)
     }
 }
+
+/// One model as a catalog document names it: the model, its data system, its table.
+pub(crate) type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
+
+/// A pinned bundle over exactly the models given, and no metrics.
+///
+/// **Harness and not an assertion**, which is why it is in this file rather than beside the suite
+/// that reads it: `cargo xtask test-causality` never reverts a file that adds a `#[test]`, so moving
+/// a builder here keeps the assertions in the file whose behaviour they are about.
+///
+/// Models are all a pre-flight reads - `crate::preflight::ask` maps over them and asks per table -
+/// so a metric would add nothing it looks at. Two entries naming one table is the shape
+/// `crate::preflight::AbsentBehind`'s value being a set exists for, and this builder permits it.
+pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> sutura_domain::pinned::PinnedDefinitions {
+    use std::collections::BTreeSet;
+
+    use sutura_domain::capabilities::MetadataCapabilities;
+    use sutura_domain::catalog::{Definitions, Description, Model};
+    use sutura_domain::knowledge::Knowledge;
+    use sutura_domain::model::{ColumnName, ModelName, TableName};
+    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+
+    let declared: Vec<Model> = models
+        .iter()
+        .map(|&(model, source, table)| {
+            Model::new(
+                ModelName::parse(model).expect("a test model is a model"),
+                SourceName::parse(source).expect("a test source is a source"),
+                TableName::parse(table).expect("a test table is a table"),
+                BTreeSet::from([ColumnName::parse("customer_key").expect("a test column is a column")]),
+                Description::default(),
+            )
+        })
+        .collect();
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        Definitions::assemble(declared, vec![], vec![]).expect("the test bundle is consistent"),
+        Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::nothing()),
+        ),
+    )
+    .expect("the test definitions hash")
+}

@@ -26,6 +26,11 @@ use sutura_runtime::TracingAuditSink;
 
 use crate::commands::{arg, catalog_reader, render, report};
 use crate::sources::{Opened, OpenedWith, configured, open_engine, refuse_unattached, served_tables};
+// The `BigQuery` arm's half of the same question, and reached only from that arm - so the import is
+// gated for the reason `sources::bigquery`'s are: `dead_code` is `deny` here, and this crate's
+// default build links no BigQuery adapter.
+#[cfg(feature = "bigquery")]
+use crate::sources::refuse_absent_tables;
 
 /// The service this command serves, over one of the adapters this binary links.
 ///
@@ -64,7 +69,31 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
         )? {
             Opened::Files(opened) => serve(&catalog, opened, settings.runtime()),
             #[cfg(feature = "bigquery")]
-            Opened::BigQuery(opened) => serve(&catalog, opened, settings.runtime()),
+            Opened::BigQuery(opened) => {
+                // **The pre-flight, and this line is where its ORDER is decided** - the same order
+                // `sutura-serve`'s root keeps, for the same reason. It runs after `open_engine`,
+                // which read the credential for the declared source, so an operator whose credential
+                // file is wrong is told about the credential file and not about a table they would
+                // then go and not fix. And it runs before `serve`, which announces the surface and
+                // hands the pipe to a peer: a refusal after that point is a refusal an agent client
+                // has already been told it can ask questions through.
+                //
+                // In the `Files` arm this would be a call whose only possible answer is the port's
+                // default, because the engine is GIVEN its tables - `refuse_unattached`, inside
+                // `mcp_service`, is that arm's version of this check and compares the two sets it has.
+                //
+                // **The parity is one-sided, and saying so is the point.** `refuse_unattached` closes
+                // the window between this root's TWO loads: `catalog.load()` above is the first, this
+                // pre-flight reads that bundle, and `LocalService::start` inside `mcp_service` loads a
+                // second time. So a model added to the catalog directory between the two is caught on
+                // a `files` source and caught by nothing on a `bigquery` one - the same gap
+                // `sutura-serve`'s root states at its own call site, open here for the same reason.
+                // Closing it is an architecture decision rather than a call-site move:
+                // `LocalService` exposes no accessor for the engines it was handed, so there is
+                // nothing to re-ask once the second load has happened.
+                refuse_absent_tables(&pinned, &opened.engines)?;
+                serve(&catalog, opened, settings.runtime())
+            }
         }
     })())
 }

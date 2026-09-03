@@ -9,7 +9,15 @@
 //! an impl file whose tests live in the parent module is the partition `cargo xtask test-causality`
 //! reads as a false *green against base behaviour*.
 
+#[cfg(feature = "bigquery")]
+use sutura_app::Warehouses;
+#[cfg(feature = "bigquery")]
+use sutura_app::preflight::Verdict;
 use sutura_domain::model::SourceName;
+#[cfg(feature = "bigquery")]
+use sutura_domain::pinned::PinnedDefinitions;
+#[cfg(feature = "bigquery")]
+use sutura_domain::warehouse::Warehouse;
 
 use crate::sources::Opened;
 // Both reached only by the COMPOSING half below. A build without the feature gets the refusal, which
@@ -195,6 +203,146 @@ pub(super) fn open(
     ))
 }
 
+/// Refuses a bundle naming a table the dataset behind it does not hold.
+///
+/// **Issue 120's asymmetry, at the OTHER serving composition root.** `sutura-serve`'s
+/// `boot::refuse_absent_tables` closed it for the HTTP surface; `sutura mcp` was left with it. The
+/// agent surface serves for as long as its peer keeps the pipe open, and the `BigQuery` arm attaches
+/// nothing - so [`crate::sources::refuse_unattached`] is skipped and, before this, nothing asked the
+/// dataset anything. A mistyped `table:` bought a process that started, announced its capabilities,
+/// and handed an agent a failure the first time it asked that metric.
+///
+/// **`crate::commands::query` deliberately does not call this**, and the difference is who finds
+/// out. That command answers one question on a terminal and exits, so a table that is not there is a
+/// failure the person who typed the command reads immediately - the outcome this check exists to
+/// produce, already produced, at no metadata read. What issue 120 is about is a SERVING process,
+/// where the operator learns from whoever asked.
+///
+/// **The DECISION is `sutura_app::preflight::ask` and is not duplicated**, which is a review
+/// correction to what the first version of this file claimed. It argued a copy on
+/// [`crate::sources::refuse_unattached`]'s precedent - two roots, separate binaries, neither may
+/// depend on the other - and that argument is sound for the operator sentence and reaches no
+/// further: review measured the two helpers underneath as byte-identical (`unmatched`) and identical
+/// modulo signature wrapping (`models_by_table`), and neither holds a word an operator reads.
+/// `sutura-app` is where both roots already get `Warehouses`, so a shared home points inward and
+/// adds no root-to-root edge. What is genuinely this root's is below: the words, and the sink.
+///
+/// **Three sinks changed relative to `sutura-serve`'s copy, not one**, which is the other half of
+/// that correction. Serve emits `warn!` for the soft outcome and `info!` for the two clean ones; all
+/// three are standard error here, and that is decided rather than inherited. A locally launched
+/// process installs no subscriber - [`crate::mcp`]'s own module doc states that for the audit sink -
+/// so `tracing` would drop every one of the three for the whole session, and a check whose outcome
+/// is invisible is a silent pass. Standard error rather than standard output because on this
+/// transport standard output is the protocol channel; unconditional rather than filtered because the
+/// capability notice beside it already is, and a surface granting every capability to whoever can
+/// reach it is not one to be quiet about. **And it is assertable now rather than review-held:**
+/// [`absent_tables_notices`] returns the lines instead of printing them, so this file's own suite
+/// pins that the soft outcome is emitted and what it says.
+///
+/// **Two limits, the same two `sutura-serve` states**, and the second is a review correction too -
+/// the first version of this file swapped it for a sentence about the catalog changing while the
+/// surface serves, which is a window nothing re-reads and therefore nothing interesting. What a
+/// pre-flight establishes is that a table EXISTS: not that the model's columns are on it, and not
+/// that a question's identity may read it - an anchor is what covers both, for the metrics that have
+/// one. And it reads the bundle loaded FIRST, so a model added to the catalog directory between this
+/// root's two loads is caught on a `files` source by [`crate::sources::refuse_unattached`] and is not
+/// caught here. That window is open in this root exactly as it is in serve: [`crate::mcp`]'s
+/// `catalog.load()` is load one and this check reads it, `LocalService::start` inside `mcp_service`
+/// loads a second time, and `refuse_unattached` closes the gap for the `Files` arm only. Closing it
+/// here is an architecture decision rather than a call-site move - `sutura_app::surface::LocalService`
+/// exposes no accessor for the engines it was given, so there is nothing to re-ask after the second
+/// load.
+///
+/// # Errors
+///
+/// A dataset that REFUSED the listing - the identity may not ask - and a bundle naming a table the
+/// dataset does not hold. A dataset that could not be asked for any other reason is a standard-error
+/// line and not a refusal, because a process whose data system is briefly unreachable at startup
+/// still has to be able to serve when it comes back. `Warehouse::preflight_was_refused` is what
+/// splits the two, and the port documents why the split is the adapter's to make.
+#[cfg(feature = "bigquery")]
+pub(crate) fn refuse_absent_tables<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<(), String>
+where
+    W: Warehouse,
+{
+    for notice in absent_tables_notices(pinned, engines)? {
+        eprintln!("sutura: {notice}");
+    }
+    Ok(())
+}
+
+/// The pre-flight's outcome as the lines this root would print, or the refusal it would make.
+///
+/// **Split out from [`refuse_absent_tables`] so the soft outcome is a value rather than a side
+/// effect**, which is review's finding and the reason it is not simply a comment: the argument for
+/// standard error is *a check whose soft outcome is invisible is a silent pass*, and while that line
+/// was emitted from inside the decision no test could see it - so the mechanism the argument rests
+/// on was held by review, which `AGENTS.md` does not accept as held.
+///
+/// One line per data system that was asked, in the registry's order. An empty vector is possible and
+/// means the bundle names no model in anything this process opened, which
+/// [`crate::sources::open_engine`] already refuses upstream - so it is the honest empty answer rather
+/// than a case wanting a message of its own.
+///
+/// # Errors
+///
+/// [`refuse_absent_tables`]'s two, unchanged: this is the same decision with the printing lifted out.
+#[cfg(feature = "bigquery")]
+fn absent_tables_notices<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<Vec<String>, String>
+where
+    W: Warehouse,
+{
+    // `Warehouses` here always holds exactly ONE engine - `crate::sources::open_engine` refuses a
+    // deployment that declares none and refuses one that declares many - so this loop runs once. It
+    // is a loop anyway because `sutura_app::preflight::ask` answers per data system for both roots,
+    // and a root that indexed `[0]` would be asserting the single-source shape at the wrong layer.
+    let mut notices: Vec<String> = Vec::new();
+    for asked in sutura_app::preflight::ask(pinned, engines) {
+        let source = asked.source();
+        match asked.into_verdict() {
+            // An authorization failure is a REFUSAL: the fix is one grant, it will fail identically
+            // on every launch, and a soft line is what the person running an agent client never
+            // reads.
+            Verdict::Refused { cause } => {
+                return Err(format!(
+                    "{source} refused to list the tables the catalog names, so this process cannot \
+                     tell a mistyped `table:` from a table that is there. Grant the identity this \
+                     source is opened with `bigquery.tables.list` on the dataset. The data system \
+                     said: {}",
+                    render(&cause)
+                ));
+            }
+            Verdict::Absent(absent) => {
+                return Err(format!(
+                    "{source} does not hold {absent}. Refusing to serve a model whose questions \
+                     would fail at query time - fix the catalog's `table:`, or create the table"
+                ));
+            }
+            // Everything else that failed - an endpoint that did not answer, a dataset that is not
+            // there - is the soft outcome, because a process whose data system is briefly
+            // unreachable still has to be able to serve when it comes back.
+            Verdict::Unverified { asked: tables, cause } => notices.push(format!(
+                "could not verify that {source} holds the {tables} table(s) the catalog names - \
+                 serving anyway, so a mistyped table name will fail the first question against it. \
+                 The data system said: {}",
+                render(&cause)
+            )),
+            Verdict::Present { asked: tables } => {
+                notices.push(format!("every one of the {tables} table(s) the catalog names is in {source}"));
+            }
+            // **`NotReported` gets a line of its own** for the reason `sutura-serve`'s copy does: it
+            // is the one outcome meaning *nothing verified this*, and silence makes it
+            // indistinguishable from a verified dataset. Unreachable through the `BigQuery` arm,
+            // which always asks, and reachable by any future adapter taking the port's default.
+            Verdict::NotReported { asked: tables } => notices.push(format!(
+                "{source} does not report which tables it holds, so nothing here verified the \
+                 {tables} table(s) the catalog names"
+            )),
+        }
+    }
+    Ok(notices)
+}
+
 #[cfg(test)]
 mod tests {
     // The fixtures live one module up so the dataset-argument refusal - which is `sources.rs`'s,
@@ -304,5 +452,293 @@ mod tests {
             !error.contains("credential_file"),
             "the posture is refused before the credential file is read: {error}"
         );
+    }
+
+    /// [`super::refuse_absent_tables`]'s own suite.
+    ///
+    /// **A nested module rather than a `cfg` on each item, and neither obvious form works** - the
+    /// same shape `sutura-serve`'s `boot::tests` had to invent. With the feature off there is no
+    /// `refuse_absent_tables` to call, so an ungated module fails to compile on the DEFAULT feature
+    /// set; writing `#[cfg(all(test, feature = "bigquery"))]` on the parent is what a reader reaches
+    /// for and makes every test in here a lint error, because `clippy::tests_outside_test_module` and
+    /// `clippy::expect_used` both key on the literal `#[cfg(test)]` attribute.
+    #[cfg(feature = "bigquery")]
+    mod preflight {
+        use core::cell::RefCell;
+        use std::collections::BTreeSet;
+
+        use sutura_app::Warehouses;
+        use sutura_domain::identity::Presented;
+        use sutura_domain::model::{QualifiedTable, SourceName};
+        use sutura_domain::pinned::PinnedDefinitions;
+        use sutura_domain::plan::{AnchorPlan, Executable};
+        use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+        use sutura_domain::warehouse::preflight::TablesPresent;
+        use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+
+        use crate::sources::bigquery::{absent_tables_notices, refuse_absent_tables};
+
+        /// A data system that answers the pre-flight from what a test handed it, and records the asking.
+        ///
+        /// **A fake above the port rather than a fake transport**, which is what makes every outcome
+        /// reachable here: `sutura_exec_bigquery::wire::BigQueryWire`'s host is a `const` and its
+        /// agent is `https_only`, so no test in this repository can point a real one at a loopback.
+        /// What is under test is this composition root's DECISION about each answer, and a `Warehouse`
+        /// fake is exactly what exercises that.
+        struct Answers {
+            source: SourceName,
+            answer: Answering,
+            asked: RefCell<Vec<usize>>,
+            /// What this fake says about its own failure - the `preflight_was_refused` half.
+            ///
+            /// A field rather than a second fake type, because what this root has to get right is
+            /// that it ASKS: two fakes whose `Err` is the same value and which answer this
+            /// differently is the only shape that shows the delegation happening.
+            refused: bool,
+        }
+
+        /// What a test hands the fake to answer a pre-flight with.
+        ///
+        /// A named function pointer, because the spelled-out type is over the `type_complexity`
+        /// threshold this workspace tightened.
+        type Answering = fn(&BTreeSet<QualifiedTable>) -> Result<TablesPresent, CouldNotAsk>;
+
+        /// The one failure this fake can report: the dataset could not be asked.
+        ///
+        /// Written by hand rather than derived, because `sutura-cli` declares no `thiserror`
+        /// dependency and `unused-deps` would be the next thing to complain if it did.
+        #[derive(Debug)]
+        struct CouldNotAsk;
+
+        impl core::fmt::Display for CouldNotAsk {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str("the dataset could not be listed")
+            }
+        }
+
+        impl core::error::Error for CouldNotAsk {}
+
+        impl Warehouse for Answers {
+            type Error = CouldNotAsk;
+
+            const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+            fn source(&self) -> &SourceName {
+                &self.source
+            }
+
+            fn posture(&self) -> &SourcePosture {
+                &SourcePosture::ImpersonationAtSource
+            }
+
+            fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+                Err(CouldNotAsk)
+            }
+
+            fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+                Err(CouldNotAsk)
+            }
+
+            fn preflight(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
+                self.asked.borrow_mut().push(tables.len());
+                (self.answer)(tables)
+            }
+
+            fn preflight_was_refused(&self, _error: &Self::Error) -> bool {
+                self.refused
+            }
+        }
+
+        /// One open registry over one fake, under the alias the test bundle's models declare.
+        fn opened(answer: Answering) -> Warehouses<Answers> {
+            registry(answer, false)
+        }
+
+        /// The same, over a dataset that says its failure was a REFUSAL rather than an outage.
+        fn refusing(answer: Answering) -> Warehouses<Answers> {
+            registry(answer, true)
+        }
+
+        fn registry(answer: Answering, refused: bool) -> Warehouses<Answers> {
+            Warehouses::of(Answers {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+                answer,
+                asked: RefCell::new(Vec::new()),
+                refused,
+            })
+        }
+
+        /// Two models on one source, one of which the dataset will be said not to hold.
+        fn bundle() -> PinnedDefinitions {
+            crate::sources::bundle_over(&[
+                ("customers", "warehouse", "dim_customer"),
+                ("orders", "warehouse", "fct_orders"),
+            ])
+        }
+
+        /// TWO models over ONE table, which is what the refusal naming a set of models is for.
+        fn two_models_one_table() -> PinnedDefinitions {
+            crate::sources::bundle_over(&[("orders", "warehouse", "fct_orders"), ("returns", "warehouse", "fct_orders")])
+        }
+
+        #[test]
+        fn a_bigquery_bundle_naming_a_table_the_dataset_does_not_hold_does_not_serve() {
+            // **The parity issue 120 is about, at the surface it was still missing from.** `sutura
+            // mcp` over a `files` source refuses this state through `refuse_unattached`, because the
+            // engine is GIVEN a file per model. Over a dataset it started, printed its capability
+            // notice, and handed the peer a failure the first time it asked that metric.
+            let engines = opened(|asked| {
+                Ok(TablesPresent::of(
+                    asked
+                        .iter()
+                        .filter(|table| table.name().as_str() == "fct_orders")
+                        .cloned()
+                        .collect(),
+                ))
+            });
+            let error = refuse_absent_tables(&bundle(), &engines).expect_err("a table that is not there stops the process");
+            assert!(error.contains("fct_orders"), "the refusal must name the table: {error}");
+            // **The whole clause and not the bare model name, which is a review correction to an
+            // assertion that could not fail.** `"orders"` is a substring of `"fct_orders"`, so
+            // `contains("orders")` was entailed by the line above and stayed green even with the model
+            // set dropped entirely - coverage for the one property nothing checked.
+            assert!(
+                error.contains("named by model(s) [orders]"),
+                "the refusal must name the model: {error}"
+            );
+            assert!(
+                !error.contains("dim_customer"),
+                "the refusal must not name a table the dataset holds: {error}"
+            );
+        }
+
+        #[test]
+        fn two_models_over_one_absent_table_are_both_named_in_the_refusal() {
+            // **The reason the refusal names a SET of models**, and nothing exercised it before: a
+            // bundle may declare several models over one fact table, and an operator told about only
+            // one of them has half the edit in front of them. One clause for the table, both names
+            // inside it, in reading order.
+            let engines = opened(|asked| Ok(TablesPresent::of(asked.clone())));
+            let error =
+                refuse_absent_tables(&two_models_one_table(), &engines).expect_err("a table that is not there stops the process");
+            assert!(
+                error.contains("table fct_orders, named by model(s) [orders, returns]"),
+                "both models that named the absent table must be in the refusal: {error}"
+            );
+        }
+
+        #[test]
+        fn the_whole_bundle_is_one_question_and_not_one_per_model() {
+            // The control, and the cost argument the port is shaped around: two models behind two
+            // tables are ONE call carrying both, so a bundle of forty costs one metadata read rather
+            // than forty. This asserts it rather than claiming it.
+            let engines = opened(|_asked| Ok(TablesPresent::All));
+            refuse_absent_tables(&bundle(), &engines).expect("a bundle whose tables are all there serves");
+            let engine = engines
+                .get(&SourceName::parse("warehouse").expect("a test source is a source"))
+                .expect("the fake is registered under that alias");
+            assert_eq!(
+                *engine.asked.borrow(),
+                vec![2],
+                "one call carrying both tables, not one call per model"
+            );
+        }
+
+        #[test]
+        fn a_dataset_that_could_not_be_reached_still_serves() {
+            // The soft edge: a dataset that did not ANSWER is a condition that passes, so the surface
+            // serves. Its twin below is what makes that defensible, and the test after this one is
+            // what makes the *serving anyway* visible rather than merely argued.
+            let engines = opened(|_asked| Err(CouldNotAsk));
+            refuse_absent_tables(&bundle(), &engines)
+                .expect("an endpoint that did not answer at startup is a process that still has to serve");
+        }
+
+        #[test]
+        fn the_soft_outcome_is_emitted_and_says_what_went_unverified() {
+            // **The mechanism the choice of sink rests on, held by a test rather than by review.**
+            // The argument for standard error is *a check whose soft outcome is invisible is a silent
+            // pass* - and while the line was printed from inside the decision, nothing could assert
+            // it was printed at all. It is a value now: one line, naming the source, how many tables
+            // went unverified, that the process is serving anyway, and the data system's own reason.
+            let engines = opened(|_asked| Err(CouldNotAsk));
+            let notices = absent_tables_notices(&bundle(), &engines).expect("an outage is not a refusal");
+            assert_eq!(notices.len(), 1, "one line for the one data system asked: {notices:?}");
+            let notice = &notices[0];
+            assert!(notice.contains("could not verify"), "{notice}");
+            assert!(notice.contains("warehouse"), "the line must name the source: {notice}");
+            assert!(
+                notice.contains("2 table(s)"),
+                "the line must say how many went unverified: {notice}"
+            );
+            assert!(
+                notice.contains("serving anyway"),
+                "the line must say the process is serving: {notice}"
+            );
+            assert!(
+                notice.contains("the dataset could not be listed"),
+                "the data system's own reason must survive into the line: {notice}"
+            );
+        }
+
+        #[test]
+        fn a_verified_dataset_and_one_that_did_not_report_are_two_different_lines() {
+            // The other two sinks, and why they are not one: `Present` is *this was checked* and
+            // `NotReported` is *nothing checked this*. A root that printed the same words for both -
+            // or nothing for the second - would make the port's default read as verification, which
+            // is the property `TablesPresent` exists to keep. Serve says these at `info!`; here they
+            // are standard error, decided rather than inherited, because this process installs no
+            // subscriber.
+            let verified = opened(|_asked| Ok(TablesPresent::All));
+            let said = absent_tables_notices(&bundle(), &verified).expect("everything is there");
+            assert_eq!(
+                said,
+                vec![String::from("every one of the 2 table(s) the catalog names is in warehouse")],
+                "the verified line says the check happened and passed"
+            );
+
+            let silent = opened(|_asked| Ok(TablesPresent::NotAsked));
+            let said = absent_tables_notices(&bundle(), &silent).expect("an adapter that did not look refuses nothing");
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(
+                said[0].contains("nothing here verified"),
+                "the default must not read as verification: {}",
+                said[0]
+            );
+        }
+
+        #[test]
+        fn a_credential_that_cannot_list_the_dataset_is_a_different_refusal_from_a_missing_table() {
+            // **The split, and the two tests either side of it are what make it mean something:** the
+            // same `Err` value, the same variant, and the only difference is what the dataset says
+            // about its own failure. A refusal to LIST is one grant and fails identically on every
+            // launch, so a soft line would hide the check being off - and the message an operator gets
+            // names the grant rather than a table, because the two fixes are in different places.
+            let engines = refusing(|_asked| Err(CouldNotAsk));
+            let error = refuse_absent_tables(&bundle(), &engines)
+                .expect_err("a dataset that refuses to be asked is a process that cannot verify itself");
+            assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+            assert!(
+                error.contains("bigquery.tables.list"),
+                "the refusal must name the grant an operator has to add: {error}"
+            );
+            assert!(
+                !error.contains("dim_customer") && !error.contains("fct_orders"),
+                "a listing that never happened must not be reported as a table that is absent: {error}"
+            );
+        }
+
+        #[test]
+        fn an_adapter_that_reports_nothing_still_serves() {
+            // Any adapter written before this port existed: `NotAsked` is not a claim that anything
+            // was verified, and it is not a refusal either.
+            //
+            // **It does not exercise the port's DEFAULT**, which is worth saying because the name
+            // invites the reading: this fake overrides `preflight` and returns `Ok(NotAsked)` by hand.
+            // What exercises the real default is `sutura_domain::warehouse::preflight`'s own test,
+            // whose fake omits the method entirely.
+            let engines = opened(|_asked| Ok(TablesPresent::NotAsked));
+            refuse_absent_tables(&bundle(), &engines).expect("an adapter that did not look refuses nothing");
+        }
     }
 }
