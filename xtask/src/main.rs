@@ -11,6 +11,7 @@ mod action_shell;
 mod api_docs;
 mod arrow_major;
 mod attribution;
+mod boot_order;
 mod boundaries;
 mod branches;
 mod causality;
@@ -241,6 +242,17 @@ const TASKS: &[Task] = &[
         description: "no first-party Deref or Borrow - both leak a newtype's invariant",
         kind: Kind::Hygiene(Reads::Code),
         run: newtype_leaks::run,
+    },
+    Task {
+        // Beside `check-newtype-leaks` because it is the same shape of gate: a rule the code cannot
+        // state about itself, read as text, starting from a tree that already obeys it. This one is
+        // the ORDER two composition roots keep - the pre-flight after the credential and before the
+        // transport - which `github.com/telekom/sutura#120` asked to have pinned and which both roots
+        // held in prose, one of them saying outright that it was "a convention this line keeps".
+        name: "check-boot-order",
+        description: "the pre-flight runs after the credential and before the transport",
+        kind: Kind::Hygiene(Reads::Code),
+        run: boot_order::run,
     },
     Task {
         name: "line-endings",

@@ -958,6 +958,7 @@ economise.
    | `check-attribution` | `Cargo.lock`, the root manifest, `ATTRIBUTION.md` |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
+   | `check-boot-order` | the two composition roots' Rust: `crates/sutura-serve/src/main.rs`, `crates/sutura-cli/src/mcp.rs` |
    | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
    | `check-expect-thresholds` | every tracked `*.rs` |
    | `check-skills` | `.agents/skills/**` and the router - prose, and none of it under `docs/` |
