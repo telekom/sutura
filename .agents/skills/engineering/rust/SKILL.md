@@ -90,12 +90,21 @@ signature it has now is the one two implementors settled, not the one a sketch g
 rounding error.** An adapter may declare a port of its own for a seam inside itself - a transport
 for a job API, a reader for a metadata aspect - and several do; those are internal and belong to
 their crate, not to the interior. One of them, `sutura_http::inbound::keys::KeySetSource`, is
-allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason, which is the only place any
-of this is mechanised. `grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` is the whole
-set; the rows above are the subset the interior owns. **Nothing compares either against this page**,
-and a port table is the shape this page is most prone to rotting into: the paragraph above once
-named `CredentialBroker` as a port deliberately ABSENT - accurate when written, and it has had two
-implementors since. So measure it rather than reading it.
+allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason. The whole set is what
+`grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` answers:
+10 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
+paragraph is about.
+
+**The count is gated; the rows are not, and the difference is worth reading exactly.**
+`check-guidance` counts that same literal over that same glob - occurrences, so two declarations in
+one file are two - and fails this page when the number here disagrees, so `just hygiene` is what
+keeps it equal to the tree. Nothing compares the ROWS against anything: which ports the interior
+owns, and which of them is driving, is prose. A port table is the shape this page is most prone to
+rotting into - the paragraph above once named `CredentialBroker` as a port deliberately ABSENT,
+accurate when written, and it has had two implementors since - so measure the rows rather than
+reading them. Two limits on the gated half: it counts the literal wherever it appears, a comment or
+a string included, which is exactly what the grep above does, and it says nothing about which of
+the declarations is a port.
 
 **Driven and driving are not the same rule, and the difference decides which crate declares the
 trait.** A driven port is dependency inversion: the interior declares what it needs and an adapter

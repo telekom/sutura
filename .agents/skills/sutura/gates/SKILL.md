@@ -144,9 +144,17 @@ therefore does not see.
   either.
 - **`check-guidance` reads prose and cannot catch a paraphrase.** It holds forbidden phrases, a
   version pin that must agree wherever it is written, claims known false in each recorded wording,
-  and one gated count. It fails a cited `just` task that does not exist and a cited `cargo` line
+  and two gated counts. It fails a cited `just` task that does not exist and a cited `cargo` line
   missing `--all-features`. Its own stated blind spot: a comment marker is not stripped, so a claim
   wrapping inside a `#` block is not found.
+- **A gated count has two silent-green failures, and one of them was live.** It derives the number
+  by walking the tree and compares it to the integer before a marker phrase, so it holds nothing if
+  no page states that number - which is what happened when the router rewrite carried the
+  invariants table out of `AGENTS.md` and the entry's `mentioned_in` list stayed behind. Both sides
+  are now checked: a glob matching nothing fails, and a number no page states fails. The second
+  failure is granularity - an entry counting FILES over a literal that can repeat inside one is
+  right only by coincidence - which is why each entry declares files or occurrences rather than
+  inheriting a default.
 - **A count in prose is only as good as the command beside it.** An anchored
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.

@@ -110,11 +110,12 @@ nothing has to be written from scratch, and the cost is the corpus:
   held exactly:** 84 files under `crates/sutura-app/tests/snapshots/` now contain `LIMIT 10001`, and
   52 snapshot files were added in total - 42 for the question corpus and 10 for the five leg fixtures,
   which carry no row cap and so do not move the counted number. No EXISTING snapshot changed, which is
-  what makes the fourth dialect additive. **The count later moved to 88:** the `week`-grain question
-  below adds a twenty-second question, and its BigQuery statement carries the row cap too, so `88
-  files ... contain LIMIT 10001` is what `AGENTS.md` reads today - the same `check-guidance` gate holds
-  that number.
-- **`cargo xtask check-guidance` fails until AGENTS.md says the right number.** Not incidentally - the check reads
+  what makes the fourth dialect additive. **The count moved twice more:** the `week`-grain question
+  below adds a twenty-second question and its BigQuery statement carries the row cap too. The
+  sentence stating the number has since moved out of `AGENTS.md` with the rest of the invariants
+  table - `.agents/skills/sutura/invariants/SKILL.md` is where it lives now, and the same
+  `check-guidance` gate holds it wherever it is stated.
+- **`cargo xtask check-guidance` fails until the page states the right number.** Not incidentally - the check reads
   the number written before the marker `SQL goldens read` and compares it to what it counts, which is
   the mechanism that caught `39` after the corpus had grown. So the invariant row is part of the
   change, and the gate puts it in the diff rather than trusting anyone to remember.
