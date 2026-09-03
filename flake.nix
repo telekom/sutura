@@ -819,25 +819,20 @@
         # `nix run .#keycloak-acceptance` - provision a REAL issuer and prove the venue.
         #
         # **An app and NOT a check, for the same reason `bigquery-acceptance` is:** it boots a JVM
-        # `checks.*` cannot hold, so nothing here is hermetic and it is not part of `just validate`.
-        # It proves the VENUE and not leg 2: a real issuer mints two per-subject tokens at the
-        # discovered endpoint; nothing executes AS those subjects.
+        # `checks.*` cannot hold, so it is not hermetic and not part of `just validate`. It proves
+        # the VENUE, not leg 2: a real issuer mints two per-subject tokens at the discovered endpoint.
         #
-        # It supplies the pinned cargo (for the reason `apps.deny` gives) and the tier's script
-        # from the SAME derivation the dev shell uses. NOT a warm-start consumer (that gate wants an
-        # `exec cargo`, which this app must avoid so its EXIT trap tears the tier down on success and
-        # failure; an opt-in job compiling cold beats a JVM left behind).
+        # It supplies the pinned cargo (for `apps.deny`'s reason) and the tier's script from the
+        # SAME derivation the dev shell uses; NOT a warm-start consumer (that gate wants `exec
+        # cargo`, which this app avoids so its EXIT trap tears the tier down on success and failure).
         apps.keycloak-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-keycloak-acceptance" ''
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
             ${cargoLinkEnv}
             cleanup() { sutura-keycloak-tier stop; }
-            # Armed BEFORE `start`: a failure inside `start` (a JVM that never answers, a seeding
-            # error) has already launched the process but would otherwise escape a trap installed
-            # afterwards, leaving the JVM and a stale discovery claim behind. `set -eu` so a failed
-            # `start` stops here rather than falling through to nextest under the required-tier
-            # panic - the right colour for the wrong reason, and a log that reads as a test failure.
+            # Armed before `start` (with `set -eu`) so a provisioning failure stops here instead of
+            # falling through to nextest with the tier's JVM still up and a stale discovery claim.
             set -eu
             trap cleanup EXIT
             sutura-keycloak-tier start
