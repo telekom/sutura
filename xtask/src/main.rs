@@ -38,6 +38,7 @@ mod tasks;
 mod text;
 mod threshold_expect;
 mod unused_deps;
+mod venues;
 mod warm_start;
 mod workflows;
 
@@ -285,6 +286,15 @@ const TASKS: &[Task] = &[
         description: "docs and comments still describe this repo",
         kind: Kind::Hygiene(Reads::Prose),
         run: guidance::run,
+    },
+    Task {
+        // The identity venue map, and the one venue whose limit is a workflow property. `Prose`,
+        // because the map is a `docs/*.md` page - so a prose-only pull request DEFERS this verdict
+        // to the `main` push, which the plan's second table has to say.
+        name: "check-venues",
+        description: "every identity claim's venue states its limit, and the acceptance job holds it",
+        kind: Kind::Hygiene(Reads::Prose),
+        run: venues::run,
     },
     Task {
         name: "check-workflows",

@@ -976,6 +976,7 @@ economise.
    | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
    | `check-crap` | Deferred, and the row easiest to get wrong: it reads `docs/crap.md` for the `cargo-crap` version `nix/crap.nix` pins, so a page edit that drops that version merges green |
    | `check-gate-classification` | Deferred, and it reads the two tables above - so a pull request can break this classification and only the `main` push says so |
+   | `check-venues` | Deferred, and the deferred verdict is the map itself: `docs/where-identity-is-proven.md` is a `docs/*.md` page, so a pull request can leave a venue claiming a limit it does not state and only the `main` push says so. The half that reads `.github/workflows/ci.yml` is unreachable from such a diff |
    | `text-hygiene`, `line-endings` | Deferred. Whitespace and CRLF in a new page |
    | `max-lines` | Deferred, and **this is the sharpest one**: a new 1200-line page merges green and fails the publish |
 

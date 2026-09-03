@@ -56,9 +56,9 @@ everything *around* it, and shrinks to the one job only it can do.
 | Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | redundant | - |
 | Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | redundant | - |
 | An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | redundant | - |
-| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | see below | - |
+| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below | - |
 | The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | redundant | - |
-| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | painful to script | - |
+| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - |
 | The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - |
 | `credential_unavailable` through the request path | - | **yes** | - | - | - |
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - |
