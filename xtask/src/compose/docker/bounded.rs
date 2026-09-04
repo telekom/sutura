@@ -49,7 +49,14 @@ const PROVISION_TIMEOUT_MAX_SECS: u64 = 21_600;
 /// the same fault, so a second wording would be a second thing to keep true. It lives here rather
 /// than beside `Missing` so the dependency points inward: this module knows nothing about the
 /// pre-flight's vocabulary, and the pre-flight reads down into it.
-pub(super) const WEDGED_DAEMON_REMEDY: &str = "RESTART the docker daemon - it is running but `docker info` never answered";
+///
+/// **Why it names free space as well.** Silence is a SYMPTOM, and this message used to offer one
+/// cause for it. A restart cannot fix a host that has run out of disk, so a reader who takes the
+/// only advice on offer has spent their one idea on the wrong thing - and the second clause is a
+/// conditional, not a diagnosis: it says what a restart will not achieve, which is true whatever
+/// wedged the daemon. Whether an out-of-space host actually produces this silence is NOT claimed
+/// here, because nobody filled a disk to find out.
+pub(super) const WEDGED_DAEMON_REMEDY: &str = "RESTART the docker daemon - it is running but `docker info` never answered. A restart cannot fix a full disk, so check free space too";
 
 /// What one kind of call is allowed: its default, the variable that changes it, and how far.
 ///
@@ -675,6 +682,9 @@ mod tests {
         let reported = Failed::Silent(spent).to_string();
         assert!(reported.contains("SUTURA_DOCKER_QUERY_TIMEOUT_SECS"), "{reported}");
         assert!(reported.contains("RESTART"), "{reported}");
+        // Both remedies, because a reader who only restarts has spent their one idea if the host
+        // is out of space - and the two conditions are indistinguishable from a timed-out call.
+        assert!(reported.contains("free space"), "{reported}");
     }
 
     #[test]
