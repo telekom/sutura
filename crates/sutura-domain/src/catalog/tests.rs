@@ -5,7 +5,7 @@
 //! `cargo xtask max-lines` enforces, and the only way past that gate is to split the file. Same
 //! arrangement as `xtask/src/boundaries/api_shape.rs`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{
     Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_VALUES_PER_DIMENSION, Metric, Model,
@@ -93,7 +93,15 @@ fn two_models() -> ModelsAndJoins {
 }
 
 /// A `sum(amount_cents)` metric over `orders`, with the given dimensions.
+///
+/// It used to key `dimensions` into a map on the way in, which is the bypass #266's D4 is about: no
+/// test in this file could express a duplicate, because the helper collapsed it first.
 fn metric(name: &str, dimensions: Vec<Dimension>) -> Metric {
+    declaring(name, dimensions).expect("these dimensions are distinct")
+}
+
+/// The same metric, with the duplicate check still to run.
+fn declaring(name: &str, dimensions: Vec<Dimension>) -> Result<Metric, InconsistentDefinitions> {
     Metric::new(
         metric_name(name),
         model_name("orders"),
@@ -101,10 +109,7 @@ fn metric(name: &str, dimensions: Vec<Dimension>) -> Metric {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        dimensions
-            .into_iter()
-            .map(|d| (d.name().clone(), d))
-            .collect::<BTreeMap<_, _>>(),
+        dimensions,
         None,
         Description::default(),
     )
@@ -180,10 +185,11 @@ fn a_metric_naming_a_column_its_model_does_not_have_is_refused() {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     assert_eq!(
         assemble_one(broken).unwrap_err(),
         InconsistentDefinitions::UnknownMeasureColumn {
@@ -203,10 +209,11 @@ fn a_metric_with_no_grain_is_refused_because_no_question_could_resolve() {
         Vec::new(),
         column("order_date"),
         BTreeSet::new(),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     assert_eq!(
         assemble_one(grainless).unwrap_err(),
         InconsistentDefinitions::NoGrains {

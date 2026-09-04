@@ -182,7 +182,7 @@ fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
     use std::collections::BTreeMap;
 
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Anchor, Metric};
+    use sutura_domain::catalog::{Anchor, AnchorValue, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, Grain, MetricName};
 
@@ -210,7 +210,10 @@ fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
         column("signed_up_on"),
         BTreeSet::from([Grain::Month]),
         BTreeMap::new(),
-        Some(Anchor::new(range, String::from("7"))),
+        Some(Anchor::new(
+            range,
+            AnchorValue::parse("7").expect("a test anchor value is a value"),
+        )),
         Description::default(),
     );
     let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");

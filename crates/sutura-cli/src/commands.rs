@@ -145,8 +145,11 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
             println!(
                 "  anchor     {}",
                 metric
+                    // `{:?}` on the value, for the reason `RequiredFilter`'s `Display` gives: this
+                    // is the line somebody reads to decide whether a metric still means what it
+                    // claimed, and quoting is what makes the spacing of a certified number visible.
                     .anchor()
-                    .map_or_else(|| String::from("none"), |a| format!("{} over {}", a.value(), a.range()))
+                    .map_or_else(|| String::from("none"), |a| format!("{:?} over {}", a.value(), a.range()))
             );
         }
         Ok(())

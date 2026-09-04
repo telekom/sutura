@@ -21,8 +21,8 @@ mod authored;
 mod consistency;
 
 pub use authored::{
-    Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES,
-    MAX_DIMENSION_VALUE_CHARS,
+    AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
+    MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 pub use consistency::{Definitions, InconsistentDefinitions};
 
@@ -312,14 +312,21 @@ impl Dimension {
 /// The value is text rather than a float on purpose. It is compared against the canonical rendering
 /// of what the data system returned, and a float would make the comparison depend on how two
 /// languages happen to print the same bits.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+///
+/// **Text, and now parsed text.** It was a `String` behind a `const` constructor written by both
+/// catalog adapters, which made it the one authored scalar that entered this crate with no character
+/// rule on it - see [`AnchorValue`] for the channel that closes and what it deliberately still does
+/// not check. No `Deserialize`: nothing deserializes an `Anchor`, because each adapter deserializes
+/// its own document shape and converts, so the derive was a public surface with no caller and one
+/// more path into a private field.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Anchor {
     range: TimeRange,
-    value: String,
+    value: AnchorValue,
 }
 
 impl Anchor {
-    pub const fn new(range: TimeRange, value: String) -> Self {
+    pub const fn new(range: TimeRange, value: AnchorValue) -> Self {
         Self { range, value }
     }
 
@@ -328,9 +335,15 @@ impl Anchor {
         self.range
     }
 
+    /// The certified number as text.
+    ///
+    /// A `&str` rather than a `&AnchorValue`, because every caller either compares it against a
+    /// rendered cell or prints it - and both want the text. **Whoever prints it uses `{:?}`**, for
+    /// the reason [`RequiredFilter`]'s `Display` gives: quoting is what makes spacing visible in a
+    /// line a person reads to decide whether a metric still means what it claimed.
     #[inline]
     pub fn value(&self) -> &str {
-        &self.value
+        self.value.as_str()
     }
 }
 
@@ -347,34 +360,67 @@ pub struct Metric {
     required_filters: Vec<RequiredFilter>,
     time_column: ColumnName,
     grains: BTreeSet<Grain>,
+    /// Keyed, because every reader asks it "is this dimension declared, and what is it". The
+    /// CONSTRUCTOR takes a vector - see [`Metric::new`] for why the two differ.
     dimensions: BTreeMap<DimensionName, Dimension>,
     anchor: Option<Anchor>,
     description: Description,
 }
 
 impl Metric {
-    pub const fn new(
+    /// A certified metric, refused if it declares one dimension twice.
+    ///
+    /// **Takes a `Vec<Dimension>` and returns a `Result`, and the argument for that is already
+    /// written one level up.** [`Definitions::assemble`]: *"Takes vectors rather than maps so the
+    /// duplicate checks are ours: a caller that built a map first has already silently dropped one
+    /// of a duplicated pair."* This constructor took a map, so the check was not ours, and the two
+    /// shipped adapters had answered the question differently - `sutura_catalog_local` refused a
+    /// duplicate and `sutura_catalog_datahub` collected into a map and kept the last. One content,
+    /// two [`Definitions`]. The module header above says two adapters reading the same content must
+    /// produce the same one or one of them is wrong, and the golden suite could not see it because
+    /// no fixture declares a duplicate.
+    ///
+    /// **A vector makes the bypass a compile error rather than a rule**, which is why the signature
+    /// changed instead of a check being added beside the old one: an adapter cannot collapse the
+    /// pair before this point any more, because there is nowhere earlier for it to collapse it. The
+    /// field stays a [`BTreeMap`] - the digest is taken over the serialized form and every reader
+    /// looks a dimension up by name - so the difference between the parameter and the field is the
+    /// whole mechanism.
+    ///
+    /// The refusal is an [`InconsistentDefinitions`] rather than an error of this constructor's own,
+    /// so both adapters map it through the variant they already have for that type and neither
+    /// grows a second one.
+    pub fn new(
         name: MetricName,
         model: ModelName,
         measure: Measure,
         required_filters: Vec<RequiredFilter>,
         time_column: ColumnName,
         grains: BTreeSet<Grain>,
-        dimensions: BTreeMap<DimensionName, Dimension>,
+        dimensions: Vec<Dimension>,
         anchor: Option<Anchor>,
         description: Description,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InconsistentDefinitions> {
+        let mut declared: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
+        for dimension in dimensions {
+            if let Some(existing) = declared.insert(dimension.name.clone(), dimension) {
+                return Err(InconsistentDefinitions::DuplicateDimension {
+                    metric: name,
+                    dimension: existing.name,
+                });
+            }
+        }
+        Ok(Self {
             name,
             model,
             measure,
             required_filters,
             time_column,
             grains,
-            dimensions,
+            dimensions: declared,
             anchor,
             description,
-        }
+        })
     }
 
     #[inline]

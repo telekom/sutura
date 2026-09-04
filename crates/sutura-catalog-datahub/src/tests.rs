@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, DimensionValue, InconsistentDefinitions, Metric, Model};
+use sutura_domain::catalog::{AnchorValue, Definitions, Description, DimensionValue, InconsistentDefinitions, Metric, Model};
 use sutura_domain::knowledge::{
     Capability, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase,
     Referent,
@@ -395,7 +395,7 @@ fn the_rest_of_a_metric_rides_the_deployment_defined_namespace() {
                         Date::parse("2026-07-01").expect("a test date is a date"),
                     )
                     .expect("a one-month range is a range"),
-                    String::from("412345"),
+                    AnchorValue::parse("412345").expect("a test anchor value is a value"),
                 )),
             ),
         )],
@@ -529,10 +529,11 @@ fn content_for_a_kind_it_did_not_declare_fails_the_load() {
         Vec::new(),
         ColumnName::parse("order_date").expect("a column is a name"),
         std::iter::once(Grain::Month).collect(),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::parse("").expect("empty is a description"),
-    );
+    )
+    .expect("no dimensions to duplicate");
     let definitions = Definitions::assemble(vec![model], Vec::new(), vec![metric]).expect("a model and a metric hold together");
     let entry = GlossaryEntry::new(
         Phrase::parse("revenue").expect("a phrase is a phrase"),
@@ -561,4 +562,43 @@ fn content_for_a_kind_it_did_not_declare_fails_the_load() {
     // The adapter's typed error carries it, proving the load path maps it rather than swallowing
     // it.
     let _: DataHubError = DataHubError::Knowledge { cause: refused };
+}
+
+/// An anchor value a reader could not read is refused where the property is decoded.
+///
+/// **The other half of #266's D3, on the adapter that has no file to open.** The value
+/// `4123<U+200F>45` renders as an ordinary number wherever it is printed, and it is what
+/// `sutura_domain::pinned::NotValidated::AnchorMismatch` interpolates when a bundle is refused. It
+/// used to load, because the domain's `Anchor::new` took a `String`.
+///
+/// Built by deserializing the aspect rather than by calling a constructor, and that is the point: a
+/// real reader decodes a scalar it did not write, so the refusal has to come from the decode. It
+/// does - `AnchorValue` deserializes through its own constructor, and a struct field (unlike the
+/// local adapter's `untagged` literal) keeps the cause. Both adapters are therefore held to the one
+/// character rule on the one field.
+#[test]
+fn an_anchor_value_a_reader_could_not_read_is_refused() {
+    let content = format!(
+        r#"{{"model":"orders","measure":{{"simple":{{"aggregate":"sum","column":"amount_cents"}}}},"time_column":"order_date","grains":["month"],"anchor":{{"range":{{"start":"2026-06-01","end":"2026-07-01"}},"value":"4123{}45"}}}}"#,
+        '\u{200F}'
+    );
+    let scalar = serde_json::to_string(&content).expect("a string serializes");
+    let aspect: MetricAspect = serde_json::from_str(&format!(
+        r#"{{"name":"revenue","dialect":"ANSI_SQL","expression":"SUM(amount_cents)","sutura":{{"string_value":{scalar}}}}}"#
+    ))
+    .expect("the aspect around the scalar is well-formed");
+
+    let corpus = corpus();
+    let snapshot = Snapshot::new(corpus.datasets().to_vec(), corpus.relationships().to_vec(), vec![aspect]);
+    let refused = over(snapshot)
+        .load()
+        .expect_err("a direction-changing character is not an anchor value");
+    let DataHubError::Sutura { ref metric, ref cause } = refused else {
+        panic!("the property's own decode is what refuses it: {refused:?}");
+    };
+    assert_eq!(metric, "revenue");
+    assert!(
+        cause.to_string().contains("invisible or direction-changing"),
+        "the character rule names itself through the property's decode: {cause}"
+    );
 }

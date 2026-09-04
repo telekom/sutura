@@ -15,10 +15,17 @@
 //!
 //! What makes a type subject to the rule is that it HAS a fallible constructor - an associated
 //! function taking no `self` and returning `Result<Self, ..>`. A type with none establishes no
-//! invariant at construction, so a derive bypasses nothing: `Query`, `Anchor`,
+//! invariant at construction, so a derive bypasses nothing: `Query`,
 //! `sutura_http::wire::QuestionBody` and the `Raw*` settings shapes are all in that class, and all
 //! of them are correct as they stand. **A gate that failed them would be a gate somebody
 //! disables**, which is the reasoning `deny.toml`'s duplicate-version comment already carries.
+//!
+//! **And the class is not a defence, which is where this gate's limit is worth stating.** `Anchor`
+//! used to be listed above and was correct under this rule for the whole time its `value` was an
+//! unparsed `String`: a type with no invariant to bypass passes because there is nothing to bypass,
+//! not because nothing is wrong. What was wrong was that the field wanted a newtype, and no gate
+//! here decides which authored scalars want one. That judgement is review's, and #266 is what
+//! caught it.
 //!
 //! # Rule two: `try_from` moves `Deserialize` and leaves `Serialize` where it was
 //!

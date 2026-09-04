@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+};
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
 };
@@ -63,9 +65,14 @@ fn june() -> TimeRange {
     .expect("June is a range")
 }
 
+/// The anchor every bundle below is certified with: one range, one parsed value.
+fn anchor(value: &str) -> Anchor {
+    Anchor::new(june(), AnchorValue::parse(value).expect("a test anchor value is a value"))
+}
+
 /// One model, one anchored metric, one filterable dimension.
 pub(crate) fn bundle() -> PinnedDefinitions {
-    pinned(Some(Anchor::new(june(), String::from(ANCHORED_VALUE))))
+    pinned(Some(anchor(ANCHORED_VALUE)))
 }
 
 /// The same bundle with no anchor, so it validates against a data system that answers nothing.
@@ -90,7 +97,7 @@ pub(crate) fn a_question() -> sutura_domain::query::Query {
 /// walks is prose a catalog could actually hold - a description the domain refuses is not an input
 /// this surface can ever be handed.
 pub(crate) fn described_bundle(prose: &str) -> PinnedDefinitions {
-    pinned_described(Some(Anchor::new(june(), String::from(ANCHORED_VALUE))), prose, prose)
+    pinned_described(Some(anchor(ANCHORED_VALUE)), prose, prose)
 }
 
 fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {

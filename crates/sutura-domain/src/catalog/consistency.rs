@@ -37,10 +37,15 @@ pub struct Definitions {
 
 /// Why a set of definitions does not hold together.
 ///
-/// Every variant is a dangling reference of some kind. Catching them here, once, is what lets the
-/// resolver assume that a metric's model exists and that a dimension's column is real: without it
-/// each of those becomes a runtime branch on the query path, and the failure surfaces as a data
-/// system error rather than as a refusal.
+/// Most variants are a dangling reference of some kind, and the rest are two declarations that
+/// cannot both stand. Catching them here, once, is what lets the resolver assume that a metric's
+/// model exists and that a dimension's column is real: without it each of those becomes a runtime
+/// branch on the query path, and the failure surfaces as a data system error rather than as a
+/// refusal.
+///
+/// **One variant is raised by [`Metric::new`] rather than by [`Definitions::assemble`]** - see
+/// [`Self::DuplicateDimension`], which is about a pair the constructor is the last place that can
+/// still see. It is in this enum anyway, so that an adapter maps one type from both.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InconsistentDefinitions {
     #[error("model {model} is declared twice")]
@@ -49,6 +54,16 @@ pub enum InconsistentDefinitions {
     DuplicateMetric { metric: MetricName },
     #[error("relationship {relationship} is declared twice")]
     DuplicateRelationship { relationship: RelationshipName },
+    /// One metric declaring the same dimension twice.
+    ///
+    /// **The one variant in this enum that [`Definitions::assemble`] does not raise**, because it
+    /// cannot: by the time a [`Metric`] reaches `assemble` its dimensions are already keyed, so the
+    /// pair has been collapsed and there is nothing left to see. [`Metric::new`] takes the vector
+    /// and raises this, which is the same argument `assemble` makes for taking vectors itself - and
+    /// it is in THIS enum rather than in one of the constructor's own so that both adapters map it
+    /// through the variant they already have for this type.
+    #[error("metric {metric} declares dimension {dimension} twice")]
+    DuplicateDimension { metric: MetricName, dimension: DimensionName },
     #[error("metric {metric} names model {model}, which is not declared")]
     UnknownModel { metric: MetricName, model: ModelName },
     #[error("metric {metric} measures column {column}, which model {model} does not declare")]

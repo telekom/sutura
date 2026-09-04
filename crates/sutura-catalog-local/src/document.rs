@@ -15,10 +15,13 @@
 //! exactly this format's representation, and mirroring its variants here would buy nothing but a
 //! place to forget the next one.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Anchor, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Anchor, AnchorValue, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, Metric,
+    Model, Relationship,
+};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
@@ -103,6 +106,16 @@ impl KindProbe {
 /// with "invalid type: integer, expected a string", which is a true statement about a file that
 /// looks correct to whoever wrote it. Everything becomes text either way, because that is what an
 /// anchor comparison uses.
+///
+/// **The quoted arm stays a `String` and the parse happens in [`Self::into_value`], which is a
+/// measured decision rather than the obvious one.** Making it an [`AnchorValue`] and letting its
+/// `serde(try_from)` do the work - the arrangement `values:` above uses, and the first thing tried
+/// here - puts the check inside deserialization, where `untagged` throws the cause away: the refusal
+/// reaches an author as `data did not match any variant of untagged enum AnchorLiteral at line 10
+/// column 3`, naming neither the character nor the rule. `untagged` reports that a set of attempts
+/// all failed and cannot report why any one of them did. So the parse is one step later, where
+/// [`InvalidMetricDocument::AnchorValue`] names the metric and carries the character fault as its
+/// `source`.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(untagged)]
 pub enum AnchorLiteral {
@@ -111,10 +124,16 @@ pub enum AnchorLiteral {
 }
 
 impl AnchorLiteral {
-    fn into_text(self) -> String {
+    /// The value as the domain holds it, parsed.
+    ///
+    /// Both arms go through the one constructor, and the integer arm cannot fail there: an `i64`
+    /// renders as at most twenty ASCII digits and a sign. It is written as the same call rather than
+    /// a shortcut for that arm, because a second construction path is a second thing that can stop
+    /// agreeing with the rule.
+    fn into_value(self) -> Result<AnchorValue, InvalidDimensionValue> {
         match self {
-            Self::Integer(v) => v.to_string(),
-            Self::Text(v) => v,
+            Self::Integer(v) => AnchorValue::parse(v.to_string()),
+            Self::Text(v) => AnchorValue::parse(v),
         }
     }
 }
@@ -278,27 +297,57 @@ pub struct MetricDoc {
 
 /// Why a metric document cannot become a metric.
 ///
-/// Only the things [`sutura_domain::catalog::Definitions`] cannot see, because by the time it runs
-/// the duplication has already been collapsed by the map it holds. Everything else is checked there,
-/// once, for every adapter.
+/// Only what belongs to the DOCUMENT: the two conversions this file performs that the domain's own
+/// constructors can refuse. Everything about whether a metric holds together is checked in
+/// [`sutura_domain::catalog`], once, for every adapter - **including the duplicated dimension this
+/// enum used to carry.** That variant existed because `Metric::new` took a map, so the domain could
+/// not see the pair; it takes a vector now, and the refusal is
+/// [`InconsistentDefinitions::DuplicateDimension`], which [`Self::Inconsistent`] carries. A copy of
+/// a check in one adapter is a check the other adapter does not have, which is exactly what
+/// happened.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidMetricDocument {
-    #[error("metric {metric} declares dimension {dimension} twice")]
-    DuplicateDimension { metric: MetricName, dimension: DimensionName },
+    /// The domain refused the metric this document describes.
+    ///
+    /// Transparent, because the domain's own message names the metric and the fault and this layer
+    /// has nothing to add - what it adds is the path, and `LocalCatalogError::Metric` is where that
+    /// is attached. Reaching `LocalCatalogError::Inconsistent` instead would drop the path, which is
+    /// the one thing a reader of a directory of files needs.
+    #[error(transparent)]
+    Inconsistent(#[from] InconsistentDefinitions),
+    /// The anchor's `value:` is not text a number can be checked against.
+    ///
+    /// The metric is named here and the character fault is the `source`, which is the arrangement
+    /// `sutura_domain::pinned::NotValidated::AnchorNotExecuted` already uses: this variant says
+    /// which document to open, and whoever renders it walks the chain for which character to look
+    /// for. Reported per metric rather than per field because a metric document declares one anchor.
+    #[error("metric {metric}'s anchor value is not usable as one")]
+    AnchorValue {
+        metric: MetricName,
+        #[source]
+        cause: InvalidDimensionValue,
+    },
 }
 
 impl MetricDoc {
     pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
-        let mut dimensions: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
-        for doc in self.dimensions {
-            let dimension = Dimension::new(doc.name.clone(), doc.column, doc.via, doc.values, doc.description);
-            if dimensions.insert(doc.name.clone(), dimension).is_some() {
-                return Err(InvalidMetricDocument::DuplicateDimension {
-                    metric: self.name,
-                    dimension: doc.name,
-                });
-            }
-        }
+        // A vector, handed on as a vector. This loop used to build a map and refuse a repeat in it,
+        // which was a check the DataHub adapter did not have - see `InvalidMetricDocument`.
+        let dimensions: Vec<Dimension> = self
+            .dimensions
+            .into_iter()
+            .map(|doc| Dimension::new(doc.name, doc.column, doc.via, doc.values, doc.description))
+            .collect();
+        let anchor = match self.anchor {
+            None => None,
+            Some(doc) => Some(Anchor::new(
+                doc.range,
+                doc.value.into_value().map_err(|cause| InvalidMetricDocument::AnchorValue {
+                    metric: self.name.clone(),
+                    cause,
+                })?,
+            )),
+        };
         Ok(Metric::new(
             self.name,
             self.model,
@@ -307,16 +356,16 @@ impl MetricDoc {
             self.time_column,
             self.grains,
             dimensions,
-            self.anchor.map(|a| Anchor::new(a.range, a.value.into_text())),
+            anchor,
             description,
-        ))
+        )?)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
-    use sutura_domain::catalog::DimensionValue;
+    use sutura_domain::catalog::{DimensionValue, InconsistentDefinitions, InvalidDimensionValue};
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
@@ -710,21 +759,29 @@ colums: [amount_cents]
         assert!(metric.required_filters().is_empty());
     }
 
+    /// A dimension declared twice is refused, **by the domain and not by this adapter**.
+    ///
+    /// Why dimensions are a list and not a map: a YAML mapping with a repeated key keeps the last
+    /// value silently, so the metric would load with the second definition and the author would have
+    /// no way to tell which one is live.
+    ///
+    /// The refusal used to be this crate's own `InvalidMetricDocument::DuplicateDimension`, and that
+    /// is #266's D4: the DataHub adapter read a sequence too and collected it into a map, so the same
+    /// content became two different `Definitions` depending on which adapter loaded it. What this
+    /// asserts now is the domain's variant coming back through the transparent wrap, which is the
+    /// same value the DataHub adapter's sibling test asserts.
     #[test]
     fn a_dimension_declared_twice_is_refused_rather_than_deduplicated() {
-        // Why dimensions are a list and not a map: a YAML mapping with a repeated key keeps the
-        // last value silently, so the metric would load with the second definition and the author
-        // would have no way to tell which one is live.
         let yaml = format!(
             "{MINIMAL_METRIC}dimensions:\n  - name: region\n    column: region_code\n  - name: region\n    column: other_code\n"
         );
         let doc = metric_doc(&yaml).expect("two list entries are valid YAML");
         assert_eq!(
             doc.into_domain(Description::default()).unwrap_err(),
-            InvalidMetricDocument::DuplicateDimension {
+            InvalidMetricDocument::Inconsistent(InconsistentDefinitions::DuplicateDimension {
                 metric: MetricName::parse("revenue").expect("a name"),
                 dimension: DimensionName::parse("region").expect("a name"),
-            }
+            })
         );
     }
 
@@ -742,6 +799,35 @@ colums: [amount_cents]
             let anchor = metric.anchor().expect("the document declared one");
             assert_eq!(anchor.value(), "197122");
         }
+    }
+
+    /// An anchor value a reader could not read is refused, and the refusal says which metric.
+    ///
+    /// The value `1971<U+200F>22` renders as an ordinary number in every terminal and every diff,
+    /// and reaches the operator who decides whether a metric still means what it claimed. It used to
+    /// load: `Anchor::new` took a `String` and nothing on the path looked at it.
+    ///
+    /// **The typed cause is what this asserts, and it is why the parse is not in the serde path.**
+    /// `AnchorLiteral` is `untagged`, so a `try_from` on the field would collapse this to *data did
+    /// not match any variant*. Here the author gets the metric, the rule and the code point.
+    #[test]
+    fn an_anchor_value_a_reader_could_not_read_is_refused() {
+        let yaml =
+            format!("{MINIMAL_METRIC}anchor:\n  range: {{ start: 2026-06-01, end: 2026-07-01 }}\n  value: \"1971\u{200F}22\"\n");
+        let refusal = metric_doc(&yaml)
+            .expect("the document is well-formed YAML")
+            .into_domain(Description::default())
+            .expect_err("a direction-changing character is not an anchor value");
+        assert_eq!(
+            refusal,
+            InvalidMetricDocument::AnchorValue {
+                metric: MetricName::parse("revenue").expect("a name"),
+                cause: InvalidDimensionValue::InvisibleCharacter {
+                    value: String::from("1971\u{200F}22"),
+                    code: 0x200F,
+                },
+            }
+        );
     }
 
     #[test]

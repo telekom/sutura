@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, Definitions, Description, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
@@ -113,7 +113,10 @@ pub(crate) fn bundle() -> PinnedDefinitions {
         column("order_date"),
         BTreeSet::from([Grain::Month]),
         BTreeMap::new(),
-        Some(Anchor::new(range, String::from("197122"))),
+        Some(Anchor::new(
+            range,
+            AnchorValue::parse("197122").expect("a test anchor value is a value"),
+        )),
         Description::default(),
     );
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");

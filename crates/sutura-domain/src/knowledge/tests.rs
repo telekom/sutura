@@ -8,7 +8,7 @@
 //! values" is reachable; and `voice_minutes` declares two grains where `recurring_revenue` declares
 //! one, so a grain an example gets wrong is a grain that exists somewhere in the same bundle.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{
     Absence, Capability, Caveat, Example, GlossaryEntry, InconsistentKnowledge, InvalidNoteBody, InvalidPhrase, InvalidReferent,
@@ -96,13 +96,11 @@ pub(super) fn definitions() -> Definitions {
         Vec::new(),
         column("month"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::from([
-            (dimension_name("segment"), segment),
-            (dimension_name("product_name"), product_name),
-        ]),
+        vec![segment, product_name],
         None,
         Description::default(),
-    );
+    )
+    .expect("these fixture dimensions are distinct");
     let minutes = Metric::new(
         metric_name("voice_minutes"),
         ModelName::parse("subscriptions").expect("a test model is a model"),
@@ -110,10 +108,11 @@ pub(super) fn definitions() -> Definitions {
         Vec::new(),
         column("month"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     Definitions::assemble(vec![model], vec![], vec![revenue, minutes]).expect("the test bundle is consistent")
 }
 
