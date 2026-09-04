@@ -121,8 +121,8 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   and ignores the total, so a document carrying no entries beside a non-zero total still refuses a
   deployment with *every table is absent* rather than naming the shape change. `docs/adr/0018` argues
   why refusing is not obviously the safe direction - an `Err` out of `preflight` **is** the warning
-  half - so this stays here until that decision is taken. Read the record as *the input now arrives*,
-  never as *a shape change is told apart*. A test pins the non-decision; **no gate does**, which is
-  this register's own limit.
+  half - so this stays here until that decision is taken, tracked as `telekom/sutura#275`. Read the
+  record as *the input now arrives*, never as *a shape change is told apart*. A test pins the
+  non-decision; **no gate does**, which is this register's own limit.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.

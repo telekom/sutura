@@ -568,7 +568,8 @@ fn a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named() {
     // That is `docs/adr/0018`'s order - measure, then decide - and the decision is not a formality:
     // an `Err` from this method is a WARNING the deployment serves past, so refusing on a shape
     // change would move it from *refused for the wrong reason* to *served anyway*, which is the
-    // worse direction. Whoever settles that changes this test, and the record with it.
+    // worse direction. Whoever settles that - `telekom/sutura#275` - changes this test, and the
+    // record with it.
     //
     // **What this test is NOT, said next to it:** it is not a regression test. Its assertion holds
     // identically on the base tree - the behaviour it pins is the behaviour that was already there -

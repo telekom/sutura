@@ -592,7 +592,12 @@ bullets down:
   unless `listing_was_refused` changes with it, so refusing on a shape change would move the outcome
   from *deployment refused for the wrong reason* to *deployment served anyway* - the worse direction.
   `a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named` pins the non-decision, so
-  whoever settles it changes a test and this record together.
+  whoever settles it changes a test and this record together. **Tracked as telekom/sutura#275**,
+  which carries the three shapes the decision has to choose between - a refusal-half `WireError`, a
+  `WARN`, or deleting the value - and why none of them is free. Until then, read this bullet as *the
+  input now arrives*, never as *a shape change is told apart*; the built-and-not-wired register in
+  `.agents/skills/sutura/query-surface` has the entry, and states that no gate notices a change that
+  wires a refusal without revisiting this paragraph.
 
   **The correction worth recording rather than quietly making:** the version of this bullet before
   #263 deferred the question to *the live run above*, and that run could not make the measurement in

@@ -267,7 +267,8 @@ pub enum ListingTotal {
     /// service meant it.
     ///
     /// **Nothing refuses on it yet**, and that is a decision rather than an omission -
-    /// `docs/adr/0018` carries it, including why `Err` is not obviously the safe direction here.
+    /// `docs/adr/0018` carries it, including why `Err` is not obviously the safe direction here, and
+    /// `telekom/sutura#275` is where it gets taken.
     Short {
         /// The total the document reported.
         reported: u64,
