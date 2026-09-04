@@ -37,10 +37,9 @@ path = "src/main.rs"
 # `--all-features`, which is what `just lint`, `just test` and every nix check already pass - so the
 # registration is compiled, linted and tested on every run, and a bare `cargo build` is unchanged.
 #
-# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes both binaries
-# with cargo's DEFAULT features - so no published artefact links this adapter, and
-# `checks.shipped-features` reads `ureq`'s and `ring`'s absence out of each shipped binary's own
-# embedded dependency list rather than out of this manifest.
+# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes both
+# binaries with cargo's DEFAULT features. The gate that holds it is named in the first paragraph;
+# what this one adds is that turning the feature on here would not change what a release contains.
 #
 # **Which gate sees the feature OFF, because every other one passes `--all-features`.**
 # `cargo xtask check-default-features`, in `just gates`, derives its package list from
