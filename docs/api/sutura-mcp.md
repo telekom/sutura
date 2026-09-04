@@ -598,14 +598,6 @@ Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes n
 and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
 returns: it is the *pinned* bundle, the same one every answer is computed from.
 
-# Why the structured half reads the prose setting
-
-Not to escape anything - `serde` owns the field boundary here, so a description cannot cross one
-whatever it spells. `prompt.catalog_prose` decides **who may put words in front of an agent**,
-which is a property of the deployment rather than of one field on one surface. This half shipped
-every description while the text block beside it withheld them: `docs/adr/0022`'s second
-amendment.
-
 #### Methods
 
 ```rust
