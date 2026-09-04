@@ -116,14 +116,17 @@ pub enum Reason {
 /// Which venue answers for a service, so a remedy cites THAT venue's task rather than assuming one.
 ///
 /// There are two and they are not interchangeable: the compose tier is the demo a person brings up
-/// on their own machine, and a nix-native tier is what `checks.nextest` and `just test` provision
-/// where there is no docker socket and no network. `compose.services.yaml` declares which one
-/// answers per service, and the gate holding that declaration holds it against the existence of the
-/// module - so the MODULE is the ground truth, and reading it here derives the same answer instead
-/// of adding a second declaration to keep true.
+/// on their own machine, and a nix-native tier is what a nix check provisions where there is no
+/// docker socket - `checks.nextest`'s own `preCheck` for Postgres, a check of its OWN for the
+/// identity provider, which is why the task that starts one is per tier and not one constant for
+/// all of them. `compose.services.yaml` declares which one answers per service, and the gate
+/// holding that declaration holds it against the existence of the module - so the MODULE is the
+/// ground truth, and reading it here derives the same answer instead of adding a second
+/// declaration to keep true.
 #[derive(Debug)]
 enum Venue {
-    /// A nix-native tier. Nothing to enable: it is started, or it is not.
+    /// A nix-native tier. Nothing to enable: it is started, or it is not - and a service may have
+    /// a compose block as well, which is why this wins (see [`venue`]) rather than merging.
     NixTier {
         /// The module, repo-relative, so the remedy names a file a reader can open.
         module: String,
@@ -179,9 +182,23 @@ impl Venue {
     /// literal. It also assumed the compose venue, which stops being true for a service the day it
     /// gets a nix-native tier.
     ///
+    /// AND SO WAS THE TIER HALF, found reviewing the fix above. It named one constant task for
+    /// every tier - `just test` - which is true of `postgres` and of nothing else: that recipe
+    /// sources `nix/with-tier.sh`, which starts the Postgres tier and no other, and the identity
+    /// tier has its own nix check for the reason flake.nix gives where it declares it. So a reader
+    /// whose missing service was `keycloak` was sent to a task that starts nothing for it, and the
+    /// cross-arm test added to close the class asserted that literal for every tier - pinning it.
+    /// The task is per tier, `just <service>-tier start`, and a `nix/<service>-tier.nix` arriving
+    /// without that recipe reddens the recipe scan below.
+    ///
     /// So [`venue`] keeps the venue true and
-    /// `every_command_this_remedy_names_is_a_just_task_that_exists` keeps the task name true. A
-    /// remedy nothing checks is prose, and prose rots silently.
+    /// `every_command_this_remedy_names_is_a_just_task_that_exists` keeps the task name true.
+    /// **The limit, next to the claim: both resolve only that the recipe EXISTS.** Nothing
+    /// mechanical here reads whether the task provisions the service it is cited for, which is why
+    /// the `keycloak` advice was green on every gate. That half is a measurement: on 2026-09-04,
+    /// `just keycloak-tier start` and `just postgres-tier start` each brought their tier up and
+    /// published its port, and `just dev-endpoint <service>` then printed it. A remedy nothing
+    /// checks is prose, and prose rots silently.
     ///
     /// The generalisation landed with `github.com/telekom/sutura#243`: `check-guidance` now resolves
     /// a `just` or `cargo xtask` citation in every `.rs` file the repository publishes, so the next
@@ -190,8 +207,8 @@ impl Venue {
     fn advice(&self, service: &str) -> String {
         match *self {
             Self::NixTier { ref module } => format!(
-                "`just test` provisions it - `{service}` is a nix-native tier ({module}) and not a compose \
-                 profile, so there is no profile to enable"
+                "`just {service}-tier start` - `{service}` is a nix-native tier ({module}), started by that \
+                 task and needing no docker socket"
             ),
             Self::Profile(profile) => format!(
                 "`just dev-up-{profile}` - `{service}` is behind the `{profile}` compose profile, which is off \
@@ -202,8 +219,8 @@ impl Venue {
                  would have started it"
             ),
             Self::Undeclared => format!(
-                "nothing yet - nothing declares `{service}`: a service is a row in `compose.services.yaml` \
-                 or a `nix/<service>-tier.nix` module, and this worktree has neither for it"
+                "nothing declares `{service}` yet - a service is a row in `compose.services.yaml` or a \
+                 `nix/<service>-tier.nix` module, and this worktree has neither for it"
             ),
         }
     }
@@ -245,6 +262,13 @@ impl Absent {
     /// A message that says "run `just dev-up`" when the tier is already up and the service is
     /// behind a profile sends somebody to re-run something that will not help.
     ///
+    /// **Every arm that names a task for a service goes through [`Absent::venue_advice`]** - all
+    /// three, since the unreadable-file arm joined them. It used to end `just dev-down` then
+    /// `just dev-up`, and `xtask dev-up` re-serialises the whole discovery document from the
+    /// docker services it just read: following that for a nix-native service DROPPED its entry
+    /// (the justfile records that half beside `dev-up`). What the file needs is the reset; what the
+    /// service needs is its own venue, and neither arm has to know the other.
+    ///
     /// One line per line of the message; the label and the hanging indent under it belong to the
     /// `Display` impl, so no arm has to know whether its line comes first.
     fn remedy(&self) -> Vec<String> {
@@ -267,9 +291,10 @@ impl Absent {
                 DiscoveryError::Unreadable { .. }
                 | DiscoveryError::Malformed { .. }
                 | DiscoveryError::UnreadablePublishedAddress { .. }
-                | DiscoveryError::Unwritable { .. } => vec![String::from(
-                    "`just dev-down` then `just dev-up` - the discovery file is not readable as one",
-                )],
+                | DiscoveryError::Unwritable { .. } => vec![
+                    String::from("`just dev-down` - the discovery file is not readable as one, so it goes, and"),
+                    self.venue_advice(),
+                ],
             },
         }
     }
@@ -341,6 +366,10 @@ impl std::error::Error for Absent {
 ///     .expect_err("nothing is provisioned in a temporary directory");
 /// assert_eq!(problem.service(), "postgres");
 /// assert!(problem.to_string().contains("no default port"), "{problem}");
+///
+/// // And the remedy is derived from the directory that was ASKED about, not from this repository:
+/// // a temporary directory declares `postgres` under neither venue, so there is no task to name.
+/// assert!(problem.to_string().contains("nothing declares `postgres` yet"), "{problem}");
 /// ```
 pub fn in_worktree(root: &Path, service: &str) -> Result<Endpoint, Absent> {
     let scope = Scope::from_root(root)
@@ -532,7 +561,10 @@ mod tests {
         assert!(message.contains("endpoints.json"), "{message}");
         assert!(message.contains("postgres"), "{message}");
         assert!(message.contains("no default port"), "{message}");
-        assert!(message.contains("`just test`"), "the advice names no task: {message}");
+        assert!(
+            message.contains("`just postgres-tier start`"),
+            "the advice names no task, or not this tier's own: {message}"
+        );
         assert!(message.contains(module), "the advice does not name the module: {message}");
         // BOTH copies of the constant at once - the remedy's own line, and the `because` line above
         // it, which is a `DiscoveryError` carrying no service and therefore no way to pick a venue.
@@ -709,7 +741,14 @@ mod tests {
         let root = worktree_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("this crate is inside a checkout");
         let justfile = std::fs::read_to_string(root.join("justfile")).expect("the justfile is readable");
         let tasks = recipes(&justfile);
-        for expected in ["test", "dev-up", "dev-endpoint", "dev-endpoints", "dev-down"] {
+        for expected in [
+            "keycloak-tier",
+            "postgres-tier",
+            "dev-up",
+            "dev-endpoint",
+            "dev-endpoints",
+            "dev-down",
+        ] {
             assert!(
                 tasks.contains(expected),
                 "the recipe scan is broken rather than the justfile: no `{expected}` among {tasks:?}"
@@ -797,7 +836,14 @@ mod tests {
 
         assert!(message.contains("nix-native tier"), "{message}");
         assert!(message.contains(&module), "the advice does not name the module: {message}");
-        assert!(message.contains("`just test`"), "the advice names no task: {message}");
+        // The task for THIS tier, spelled from the service rather than as a literal. The literal
+        // was `just test` and it is the defect this branch was reviewed for: right for Postgres,
+        // and `just test` starts no other tier - so it was wrong for the one service that has both
+        // a tier and a compose profile, which is the very service this fixture is built from.
+        assert!(
+            message.contains(&format!("`just {}-tier start`", profiled.name())),
+            "the advice names no task, or not this tier's own: {message}"
+        );
         // The venue that is no longer this service's, in both spellings this message ever had.
         assert!(
             !message.contains("dev-up"),
@@ -841,9 +887,18 @@ mod tests {
                 // as whichever existing branch happened to be closest.
                 match super::venue(Some(&root), &service) {
                     Venue::NixTier { ref module } => {
+                        // DERIVED FROM THE SERVICE, not a literal. This assertion read
+                        // `contains("`just test`")` for every tier, and `just test` sources
+                        // `nix/with-tier.sh`, which starts the Postgres tier and no other - so the
+                        // walk below asserted, for `keycloak`, advice that starts nothing for it.
+                        // A literal here cannot tell one tier's task from another's, which is how
+                        // a test written to close a wrong-venue defect came to pin one. The name
+                        // is resolved to a recipe that exists by
+                        // `every_command_this_remedy_names_is_a_just_task_that_exists`; that it
+                        // PROVISIONS `{service}` is measured, not checked - see `Venue::advice`.
                         assert!(
-                            remedy.contains("`just test`"),
-                            "{arm} names no task for `{service}`: {remedy}"
+                            remedy.contains(&format!("`just {service}-tier start`")),
+                            "{arm} does not name the task that starts `{service}`'s own tier: {remedy}"
                         );
                         assert!(remedy.contains(module), "{arm} does not name `{module}`: {remedy}");
                         assert!(
