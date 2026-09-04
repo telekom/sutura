@@ -202,7 +202,7 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
         BaseOutcome::RedOutsideTheDiff { ref failed } => {
             eprintln!("xtask test-causality: FAILED - the base tree is red outside this diff");
             for one in failed {
-                eprintln!("    red on base: {one}");
+                eprintln!("    outside the diff: {one}");
             }
             eprintln!();
             eprintln!("Not one of those is a test this diff added, so the run says nothing about");
