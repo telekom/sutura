@@ -914,8 +914,8 @@ output path. The job logs confirm the shared half from the other end by never bu
 **The cost, as COMPILED UNITS.** Seconds drift with whatever else a runner is doing; a unit count
 does not. Counted off the `Compiling` lines of the CRATE derivation's own log and not the job's -
 `sutura-deps-<triple>` is the shared dependency build and is excluded, which is the whole reason
-units beat seconds here - for all four published triples of CI run 33808343712, feature off and
-then on:
+units beat seconds here - for all four published triples of CI runs 33808343712 and 33838360913,
+feature off and then on, the same in both:
 
 | triple | OFF | ON |
 | --- | --- | --- |
@@ -935,8 +935,9 @@ runs 33781193001 and 33792642655 gave `+0.5 / -0.1 / +1.2 / +1.3s` and `+0.4 / -
 over crate derivations of 69-84s - so **-0.4% to +1.7% across two runs**, which is noise. Cite that
 range, never a cell, and prefer the unit counts. The STEP's cost is the other number and it is not
 small: the probe is a second crate derivation, so run 33808343712 spent **69s, 74s, 75s and 85s**
-on it, one per job. Feature-off and feature-on both LINKED on all four triples in every run, with
-`file` reporting the right architecture for each - `statically linked` on aarch64-musl,
+on it, one per job, and 33838360913 spent 72s, 72s, 73s and 80s. Feature-off and feature-on both
+LINKED on all four triples in every run, with `file` reporting the right architecture for each -
+`statically linked` on aarch64-musl,
 `static-pie linked` on x86_64-musl, `dynamically linked` on the gnu pair, exactly as the shipped
 builds report on the same triple.
 
@@ -1034,7 +1035,8 @@ reproduced on `aarch64-apple-darwin`, the one triple that host builds natively -
 that is the actual risk has only ever been exercised green**, and CI is the only venue that can
 redden it, because a musl dependency closure is not cached on a developer's machine. And the cost
 of *having* the probe is real even though the cost of the feature is not: **69-85s on each of four
-`cross` jobs**, per pull request, measured in run 33808343712. That is the price of the answer
+`cross` jobs**, per pull request, across runs 33808343712 and 33838360913. That is the price of the
+answer
 rather than the price of the feature.
 
 **One coupling this lane rests on and does not hold.** `ci.yml`'s `cross` matrix spells the four
