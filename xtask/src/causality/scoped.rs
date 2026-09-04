@@ -19,12 +19,23 @@
 //! is the filter that follows, and [`AddedTest::claims`] is the same key applied to a failure the
 //! run reported.
 //!
-//! WHAT THE KEY STILL DOES NOT SEPARATE, which is the honest edge of it. The module prefix comes
-//! from the file's PATH, and in-file `mod` nesting is not parsed - so the pattern allows any
-//! nesting below the file (`(?:.*::)?`), and a name shared between a module and its own
-//! DESCENDANT in one package is not discriminated: a test added in `src/model.rs` also accepts
-//! `model::qualified::tests::<same name>`. Cross-package and cross-sibling collisions - which is
-//! what the tree actually contains - are separated.
+//! WHAT THE KEY STILL DOES NOT SEPARATE, measured rather than guessed. Every one of the 1849
+//! tests `just test` lists satisfies the key derived from its own declaring file - so the
+//! derivation never produces a filter that matches nothing. Separation is the other direction and
+//! is only partial: of 41 duplicated names, 16 are told apart and **25 are not**, and every one of
+//! the 25 is a `macro_rules!` body expanded into several modules of ONE file
+//! (`crates/sutura-app/tests/golden/`, where `mod $name {` is generated four times per dialect).
+//! No prefix read from a path or a declaration can separate those; only running nextest and asking
+//! could, which is the same filter. So the pattern allows any nesting below the file
+//! (`(?:.*::)?`), and a name shared between a module and its own DESCENDANT in one package is not
+//! discriminated either: a test added in `src/model.rs` also accepts
+//! `model::qualified::tests::<same name>`.
+//!
+//! What that residual can and cannot do: a collided failure only manufactures a false green if it
+//! is red on base AND green on head, which means the diff changed ITS behaviour - so the change is
+//! causal and the misattribution is to the wrong test name. The vacuous added test riding along is
+//! the defect, and it is now confined to one file's macro-generated modules rather than the whole
+//! workspace.
 //!
 //! FAIL CLOSED ON AN EMPTY SCAN, and that is what [`Scoped`] is for. A scan naming no test may
 //! not fall back to "no filter", because the unfiltered run IS the defect above. So the
@@ -154,9 +165,7 @@ impl Binary {
                 .strip_prefix(package.as_str())
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with("::")),
             Self::Target(ref package, ref target) => {
-                id.strip_prefix(package.as_str())
-                    .and_then(|rest| rest.strip_prefix("::"))
-                    == Some(target.as_str())
+                id.strip_prefix(package.as_str()).and_then(|rest| rest.strip_prefix("::")) == Some(target.as_str())
             }
         }
     }
@@ -187,6 +196,11 @@ impl Module {
             .collect::<Vec<String>>()
             .join("::");
         Some(Self(joined))
+    }
+
+    /// The module one segment names.
+    fn named(segment: &Ident) -> Self {
+        Self(String::from(segment.as_str()))
     }
 
     /// The prefix a test path under this module begins with: `model::qualified::`, or empty.
@@ -338,25 +352,28 @@ struct Place {
 /// from this file and it has no tests to run. The package is read rather than derived from the
 /// directory name, because the two differ in this workspace: `dev/` is package `sutura-dev`.
 fn place(path: &str, read: &PostImage<'_>) -> Option<Place> {
-    let (package, rest) = owning_package(path, read)?;
+    let (package, dir) = owning_package(path, read)?;
+    let rest = path.get(dir.len()..)?.trim_start_matches('/');
     if let Some(inner) = rest.strip_prefix("tests/") {
-        // A top-level `tests/<stem>.rs` IS a target, so its binary id is exact. Anything deeper
-        // is a submodule of one - reached by a `mod` or a `#[path]` from a file this cannot see -
-        // so neither the target nor the module path is settled by the path.
-        let target = inner
+        // A top-level `tests/<stem>.rs` IS a target, so its binary id is exact.
+        if let Some(target) = inner
             .strip_suffix(".rs")
             .filter(|stem| !stem.contains('/'))
-            .and_then(CargoName::parse);
-        return Some(match target {
-            Some(target) => Place {
+            .and_then(CargoName::parse)
+        {
+            return Some(Place {
                 binary: Binary::Target(package, target),
                 within: Module::default(),
-            },
-            None => Place {
-                binary: Binary::Package(package),
-                within: Module::default(),
-            },
-        });
+            });
+        }
+        // Anything deeper is a submodule of one, and which one under what name is a DECLARATION
+        // rather than a path. Falling back to the package alone is what this tree needed reading:
+        // 25 of its 41 duplicated test names were conflated by that fallback, nearly all of them
+        // in `crates/sutura-app/tests/golden/`.
+        return Some(included_by(&package, dir, inner, read).unwrap_or_else(|| Place {
+            binary: Binary::Package(package),
+            within: Module::default(),
+        }));
     }
     // A crate root and a `src/bin/<name>.rs` are both roots: their module path is empty, and
     // deriving one from the path would produce `bin::<name>`, which no test carries.
@@ -371,27 +388,75 @@ fn place(path: &str, read: &PostImage<'_>) -> Option<Place> {
     })
 }
 
-/// The package owning `path`, and `path` relative to that package's directory.
+/// The target that includes a file deeper under `tests/`, and the module name it arrives as.
+///
+/// cargo compiles only the TOP level of `tests/` as targets, so `tests/golden/dialects.rs` is a
+/// submodule of one - and which one, under what name, is settled by the declaration reaching it
+/// rather than by its path. `tests/golden.rs` carries `#[path = "golden/dialects.rs"] mod
+/// dialects;`, so the binary is `<package>::golden` and the module is `dialects`. Reading the
+/// DECLARATION rather than guessing from the path is the pattern `regions::declared_under_cfg_test`
+/// already uses, and for the same reason: `golden.rs`'s own comment records that a bare
+/// `mod dialects;` there would resolve to `tests/dialects.rs` instead, so the name and the path
+/// are genuinely independent and a guess would be a filter matching nothing.
+///
+/// Only the target named by the FIRST segment is consulted. A file that some OTHER target also
+/// pulls in by `#[path]` is therefore keyed to this one - which NARROWS the filter rather than
+/// widening it, so the failure direction is a loud `RedOutsideTheDiff` and never a false green.
+/// `tests/support/mod.rs`, which two bigquery targets share, has no `tests/support.rs` above it
+/// and so falls back to the package.
+fn included_by(package: &CargoName, dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Place> {
+    let (first, _) = inner.split_once('/')?;
+    let target = CargoName::parse(first)?;
+    let text = read(&in_dir(dir, &format!("tests/{first}.rs")))?;
+    Some(Place {
+        binary: Binary::Target(package.clone(), target),
+        within: Module::named(&declared_at(&text, inner)?),
+    })
+}
+
+/// The module name `text` gives the file at `inner` through a `#[path]` declaration.
+fn declared_at(text: &str, inner: &str) -> Option<Ident> {
+    let attribute = format!("#[path = \"{inner}\"]");
+    let lines: Vec<&str> = text.lines().collect();
+    let at = lines.iter().position(|line| line.trim() == attribute)?;
+    lines
+        .iter()
+        .skip(at + 1)
+        .map(|line| line.trim())
+        .find(|trimmed| !sits_between(trimmed))
+        .and_then(module_name)
+}
+
+/// The name in `mod NAME;`, if this line declares an out-of-line module.
+fn module_name(line: &str) -> Option<Ident> {
+    let declared = line.split_whitespace().skip_while(|word| *word != "mod").nth(1)?;
+    Ident::parse(declared.strip_suffix(';')?)
+}
+
+/// `rel` under `dir`, where an empty `dir` is the repo root.
+fn in_dir(dir: &str, rel: &str) -> String {
+    if dir.is_empty() {
+        String::from(rel)
+    } else {
+        format!("{dir}/{rel}")
+    }
+}
+
+/// The package owning `path`, and that package's directory - empty for one at the repo root.
 ///
 /// The nearest ancestor directory whose `Cargo.toml` declares a `[package]` name, walking up.
 /// `changes::package_name` reads the manifest, because the TOML shape is the part that could rot
 /// and one reader for it is enough; the WALK differs - this one goes through the post-image reader
 /// so the resolution is testable without a checkout.
-fn owning_package(path: &str, read: &PostImage<'_>) -> Option<(CargoName, String)> {
+fn owning_package<'p>(path: &'p str, read: &PostImage<'_>) -> Option<(CargoName, &'p str)> {
     let mut dir = path;
     loop {
         dir = dir.rsplit_once('/').map_or("", |(parent, _)| parent);
-        let manifest = if dir.is_empty() {
-            String::from("Cargo.toml")
-        } else {
-            format!("{dir}/Cargo.toml")
-        };
-        if let Some(text) = read(&manifest)
+        if let Some(text) = read(&in_dir(dir, "Cargo.toml"))
             && let Some(name) = package_name(&text)
             && let Some(package) = CargoName::parse(&name)
         {
-            let rest = path.get(dir.len()..)?.trim_start_matches('/');
-            return Some((package, String::from(rest)));
+            return Some((package, dir));
         }
         if dir.is_empty() {
             return None;
@@ -590,10 +655,7 @@ mod tests {
             "}\n"
         );
         let files = vec![changed("crates/x/src/held.rs", 4, &["    #[test]", "    fn held() {}"])];
-        let read = tree(&[
-            ("crates/x/src/held.rs", held),
-            ("crates/x/Cargo.toml", &manifest("x")),
-        ]);
+        let read = tree(&[("crates/x/src/held.rs", held), ("crates/x/Cargo.toml", &manifest("x"))]);
         assert_eq!(runnable(&files, &[], &read), None);
     }
 
@@ -610,10 +672,7 @@ mod tests {
             &["#[test]", "fn sums() {}"],
         )];
         let read = tree(&[
-            (
-                "crates/sutura-domain/src/model/qualified/tests.rs",
-                "#[test]\nfn sums() {}\n",
-            ),
+            ("crates/sutura-domain/src/model/qualified/tests.rs", "#[test]\nfn sums() {}\n"),
             ("crates/sutura-domain/Cargo.toml", &manifest("sutura-domain")),
         ]);
         assert_eq!(
@@ -639,17 +698,45 @@ mod tests {
     }
 
     #[test]
-    fn a_file_deeper_under_tests_claims_no_target_and_no_module() {
-        // `tests/golden/catalogs.rs` is reached by a `#[path]` attribute from `tests/golden.rs`,
-        // so its path settles neither the binary id nor the module path. The conservative answer
-        // is the package alone - generous, and honest about which half is not known.
+    fn a_file_deeper_under_tests_is_keyed_by_the_declaration_that_reaches_it() {
+        // cargo compiles only the top level of `tests/`, so `tests/golden/catalogs.rs` is a
+        // submodule of the `golden` target - and the name it arrives under is a `#[path]`
+        // declaration rather than its path. `golden.rs` records why they differ: a bare
+        // `mod catalogs;` there would resolve to `tests/catalogs.rs` instead.
+        //
+        // Worth more than tidiness: the two tier-backed cells that produced #278's false green
+        // are `sutura-app::differential`, and the golden suite is `sutura-app::golden`. Keyed by
+        // the package alone, a `differential` failure could be read as a golden test's evidence.
+        let target = concat!(
+            "#[cfg(test)]\n",                     // 1
+            "#[path = \"golden/catalogs.rs\"]\n", // 2
+            "mod catalogs;\n",                    // 3
+        );
         let files = vec![changed("crates/x/tests/golden/catalogs.rs", 1, &["#[test]", "fn sums() {}"])];
         let read = tree(&[
             ("crates/x/tests/golden/catalogs.rs", "#[test]\nfn sums() {}\n"),
+            ("crates/x/tests/golden.rs", target),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
         assert_eq!(
             filterset(&files, &["crates/x/tests/golden/catalogs.rs"], &read),
+            "(binary_id(=x::golden) & test(/^catalogs::(?:.*::)?sums(?:::|$)/))"
+        );
+    }
+
+    #[test]
+    fn a_shared_helper_no_target_declares_falls_back_to_the_package() {
+        // `tests/support/mod.rs` is pulled in by two bigquery targets and has no `tests/support.rs`
+        // above it, so the declaration that would name a binary is not there. The package alone is
+        // the honest answer; claiming one of the two targets would be a filter matching nothing
+        // half the time.
+        let files = vec![changed("crates/x/tests/support/mod.rs", 1, &["#[test]", "fn sums() {}"])];
+        let read = tree(&[
+            ("crates/x/tests/support/mod.rs", "#[test]\nfn sums() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        assert_eq!(
+            filterset(&files, &["crates/x/tests/support/mod.rs"], &read),
             "(package(=x) & test(/^(?:.*::)?sums(?:::|$)/))"
         );
     }
@@ -691,7 +778,10 @@ mod tests {
         // would put a name nextest does not know into the filter.
         let files = vec![changed("stray/a.rs", 1, &["#[test]", "fn sums() {}"])];
         let read = tree(&[("stray/a.rs", "#[test]\nfn sums() {}\n")]);
-        assert!(matches!(Scan::of(&files, &[String::from("stray/a.rs")], &read), Scan::Unnamed));
+        assert!(matches!(
+            Scan::of(&files, &[String::from("stray/a.rs")], &read),
+            Scan::Unnamed
+        ));
     }
 
     #[test]
@@ -721,14 +811,14 @@ mod tests {
         // This tree has 23 ignored tests. `#[ignore]` is legal on either side of `#[test]`, so
         // both orders are dropped, and the runnable neighbour is still proven.
         let file = concat!(
-            "#[test]\n",                       // 1
-            "#[ignore = \"needs a tier\"]\n",  // 2
-            "fn below() {}\n",                 // 3
-            "#[ignore]\n",                     // 4
-            "#[test]\n",                       // 5
-            "fn above() {}\n",                 // 6
-            "#[test]\n",                       // 7
-            "fn runs() {}\n",                  // 8
+            "#[test]\n",                      // 1
+            "#[ignore = \"needs a tier\"]\n", // 2
+            "fn below() {}\n",                // 3
+            "#[ignore]\n",                    // 4
+            "#[test]\n",                      // 5
+            "fn above() {}\n",                // 6
+            "#[test]\n",                      // 7
+            "fn runs() {}\n",                 // 8
         );
         let files = vec![changed(
             "crates/x/tests/t.rs",
@@ -744,10 +834,7 @@ mod tests {
                 "fn runs() {}",
             ],
         )];
-        let read = tree(&[
-            ("crates/x/tests/t.rs", file),
-            ("crates/x/Cargo.toml", &manifest("x")),
-        ]);
+        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
         assert_eq!(
             runnable(&files, &["crates/x/tests/t.rs"], &read),
             Some(vec![String::from("runs")])
@@ -765,10 +852,7 @@ mod tests {
             1,
             &["#[test]", "#[ignore]", "fn acceptance() {}"],
         )];
-        let read = tree(&[
-            ("crates/x/tests/t.rs", file),
-            ("crates/x/Cargo.toml", &manifest("x")),
-        ]);
+        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
         match Scan::of(&files, &[String::from("crates/x/tests/t.rs")], &read) {
             Scan::OnlyIgnored(ref names) => {
                 assert_eq!(names.iter().map(Ident::as_str).collect::<Vec<&str>>(), vec!["acceptance"]);
@@ -806,10 +890,7 @@ mod tests {
             "fn elsewhere() {}\n"
         );
         let files = vec![changed("crates/x/src/a.rs", 3, &["    #[test]"])];
-        let read = tree(&[
-            ("crates/x/src/a.rs", file),
-            ("crates/x/Cargo.toml", &manifest("x")),
-        ]);
+        let read = tree(&[("crates/x/src/a.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
         assert_eq!(runnable(&files, &["crates/x/src/a.rs"], &read), None);
     }
 

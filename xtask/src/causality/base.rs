@@ -431,7 +431,11 @@ mod tests {
         // `rstest` names a case one segment BELOW the function, so a comparison on the last
         // segment alone would call every case an unrelated failure.
         let text = "        FAIL [   0.010s] (1/4) sutura-app::golden tests::renders::case_2\nerror: test run failed\n";
-        match classify_base(text, false, &scoped("sutura-app", "crates/sutura-app/tests/golden.rs", &["renders"])) {
+        match classify_base(
+            text,
+            false,
+            &scoped("sutura-app", "crates/sutura-app/tests/golden.rs", &["renders"]),
+        ) {
             BaseOutcome::RedByAssertion { .. } => {}
             other => panic!("a case is its function's failure, got {other:?}"),
         }
@@ -441,7 +445,8 @@ mod tests {
     fn a_test_whose_name_merely_contains_a_scoped_one_is_outside_the_diff() {
         // The segment comparison is exact. A substring one would read `sums_by_month` as the
         // added `sums`, which is the generous direction that produced the false green.
-        let text = "        FAIL [   0.313s] (1/9) sutura-app::differential tests::postgres::sums_by_month\nerror: test run failed\n";
+        let text =
+            "        FAIL [   0.313s] (1/9) sutura-app::differential tests::postgres::sums_by_month\nerror: test run failed\n";
         match classify_base(
             text,
             false,

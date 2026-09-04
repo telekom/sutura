@@ -77,11 +77,13 @@ mod fixtures;
 // it would be a second thing to keep in step. Nothing else about the module moved.
 pub(crate) mod regions;
 mod scoped;
+mod worktree;
 
 use base::{BaseOutcome, classify_base, names_no_tests, report_base, tail};
 use diff::{ChangedFile, changed_with_additions};
 use regions::{PostImage, has_non_test_additions, scope};
 use scoped::{Ident, Scan, Scoped, adds_test};
+use worktree::{BaseState, add_worktree, apply, base_state, remove_worktree};
 
 /// What the gate concluded, so the shape is testable without git or cargo.
 #[derive(Debug, PartialEq, Eq)]
@@ -111,9 +113,6 @@ fn is_rust(path: &str) -> bool {
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
 }
-
-/// Changed files split by whether they exist at the base commit.
-type Partitioned<'a> = (Vec<&'a String>, Vec<&'a String>);
 
 /// Split changed Rust files into "added tests" and "changed implementation only".
 ///
@@ -280,63 +279,6 @@ fn nextest(dir: &Path, target: &Path, only: &str, tree: Tree) -> Command {
     command
 }
 
-/// Does `path` exist at `base`?
-///
-/// "Revert to base" means two different things depending on the answer. For a file that
-/// existed, it means check out the old content. For a file this branch ADDED, it means the file
-/// is not there - and `git checkout base -- <new file>` fails with "did not match any file(s)
-/// known to git", which is how this gate first broke in CI.
-fn base_has(root: &Path, base: &str, path: &str) -> bool {
-    let mut command = Command::new("git");
-    strip_git_env_for(&mut command);
-    command
-        .current_dir(root)
-        .arg("cat-file")
-        .arg("-e")
-        .arg(format!("{base}:{path}"))
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
-/// Git env vars that would point a subprocess at another repository.
-///
-/// The list moved to `repo` when a second gate needed it. This stays as the name the call sites
-/// here already read by, and as the one place that would have to change if they diverged.
-fn strip_git_env_for(command: &mut Command) {
-    crate::repo::strip_git_env(command);
-}
-
-/// Set up a detached worktree at HEAD under the given path.
-fn add_worktree(root: &Path, dir: &Path) -> Result<(), String> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(["worktree", "add", "--detach", "--quiet"])
-        .arg(dir)
-        .arg("HEAD")
-        .output()
-        .map_err(|e| format!("git worktree add failed to start: {e}"))?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).into_owned())
-    }
-}
-
-/// Best-effort teardown. A leftover worktree is noise, not a correctness problem, so a
-/// failure here is reported and does not change the gate's verdict.
-fn remove_worktree(root: &Path, dir: &Path) {
-    let outcome = Command::new("git")
-        .current_dir(root)
-        .args(["worktree", "remove", "--force"])
-        .arg(dir)
-        .output();
-    if let Err(e) = outcome {
-        eprintln!("xtask test-causality: could not remove the worktree: {e}");
-    }
-}
-
 /// The `--since <ref>` argument, or `None` when it was not supplied correctly.
 fn base_ref(args: &[String]) -> Option<String> {
     let (flag, rest) = args.split_first()?;
@@ -421,31 +363,6 @@ fn report_head_failure(output: &str, only: &str) -> Verdict {
     }
     eprintln!("{}", tail(output, 30));
     Verdict::Fail
-}
-
-/// The base state to put a worktree into: files to check out at `base`, files to delete.
-///
-/// Two of these exist per proof. The first is the implementation change; the second is the files
-/// held back for carrying their own tests, applied only if the first tree does not build.
-struct BaseState<'a> {
-    restore: Vec<&'a String>,
-    remove: Vec<&'a String>,
-}
-
-impl BaseState<'_> {
-    /// Nothing to apply, so there is no second attempt to make.
-    const fn is_empty(&self) -> bool {
-        self.restore.is_empty() && self.remove.is_empty()
-    }
-}
-
-/// Split files into "existed at base, so check it out" and "added here, so delete it".
-///
-/// "Revert to base" means two different things depending on the answer, and getting it wrong is
-/// how this gate first broke in CI - see [`base_has`].
-fn base_state<'a>(root: &Path, base: &str, files: &'a [String]) -> BaseState<'a> {
-    let (restore, remove): Partitioned<'a> = files.iter().partition(|f| base_has(root, base, f));
-    BaseState { restore, remove }
 }
 
 /// Reconstruct the baseline in a worktree and require the changed tests to fail there.
@@ -572,41 +489,6 @@ const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bo
     matches!(outcome, BaseOutcome::DidNotCompile) && !held.is_empty()
 }
 
-/// Check out the base version of the files that had one, and delete the ones this branch added.
-fn apply(wt: &Path, base: &str, state: &BaseState<'_>) -> Result<(), String> {
-    if !state.restore.is_empty() {
-        let mut checkout = Command::new("git");
-        strip_git_env_for(&mut checkout);
-        checkout.current_dir(wt).args(["checkout", base, "--"]);
-        for f in &state.restore {
-            checkout.arg(f);
-        }
-        match checkout.output() {
-            Ok(o) if o.status.success() => {}
-            Ok(o) => {
-                return Err(format!(
-                    "could not restore base files: {}",
-                    String::from_utf8_lossy(&o.stderr).trim()
-                ));
-            }
-            Err(e) => return Err(format!("could not run git checkout: {e}")),
-        }
-    }
-    for f in &state.remove {
-        match std::fs::remove_file(wt.join(f)) {
-            Ok(()) => {}
-            // ALREADY ABSENT is the state being asked for, not a failure. The worktree is created
-            // at HEAD, and a file this branch has not COMMITTED is in no commit - an
-            // intent-to-add file is in the index only - so `remove` legitimately names files the
-            // worktree never had. Treating that as an error failed the whole gate on any tree
-            // holding a new file, which is every tree mid-change.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("could not remove {f}: {e}")),
-        }
-    }
-    Ok(())
-}
-
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
 pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(base) = base_ref(args) else {
@@ -665,7 +547,7 @@ mod tests {
     use super::base::BaseOutcome;
     use super::fixtures::{changed, tree};
     use super::scoped::{Scan, Scoped};
-    use super::{BaseState, Plan, Tree, apply, nextest, plan, retry_with_held_back};
+    use super::{BaseState, Plan, Tree, nextest, plan, retry_with_held_back};
 
     #[test]
     fn no_changed_tests_means_nothing_to_prove() {
@@ -913,26 +795,6 @@ mod tests {
         assert!(!retry_with_held_back(&BaseOutcome::Green, &held));
     }
 
-    #[test]
-    fn removing_a_file_the_worktree_never_had_is_not_a_failure() {
-        // A file this branch has not COMMITTED is in no commit, so the worktree - created at HEAD -
-        // never carried it, while `remove` names exactly the files absent at base. An intent-to-add
-        // file is the everyday case, and this used to fail the whole gate rather than prove
-        // anything: "could not remove xtask/src/guidance/claims.rs: No such file or directory".
-        let wt = std::env::temp_dir().join(format!("sutura-causality-{}", std::process::id()));
-        let _cleanup = std::fs::remove_dir_all(&wt);
-        std::fs::create_dir_all(&wt).expect("a scratch worktree");
-        let absent = String::from("xtask/src/guidance/claims.rs");
-        let state = BaseState {
-            restore: Vec::new(),
-            remove: vec![&absent],
-        };
-
-        let applied = apply(&wt, "HEAD", &state);
-
-        let _swept = std::fs::remove_dir_all(&wt);
-        assert!(applied.is_ok(), "an absent file is the state asked for, got {applied:?}");
-    }
     /// The tests one added file declares, for the two wiring assertions below.
     fn one_added_test() -> Scoped {
         let files = vec![changed("crates/x/tests/t.rs", 1, &["#[test]", "fn the_added_one() {}"])];
