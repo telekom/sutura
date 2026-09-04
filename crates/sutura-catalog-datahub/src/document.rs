@@ -292,20 +292,30 @@ impl MetricAspect {
     }
 }
 
-/// `DataHub`'s view of the deployment-defined metric content: ONE structured property named
-/// `sutura`, whose single scalar value is the JSON document below.
+/// `DataHub`'s view of the deployment-defined metric content: ONE structured property, whose single
+/// scalar value is the JSON document below.
 ///
 /// **This is what makes the scalar-only constraint literal rather than prose.** `DataHub`'s
 /// `structuredProperty` has no nested or record value type, so a deployment cannot define a nested
-/// object under `sutura` at all; what it can define is one string-valued property, and
-/// [`Self::assemble`] is the step that turns that scalar into the nested [`SuturaContent`] - the
-/// issue #202 mechanism, implemented here and exercised by a fixture recorded in this flat form
-/// rather than left to a sentence. The scalar payload is still bounded by the value-type limits a
-/// deployment's `DataHub` enforces; this crate adds none of its own.
+/// object at all; what it can define is one string-valued property, and [`Self::assemble`] is the
+/// step that turns that scalar into the nested [`SuturaContent`] - the issue #202 mechanism,
+/// implemented here and exercised by a fixture recorded in this flat form rather than left to a
+/// sentence.
+///
+/// **The property's NAME is the deployment's and does not appear here.** `sutura` is the field
+/// [`MetricAspect`] carries this under on the adapter's own canonical shape; which structured
+/// property a reader maps onto it is `docs/adr/0016` decision 7's *not ours to say*, and
+/// `tests/provisioned.rs` registers one whose name shares nothing with this field precisely so the
+/// independence is measured.
+///
+/// The scalar payload is bounded by the value-type limits a deployment's `DataHub` enforces - the
+/// platform names its own as `structuredProperties.keywordMaxLength`, because the value is indexed
+/// as an Elasticsearch keyword, so it is an index setting a deployment raises. This crate adds no
+/// bound of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SuturaProperty {
-    /// The scalar value of the `sutura` structured property: the metric content as JSON text.
+    /// The scalar value of the deployment's structured property: the metric content as JSON text.
     string_value: String,
 }
 

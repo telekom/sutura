@@ -1,17 +1,22 @@
 //! The recorded fixture corpus and the fake reader that serves it.
 //!
 //! This is the only [`AspectReader`] implementor today, and it is the **fake** the port is tested
-//! against - recorded aspect documents, not mocked HTTP. `docs/adr/0016`'s transport note leaves the
-//! read path's cost open until a provisioned instance exists; until then this is what a
+//! against - recorded aspect documents, not mocked HTTP. Until a real reader exists this is what a
 //! [`crate::DataHubCatalog`] reads. The corpus is a bundle of models, one relationship and **one
-//! certified metric** - the metric is `revenue`, and it carries the deployment-defined `sutura`
-//! structured property that the adapter decodes into a domain `Metric`, which is the issue #202
-//! claim: `DataHub` provides metrics for a metric that carries the custom shape. The raw expression
-//! string beside it stays the promotion-candidate half and is never converted.
+//! certified metric** - the metric is `revenue`, and it carries the deployment-defined structured
+//! property that the adapter decodes into a domain `Metric`, which is the issue #202 claim:
+//! `DataHub` provides metrics for a metric that carries the custom shape. The raw expression string
+//! beside it stays the promotion-candidate half and is never converted.
+//!
+//! **The corpus is not only recorded, it is CONFIRMED against the platform.**
+//! `tests/provisioned.rs` writes this metric's scalar into a provisioned `DataHub`, reads the aspect
+//! back, and asserts the decoded [`crate::document::MetricAspect`] equals the one recorded here - so
+//! the fixture is faithful to the platform rather than only to itself.
 //!
 //! **The metric content is recorded in the FLAT form, and that is the point of keeping it as text.**
 //! `DataHub`'s `structuredProperty` is scalar-only, so a deployment defines metric content as one
-//! string-valued property named `sutura`; the corpus records exactly that - `"sutura": {
+//! string-valued property, under a name of its own; the corpus records the shape a reader hands over
+//! once it has mapped that property - `"sutura": {
 //! "string_value": "..." }` with the closed-vocabulary document as the scalar's text - and the read
 //! path exercises `document::SuturaProperty::assemble`, the scalar-to-nested step issue #202 is
 //! about, on every load. The documents are decoded through `serde_json` at read time, so the same

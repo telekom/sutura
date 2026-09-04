@@ -11,7 +11,9 @@
 //!
 //! **Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.**
 //! `DataHub`'s `structuredProperty` is scalar-only, so a deployment cannot define a nested metric
-//! object; what it CAN define is one string-valued structured property named `sutura`, and the
+//! object; what it CAN define is one string-valued structured property - under a name of its own,
+//! `sutura` being the field this adapter's canonical shape carries it under rather than a urn this
+//! crate dictates - and the
 //! reader decodes its scalar value into the closed-vocabulary content a certified metric needs -
 //! the flat-to-nested assembly `document::SuturaProperty::assemble` implements and the recorded
 //! fixture is kept in. Where that shape is present, this adapter reads it into a certified
@@ -27,15 +29,20 @@
 //! tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
 //! HTTP. What it does not contain is an HTTP client: [`AspectReader`] is the seam a real reader over
 //! `DataHub`'s versioned `OpenAPI` v3 entity surface will implement (with a personal access token as a
-//! bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
-//! opening engineering question `docs/adr/0016` leaves open, to be measured against a provisioned
-//! instance the way `sutura-exec-bigquery`'s acceptance leg was. Until that lands, the only
-//! implementor of the port is the recorded fixture source in [`fixture`]. **And nothing serves it:**
-//! no composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency),
-//! and `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and
-//! tested; what is not is the read path against a provisioned instance and a served composition -
-//! the *Built and not wired* register in `.agents/skills/sutura/query-surface/SKILL.md` records
-//! it, and that register is the one place it may be read from - it is not an invariant.
+//! bearer). Until that lands, the only implementor of the port is the recorded fixture source in
+//! [`fixture`], so no code here shapes a request or maps a response. **And nothing serves it:** no
+//! composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency), and
+//! `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and tested;
+//! what is not is the reader itself and a served composition - the *Built and not wired* register in
+//! `.agents/skills/sutura/query-surface/SKILL.md` records it, and that register is the one place it
+//! may be read from - it is not an invariant.
+//!
+//! **What that register no longer says is that the cost is unmeasured.** `docs/adr/0016`'s
+//! *Revision, 2026-09-04* has the numbers, off a provisioned instance: a bundle's metric half is ONE
+//! paged request carrying `structuredProperties` and `metricInfo` inline, not a request per metric -
+//! **and that surface is search-backed, so it is not read-your-writes.** A reader written against it
+//! pages an eventually-consistent view; the by-urn form is the immediate one. The limit belongs
+//! beside the cost rather than after it.
 //!
 //! # The declaration, and what it means for the bundle
 //!
@@ -100,8 +107,8 @@ type Content = (Definitions, Knowledge);
 /// **The fake seam.** Everything above this trait is decided and tested against recorded documents;
 /// a real implementor speaks to `DataHub`'s versioned `OpenAPI` v3 entity surface, decodes into
 /// [`document::Snapshot`], and maps its own failures into [`DataHubError::Read`]. The only
-/// implementor today is the recorded source in [`fixture`], which is why the read path's cost is not
-/// measured here - see the crate header.
+/// implementor today is the recorded source in [`fixture`]. The RESPONSE SHAPE that implementor has
+/// to map, and the surface's consistency, are measured rather than guessed - see the crate header.
 ///
 /// A port rather than a method on [`DataHubCatalog`] for the same reason the warehouse port exists:
 /// a catalog that could be swapped for a live source without the conversion changing is the point.

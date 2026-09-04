@@ -1032,7 +1032,8 @@ table above is the one owner of a row's status; this note says which sentences i
 tree no longer agrees with, and each correction is written where the code is rather than only here:
 
 1. **The measure is a CONDITIONAL provide, not a declared absence.** A deployment defines one
-   string-valued structured property named `sutura` whose scalar is a closed-vocabulary document,
+   string-valued structured property - under a name of its own; `sutura` is the field on this
+   adapter's canonical shape, not a urn - whose scalar is a closed-vocabulary document,
    and `sutura-catalog-datahub` reads a whole certified metric out of it - measure, time column,
    grains, definitional filters, dimensions with their allowlists, an anchor and prose - so
    `Metrics`, `Grains`, `RequiredFilters`, `AllowedValues`, `Anchors` and `Cardinality` are
@@ -1051,11 +1052,19 @@ tree no longer agrees with, and each correction is written where the code is rat
    `an_unknown_key_at_the_sutura_level_is_refused_and_named`,
    `a_relationship_alone_licenses_no_dimension` and
    `content_for_a_kind_it_did_not_declare_fails_the_load`, over a fake reader on recorded documents.
-4. **The read path is still unbuilt, so this step's first engineering question is still
-   unmeasured.** The only `AspectReader` is the recorded fixture; `just datahub-acceptance` measures
-   that a provisioned instance serves the surface a reader would call and reads no aspect through
-   it, so nothing here has written or read the property through DataHub and no request count has
-   been measured.
+4. **The read path is still unbuilt; this step's first engineering question is no longer
+   unmeasured.** The only `AspectReader` is still the recorded fixture, so no library code shapes a
+   request or maps a response. What `just datahub-acceptance` now measures against the provisioned
+   instance is the platform's half: a deployment can define the property under a name of its own, the
+   corpus's own document is accepted as its scalar and the served aspect decodes into the same
+   `document::MetricAspect` the fixture carries, through to the closed-vocabulary `Measure`. The cost
+   is ONE paged request per entity type, carrying `structuredProperties` and `metricInfo` inline -
+   **and that surface is search-backed, so it is not read-your-writes**: it lagged a synchronous
+   write by ~2.2 s where the by-urn read answered at once. The scalar's ceiling is the platform's
+   `keywordMaxLength`, and `SINGLE` cardinality and the declared value type are refused server-side.
+   `a_document_served_by_a_real_datahub_decodes_into_a_certified_metric` is where each of those is
+   asserted; what remains owed is the reader itself, the structural half of a live snapshot, and the
+   bearer half, which the tier leaves off.
 
 **Goal.** A `SemanticCatalog` over DataHub that gives a deployment value from the model it already
 has, and names every gap rather than leaving it to silence.
