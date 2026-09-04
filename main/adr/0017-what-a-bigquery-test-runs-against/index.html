@@ -3788,6 +3788,263 @@ they never compile <code>sutura-serve</code> itself"</em> and <em>"<code>sutura-
 both spent by telekom/sutura#111, which publishes both binaries. And <em>"the image holds <code>sutura-cli</code>,
 which links the engine only"</em> needs the qualifier <em>as published</em>: the crate can now link a second
 adapter, and the artefact still does not.</p>
+<h2 id="amendment-2026-09-03-the-build-nothing-asked-for-has-been-run-and-it-went-the-other-way">Amendment, 2026-09-03: the build nothing asked for has been run, and it went the other way<a class="headerlink" href="#amendment-2026-09-03-the-build-nothing-asked-for-has-been-run-and-it-went-the-other-way" title="Permanent link">&para;</a></h2>
+<p><strong>The sentence this amendment exists to correct</strong> is in <em>The measurement this record's own rule asks
+for, taken 2026-09-02</em>, above: <em>"What would price the alternative - the feature ON for four triples -
+is a build nothing asks for, so it has not been run."</em> It is now false, and it was falsified by
+telekom/sutura#121's own step 2 rather than by anything external. <code>nix/shipped.nix</code> grew a
+<code>probeFeatures</code> field; a feature named there gets a <code>&lt;bin&gt;-&lt;feature&gt;-&lt;triple&gt;-ci</code> package per
+release triple, and the four <code>cross</code> jobs build them beside the shipped set on every pull request.
+The record's build-cost reasoning above it is corrected here rather than in place, per this page's
+own convention.</p>
+<p><strong>First, that the A/B is an A/B, and it was re-taken on the triple that is the risk.</strong> The probe
+derivation and the shipped <code>-ci</code> derivation for <code>aarch64-unknown-linux-musl</code> were dumped and
+diffed. Their input sets are IDENTICAL - 23 input derivations and 4 input sources on both sides,
+including the same <code>sutura-deps-aarch64-unknown-linux-musl</code>, so the dependency derivation is shared
+rather than rebuilt - and exactly three environment keys differ: the cargo build command, which
+gains a trailing <code>--features bigquery</code>; the disabled check command, which gains the same; and the
+output path. The job logs confirm the shared half from the other end by never building a second
+<code>sutura-deps-&lt;triple&gt;</code>. Nothing else varies between the two columns below.</p>
+<p><strong>The cost, as COMPILED UNITS.</strong> Seconds drift with whatever else a runner is doing; a unit count
+does not. Counted off the <code>Compiling</code> lines of the CRATE derivation's own log and not the job's -
+<code>sutura-deps-&lt;triple&gt;</code> is the shared dependency build and is excluded, which is the whole reason
+units beat seconds here - for all four published triples of CI runs 33808343712, 33838360913 and
+33843494162, feature off and then on, the same in all three:</p>
+<table>
+<thead>
+<tr>
+<th>triple</th>
+<th>OFF</th>
+<th>ON</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x86_64-unknown-linux-gnu</code></td>
+<td>100</td>
+<td>112</td>
+</tr>
+<tr>
+<td><code>aarch64-unknown-linux-gnu</code></td>
+<td>100</td>
+<td>112</td>
+</tr>
+<tr>
+<td><code>x86_64-unknown-linux-musl</code></td>
+<td>100</td>
+<td>112</td>
+</tr>
+<tr>
+<td><code>aarch64-unknown-linux-musl</code></td>
+<td>100</td>
+<td>112</td>
+</tr>
+</tbody>
+</table>
+<p>Re-taken on 33843494162 with the same answer in all four cells, which is the point of counting
+units: the seconds moved by 20% across those three runs and this table did not move at all.</p>
+<p><strong>+12 units on every one of the four, none dropped, and the same twelve crates every time:</strong>
+<code>ring</code>, <code>untrusted</code>, <code>rustls</code>, <code>rustls-pki-types</code>, <code>rustls-webpki</code>, <code>webpki-roots</code>, <code>ureq</code>,
+<code>ureq-proto</code>, <code>httparse</code>, <code>getrandom 0.2</code>, <code>utf8-zero</code>, <code>sutura-exec-bigquery</code>. That is the adapter
+plus the outbound TLS closure and nothing besides. The unanimity is the useful part: a per-triple
+figure would leave open which triple the closure is dearer on, and none of them is.</p>
+<p><strong>The seconds, for whoever wants them, and they are two different numbers.</strong> The FEATURE's delta:
+runs 33781193001 and 33792642655 gave <code>+0.5 / -0.1 / +1.2 / +1.3s</code> and <code>+0.4 / -0.3 / +1.3 / +0.9s</code>
+over crate derivations of 69-84s - so <strong>-0.4% to +1.7% across two runs</strong>, which is noise. Cite that
+range, never a cell, and prefer the unit counts. The STEP's cost is the other number and it is not
+small: the probe is a second crate derivation, and three runs of it read <strong>62-85s</strong> per job:
+33808343712 gave 69/74/75/85s, 33838360913 gave 72/72/73/80s, 33843494162 gave 62/71/73/73s.
+<strong>That third run is why the range is cited and not a cell</strong> - it put a value BELOW the low end this
+record had stated twice, which is what a wall clock on a shared runner does. Feature-off and
+feature-on both LINKED on all four triples in every run, with <code>file</code> reporting the right
+architecture for each - <code>statically linked</code> on aarch64-musl,
+<code>static-pie linked</code> on x86_64-musl, <code>dynamically linked</code> on the gnu pair, exactly as the shipped
+builds report on the same triple.</p>
+<p><strong>Was default-off necessary? For build cost, no. And the first version of this amendment got the
+REASON wrong, which is worth recording because the wrong reason was the plausible one.</strong> It said the
+closure was already in the deps derivation with the feature off, so the probe could not have cost
+much. Half of that is right and half of it is not:</p>
+<ul>
+<li><strong>Right:</strong> <code>craneLib.buildDepsOnly</code> is called on the unscoped argument set, deliberately, so the
+  checks share one dependency derivation; <code>cargoExtraArgs</code> is set on the final attrset instead. That
+  derivation therefore resolves the WHOLE workspace at cargo's default features - so <code>ring</code>,
+  <code>rustls</code> and <code>ureq</code> are compiled inside <code>sutura-deps-&lt;triple&gt;</code> on all four triples <strong>with the
+  feature off</strong>, visible in all four job logs. The musl C-and-assembly cost this record priced on
+  2026-09-02 is paid on every pull request either way.</li>
+<li><strong>Wrong about WHY, and this is the correction of the correction.</strong> The sentence above used to end
+  <em>"and <code>sutura-exec-bigquery</code> is a workspace member taking <code>ureq</code> non-optionally"</em>. It does not:
+  <code>crates/sutura-exec-bigquery/Cargo.toml</code> declares <code>ureq = { workspace = true, optional = true }</code>
+  behind its <code>wire</code> feature, so at the default set that crate contributes nothing. The observation
+  was right and the mechanism was invented, which is the harder half of this defect class to
+  notice - a green measurement makes a plausible explanation feel checked. Measured 2026-09-04:</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>$ cargo tree --workspace --target aarch64-unknown-linux-musl -i ureq -e normal,dev
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>ureq v3.4.0
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>[dev-dependencies]
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>`-- sutura-catalog-datahub          &lt;- non-optional, for its provisioned-instance probe
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>$ cargo tree --workspace -i ureq -e normal,build
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>ureq v3.4.0
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>[build-dependencies]
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>`-- libduckdb-sys -&gt; duckdb -&gt; sutura-exec-duckdb    &lt;- host side only
+</span></code></pre></div>
+<p>So for a musl target the ONE edge into <code>ureq</code> at the default set is a <strong>dev-dependency</strong> of the
+  DataHub catalog crate, and <code>buildDepsOnly</code> builds dev-dependencies - which is what puts the
+  closure in the shared derivation. <code>libduckdb-sys</code> accounts for the host-side copy, and is why the
+  gnu host job's log shows <code>ring</code> compiled twice. <strong>What that changes for the decision:</strong> nothing,
+  and it is worth knowing anyway, because the cost is paid by a dependency that has nothing to do
+  with this adapter. Drop that dev-dependency and the musl build-cost argument comes back.
+- <strong>Wrong:</strong> that those units are then REUSED. They are not. The deps build compiles at the
+  workspace feature union while the probe asks for one package, so the v2 resolver hands it a
+  narrower feature set, a different <code>-C metadata</code>, and a recompile - <code>sutura&gt; Compiling ring
+  v0.17.14</code>, in the probe's own derivation, is that recompile. This is the same structural effect
+  telekom/sutura#223 measured from the other side for the warm-start gate.
+- <strong>So why is it nearly free?</strong> Slack. The twelve units start in the first seconds and finish long
+  before <code>datafusion</code>, which sits on the critical path ahead of <code>sutura-exec-datafusion</code> and the
+  crate itself. <strong>That is a property of this dependency graph, not of the feature</strong> - a shorter
+  critical path would expose the same twelve units as wall clock.</p>
+<p><strong>What default-off IS still necessary for, unchanged and now the whole of the argument:</strong> no
+published artefact links an outbound TLS stack, which <code>checks.shipped-features</code> asserts out of each
+binary's own embedded dependency list rather than out of a manifest. The decision of step 3 stands;
+what does not stand is <em>the four cross builds</em> as its reason. <strong>Keep the decision, drop the
+build-cost justification for it</strong> - an argument that a measurement contradicts is worth less than no
+argument, because it invites the next reader to trust the rest of the paragraph.</p>
+<p><strong>Verifying the lane found a dead gate IN the lane, and that is the part with the longest shelf
+life.</strong> The first version of the workflow step RECONSTRUCTED which probes to build: it filtered the
+flake's attribute names for <code>-&lt;triple&gt;-ci</code>, subtracted the shipped binaries' names, and split what
+remained to recover the executable and the feature. So <code>nix/shipped.nix</code>'s package-naming rule was a
+coupling nothing could check. Measured 2026-09-03 by reordering that name from
+<code>&lt;bin&gt;-&lt;feature&gt;-&lt;triple&gt;</code> to <code>&lt;bin&gt;-&lt;triple&gt;-&lt;feature&gt;</code>, <code>probeFeatures</code> untouched: the
+reconstruction went <strong>empty</strong>, the step printed <em>"no binary declares a probeFeatures entry, so no
+feature-on build was measured"</em> - which was false, one was declared - and <strong>exited zero</strong>. This
+amendment's whole claim would have reverted to <em>assumed</em> behind a green run and a reassuring
+sentence, which is the failure mode this repository cares about most.</p>
+<p>The step reads a manifest now: <code>nix build .#feature-probes-&lt;triple&gt;</code> yields a file whose rows carry
+the package, the executable and the feature, so nothing in the shell derives anything. Three
+directions were then reproduced by hand rather than argued:</p>
+<table>
+<thead>
+<tr>
+<th>Break</th>
+<th>Before</th>
+<th>Now</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Probe package renamed, <code>probeFeatures</code> intact</td>
+<td>empty set, false notice, exit 0</td>
+<td>probe still found and built, printed sentence still correct</td>
+</tr>
+<tr>
+<td><code>probeFeatures = [ ]</code></td>
+<td>notice, exit 0</td>
+<td><code>::error::</code> naming this record, <strong>exit 1</strong></td>
+</tr>
+<tr>
+<td>Manifest attribute gone from the flake</td>
+<td>not expressible</td>
+<td><code>nix build</code> fails, <strong>exit 1</strong></td>
+</tr>
+</tbody>
+</table>
+<p><code>file</code> cannot carry any of this and is a readout rather than an assertion: it exits <strong>zero</strong> on a
+path that does not exist, measured. What asserts the link is <code>nix build</code> succeeding.</p>
+<p><strong>And the same verification caught the step's own printed SENTENCE overstating, which is the
+smaller half of the same defect.</strong> It printed its elapsed seconds as <em>"That is the price of the
+feature ON"</em> - and did so in CI, four times a pull request: <code>85s</code>, <code>69s</code>, <code>75s</code>, <code>74s</code> in run
+33808343712. Those seconds are the whole probe. The feature is the +12 units above, worth under 2%,
+and a wall clock in that step cannot separate the two, so the number was off by roughly the width
+of the thing it claimed to measure. Corrected to say which number it is and where the other lives.</p>
+<p><strong>And it is corrected in prose rather than held, which is the part worth writing down.</strong>
+<code>check-guidance</code> DOES read <code>.github/**</code> - its file scope is <code>md</code>, <code>nix</code>, <code>yml</code>, <code>yaml</code>, <code>toml</code> and
+<code>sh</code> - so this sentence was reachable by the one gate in the repository that fails a false claim,
+and nothing had registered it. Registering it now is about 15 lines more than
+<code>xtask/src/guidance/claims.rs</code> has: <code>wc -l</code> says 985 on 2026-09-04 against <code>cargo xtask max-lines</code>'
+unexemptable 1000, and the split that makes room is in flight on another branch. So the correction
+is held by REVIEW until that lands, and the
+general lesson is the one the remedy scan already taught from the other side - ask what reads a
+mechanism's own prose, and expect the answer to be nothing until somebody has registered it.</p>
+<p><strong>And the lane fails closed on the defect it exists to catch, reproduced rather than assumed, and
+re-reproduced on the merged tree on 2026-09-04.</strong> A type error was planted inside the feature-ON
+<code>open</code> in <code>crates/sutura-cli/src/sources/bigquery.rs</code>, and both host derivations were built from
+that one tree:</p>
+<table>
+<thead>
+<tr>
+<th>derivation</th>
+<th>result</th>
+<th>crate-derivation units</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura-aarch64-apple-darwin-ci</code> (shipped)</td>
+<td><strong>exit 0</strong> - blind to it</td>
+<td>105</td>
+</tr>
+<tr>
+<td><code>sutura-bigquery-aarch64-apple-darwin-ci</code> (probe)</td>
+<td><strong>exit 1</strong>, <code>error[E0308]: mismatched types</code> at <code>bigquery.rs:70:25</code></td>
+<td>117</td>
+</tr>
+</tbody>
+</table>
+<p>The 105 and the 117 are the same +12 the four CI triples show, taken from the same pair of builds
+that produced the asymmetry - so one reproduction answers both questions. That asymmetry is the
+whole argument for the step existing: before it, every one of those four jobs was green on a tree
+where the documented source build did not compile.</p>
+<p><strong>The limits of this measurement, next to it.</strong></p>
+<ul>
+<li><strong>The PROFILE is not the documented one, and this is the limit that narrows the claim most.</strong>
+  <code>docs/getting-started.md</code> says <code>cargo build --release</code>; the probe builds <code>ci</code>. <code>[profile.release]</code>
+  is <code>lto = "thin"</code>, <code>codegen-units = 16</code>, <code>panic = "abort"</code>; <code>[profile.ci]</code> inherits <code>dev</code> -
+  <code>lto = "off"</code>, <code>codegen-units = 256</code>, unwind. Thin LTO and an abort personality across <code>ring</code>'s C
+  and assembly are a <strong>different link</strong>. So what is proven is <em>the feature's closure cross-compiles
+  and links for each published triple</em>, not <em>the reader's exact command links</em>. Adding a
+  release-profile probe would double the step's cost for a codegen difference nobody has priced; the
+  concession is in the step's printed notice instead, where a reader of a green run will see it.</li>
+<li><strong>The probe links and never RUNS</strong>, so nothing here says the feature works - only that it builds.
+  <code>just bigquery-acceptance</code> is the leg that answers the other question.</li>
+<li><strong>Binary size is unmeasured</strong>: no step prints it, so the artefact-closure argument above is still
+  qualitative.</li>
+<li><strong><code>sutura-serve</code>'s <code>tls</code> and <code>bigquery</code> are deliberately unprobed</strong>, so none of this is evidence
+  about the server.</li>
+<li><strong>The planted-error RED was reproduced on <code>aarch64-apple-darwin</code> only</strong>, the one triple that host
+  builds natively. The musl link has been exercised green on every pull request and never red, and
+  CI is the only venue that can redden it, because a musl dependency closure is not cached on a
+  developer's machine.</li>
+<li><strong>The cost of HAVING the probe is real even though the cost of the feature is not:</strong> 62-85s on
+  each of four <code>cross</code> jobs, per pull request, across runs 33808343712, 33838360913 and</li>
+<li>That is the price of the answer rather than the price of the feature - and the range
+  widened downward on the third run, so quote the range.</li>
+<li><strong>The <code>file</code> readout asserts the CPU and not the libc.</strong> <code>nix/assert-linked.sh</code> matches <code>file</code>'s
+  answer against the triple's CPU and refuses a path that is not executable - which is what the
+  bare <code>file</code> here did not do, since it exits zero on a missing path. What it does not assert is
+  <code>statically linked</code> versus <code>dynamically linked</code>, because those strings vary with linker, target
+  and <code>file</code> version in ways nobody here has measured. A musl target linked dynamically would pass.</li>
+</ul>
+<p><strong>Two couplings this lane rests on. One is held now, and it was not when the lane landed.</strong></p>
+<p><strong>WHICH FEATURES ARE PROBED - held, by <code>cargo xtask check-shipped-binaries</code>.</strong> <code>ci.yml</code>'s refusal
+is <em>the manifest has at least one row</em>, and that was read as <em>a probe cannot silently disappear</em>.
+It is not the same claim: zero rows means <em>the CLI probe is gone</em> only because the other binary
+declares none, which is a property of today's data rather than of the construction. Declare a probe
+for <code>sutura-serve</code> and delete <code>"bigquery"</code> from <code>sutura-cli</code>'s, and the manifest is still non-empty
+- the four <code>cross</code> jobs go green and this record's claim reverts to <em>assumed</em> with no signal at all.
+The coupling that closes it is the one nothing checked: a page tells a reader to run
+<code>cargo build --release -p sutura-cli --features bigquery</code>, and <code>probeFeatures</code> had to contain that
+feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
+fails, and so does a tree where no page documents such a build at all, because a reconciliation
+against nothing passes everything.</p>
+<p><strong>WHICH TRIPLES ARE PROBED - still not held.</strong> <code>ci.yml</code>'s <code>cross</code> matrix spells the four triples as
+literals, as <code>release.yml</code>'s does, and <code>check-shipped-binaries</code> reconciles the shipped BINARIES
+between those files and <code>nix/shipped.nix</code> - not the TARGETS. So a triple added to <code>crossTargets</code> and
+to <code>release.yml</code> but not to <code>ci.yml</code> would ship having been linked by nothing, with the feature or
+without it, and the only thing saying otherwise is a comment above the matrix. The reverse direction
+does fail closed, freely: a matrix target that is not a release target has no
+<code>feature-probes-&lt;triple&gt;</code> attribute, so <code>nix build</code> fails. The gate's own header argues a matrix
+cannot be derived because <code>strategy.matrix</code> takes literals, which is exactly the argument for
+reconciling this pair too. It is the same shape as the rule above and is a separate change.</p>
 
 
 

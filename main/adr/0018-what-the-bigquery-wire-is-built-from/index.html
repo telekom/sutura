@@ -2924,9 +2924,16 @@ the one working it out: <code>ureq</code> plus the eighteen crates above, compil
 question is <code>ring</code>, which is the only one with a native component - and <code>ring</code> ships <strong>pregenerated
 assembly</strong> for <code>linux64</code> on both <code>x86_64</code> and <code>aarch64</code>, so it needs a C compiler for its shims and
 neither Perl nor nasm. <code>rustls</code> needs no system library at all, which is the same argument
-<code>tokio-rustls</code> already carries in the root manifest for the inbound side. <strong>Not proved by a build
-here:</strong> no musl cross build was run on this machine, and no shipped artifact links the feature, so
-this paragraph is a prediction with its mechanism named rather than a measurement.</p>
+<code>tokio-rustls</code> already carries in the root manifest for the inbound side.</p>
+<p><strong>That prediction has since been run, and it held.</strong> This paragraph said <em>no musl cross build was
+run on this machine, so this is a prediction with its mechanism named rather than a measurement</em>.
+<code>telekom/sutura#121</code> built it: the four <code>cross</code> jobs link <code>sutura-cli --features bigquery</code> for both
+musl triples on every pull request, and the feature is twelve compiled units - <code>ring</code>, <code>untrusted</code>,
+<code>rustls</code>, <code>rustls-pki-types</code>, <code>rustls-webpki</code>, <code>webpki-roots</code>, <code>ureq</code>, <code>ureq-proto</code>, <code>httparse</code>,
+<code>getrandom 0.2</code>, <code>utf8-zero</code>, <code>sutura-exec-bigquery</code>. <code>docs/adr/0017</code> carries the numbers, the
+derivation A/B behind them and the limits, including the one that matters here: the probe builds the
+<code>ci</code> profile, so <code>release</code>'s thin LTO and <code>panic = "abort"</code> over that assembly are still unmeasured.
+It remains true that no shipped artifact links the feature.</p>
 <h3 id="what-it-costs-the-licence-gate-nothing-and-one-thing-changes-anyway">What it costs the licence gate: nothing, and one thing changes anyway<a class="headerlink" href="#what-it-costs-the-licence-gate-nothing-and-one-thing-changes-anyway" title="Permanent link">&para;</a></h3>
 <p><strong>Zero new entries.</strong> <code>deny.toml</code>'s allowlist already carries <code>ISC</code> (<code>rustls-webpki</code>, <code>untrusted</code>,
 and the ISC half of <code>ring</code>'s <code>Apache-2.0 AND ISC</code>), <code>BSD-3-Clause</code> (<code>subtle</code>) and

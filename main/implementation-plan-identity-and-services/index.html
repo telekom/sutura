@@ -3672,10 +3672,6 @@ economise.</p>
 <td><code>Cargo.lock</code></td>
 </tr>
 <tr>
-<td><code>check-shipped-binaries</code></td>
-<td><code>nix/shipped.nix</code> and every workflow and action under <code>.github/</code></td>
-</tr>
-<tr>
 <td><code>check-attribution</code></td>
 <td><code>Cargo.lock</code>, the root manifest, <code>ATTRIBUTION.md</code></td>
 </tr>
@@ -3734,6 +3730,10 @@ economise.</p>
 <tr>
 <td><code>check-docs</code></td>
 <td>Nav entries and links covered independently by <code>mkdocs --strict</code>; the asset half is unreachable from a <code>docs/*.md</code>-only diff</td>
+</tr>
+<tr>
+<td><code>check-shipped-binaries</code></td>
+<td>Half deferred, and it is the half a page can break: the binary literals it reconciles are under <code>nix/</code> and <code>.github/</code>, but its second rule reads the documented <code>cargo build --features</code> out of <code>docs/**</code> - so a page that stops documenting that build, or documents a feature <code>nix/shipped.nix</code> does not probe, merges green and only the <code>main</code> push says so</td>
 </tr>
 <tr>
 <td><code>check-crap</code></td>
