@@ -134,9 +134,18 @@ let
     # `embed.rs` and fails with `#[derive(RustEmbed)] folder ... does not exist`. Purging the
     # crate's build output makes `build.rs` rerun and regenerate it against the current root.
     #
-    # `apps.causality` carried these lines inline and `apps.bigquery-acceptance` did not, which is
-    # the shape of a fix that only the app that was measured has: both warm the same closure and
-    # both compile `sutura-http`, so both were exposed and one was patched.
+    # `apps.causality` carried these lines inline and `apps.bigquery-acceptance` did not. It is here
+    # because it is a property of THIS unpack rather than of any one app - but not for the reason an
+    # earlier version of this comment gave. That said "both compile `sutura-http`, so both were
+    # exposed and one was patched", and it is false: `apps.bigquery-acceptance` runs
+    # `-p sutura-exec-bigquery`, and `sutura-http` is in neither its dependency nor its
+    # dev-dependency graph - `cargo tree -p sutura-exec-bigquery --all-features -e normal,dev -i
+    # sutura-http` answers "did not match any packages". That app was never exposed.
+    #
+    # The honest owner is the new one: `apps.default-features` DOES recompile
+    # `utoipa-swagger-ui v9.0.2`, measured in its own job log, because a different feature set is a
+    # different compilation unit from the one the closure carries. So this belongs to shared env
+    # because two apps now need it, not because all three were ever at risk.
     rm -rf -- "$warmTarget/ci/build/utoipa-swagger-ui-"* \
               "$warmTarget/ci/.fingerprint/utoipa-swagger-ui-"* \
               2>/dev/null || true

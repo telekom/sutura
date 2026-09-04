@@ -110,6 +110,19 @@ impl Contradicted {
 
 pub(super) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
+        name: "the default-feature lane has no lint half in CI",
+        wordings: &["nothing runs it in CI yet", "neither a nix check nor an app"],
+        evidence: &[Evidence {
+            path: ".github/workflows/ci.yml",
+            holds: "nix run .#default-features",
+        }],
+        instead: "the required `ci` job runs `nix run .#default-features` on every pull request that \
+                  touches Rust, so the lint half of that lane is a required check rather than the \
+                  four `cross` link builds alone",
+        only: &[],
+        except: &["docs/adr/0017-what-a-bigquery-test-runs-against.md"],
+    },
+    Contradicted {
         // RENAMED from "there is no HTTP surface". The entry always held both halves of one claim,
         // and a name that said only HTTP was the label version of the defect
         // `github.com/telekom/sutura#241` reports: this entry's own remedy went on saying the agent

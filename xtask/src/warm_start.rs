@@ -244,11 +244,32 @@ fn profiled_consumers(text: &str) -> Result<usize, String> {
         } else {
             "--profile"
         };
-        if !words.windows(2).any(|pair| pair == [flag, "ci"]) {
+        // CARGO'S SIDE ONLY, and this is the correction that matters. Everything past `--` belongs
+        // to whatever cargo runs, not to cargo, so a `--profile ci` there selects no profile for the
+        // BUILD - and one app writes the flag on both sides of `--`, once for cargo and once for the
+        // xtask gate it invokes. Scanning the whole line let either occurrence satisfy the other:
+        // deleting cargo's flag left the build at the developer default, reusing none of the warm
+        // artifacts, while this gate still printed `ok`. Reproduced both ways before this change.
+        let cargo_side = words.split(|word| *word == "--").next().unwrap_or(&words);
+        if !cargo_side.windows(2).any(|pair| pair == [flag, "ci"]) {
             return Err(format!(
-                "{APPS}:{} warms profile ci but its cargo command does not pass `{flag} ci`: {command}",
+                "{APPS}:{} warms profile ci but its cargo command does not pass `{flag} ci` BEFORE \
+                 `--`; everything after that separator goes to the program cargo runs, so a profile \
+                 there selects none for the build: {command}",
                 index.saturating_add(1)
             ));
+        }
+        // A profile named anywhere on the line must be the warmed one. This is what catches a tail
+        // whose value drifted, which is the other half of the same confusion.
+        for pair in words.windows(2) {
+            let [named, value] = pair else { continue };
+            if matches!(*named, "--profile" | "--cargo-profile") && *value != "ci" {
+                return Err(format!(
+                    "{APPS}:{} warms profile ci but names profile `{value}` on its command line, so \
+                     one of the two is compiling somewhere the warm artifacts are not: {command}",
+                    index.saturating_add(1)
+                ));
+            }
         }
     }
     if consumers == 0 {

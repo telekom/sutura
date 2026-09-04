@@ -154,9 +154,14 @@ const PASSES: &[Pass] = &[
 /// default profile - a second profile there is a second dependency build in the same target
 /// directory, bought for a verdict that does not depend on the profile.
 ///
-/// FAIL CLOSED on anything it cannot read, and that direction is the point: a flag silently dropped
-/// would leave the CI step compiling the whole closure from scratch and still passing, so nobody
-/// would ever attribute the minutes to the typo that caused them.
+/// FAIL CLOSED on anything it cannot read - a flag *present and unreadable*. The limit that used to
+/// be missing here: an ABSENT flag is the shape this comment named, and this parse cannot see it,
+/// because absence is legitimate. `just gates` passes no profile on purpose, since a second profile
+/// in a developer's target directory is a second dependency build bought for a verdict that does not
+/// depend on the profile.
+///
+/// So absence is caught one level up instead, by [`warmed_without_a_profile`], which asks the only
+/// question that distinguishes the two callers: *am I running inside the warmed target directory?*
 fn requested_profile(args: &[String]) -> Result<Option<&str>, String> {
     match args {
         [] => Ok(None),
@@ -166,6 +171,27 @@ fn requested_profile(args: &[String]) -> Result<Option<&str>, String> {
             args.join(" ")
         )),
     }
+}
+
+/// The target directory `cargoWarmStart` unpacks the `ci` artifacts into, relative to the repo root.
+///
+/// Named here as well as in `nix/cargo-env.nix` and `xtask/src/causality.rs`, and kept in step by
+/// `check-warm-start` - which is the gate that already holds this exact string across the nix and
+/// Rust halves, so this is a third reader of an anchored name rather than a fourth copy of a guess.
+const WARM_TARGET: &str = "causality-target";
+
+/// Is this run compiling into the warmed target directory while naming no profile?
+///
+/// **The absent-flag half of fail-closed, and it needs a signal rather than a parse.** The two
+/// callers are indistinguishable from their arguments - `just gates` correctly passes none and the
+/// CI app must pass `ci` - so the discriminator is the environment: `cargoWarmStart` exports
+/// `CARGO_TARGET_DIR` at the unpacked `ci` artifacts. Compiling at the developer default *there*
+/// reuses none of them, rebuilds the closure, and passes - which is exactly the silent waste the
+/// direction was claimed to prevent and could not see.
+///
+/// Absence of the variable is `false`: a developer running this without nix is the legitimate case.
+fn warmed_without_a_profile(profile: Option<&str>, target_dir: Option<&str>) -> bool {
+    profile.is_none() && target_dir.is_some_and(|dir| dir.trim_end_matches('/').ends_with(WARM_TARGET))
 }
 
 /// The words one pass hands cargo, for one package, at one profile.
@@ -192,6 +218,15 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
+    let target_dir = std::env::var("CARGO_TARGET_DIR").ok();
+    if warmed_without_a_profile(profile, target_dir.as_deref()) {
+        eprintln!("xtask check-default-features: FAILED - compiling into the warmed target directory");
+        eprintln!("  with no `--profile`. The artifacts unpacked there were built at profile `ci`, so");
+        eprintln!("  a run at the developer default reuses none of them: it rebuilds the whole closure");
+        eprintln!("  and still passes, which is the cost nobody would attribute to the missing flag.");
+        eprintln!("  Pass `--profile ci`, as `apps.default-features` in flake.nix does.");
+        return Verdict::Fail;
+    }
     let Some(root) = repo::root() else {
         eprintln!("xtask check-default-features: could not determine the repo root");
         return Verdict::Fail;
