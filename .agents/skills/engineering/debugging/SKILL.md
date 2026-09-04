@@ -33,7 +33,7 @@ external timeout killed them, twice, 50 minutes apart.
 
 | Symptom | What to check |
 | --- | --- |
-| `just test` / `just causality` / `just ship-check` and every pre-commit tier block, no output | `timeout 20 docker info; echo $?` - **124 means wedged**, and `SKIP=rust-tests` will not help because the hang is not in the hook's own step |
+| `just test` / `just causality` / `just ship-check` and every pre-commit tier block, no output | `timeout 20 docker info; echo $?` - **124 means wedged**, and `SKIP=rust-tests` will not help because the hang is not in the hook's own step. Then `df -h` before restarting anything: a restart cannot fix a host out of space, and the bounded paths print that advice where a hang cannot |
 | stray processes accumulate | the probe kills its child, not the child's descendants; `docker` CLI plugins outlive it until the daemon recovers |
 | a gate hangs only AFTER provisioning starts | it should not any more - the readiness loop's `ps` carries the query budget, so this is a bug rather than the known shape |
 
