@@ -430,6 +430,28 @@ pub(super) fn serde_arg(attrs: &str, key: &str) -> Option<String> {
     None
 }
 
+/// Is `flag` present as a bare item inside `#[serde(..)]` in this attribute run?
+///
+/// A bare item rather than the `key = value` [`serde_arg`] reads, split by the same top-level
+/// splitter - so a `deny_unknown_fields` appearing inside another argument's quoted value is not
+/// read as one.
+pub(super) fn serde_flag(attrs: &str, flag: &str) -> bool {
+    let mut rest = attrs;
+    while let Some(at) = rest.find("serde(") {
+        let Some(tail) = rest.get(at.saturating_add("serde(".len())..) else {
+            return false;
+        };
+        let Some(body) = tail.get(..tail.find(')').unwrap_or(tail.len())) else {
+            return false;
+        };
+        if split_top_level(body).any(|item| item.trim() == flag) {
+            return true;
+        }
+        rest = tail;
+    }
+    false
+}
+
 /// Where the lexer is.
 #[derive(Clone, Copy)]
 enum Lexeme {

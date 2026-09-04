@@ -1053,7 +1053,8 @@ tree no longer agrees with, and each correction is written where the code is rat
    `a_relationship_alone_licenses_no_dimension` and
    `content_for_a_kind_it_did_not_declare_fails_the_load`, over a fake reader on recorded documents.
 4. **The read path is still unbuilt; this step's first engineering question is no longer
-   unmeasured.** The only `AspectReader` is still the recorded fixture, so no library code shapes a
+   unmeasured.** The only `AspectReader` outside a test is still the recorded fixture, so no
+   library code shapes a
    request or maps a response. What `just datahub-acceptance` now measures against the provisioned
    instance is the platform's half: a deployment can define the property under a name of its own, the
    corpus's own document is accepted as its scalar and the served aspect decodes into the same

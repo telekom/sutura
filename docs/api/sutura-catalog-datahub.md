@@ -38,8 +38,9 @@ This crate contains everything `DataHubCatalog` DECIDES about the aspects it rea
 tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
 HTTP. What it does not contain is an HTTP client: `AspectReader` is the seam a real reader over
 `DataHub`'s versioned `OpenAPI` v3 entity surface will implement (with a personal access token as a
-bearer). Until that lands, the only implementor of the port is the recorded fixture source in
-`fixture`, so no code here shapes a request or maps a response. **And nothing serves it:** no
+bearer). Until that lands, the only implementor of the port outside a test is the recorded
+fixture source in `fixture` - the other two are doubles, `tests::Stub` and the acceptance
+suite's `Composed` - so no code here shapes a request or maps a response. **And nothing serves it:** no
 composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency), and
 `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and tested;
 what is not is the reader itself and a served composition - the *Built and not wired* register in
@@ -429,8 +430,10 @@ independence is measured.
 
 The scalar payload is bounded by the value-type limits a deployment's `DataHub` enforces - the
 platform names its own as `structuredProperties.keywordMaxLength`, because the value is indexed
-as an Elasticsearch keyword, so it is an index setting a deployment raises. This crate adds no
-bound of its own.
+as an Elasticsearch keyword, so the bound is an index setting rather than a constant here.
+What is measured is that the refusal NAMES that setting; nothing has raised it and retried,
+so whether a deployment can move it is `DataHub`'s documentation and not this repository's
+measurement. This crate adds no bound of its own.
 
 #### Methods
 

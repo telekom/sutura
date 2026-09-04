@@ -7,8 +7,12 @@
 //! the deployment-defined document at all. `compose.services.yaml`'s `datahub` profile is that
 //! instance, and this is the only thing in this repository that talks to it.
 //!
-//! **Two cells:**
+//! **Two venue cells, plus one that needs no venue:**
 //!
+//!   * `the_deployment_names_its_property_and_the_adapter_names_its_field` - over two `&'static
+//!     str`s, so it runs in `just test`. It is what makes the second cell a measurement of decision
+//!     7 rather than a coincidence, and it would be held by recall if it lived inside an
+//!     `#[ignore]`d cell.
 //!   * `the_provisioned_datahub_serves_the_surface_a_reader_would_call` - a real `DataHub` GMS at
 //!     the pinned version is reachable on the port this worktree's provisioning allocated, reports
 //!     itself healthy, and serves its versioned `OpenAPI` v3 entity surface rather than `404`.
@@ -20,8 +24,9 @@
 //!
 //! # What is still NOT here, because the gap is the useful part
 //!
-//!   * **There is no HTTP `AspectReader`, so this is not a read PATH.** The only implementor of the
-//!     port is the recorded fixture. The request-shaping and the mapping from the served response
+//!   * **There is no HTTP `AspectReader`, so this is not a read PATH.** The only implementor
+//!     outside a test is the recorded fixture; the other two are doubles - `src/tests.rs`'s
+//!     `Stub` and this file's `Composed`. The request-shaping and the mapping from the response
 //!     (`structuredProperties.properties[].values[].string`) onto `document::MetricAspect` are
 //!     written HERE, in a test, and nowhere in `src/` - which is exactly what a real reader will
 //!     have to own. What this cell removes is the excuse: the response shape and the platform's
@@ -88,6 +93,15 @@ mod tests {
     /// so a request slower than this is a wedged JVM rather than a cold one, and a short timeout
     /// would turn that into a flake instead of a failure.
     const ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// How long the SEARCH INDEX gets to catch up with a write GMS has already accepted.
+    ///
+    /// A second constant rather than reusing [`ANSWER_TIMEOUT`], because the two are different
+    /// quantities: that one is how long one request may take, this one is how far behind an
+    /// eventually-consistent view may be. Measured at ~2 s on this tier
+    /// (`just datahub-acceptance`, 2026-09-04, `DataHub` 1.7.0), so this is an order of magnitude of
+    /// slack for a loaded machine rather than a threshold anything is read off.
+    const INDEX_LAG_BUDGET: Duration = Duration::from_secs(30);
 
     /// The paths this asks for, and what each one being served means.
     ///
@@ -195,6 +209,29 @@ mod tests {
     /// Named here so the difference from [`DEPLOYMENT_PROPERTY`] is checked rather than described.
     const CANONICAL_FIELD: &str = "sutura";
 
+    /// The second metric the paging claim needs, so the population is one where a page and a
+    /// request-per-metric differ.
+    const BESIDE_IT: &str = "revenue_beside_it";
+
+    /// The two names held apart, checked where no venue is needed.
+    ///
+    /// **Its own cell, and NOT `#[ignore]`d, which is the point of splitting it out.** The
+    /// independence of the deployment's property name from the adapter's field name is what makes
+    /// the cell below a measurement rather than a coincidence - and a guard that only runs when
+    /// somebody types `just datahub-acceptance` is held by recall for every other run. These are
+    /// two `&'static str`s; `str::contains` is not const-callable, so a `#[test]` in the default
+    /// suite is the closest available thing to a compile-time assertion.
+    #[test]
+    fn the_deployment_names_its_property_and_the_adapter_names_its_field() {
+        assert!(
+            !DEPLOYMENT_PROPERTY.contains(CANONICAL_FIELD),
+            "`{DEPLOYMENT_PROPERTY}` must share nothing with `{CANONICAL_FIELD}`: a venue cell that \
+             registered the property under the adapter's own field name would pass equally whether \
+             the name were the deployment's choice or a constant this library requires, which is the \
+             one thing `docs/adr/0016` decision 7 is about"
+        );
+    }
+
     /// One request, one status, one body - because the refusals asserted below are about the reason
     /// `DataHub` states, and a helper that discarded the body would discard the assertion.
     ///
@@ -230,13 +267,24 @@ mod tests {
     }
 
     /// A metric entity carrying `values` under the deployment's property, upserted synchronously.
-    fn write_property(agent: &ureq::Agent, endpoint: &str, id: &str, values: &serde_json::Value) -> (u16, String) {
+    ///
+    /// `raw` is where the promotion candidate's half comes from, and it is a parameter rather than
+    /// two literals for a reason the equality assertion below depends on: that assertion compares
+    /// the harvested aspect against the RECORDED one, so a `dialect` or an `expression` spelled here
+    /// would turn the next fixture edit into a red with no cause in the edit.
+    fn write_property(
+        agent: &ureq::Agent,
+        endpoint: &str,
+        id: &str,
+        raw: &MetricAspect,
+        values: &serde_json::Value,
+    ) -> (u16, String) {
         let body = serde_json::json!([{
             "urn": metric_urn(id),
             "metricKey": { "value": { "platform": "urn:li:dataPlatform:bigquery", "path": "orders", "id": id } },
             "metricInfo": { "value": {
                 "name": id,
-                "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "SUM(amount_cents)" }] },
+                "expression": { "dialects": [{ "dialect": raw.dialect(), "expression": raw.expression() }] },
             } },
             "structuredProperties": { "value": { "properties": [{ "propertyUrn": property_urn(), "values": values }] } },
         }]);
@@ -340,6 +388,10 @@ mod tests {
     ///     search-backed - it answers `facets` and `totalCount` - so a reader that pages sees a
     ///     metric only after the index catches up. That is the caveat the read path's COST claim
     ///     needs: one page per entity type is the right cost, and it is not read-your-writes.
+    ///   * **A page per entity type rather than a request per metric**, over a population where the
+    ///     two differ. TWO metrics are written and ONE response has to carry both - which is the
+    ///     assertion, because over a single metric a page and a per-metric fetch return the same
+    ///     thing and the claim separates nothing.
     ///   * **The scalar has a ceiling, and it is the platform's `keywordMaxLength`** - the value is
     ///     indexed as an Elasticsearch keyword - so what bounds a metric's document is a
     ///     deployment's index configuration and not a constant in this crate. Asserted as a ratio
@@ -361,11 +413,6 @@ mod tests {
             return;
         };
         let agent = agent(false);
-        assert!(
-            !DEPLOYMENT_PROPERTY.contains(CANONICAL_FIELD),
-            "the deployment's property name must share nothing with the adapter's own field name, or \
-             this cell cannot tell a deployment's choice from a constant the library requires"
-        );
 
         // The deployment's half: register the property, under the deployment's own name. Upserted,
         // so a re-run over a tier that already has it is the same request rather than a conflict.
@@ -401,13 +448,18 @@ mod tests {
             .expect("the metric just found is the one carrying the property");
         let urn = metric_urn(certified.name());
 
-        let (status, body) = write_property(
-            &agent,
-            &endpoint,
-            certified.name(),
-            &serde_json::json!([{ "string": property.string_value() }]),
-        );
+        let scalar = serde_json::json!([{ "string": property.string_value() }]);
+        let (status, body) = write_property(&agent, &endpoint, certified.name(), certified, &scalar);
         assert_eq!(status, 200, "the platform accepts the corpus document as the scalar: {body}");
+
+        // A SECOND metric, because the paging claim below is about a population where one page and
+        // one request per metric differ. Same document under a different entity id: what is being
+        // measured is the response, not the content.
+        let (status, body) = write_property(&agent, &endpoint, BESIDE_IT, certified, &scalar);
+        assert_eq!(
+            status, 200,
+            "the platform accepts a second metric carrying the property: {body}"
+        );
 
         // ONE request by urn, asked ONCE. No retry is the assertion: this surface is
         // read-your-writes after a synchronous upsert, which is what makes it the one a reader can
@@ -458,79 +510,112 @@ mod tests {
             certified.expression()
         );
 
-        // The paged read, which a reader would actually use for a bundle: ONE request carries the
-        // certified half and the promotion candidate's raw half inline, so the cost is a page per
-        // entity type and not a request per metric. Given a DEADLINE rather than asked once,
-        // because this surface is search-backed and the index lags a synchronous write - measured
-        // on 2026-09-04 against DataHub 1.7.0 at ~2.2 s, by-urn answering at once throughout.
-        let deadline = Instant::now() + ANSWER_TIMEOUT;
+        one_response_carries_both(&agent, &endpoint, certified);
+        the_platforms_own_rules(&agent, &endpoint, certified, property.string_value().len());
+    }
+
+    /// The paging claim, over a population where paging and a fetch-per-metric differ.
+    ///
+    /// **Two metrics and ONE response**, which is the whole of why the second one is written: over a
+    /// single entity a page and a request per metric return the same thing, so an assertion over one
+    /// separates neither hypothesis. Given a DEADLINE rather than asked once, because this surface is
+    /// search-backed and its index lags a synchronous write - the by-urn read in the caller answered
+    /// at once and is asked exactly once for that contrast.
+    fn one_response_carries_both(agent: &ureq::Agent, endpoint: &str, certified: &MetricAspect) {
+        let wanted = [metric_urn(certified.name()), metric_urn(BESIDE_IT)];
+        let deadline = Instant::now() + INDEX_LAG_BUDGET;
         let page = loop {
             let (status, body) = send(
-                &agent,
+                agent,
                 &format!("http://{endpoint}/openapi/v3/entity/metric?aspects=structuredProperties&aspects=metricInfo&count=100"),
                 None,
             );
             assert_eq!(status, 200, "the metric surface answers a paged read: {body}");
-            let page: serde_json::Value = serde_json::from_str(&body).expect("the answer is json");
-            // Matched on the whole urn rather than on a suffix: the page can hold every metric a
-            // previous run wrote, and a suffix is how one of those becomes the one being asserted on.
-            let found = page["entities"]
-                .as_array()
-                .expect("a page is an array of entities")
+            let answer: serde_json::Value = serde_json::from_str(&body).expect("the answer is json");
+            let entities = answer["entities"].as_array().expect("a page is an array of entities").clone();
+            // Matched on the WHOLE urn rather than on a suffix: the page holds every metric a
+            // previous run wrote, and a suffix is how one of those becomes the one asserted on.
+            let found: Vec<serde_json::Value> = wanted
                 .iter()
-                .find(|entity| entity["urn"].as_str() == Some(urn.as_str()))
-                .cloned();
-            if let Some(entity) = found {
-                break entity;
+                .filter_map(|want| {
+                    entities
+                        .iter()
+                        .find(|entity| entity["urn"].as_str() == Some(want.as_str()))
+                        .cloned()
+                })
+                .collect();
+            if found.len() == wanted.len() {
+                break found;
             }
             assert!(
                 Instant::now() < deadline,
-                "the paged metric surface never carried the metric a synchronous write had already \
-                 accepted, within {ANSWER_TIMEOUT:?}: that is not index lag, it is a reader that \
-                 cannot page this surface at all"
+                "one response never carried both metrics that synchronous writes had already \
+                 accepted, within {INDEX_LAG_BUDGET:?} - it had {}. Either the index is far further \
+                 behind than the ~2 s this tier was measured at, or this surface does not page the \
+                 way a reader would need it to",
+                found.len()
             );
             std::thread::sleep(Duration::from_millis(250));
         };
         assert_eq!(
-            &harvest(&page),
-            certified,
-            "the page carries the property and the expression inline, so a bundle is a page per \
-             entity type rather than a request per metric"
+            page.len(),
+            wanted.len(),
+            "one response carried both metrics, so a bundle is a page per entity type rather than a \
+             request per metric"
         );
+        assert_eq!(
+            page.first().map(harvest).as_ref(),
+            Some(certified),
+            "and each entity on that page carries the certified half and the promotion candidate's \
+             raw half inline, so paging costs no second request per metric"
+        );
+    }
 
+    /// The three rules `docs/adr/0016` reads off the property's TYPE, asked of the platform instead.
+    ///
+    /// Each is a `400` with its own reason in the body, which is why [`send`] keeps the body: the
+    /// claim is what `DataHub` states, not merely that it refused.
+    fn the_platforms_own_rules(agent: &ureq::Agent, endpoint: &str, certified: &MetricAspect, scalar: usize) {
         // The ceiling. Deliberately far past it, so the assertion is about the refusal being
-        // STATED rather than about where the boundary sits - which is a deployment's setting.
+        // STATED rather than about where the boundary sits - which is an index setting.
         let (status, body) = write_property(
-            &agent,
-            &endpoint,
+            agent,
+            endpoint,
             "over_the_ceiling",
+            certified,
             &serde_json::json!([{ "string": "x".repeat(1 << 17) }]),
         );
         assert_eq!(status, 400, "a scalar past the platform's ceiling is refused: {body}");
         assert!(
             body.contains("keywordMaxLength"),
-            "the refusal names the setting that bounds it, so a deployment knows what to raise: {body}"
+            "the refusal names the setting that bounds it, which is the whole of what is measured \
+             here - nothing raises it and retries: {body}"
         );
         let maximum = stated_maximum(&body);
         assert!(
-            property.string_value().len() * 10 < maximum,
-            "the corpus document ({} bytes) has an order of magnitude of headroom under the platform's \
-             stated maximum ({maximum} bytes) - if this fails, a metric's document has grown into the \
-             index limit and the transport needs revisiting, not the test",
-            property.string_value().len()
+            scalar * 10 < maximum,
+            "the corpus document ({scalar} bytes) has an order of magnitude of headroom under the \
+             platform's stated maximum ({maximum} bytes) - if this fails, a metric's document has \
+             grown into the index limit and the transport needs revisiting, not the test"
         );
 
-        // The two constraints `docs/adr/0016` reads off the property's TYPE, asked of the platform.
         let (status, body) = write_property(
-            &agent,
-            &endpoint,
+            agent,
+            endpoint,
             "two_values",
+            certified,
             &serde_json::json!([{ "string": "{}" }, { "string": "{}" }]),
         );
         assert_eq!(status, 400, "a second value on a SINGLE property is refused: {body}");
         assert!(body.contains("cardinality"), "the refusal names the cardinality: {body}");
 
-        let (status, body) = write_property(&agent, &endpoint, "wrong_type", &serde_json::json!([{ "double": 1.0 }]));
+        let (status, body) = write_property(
+            agent,
+            endpoint,
+            "wrong_type",
+            certified,
+            &serde_json::json!([{ "double": 1.0 }]),
+        );
         assert_eq!(status, 400, "a number where the definition says string is refused: {body}");
         assert!(
             body.contains("should be a string"),

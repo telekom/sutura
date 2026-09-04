@@ -91,8 +91,9 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   including inside an anchor's range, which is where *every depth* was one depth short until the
   attribute reached `calendar::TimeRangeInput`. `docs/adr/0016`'s amendment and its 2026-09-04
   revision are the record. **The two halves that do not exist:** a real `AspectReader` over
-  DataHub's versioned OpenAPI v3 entity surface - the only implementor is the recorded fixture
-  source, so no library code shapes a request or maps a response - and a composition root, because
+  DataHub's versioned OpenAPI v3 entity surface - the only implementor outside a test is the recorded
+  fixture source, so no library code shapes a request or maps a response - and a composition root,
+  because
   `sutura-serve` refuses `catalog.kind: datahub` by name and the crate's only dependant is
   `sutura-app`, as a dev-dependency. **Do not read the declaration as availability:** what is proved
   is that the adapter decides correctly against a fake reader.
@@ -104,7 +105,8 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   spells: accepted by the platform's validator, served back, decoded through the adapter's own
   `MetricAspect` into a certified `Metric`, with `SINGLE` cardinality, the declared value type and
   the scalar's ceiling all refused server-side - the ceiling named by the platform as its
-  Elasticsearch `keywordMaxLength`, an index setting a deployment raises. **Still absent:** any HTTP
+  Elasticsearch `keywordMaxLength`, an index setting rather than a constant here - what was
+  measured is that the refusal NAMES it, not that raising it works. **Still absent:** any HTTP
   `AspectReader`, so the requests and the response mapping live in the test rather than in `src/`,
   and the structural half of that snapshot is still the recorded corpus; any authentication
   (`METADATA_SERVICE_AUTH_ENABLED: "false"`, so the auth half is untested); any frontend, so there is

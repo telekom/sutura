@@ -310,8 +310,10 @@ impl MetricAspect {
 ///
 /// The scalar payload is bounded by the value-type limits a deployment's `DataHub` enforces - the
 /// platform names its own as `structuredProperties.keywordMaxLength`, because the value is indexed
-/// as an Elasticsearch keyword, so it is an index setting a deployment raises. This crate adds no
-/// bound of its own.
+/// as an Elasticsearch keyword, so the bound is an index setting rather than a constant here.
+/// What is measured is that the refusal NAMES that setting; nothing has raised it and retried,
+/// so whether a deployment can move it is `DataHub`'s documentation and not this repository's
+/// measurement. This crate adds no bound of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SuturaProperty {

@@ -802,7 +802,8 @@ serves it. The read path's COST is no longer the open measurement this record le
 - The read path against a provisioned instance was the open measurement this record left, and
   *Revision, 2026-09-04* below closes the platform's half of it: the document is accepted under a
   property the deployment names, served back, and decoded into a certified `Metric`. What is still
-  open is the READER - `sutura-catalog-datahub` has one `AspectReader` implementor, the recorded
+  open is the READER - `sutura-catalog-datahub` has one `AspectReader` implementor outside a
+  test, the recorded
   fixture source, so nothing in the library reaches a network.
 
 ### Addendum to the amendment: which half of decision 7 the deployment still owns
@@ -897,7 +898,9 @@ records:
 - **The ceiling is the deployment's Elasticsearch keyword length.** The platform's own refusal names
   it: *value is 131072 bytes which exceeds the maximum of 32766 UTF-8 bytes for structured property
   values indexed as Elasticsearch keywords (`structuredProperties.keywordMaxLength`)*. So what bounds
-  a metric's document is an index setting a deployment can raise, not a constant in this repository -
+  a metric's document is an index setting rather than a constant in this repository. **What was
+  measured is that the refusal names the setting** - nothing raised it and retried, so a
+  deployment's ability to move it is DataHub's own documentation and not a finding here -
   which is why the cell asserts an order of magnitude of headroom against the number the refusal
   states rather than pinning the number.
 - **`SINGLE` cardinality and the declared value type are enforced server-side**, each refused with

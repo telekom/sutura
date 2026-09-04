@@ -385,7 +385,7 @@ fn a_key_inside_an_anchor_range_is_refused_through_the_load_path() {
 /// closed past the measure: `docs/adr/0011` leaves no other route by which any of these could
 /// attach to a metric this adapter defines.
 #[test]
-fn the_rest_of_a_metric_rides_the_deployment_defined_namespace() {
+fn the_rest_of_a_metric_rides_the_deployment_defined_property() {
     let corpus = corpus();
     let snapshot = Snapshot::new(
         corpus.datasets().to_vec(),
@@ -475,7 +475,7 @@ fn the_rest_of_a_metric_rides_the_deployment_defined_namespace() {
 /// for - absent or many-to-many - is still refused naming it, because the `N_N` default makes
 /// an unconsidered relationship indistinguishable from a considered one (`docs/adr/0016` decision
 /// 5). A metric DECLARING a dimension `via` such a relationship is the part that observes
-/// `Cardinality`; that is the `the_rest_of_a_metric_rides_the_deployment_defined_namespace`
+/// `Cardinality`; that is the `the_rest_of_a_metric_rides_the_deployment_defined_property`
 /// test's subject.
 fn relationship_with(cardinality: Option<Cardinality>) -> Snapshot {
     let corpus = corpus();
