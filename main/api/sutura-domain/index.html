@@ -5730,6 +5730,7 @@ a plan and cannot be built.</p>
 <li><code>NotLookup</code> - The leg meant to be the lookup leg is not a <code>LegPlan::Lookup</code>.</li>
 <li><code>SameSource</code> - Both legs name the same data system, which is a single-source question, not a federated one.</li>
 <li><code>KeyNotOnLeg</code> - An answer key names a column the leg it belongs to does not project.</li>
+<li><code>LeafDoesNotReaggregate</code> - A carried leaf names an aggregate the combine has no re-aggregating function for.</li>
 </ul>
 <h5 id="implements_91">Implements<a class="headerlink" href="#implements_91" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
@@ -5749,6 +5750,7 @@ value for.</p>
 <li><code>FloatLinkKey</code> - A link cell carried a floating-point key, which the ADR's float-key rule forbids.</li>
 <li><code>AmbiguousLink</code> - A link value had more than one lookup row, which would double every measure.</li>
 <li><code>NonNumericLeaf</code> - A leaf cell that was not a number reached a re-aggregating aggregate.</li>
+<li><code>MixedNumericLeaf</code> - A leaf column carried two numeric types, so no total or comparison over it is exact.</li>
 <li><code>Overflow</code> - A leaf total overflowed a 64-bit integer.</li>
 <li><code>UnsupportedAggregate</code> - An aggregate the combiner does not know how to re-aggregate with.</li>
 <li><code>ResourcesExhausted</code> - Materialising the answer crossed the byte budget <code>docs/adr/0009</code> applies at the conversion boundary.</li>
