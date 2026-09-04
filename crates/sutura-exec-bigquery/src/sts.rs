@@ -125,6 +125,13 @@ pub struct WorkloadIdentityBroker<E> {
     exchange: E,
     impersonating: BTreeMap<SourceName, WorkloadIdentity>,
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
+    /// How much life a minted credential must leave for one answer, in seconds.
+    ///
+    /// The FLOOR `docs/adr/0008` part 6 puts in the broker adapter - the only component with both a
+    /// clock and the configured query timeout. An exchanged credential that would age out *during*
+    /// the answer is refused here as `Minted::Refused` rather than presented and left to fail at the
+    /// source mid-query, where there is nothing for sutura to refuse.
+    floor_seconds: u64,
 }
 
 /// A defect in this broker itself.
@@ -145,17 +152,37 @@ pub enum ExchangeUnusable {
         #[source]
         cause: sutura_domain::identity::CredentialsDoNotCoverThePlan,
     },
+    /// This process could not read a wall clock, so the expiry floor could not be applied.
+    #[error("this process could not read the time, so the exchanged-token expiry floor could not be applied")]
+    NoClock {
+        #[source]
+        cause: std::time::SystemTimeError,
+    },
 }
 
 impl<E> WorkloadIdentityBroker<E> {
     /// An empty broker. The two `with_*` constructors add the per-source halves.
+    ///
+    /// **No floor**, which is the honest default for a broker whose caller has not said how long a
+    /// query may take: `floor_seconds` of zero refuses nothing, so an expiry that far in the past is
+    /// still caught only by the domain's `Expiry::passed_by` check, not by this adapter's floor.
     #[must_use]
     pub const fn empty(exchange: E) -> Self {
         Self {
             exchange,
             impersonating: BTreeMap::new(),
             shared: BTreeMap::new(),
+            floor_seconds: 0,
         }
+    }
+
+    /// Declares the expiry FLOOR: the minimum life, in seconds, a minted credential must have left
+    /// for one answer (the configured query timeout). A composition root that knows the timeout wires
+    /// it here; a test that does not want one leaves the default.
+    #[must_use]
+    pub const fn with_floor(mut self, floor_seconds: u64) -> Self {
+        self.floor_seconds = floor_seconds;
+        self
     }
 
     /// Declares a source this broker mis as the deployment's own shared identity.
@@ -200,7 +227,10 @@ where
         let assertion = context.assertion();
 
         let mut presented = BTreeMap::new();
-        let mut deadlines: Vec<Expiry> = Vec::new();
+        // The exchanged deadlines and the source each came from, so the FLOOR can name the source
+        // whose credential would age out mid-answer. A shared leg contributes nothing - a static
+        // credential never expires, which is the case `clears_floor` answers without a clock read.
+        let mut deadlines: Vec<(SourceName, Expiry)> = Vec::new();
         for source in sources.iter() {
             if let Some(declared) = self.shared.get(source) {
                 drop(presented.insert(
@@ -223,7 +253,7 @@ where
                 .exchange
                 .exchange(workload.audience(), workload.scope(), assertion)
                 .map_err(|cause| ExchangeUnusable::Provider { cause: Box::new(cause) })?;
-            deadlines.push(credential.not_after());
+            deadlines.push((source.clone(), credential.not_after()));
             drop(presented.insert(
                 source.clone(),
                 Presented::SubjectToken {
@@ -231,13 +261,43 @@ where
                 },
             ));
         }
-        // One deadline for the whole answer, from the earliest exchange. Nothing from configuration
-        // contributes - a static credential has no lifetime - which `Expiry::earliest` already has
-        // `NothingExpires` as its fold identity for.
-        let not_after = Expiry::earliest(deadlines);
+        // **One deadline for the whole answer, from the earliest exchange** - the field an audit
+        // record names. Nothing from configuration contributes, which `Expiry::earliest`'s
+        // `NothingExpires` identity already folds away; the per-source pair is folded here so the
+        // FLOOR can name the source it refuses.
+        let not_after = Expiry::earliest(deadlines.iter().map(|(_, expiry)| *expiry));
+        // **The FLOOR, `docs/adr/0008` part 6, and it is why `with_floor` exists:** this broker
+        // refuses to hand back a credential already inside the floor rather than presenting it and
+        // letting a leg fail at the source mid-query. It lives here because this is the component
+        // with both a clock and (via the composition root) the configured query timeout. The clock is
+        // read only when there is an exchanged deadline - `clears_floor` answers `NothingExpires`
+        // without one.
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|cause| ExchangeUnusable::NoClock { cause })?
+            .as_secs();
+        if let Some((source, _)) = deadlines
+            .iter()
+            .find(|(_, expiry)| !clears_floor(*expiry, now_unix, self.floor_seconds))
+        {
+            return Ok(Minted::Refused { source: source.clone() });
+        }
         LegCredentials::minted(context.chain().subject().clone(), not_after, sources, presented)
             .map(|credentials| Minted::Granted { credentials })
             .map_err(|cause| ExchangeUnusable::Coverage { cause })
+    }
+}
+
+/// Does `not_after` leave enough life for an answer that may take `floor_seconds`, after `now`?
+///
+/// **The FLOOR comparison, written once and purely**, so a composition root can wire a query timeout
+/// as the floor and the timeout's exact semantics are testable with fixed instants rather than against
+/// a wall clock. `NothingExpires` always clears the floor - a static credential has no deadline to
+/// age out - and a deadline clears it when it is at least a full floor away.
+const fn clears_floor(not_after: Expiry, now_unix_seconds: u64, floor_seconds: u64) -> bool {
+    match not_after.unix_seconds() {
+        None => true,
+        Some(unix) => unix >= now_unix_seconds.saturating_add(floor_seconds),
     }
 }
 
@@ -380,5 +440,53 @@ mod tests {
         assert_eq!(first, "exchanged-for-subject-a");
         assert_eq!(second, "exchanged-for-subject-b");
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn the_floor_is_a_pure_comparison_readable_with_fixed_instants() {
+        use super::clears_floor;
+        let now = 1_800_000_000u64;
+        // A static credential never expires, so it always clears any floor.
+        assert!(clears_floor(Expiry::NothingExpires, now, u64::MAX));
+        // Exactly the floor left is enough; one second less is refused.
+        assert!(clears_floor(Expiry::At { unix_seconds: now + 30 }, now, 30));
+        assert!(!clears_floor(Expiry::At { unix_seconds: now + 29 }, now, 30));
+        // An already-passed deadline is inside any positive floor.
+        assert!(!clears_floor(Expiry::At { unix_seconds: now }, now, 30));
+        // A zero floor refuses nothing that is not already past, matching the default constructor.
+        assert!(clears_floor(Expiry::At { unix_seconds: now + 1 }, now, 0));
+    }
+
+    #[test]
+    fn a_credential_inside_the_floor_is_refused_rather_than_presented() {
+        // The broker-level half of the floor, and it is deterministic without a wall clock: a floor
+        // of `u64::MAX` makes the fake's far-future expiry (2027) a credential already inside the
+        // floor, so minting has to refuse naming the source rather than present it and let the leg
+        // fail at the source mid-query.
+        let broker = WorkloadIdentityBroker::empty(FakeExchange::default())
+            .with_floor(u64::MAX)
+            .impersonating(
+                source("warehouse"),
+                WorkloadIdentity::of(String::from("audience"), String::from("scope")),
+            );
+        let minted = broker
+            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
+            .expect("a refusal is an Ok");
+        assert!(matches!(minted, Minted::Refused { source } if source.as_str() == "warehouse"));
+    }
+
+    #[test]
+    fn a_floor_does_not_refuse_a_source_whose_deadline_clears_it() {
+        // The control beside the refusal above, and it is what keeps the refusal leg honest: with
+        // the default (zero) floor the same far-future expiry is granted, so the previous test's red
+        // is the floor and not a broken mint.
+        let broker = WorkloadIdentityBroker::empty(FakeExchange::default()).impersonating(
+            source("warehouse"),
+            WorkloadIdentity::of(String::from("audience"), String::from("scope")),
+        );
+        let minted = broker
+            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
+            .expect("the exchange does not fail");
+        assert!(matches!(minted, Minted::Granted { .. }));
     }
 }

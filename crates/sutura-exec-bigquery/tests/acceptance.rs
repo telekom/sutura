@@ -103,6 +103,10 @@
 //! | `SUTURA_BQ_BILLING_PROJECT` | the project the job is billed to; **only where the credential names none** | both |
 //! | `SUTURA_BQ_DATASET` | the dataset an unqualified table resolves in, inside that project | both |
 //! | `SUTURA_BQ_TABLE` | a table in it with a `DATE` column `day` and an `INT64` column `amount` | this one |
+//! | `SUTURA_BQ_WIF_AUDIENCE` | the workload identity pool provider audience the asker's token is exchanged against | the two-subjects leg |
+//! | `SUTURA_BQ_WIF_SCOPE` | the scope the exchanged credential is minted for | the two-subjects leg |
+//! | `SUTURA_BQ_SUBJECT_A_TOKEN` | principal A's own OIDC `id_token`, whose grant sees one row | the two-subjects leg |
+//! | `SUTURA_BQ_SUBJECT_B_TOKEN` | principal B's own OIDC `id_token`, whose grant sees the other row | the two-subjects leg |
 //!
 //! The table's shape is two columns because that is the smallest thing a real plan can be asked
 //! about: a time bucket needs a `DATE`, and a measure needs something to sum. **A `TIMESTAMP` will
@@ -152,6 +156,13 @@ mod tests {
     };
     use sutura_domain::warehouse::preflight::TablesPresent;
     use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse};
+
+    use sutura_domain::identity::{
+        Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
+    };
+    use sutura_domain::source::SourcePosture;
+    use sutura_exec_bigquery::wire::{BigQueryWire, StsOverHttp, WireAgent};
+    use sutura_exec_bigquery::{BigQueryWarehouse, WorkloadIdentity, WorkloadIdentityBroker};
 
     use sutura_app::Warehouses;
     use sutura_app::preflight::{Verdict, ask};
@@ -250,6 +261,51 @@ mod tests {
 
     fn source() -> SourceName {
         SourceName::parse("warehouse").expect("a source name is a source name")
+    }
+
+    /// The two-principal leg's own environment: the two subjects' tokens and the provider to exchange
+    /// them against, or `None` when none of it is set.
+    ///
+    /// **`None` means SKIP, and that is a deliberate narrowing of these legs' fail-on-missing.** The
+    /// legs here run in a job that always has their environment (`GOOGLE_APPLICATION_CREDENTIALS` +
+    /// `SUTURA_BQ_DATASET`/`TABLE`), so an absent value there is a misconfiguration. This leg's
+    /// environment belongs to the workload-identity infra (`#106`/`#122`/`#123`) which does not land
+    /// with this change, so before it exists a hard failure would red a LIVE acceptance job for a
+    /// feature nobody configured. Hence: all four absent -> skip; all four present -> run; anything
+    /// partial -> panic naming the state, because a half-configured exchange is a misconfiguration
+    /// and must not silently pass.
+    ///
+    /// No value is returned raw into an assertion; each is a string that heads into a request away
+    /// from this repository.
+    fn subjects_env() -> Option<SubjectsEnvironment> {
+        let read = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
+        let subject_a = read("SUTURA_BQ_SUBJECT_A_TOKEN");
+        let subject_b = read("SUTURA_BQ_SUBJECT_B_TOKEN");
+        let audience = read("SUTURA_BQ_WIF_AUDIENCE");
+        let scope = read("SUTURA_BQ_WIF_SCOPE");
+        match (&subject_a, &subject_b, &audience, &scope) {
+            (None, None, None, None) => None,
+            (Some(a), Some(b), Some(aud), Some(sc)) => Some(SubjectsEnvironment {
+                subject_a: a.clone(),
+                subject_b: b.clone(),
+                audience: aud.clone(),
+                scope: sc.clone(),
+            }),
+            _ => panic!(
+                "the two-subjects leg is partially configured: set all four of SUTURA_BQ_SUBJECT_A_TOKEN, \
+                 SUTURA_BQ_SUBJECT_B_TOKEN, SUTURA_BQ_WIF_AUDIENCE and SUTURA_BQ_WIF_SCOPE, or remove them \
+                 all - a half-configured exchange must not pass"
+            ),
+        }
+    }
+
+    /// The two principals and the provider, as one value so the four-read guard and its users cannot
+    /// disagree about which combination is complete.
+    struct SubjectsEnvironment {
+        subject_a: String,
+        subject_b: String,
+        audience: String,
+        scope: String,
     }
 
     /// [`NO_SUCH_TABLE`], parsed - the bare name, for a caller that qualifies it itself.
@@ -814,5 +870,132 @@ mod tests {
             .next()
             .expect("a vector of one has a first element")
             .into_verdict()
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project with a Workload Identity Federation provider and two granted principals, named in the developer's own environment"]
+    fn two_subjects_with_different_grants_read_two_different_row_sets() {
+        // **The acceptance criterion issue 87 exists to make provable, and AGENTS.md used to say it
+        // "still does not exist and still cannot".** A deployment can name the subject in every audit
+        // record and still read every row as one identity; this leg is the thing that separates an
+        // answer whose `ExecutedAs` records a genuinely impersonated leg from one recording the
+        // deployment's own identity.
+        //
+        // The shape: TWO principals with deliberately different row-level grants (one row visible to
+        // A and not to B), each asking the SAME plan through the composed composition this repository
+        // SHIPS - the exchanging broker and the adapter over the wire to a real STS and dataset. The
+        // dataset's row access policy is what makes the two answers differ; the exchange is what makes
+        // each answer run as its asker rather than as the process.
+        //
+        // **It needs the workload-identity infra the repository does not land with this change**
+        // (`#106`/`#122`/`#123`: the pool, the provider, the two principals and the row policy), so it
+        // is `#[ignore]`d and guarded by [`subjects_env`]: it SKIPS while that infrastructure is not
+        // configured (none of its variables set), and FAILS on a partial configuration, which is a
+        // misconfiguration rather than an absent feature. No identifier, token or provider name is
+        // written here; each is read from the runner's own environment.
+        let Some(env_vars) = subjects_env() else {
+            // Reaching this line is `just bigquery-acceptance` against a project with no WIF provider
+            // declared - the state before the infra in `#106`/`#122`/`#123` lands. Skipping is the
+            // honest answer for a job that has no principal to ask with, and it is narrower than the
+            // other legs' fail-on-missing because THIS leg's environment is a separate deployment from
+            // the one those legs need.
+            eprintln!("SKIPPED - two-subjects leg: no SUTURA_BQ_* workload-identity variables set, so there is no provider to exchange against");
+            return;
+        };
+        // The two principals' own tokens and the provider, taken out of the guarded value so the rest
+        // of this leg reads them as plain values.
+        let SubjectsEnvironment {
+            subject_a,
+            subject_b,
+            audience,
+            scope,
+        } = env_vars;
+        let fixture = Fixture::required();
+        let table = fixture.unqualified();
+        let plan = plan(&table);
+        let connection = fixture.connection;
+        let bounds = bounds();
+
+        // The running composition, exactly as `sutura-serve`'s `broker::build_broker` and
+        // `build_bigquery` compose it: one pinned agent and bounds behind both the exchange and the
+        // wire, the broker exchanging each principal's own token into the leg, and the adapter opened
+        // under the `impersonation-at-source` posture that accepts a subject token as the job's bearer.
+        let agent = WireAgent::pinned(bounds);
+        let broker = WorkloadIdentityBroker::empty(StsOverHttp::new(agent))
+            .with_floor(30)
+            .impersonating(source(), WorkloadIdentity::of(audience, scope));
+        let warehouse = BigQueryWarehouse::new(
+            source(),
+            SourcePosture::ImpersonationAtSource,
+            connection.billing_project,
+            connection.dataset,
+            BigQueryWire::new(WireAgent::pinned(bounds), connection.credentials),
+        );
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("a clock that reads the present")
+            .as_secs();
+        // One subject id per principal: the token is what Google's STS sees and exchanges, and the
+        // subject id is what this answer is recorded as, so they have to be told apart here. The
+        // subject is rebuilt for the agreement check rather than shared by reference - `request`
+        // consumes the chain, exactly as the broker's own suite builds it twice.
+        let rows_for = |token: &str, id: &str| -> Vec<(String, String)> {
+            let chain = |id: &str| {
+                PrincipalChain::of(Subject::Verified {
+                    id: SubjectId::parse(id).expect("a subject id parses"),
+                })
+            };
+            let context = RequestContext::with_assertion(chain(id), Secret::new(String::from(token)));
+            let minted = broker
+                .mint(&context, &SourceSet::of(source()))
+                .expect("the exchange answered - an error here is a provider that refused, not a grant");
+            let agreed = minted
+                .agreeing_with(chain(id).subject(), &SourceSet::of(source()), now)
+                .expect("the grant agrees with the request");
+            let Agreed::Granted { credentials } = agreed else {
+                panic!("an impersonating source with an assertion is granted");
+            };
+            let presented = credentials.presented_for(&source()).expect("a leg");
+            // The presentation owns a `Secret`, and the grant lent it by reference; the clone hands
+            // one leg its own credential without disturbing the grant's record.
+            let Presented::SubjectToken { material } = presented else {
+                panic!("an impersonating source gets a subject token");
+            };
+            let rows = warehouse
+                .execute(
+                    Executable::Query(&plan),
+                    &Presented::SubjectToken {
+                        material: material.clone(),
+                    },
+                )
+                .expect("the endpoint answered the query");
+            let mut answered: Vec<(String, String)> = Vec::new();
+            for row in rows.rows() {
+                let (Some(period), Some(total)) = (row.first(), row.get(1)) else {
+                    panic!("a two-column row has two cells");
+                };
+                answered.push((period.render(), total.render()));
+            }
+            answered.sort();
+            answered
+        };
+
+        let from_a = rows_for(&subject_a, "principal-a@example.com");
+        let from_b = rows_for(&subject_b, "principal-b@example.com");
+        assert!(!from_a.is_empty(), "principal A's grant must see at least one row, or the fixture is wrong");
+        assert!(!from_b.is_empty(), "principal B's grant must see at least one row, or the fixture is wrong");
+        // The claim this leg exists to make: two grants, two row sets. If a service answered both as
+        // the deployment's own identity - reading every row as one identity - these would be equal.
+        assert_ne!(
+            from_a, from_b,
+            "two principals with deliberately different grants must read different row sets"
+        );
+        // One row visible to A and not to B (the fixture the issue specifies), rather than an
+        // ordering accident across two otherwise identical sets.
+        assert!(
+            from_a.iter().any(|row| !from_b.contains(row)),
+            "the grant difference must be visible in the rows themselves, not an accident of the answer's shape"
+        );
     }
 }
