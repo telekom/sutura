@@ -26,9 +26,17 @@
 //!
 //! Text, in the order it appears, for `pins.rs`'s reason: a gate has to run on a host with no nix and
 //! no resolver. Per root it finds three call sites - the one that opens the adapters, the pre-flight,
-//! and the one that opens the transport - and requires them in that order. Comments, string interiors
-//! and test regions come out first, through the two readers the other Rust-reading gates use, so the
-//! prose that NAMES these calls cannot satisfy an anchor the code lost.
+//! and the one that opens the transport - and requires them in that order. Comments, MULTI-LINE string
+//! interiors and test regions come out first, through the two readers the other Rust-reading gates
+//! use, so the prose that NAMES these calls cannot satisfy an anchor the code lost.
+//!
+//! **A single-line string literal is NOT removed**, and that is a deliberate property of the shared
+//! lexer rather than an oversight in it: `serde_parse::scan` keeps a one-line string's content because
+//! a `try_from = "String"` is one and the value is the point. The consequence here is that a one-line
+//! literal naming one of these three calls is a live anchor to this gate - `eprintln!("open_engine(
+//! refused")` above the real `open_engine(` loosens the comparison and reads GREEN, and the same
+//! literal naming the transport call reads red. Neither root contains such a literal today, checked
+//! over every occurrence of all three needles, so this is a limit and not an open hole.
 //!
 //! # Three limits, stated next to the claim
 //!
@@ -73,11 +81,16 @@ use crate::serde_parse::scan::code_lines;
 
 /// The pre-flight's spelling, and the one needle both halves of this gate use.
 ///
-/// One constant rather than a field per root: the two roots reach the same function under two paths -
-/// `boot::refuse_absent_tables` and a re-export - and the shorter is a suffix of the longer, so a
-/// second spelling would only be a second thing to keep true. It is also what [`scan`] looks for,
-/// which is what makes a rename ONE failure instead of a half-updated pair.
-const PREFLIGHT: &str = "refuse_absent_tables(";
+/// One constant rather than a field per root, and the honest reason is weaker than "one function":
+/// the two roots call the same NAME in two crates. There are two definitions, one in
+/// `sutura_serve::boot` and one in `sutura_cli::sources::bigquery`, each with its own body and its
+/// own suite, both delegating to `sutura_app::preflight::ask`, which is the actually-shared thing.
+/// `sutura_cli::sources` re-exports its OWN one, not the serve crate's.
+///
+/// So this constant rests on a naming convention rather than on a type, which is a more fragile
+/// property than it first reads and is exactly why the spelling limit below is stated: a caller is
+/// found by matching text, so a caller that spells the name differently is not found at all.
+const PREFLIGHT: &str = "refuse_absent_tables";
 
 /// One composition root, and the call sites whose order it keeps.
 ///
@@ -98,6 +111,23 @@ struct Root {
 
 /// Every root that makes a pre-flight. A root added without an entry here is caught by
 /// [`every_caller_is_declared`]; one whose call sites are renamed is caught by [`ordered`].
+///
+/// **The catch is spelling-bound, and one spelling is now refused rather than merely admitted.**
+/// [`every_caller_is_declared`] finds a caller by matching [`PREFLIGHT`] as text, so a third root
+/// that called the pre-flight under a different spelling would leave `found` equal to the same two
+/// files - non-empty, all declared, `ok` - which is the very hole that check exists to close. Two
+/// spellings reach it:
+///
+/// * a **turbofish**, `refuse_absent_tables::<W>(...)`. Now caught: [`PREFLIGHT`] is the bare name,
+///   so it no longer depends on the call's next character being `(`.
+/// * an **alias**, `use crate::sources::refuse_absent_tables as preflight;`. Text matching cannot
+///   follow a rename, so this is refused outright by [`no_caller_hides_behind_an_alias`] instead -
+///   and it is one keystroke from an idiom already in this tree, since `sutura_cli::sources`
+///   re-exports this function precisely because a root wanted a shorter path.
+///
+/// What remains uncovered, stated because the rest of this module is about not overstating a gate: a
+/// root that calls the pre-flight through a function pointer, a trait method or a macro-generated
+/// call. Nothing in this tree does, and no text scan could see it.
 const ROOTS: &[Root] = &[
     Root {
         path: "crates/sutura-serve/src/main.rs",
@@ -126,22 +156,32 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
     println!(
-        "xtask check-boot-order: ok - {} composition root(s) call the pre-flight in {scanned} file(s) under crates/, all declared, each with its call site after the credential's and before the transport's",
-        ROOTS.len()
+        "xtask check-boot-order: ok - {} composition root(s) call the pre-flight in {} file(s) under crates/, all declared, each with its call site after the credential's and before the transport's",
+        scanned.callers, scanned.read
     );
     Verdict::Pass
 }
 
-/// Which roots there are, and whether each one keeps the order. Returns how many files were read,
-/// which is what puts a scan that read nothing in the verdict line rather than leaving it implied.
+/// Which roots there are, and whether each one keeps the order. Returns what the SCAN counted - both
+/// numbers - which is what puts a scan that read nothing in the verdict line rather than leaving it
+/// implied.
+///
+/// The caller count printed is the scan's and not `ROOTS.len()`. The two are provably equal by the
+/// time this returns, since [`ordered`] fails a declared root that does not call the pre-flight and
+/// [`every_caller_is_declared`] fails a caller that is not declared - so the old line was honest. It
+/// is the scan's number anyway, because this gate's entire history is a verdict line claiming more
+/// than was measured, and printing the measurement costs nothing.
 ///
 /// One `Result` rather than a print-and-return block per failure: the task name and the paragraph
 /// under it are then written once, which is `api_docs`'s shape and the reason it has it.
-fn check() -> Result<usize, String> {
+fn check() -> Result<Counted, String> {
     let repo::RepoFiles { root, files } = repo::all_files().ok_or_else(|| String::from("could not locate the repo root"))?;
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
     let found = scan(&files, &read)?;
     every_caller_is_declared(&declared(), &found.callers)?;
+    // After the omission cross-check and not before it: this one exists to keep that check's text
+    // matching honest, so it reads as the guard on the line above rather than a rule of its own.
+    no_caller_hides_behind_an_alias(&files, &read)?;
     for composition in ROOTS {
         let text = read(composition.path).ok_or_else(|| {
             format!(
@@ -152,7 +192,10 @@ fn check() -> Result<usize, String> {
         })?;
         ordered(composition, &text, &regions::scope(composition.path, &read))?;
     }
-    Ok(found.read)
+    Ok(Counted {
+        callers: found.callers.len(),
+        read: found.read,
+    })
 }
 
 /// The paths [`ROOTS`] declares, for comparison against what the tree actually calls.
@@ -169,6 +212,52 @@ struct Scan {
     callers: Vec<String>,
     /// How many Rust files under `crates/` were read to find them.
     read: usize,
+}
+
+/// What the scan counted, so the verdict line prints a measurement rather than a declaration.
+struct Counted {
+    /// Files whose code calls the pre-flight.
+    callers: usize,
+    /// Rust files under `crates/` that were read to find them.
+    read: usize,
+}
+
+/// An alias defeats the omission cross-check, so a `use ... as` on the pre-flight is refused.
+///
+/// [`every_caller_is_declared`] finds a caller by matching [`PREFLIGHT`] as text. A rename at the
+/// import - `use crate::sources::refuse_absent_tables as preflight;` - means the call site spells
+/// something this gate has never heard of, so a third root written that way leaves `found` equal to
+/// the two files already declared: non-empty, all declared, `ok`. That is the omission the scan
+/// exists to catch, walking straight past it.
+///
+/// Text matching cannot follow a rename, so the rename is refused instead of chased. The cost is one
+/// forbidden idiom, and the alternative was a limit nobody would read: this tree already re-exports
+/// this function once, so the aliasing form is one keystroke away.
+///
+/// Not a style rule - it is scoped to this one name, and only to a form that renames it.
+fn no_caller_hides_behind_an_alias(files: &[String], read: &PostImage<'_>) -> Result<(), String> {
+    for rel in files.iter().filter(|rel| in_scope(rel)) {
+        let Some(text) = read(rel) else { continue };
+        if !text.contains(PREFLIGHT) {
+            continue;
+        }
+        let tests = regions::scope(rel, read);
+        for (index, line) in code_lines(&text).iter().enumerate() {
+            let number = index.saturating_add(1);
+            if tests.covers(number) {
+                continue;
+            }
+            if imports(line) && line.contains(PREFLIGHT) && line.contains(" as ") {
+                return Err(format!(
+                    "{rel}:{number} imports `{PREFLIGHT}` under another name. This gate finds a root \
+                     that omitted the pre-flight by matching that name as text, so a call spelled \
+                     differently is invisible to it - import the name as itself, or make the order a \
+                     type rather than a citation"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Every file whose CODE calls the pre-flight, and how many files were read.
@@ -189,8 +278,15 @@ fn scan(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
         })?;
         count = count.saturating_add(1);
         // Before the lexer, because it only ever REMOVES text: a file whose raw bytes do not carry the
-        // call cannot carry it once comments and string interiors are blanked. Two files under
-        // `crates/` carry the needle and 213 do not, so this skips the lex for all but two.
+        // call cannot carry it once comments and string interiors are blanked. **Four** files under
+        // `crates/` carry the needle and 211 do not, so this skips the lex for all but four.
+        //
+        // Four and not two, and the difference is instructive: this is a raw `contains`, so it admits
+        // the two files whose only occurrences are inside `#[cfg(test)]` regions. That is a
+        // POST-LEXER fact and a `contains` cannot know it. An earlier version of this comment read
+        // "two", derived from the verdict line's own `2` - but that number counts CALLERS, after the
+        // lexer and the region scan, so the derivation was the error rather than the count.
+        // `git grep -l "refuse_absent_tables" -- 'crates/**/*.rs'` is the check.
         if !text.contains(PREFLIGHT) {
             continue;
         }
@@ -297,15 +393,41 @@ fn call_line(code: &[String], tests: &TestScope, call: &str) -> Option<usize> {
     })
 }
 
-/// Whether the occurrence at `at` is this call's own signature rather than a call to it.
+/// Whether the occurrence at `at` is a DEFINITION or an IMPORT rather than a call to it.
+///
+/// Two shapes, and the second arrived with the needle. [`PREFLIGHT`] is the bare name so a turbofish
+/// cannot evade the scan, and the cost of dropping the `(` is that `fn refuse_absent_tables<W>` and
+/// `use crate::sources::refuse_absent_tables;` now match it too - neither of which calls anything.
+/// The definitions live in the two crates that own them and the import sits in a root that is already
+/// declared, so admitting either would report a caller that is not one.
+///
+/// `ends_with("fn")` is checked on the whitespace-trimmed prefix, so `pub(crate) fn` is a definition
+/// and a variable ending in the letters `fn` is not - the token is compared, not the suffix.
 fn defines(line: &str, at: usize) -> bool {
-    line.get(..at).unwrap_or_default().trim_end().ends_with("fn")
+    let before = line.get(..at).unwrap_or_default().trim_end();
+    before.split_whitespace().last() == Some("fn") || imports(line)
+}
+
+/// Is this line a `use` item?
+///
+/// The visibility prefix is the part worth spelling out: this tree's re-export is
+/// `pub(crate) use bigquery::refuse_absent_tables;`, so a `starts_with("use ")` misses it and reports
+/// the re-export as a third caller - which is a red gate on an honest tree. Tokens are compared
+/// rather than the string prefixed, so `pub`, `pub(crate)` and `pub(super)` are all one case.
+fn imports(line: &str) -> bool {
+    let mut tokens = line.split_whitespace();
+    match tokens.next() {
+        Some("use") => true,
+        Some(first) if first.starts_with("pub") => tokens.next() == Some("use"),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        PREFLIGHT, ROOTS, Root, TestScope, call_line, code_lines, declared, every_caller_is_declared, ordered, regions, scan,
+        PREFLIGHT, ROOTS, Root, TestScope, call_line, code_lines, declared, every_caller_is_declared,
+        no_caller_hides_behind_an_alias, ordered, regions, scan,
     };
 
     /// The HTTP root's path, which the fixture below stands in for.
@@ -368,6 +490,65 @@ mod tests {
             let tests = regions::scope(composition.path, &read);
             assert_eq!(ordered(composition, &text, &tests), Ok(()), "{}", composition.path);
         }
+    }
+
+    /// The needle is the bare name, so the spelling a turbofish produces is still a call.
+    ///
+    /// Red against the previous needle by construction: it was `refuse_absent_tables(`, and
+    /// `refuse_absent_tables::<W>(` does not contain it - so a third root written this way was
+    /// invisible to the omission cross-check that exists to find exactly that root.
+    #[test]
+    fn a_turbofish_call_is_still_a_call() {
+        let code = code_lines("    boot::refuse_absent_tables::<W>(&pinned, &engines)?;\n");
+        assert_eq!(call_line(&code, &TestScope::Regions(Vec::new()), PREFLIGHT), Some(1));
+    }
+
+    /// A definition and an import are not calls, which the bare needle would otherwise admit.
+    #[test]
+    fn a_definition_and_an_import_are_not_calls() {
+        for line in [
+            "pub(crate) fn refuse_absent_tables<W>(pinned: &Pinned) -> Result<(), String> {\n",
+            "use crate::sources::refuse_absent_tables;\n",
+            "    use crate::boot::refuse_absent_tables;\n",
+        ] {
+            let code = code_lines(line);
+            assert_eq!(call_line(&code, &TestScope::Regions(Vec::new()), PREFLIGHT), None, "{line}");
+        }
+    }
+
+    /// The alias form is refused, because text matching cannot follow a rename.
+    #[test]
+    fn importing_the_preflight_under_another_name_is_refused() {
+        let aliased = "use crate::sources::refuse_absent_tables as preflight;\nfn run() { preflight(&p, &e); }\n";
+        let files = vec![String::from("crates/sutura-cli/src/other.rs")];
+        let read = |path: &str| (path == "crates/sutura-cli/src/other.rs").then(|| String::from(aliased));
+
+        let refused = no_caller_hides_behind_an_alias(&files, &read);
+        let why = refused.expect_err("an aliased import defeats the cross-check and must be refused");
+        assert!(why.contains("under another name"), "{why}");
+        assert!(why.contains("crates/sutura-cli/src/other.rs:1"), "{why}");
+    }
+
+    /// And the honest import is NOT refused - the rule is scoped to a rename, not to importing.
+    ///
+    /// Without this the check would ban the re-export this tree already has, which is the shape that
+    /// turns a targeted refusal into a style rule nobody can satisfy.
+    #[test]
+    fn importing_the_preflight_as_itself_is_allowed() {
+        let plain = "pub(crate) use bigquery::refuse_absent_tables;\n";
+        let files = vec![String::from("crates/sutura-cli/src/sources.rs")];
+        let read = |path: &str| (path == "crates/sutura-cli/src/sources.rs").then(|| String::from(plain));
+        assert_eq!(no_caller_hides_behind_an_alias(&files, &read), Ok(()));
+    }
+
+    /// The real tree carries no alias, so the check above is not vacuous on it.
+    #[test]
+    fn the_tree_itself_holds_no_aliased_import_of_the_preflight() {
+        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
+            return;
+        };
+        let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+        assert_eq!(no_caller_hides_behind_an_alias(&files, &read), Ok(()));
     }
 
     #[test]
