@@ -794,8 +794,8 @@
         # `GOOGLE_APPLICATION_CREDENTIALS` at a credential file, plus `SUTURA_BQ_DATASET` and
         # `SUTURA_BQ_TABLE`. The billing project comes from a service-account key's own
         # `project_id`, so CI configures no project variable. `--run-ignored only` is what reaches
-        # the `#[ignore]`d tests - every one in the crate, not a listed set, so a test added there is
-        # reached without editing this comment; every other task skips them.
+        # the `#[ignore]`d tests - every one in the targets this app runs, not a listed set, so a
+        # test added there is reached without editing this comment; every other task skips them.
         #
         # **The `two_principals` binary is filtered OUT here and run by its own app below.** The
         # filter is on the BINARY and not on a test list, so the property the paragraph above

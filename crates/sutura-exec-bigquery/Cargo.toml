@@ -95,9 +95,10 @@ required-features = ["wire", "fixtures"]
 # `CREATE OR REPLACE TABLE`, which drops a table's row access policies - so the loader that seeds the
 # corpus would disarm the grant this cell asserts on. The file's header carries that argument.
 #
-# It is NOT picked up by `nix run .#bigquery-acceptance`: that app runs every `#[ignore]`d test in the
-# package, so this target has its own app and its own `just bigquery-two-principals`, and the
-# acceptance app filters it out. The reason is a developer's, not a purist's - this leg needs five
+# It is NOT picked up by `nix run .#bigquery-acceptance`: that app filters this BINARY out and this
+# target has its own app and its own `just bigquery-two-principals`. Filtering by binary rather than
+# by test name is what keeps *no list to extend* true of both: a test added to either target is
+# reached without a count anywhere. The reason is a developer's, not a purist's - this leg needs five
 # values and two key documents the other two do not, and one task that demanded all of them would
 # make the legs somebody CAN run unreachable.
 [[test]]

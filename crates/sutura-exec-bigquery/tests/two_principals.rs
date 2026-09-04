@@ -201,6 +201,16 @@ mod tests {
     }
 
     impl Principal {
+        /// The grouping values this principal's row access policy grants, as the set an answer is
+        /// compared against.
+        ///
+        /// One value today, and a SET rather than a `String` because what the cell asserts is that
+        /// the answer is made of nothing else - a comparison against one value would have to be
+        /// written as a loop at the assertion to say that.
+        fn entitled_to(&self) -> BTreeSet<String> {
+            BTreeSet::from([self.grants.clone()])
+        }
+
         /// The bearer this principal's own key mints, presented as this leg's subject credential.
         ///
         /// **This is issue #123's second bullet, and it reuses the crate's own credential rather than
@@ -244,6 +254,45 @@ mod tests {
         SourceName::parse("warehouse").expect("a source name is a source name")
     }
 
+    /// What both live legs need from the environment, read once.
+    ///
+    /// The `Fixture` shape `tests/acceptance.rs` uses, for the reason it gives: the two legs open
+    /// DIFFERENT warehouses over the same table and the same question, and two separately written
+    /// environment readings are two things that could drift into two different questions.
+    struct Fixture {
+        principals: Principals,
+        /// The column the two row access policies filter on, which is what the question projects.
+        group_column: String,
+        /// The CI credential and the billing project, pointed at the policied dataset.
+        connection: Connection,
+    }
+
+    impl Fixture {
+        /// The environment, or a panic naming what has to be set.
+        fn required() -> Self {
+            Self {
+                principals: Principals::required(),
+                group_column: named("SUTURA_BQ_GROUP_COLUMN", "the column the two row access policies filter on"),
+                connection: connection(),
+            }
+        }
+
+        /// The policied table, qualified into its own dataset.
+        ///
+        /// Qualified rather than bare so the path in the statement names the dataset outright: the
+        /// question is which rows a principal reads, and a table resolved by a job default would
+        /// leave *which table* as a second thing a failure could mean.
+        fn table(&self) -> QualifiedTable {
+            QualifiedTable::new(
+                Some(TableQualifier::in_dataset(
+                    DatasetName::parse(self.connection.dataset.as_str()).expect("a dataset id is also a dataset name"),
+                )),
+                TableName::parse(named("SUTURA_BQ_RLS_TABLE", "the table the two row access policies are on"))
+                    .expect("a table name parses"),
+            )
+        }
+    }
+
     /// The connection, pointed at the dataset the row access policies are on.
     ///
     /// The CI credential and the billing project come from [`Connection::required`] - the same
@@ -257,21 +306,6 @@ mod tests {
         ))
         .expect("a dataset id parses");
         connection
-    }
-
-    /// The policied table, qualified into its own dataset.
-    ///
-    /// Qualified rather than bare so the path in the statement names the dataset outright: the
-    /// question is which rows a principal reads, and a table resolved by a job default would leave
-    /// *which table* as a second thing a failure could mean.
-    fn table(dataset: &DatasetId) -> QualifiedTable {
-        QualifiedTable::new(
-            Some(TableQualifier::in_dataset(
-                DatasetName::parse(dataset.as_str()).expect("a dataset id is also a dataset name"),
-            )),
-            TableName::parse(named("SUTURA_BQ_RLS_TABLE", "the table the two row access policies are on"))
-                .expect("a table name parses"),
-        )
     }
 
     /// The question, projecting the column the policies filter on.
@@ -367,17 +401,11 @@ mod tests {
         // DISJOINT (so neither leaked the other's), and neither is EMPTY (so the run is not two
         // vacuous greens over an unseeded table - which is the shape this cell would otherwise pass
         // as).
-        let principals = Principals::required();
-        // The two entitlements, named before anything is asked: what is compared is the answer
-        // against the POLICY's own value, and writing them here rather than at the assertion keeps
-        // the failure messages below able to quote them too.
-        let a_is_entitled_to = BTreeSet::from([principals.a.grants.clone()]);
-        let b_is_entitled_to = BTreeSet::from([principals.b.grants.clone()]);
-        let connection = connection();
-        let group_column = named("SUTURA_BQ_GROUP_COLUMN", "the column the two row access policies filter on");
-        let table = table(&connection.dataset);
-        let warehouse = impersonating(connection);
-        let plan = plan(&table, &group_column);
+        let fixture = Fixture::required();
+        let table = fixture.table();
+        let plan = plan(&table, &fixture.group_column);
+        let principals = fixture.principals;
+        let warehouse = impersonating(fixture.connection);
 
         // ONE plan value, borrowed twice. The statement is therefore the same statement, not two that
         // resemble each other - which is what makes a difference in the rows a difference in the
@@ -404,8 +432,16 @@ mod tests {
              The rows are the stack's: see test-infra/pulumi/google",
             principals.b.grants
         );
-        assert_eq!(a_saw, a_is_entitled_to, "principal A read rows outside its own grant");
-        assert_eq!(b_saw, b_is_entitled_to, "principal B read rows outside its own grant");
+        assert_eq!(
+            a_saw,
+            principals.a.entitled_to(),
+            "principal A read rows outside its own grant"
+        );
+        assert_eq!(
+            b_saw,
+            principals.b.entitled_to(),
+            "principal B read rows outside its own grant"
+        );
         assert!(
             a_saw.is_disjoint(&b_saw),
             "the two principals read overlapping rows, so nothing was filtered by identity"
@@ -425,12 +461,11 @@ mod tests {
         // alternative is a refusal. Either is *not reading either principal's rows*, so both are
         // accepted and the leg PRINTS which one it got. The first green run is what narrows this to
         // one sentence, and `docs/where-identity-is-proven.md` carries the open question until then.
-        let principals = Principals::required();
-        let connection = connection();
-        let group_column = named("SUTURA_BQ_GROUP_COLUMN", "the column the two row access policies filter on");
-        let table = table(&connection.dataset);
-        let warehouse = opened(source(), connection, bounds());
-        let plan = plan(&table, &group_column);
+        let fixture = Fixture::required();
+        let table = fixture.table();
+        let plan = plan(&table, &fixture.group_column);
+        let principals = fixture.principals;
+        let warehouse = opened(source(), fixture.connection, bounds());
 
         match warehouse.execute(Executable::Query(&plan), &presented()) {
             Ok(rows) => {
