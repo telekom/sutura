@@ -849,7 +849,7 @@ use sutura_dev::provisioned;
 let problem = provisioned::in_worktree(&std::env::temp_dir(), "postgres")
     .expect_err("nothing is provisioned in a temporary directory");
 assert_eq!(problem.service(), "postgres");
-assert!(problem.to_string().contains("just dev-up"), "{problem}");
+assert!(problem.to_string().contains("no default port"), "{problem}");
 ```
 
 ### `fn here`
