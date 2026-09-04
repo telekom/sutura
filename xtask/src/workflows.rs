@@ -38,6 +38,12 @@ use crate::Verdict;
 use crate::repo;
 use std::collections::BTreeSet;
 
+// One job of a workflow, and one step inside it. Its own module because what it reads is a
+// workflow's STRUCTURE rather than the flake references this file scans for, and two gates need
+// the same reader: `venues::acceptance` for the acceptance job's properties, and
+// `default_feature_tests` for whether a step still invokes it.
+pub(crate) mod step;
+
 /// Which output namespace a reference points into.
 ///
 /// `Runnable` and not `App`: `nix run .#name` resolves an app OR a package with a matching main

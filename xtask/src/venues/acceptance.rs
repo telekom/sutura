@@ -66,6 +66,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::workflows::step::job;
+
 /// The workflow that holds the acceptance venue's limit.
 pub(super) const WORKFLOW: &str = ".github/workflows/ci.yml";
 
@@ -103,22 +105,6 @@ const FEDERATION: &[&str] = &[
 /// adds two. Deliberately a window rather than the whole job: `exit 1` ANYWHERE used to satisfy
 /// this, so a guard downgraded to a `continue` beside an unrelated exit was invisible.
 const GUARD_WINDOW: usize = 6;
-
-/// One job's own lines, from its header to the next thing at the same indentation.
-///
-/// Two spaces is where a job's name sits and four is where its keys do, so a comment block
-/// introducing the NEXT job - which this file writes at two spaces - ends the block rather than
-/// joining it.
-fn job<'a>(text: &'a str, name: &str) -> Option<Vec<&'a str>> {
-    let header = format!("  {name}:");
-    let mut lines = text.lines().skip_while(|line| *line != header);
-    lines.next()?;
-    Some(
-        lines
-            .take_while(|line| line.trim().is_empty() || line.starts_with("    "))
-            .collect(),
-    )
-}
 
 /// The shell of every `run:` block in `block`.
 ///

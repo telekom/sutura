@@ -157,7 +157,7 @@ const TASKS: &[Task] = &[
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
         // rather than evaluated, one value that has to be the same in both.
         name: "check-warm-start",
-        description: "the causality gate builds where nix warms its target directory",
+        description: "the warmed target directory, its stamp and its profile are what reads them expect",
         kind: Kind::Hygiene(Reads::Code),
         run: warm_start::run,
     },

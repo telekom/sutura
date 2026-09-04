@@ -60,6 +60,14 @@
 //! mechanism, not the directory's name - and `just gates` stays on the developer's default profile
 //! with no argument at all.
 //!
+//! **The two literals the profile is derived from belong to `check-warm-start`.** [`STAMP`] and
+//! [`WARM_PROFILE`] are read from `warm_start`, and so is the pair of facts that makes reading them
+//! sound - the warmer writes the stamp into the directory it exports, and `flake.nix` builds the
+//! artifacts at that profile. Both were `contains` assertions in this module's test module, where a
+//! commented-out write satisfied one and a stamp moved out of the exported directory satisfied it
+//! anyway; they are a hygiene gate now, which is a venue `just validate` reaches and a unit test
+//! here is not.
+//!
 //! **What it does NOT reach**, and the first one is the limit to read before trusting this. It holds
 //! *the shipped lane's tests run*, NOT *the feature-off refusals are tested*: deleting both of them
 //! leaves this gate green over the several hundred tests that run in both configurations. What
@@ -170,14 +178,23 @@ mod tests {
 
     use super::{STAMP, WARM_PROFILE, invocation, profile_for};
 
-    /// The nix module that writes [`STAMP`].
-    const WARMER: &str = "nix/cargo-env.nix";
-
     /// The flake output CI reaches this gate through.
     const APP: &str = "default-feature-tests";
 
     /// The name `main.rs` registers this gate under.
     const TASK: &str = "check-default-feature-tests";
+
+    /// The recipe that is the developer's lane.
+    const RECIPE: &str = "gates";
+
+    /// The workflow the CI lane lives in.
+    const WORKFLOW: &str = ".github/workflows/ci.yml";
+
+    /// The job it has to be in, which is the one required context.
+    const JOB: &str = "ci";
+
+    /// The condition every rust step in that job is gated on.
+    const CLASSIFIED: &str = "steps.classify.outputs.rust == 'true'";
 
     /// A directory that looks like the one the warm start filled.
     fn stamped() -> PathBuf {
@@ -235,42 +252,47 @@ mod tests {
     }
 
     #[test]
-    fn the_two_literals_the_profile_is_derived_from_still_belong_to_their_owners() {
-        // A derived value is a control only while its owner still spells it. A rename on either
-        // side leaves this gate compiling at the wrong profile - which costs a whole dependency
-        // build and fails nothing at all, so it is red here instead.
-        let root = crate::repo::root().expect("the repo root");
-        let warmer = std::fs::read_to_string(root.join(WARMER)).expect("the warm-start module");
-        assert!(warmer.contains(STAMP), "{WARMER} no longer writes {STAMP}");
-        let flake = std::fs::read_to_string(root.join("flake.nix")).expect("flake.nix");
-        let declared = format!("CARGO_PROFILE = \"{WARM_PROFILE}\"");
-        assert!(
-            flake.contains(declared.as_str()),
-            "flake.nix no longer builds the warmed artifacts at profile {WARM_PROFILE}"
-        );
-    }
-
-    #[test]
     fn both_lanes_still_invoke_this_gate() {
         // "A test pass belongs in the same place or it is a second thing to keep wired" -
         // `github.com/telekom/sutura#264`'s own words about this gate. Two lanes, so two readers:
         // the developer's `just gates` and the required CI job. `check-workflows` holds the other
         // direction, that the app this names is declared.
+        //
+        // NEITHER READER IS `contains` OVER RAW TEXT, and that is this test rather than a detail
+        // of it. `#     cargo run -q -p xtask -- check-default-feature-tests` in the recipe and
+        // `# run: nix run .#default-feature-tests` in the workflow each satisfy a substring while
+        // no lane invokes anything - the dead-check shape this gate exists to remove, in the test
+        // that says the gate is wired. So a comment line of the recipe body is dropped, and the
+        // workflow is read through `workflows::step`, whose `collect` is the reader
+        // `a_comment_is_not_a_reference` holds to skipping a `#` line.
         let root = crate::repo::root().expect("the repo root");
         assert!(
             crate::TASKS.iter().any(|task| task.name == TASK),
             "{TASK} is not a registered task"
         );
-        let body = crate::tasks::recipe_body(&root, "gates").expect("a `gates` recipe in the justfile");
+        let body = crate::tasks::recipe_body(&root, RECIPE).expect("a `gates` recipe in the justfile");
         assert!(
-            body.iter().any(|line| line.contains(TASK)),
-            "`just gates` no longer runs {TASK}"
+            body.iter()
+                .any(|line| !line.trim_start().starts_with('#') && line.contains(TASK)),
+            "`just {RECIPE}` no longer runs {TASK} on a line that is not a comment"
         );
-        let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("ci.yml");
-        let reference = format!("nix run .#{APP}");
+        let workflow = std::fs::read_to_string(root.join(WORKFLOW)).expect("ci.yml");
+        let step = crate::workflows::step::app_step(&workflow, JOB, APP)
+            .unwrap_or_else(|| panic!("a live `nix run .#{APP}` step inside {WORKFLOW}'s `{JOB}` job"));
+        let declared = step.join("\n");
+        // Two ways the step stays in the file and stops being a gate. Both cheap to read once the
+        // step's own lines are in hand, and neither reachable from a whole-file scan.
         assert!(
-            workflow.contains(reference.as_str()),
-            "ci.yml no longer runs `{reference}`, so the CI half of this lane is gone"
+            !declared.contains("continue-on-error"),
+            "the {APP} step tolerates its own failure, so the CI half reports rather than gates:\n{declared}"
         );
+        assert!(
+            declared.contains(CLASSIFIED),
+            "the {APP} step is not gated on `{CLASSIFIED}`, which is the condition the rust steps around it use:\n{declared}"
+        );
+        // WHAT IS STILL NOT HELD HERE. That `{JOB}` is a REQUIRED context is a branch-ruleset
+        // setting no file in this tree states, and whether the classification FIRES for a change
+        // under `xtask/` is `check-changed`'s question - it fails open, which is the safe
+        // direction and not a proof.
     }
 }
