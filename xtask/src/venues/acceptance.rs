@@ -103,6 +103,14 @@ use std::collections::{BTreeMap, BTreeSet};
 // written beside it.
 mod shape;
 
+/// The workflow the suite below perturbs, and the perturbations more than one test makes.
+///
+/// The HARNESS in its own file and every assertion in this one, which is what the 1000-line cap
+/// prescribes: the causality gate never reverts a file that adds a `#[test]`, so an assertion moved
+/// out of here would be orphaned by the revert of its `mod` and read as green against base.
+#[cfg(test)]
+mod tests_support;
+
 use shape::{
     FORK_RULE, Source, configured, configures_tracing, downgrades_failure, emits_file, env_name_shaped, exits_non_zero, job,
     prints, shell, states_fork_rule, step_key, traces, under_runner_temp, waits_for,
@@ -464,87 +472,8 @@ fn one_credential_mechanism(block: &[&str], config: &BTreeMap<&str, Source>) -> 
 
 #[cfg(test)]
 mod tests {
+    use super::tests_support::{CI, KEY_ENV, condition, with_google_exchange, with_id_token, with_nameless_step};
     use super::{FORK_RULE, JOB, WORKFLOW, problems};
-
-    /// The one line that makes the fixture keyed, so every test that removes it removes the same
-    /// thing.
-    const KEY_ENV: &str = "          SUTURA_BQ_KEY: ${{ secrets.a_key }}\n";
-
-    /// The job's own condition, built from the constant the gate reads - so a change to the rule
-    /// cannot leave a fixture perturbing a string nothing looks for any more.
-    fn condition() -> String {
-        format!("if: github.event_name == 'push' || {FORK_RULE}")
-    }
-
-    /// A step written with no `name:`, which is the form the shell scan could not see.
-    fn with_nameless_step(body: &str) -> String {
-        CI.replace(
-            "      - name: Remove the credential\n",
-            &format!("      - run: {body}\n\n      - name: Remove the credential\n"),
-        )
-    }
-
-    /// A Google token exchange in the job, which is the signal `docs/adr/0017` names.
-    fn with_google_exchange(ci: &str) -> String {
-        ci.replace(
-            "      - name: Acceptance leg\n",
-            "      - uses: google-github-actions/auth@v2\n      - name: Acceptance leg\n",
-        )
-    }
-
-    /// `id-token: write` on the job - the permission the record proves is NOT the signal.
-    ///
-    /// `needs: [ci]` appears twice below, so this grants it to `cross` as well. Harmless, because
-    /// [`super::job`] reads one block, and written here rather than rediscovered per test.
-    fn with_id_token(ci: &str) -> String {
-        ci.replace(
-            "    needs: [ci]\n",
-            "    needs: [ci]\n    permissions:\n      id-token: write\n",
-        )
-    }
-
-    /// The real acceptance job, with each property removed in turn.
-    const CI: &str = "\
-jobs:
-  bigquery-acceptance:
-    needs: [ci]
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    environment: bq-test
-    steps:
-      - name: Place the credential outside the checkout
-        env:
-          SUTURA_BQ_KEY: ${{ secrets.a_key }}
-        run: |
-          set -eu
-          if [ -z \"${SUTURA_BQ_KEY:-}\" ]; then
-            echo \"the environment holds no key\" >&2
-            exit 1
-          fi
-          umask 077
-          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"
-
-      # A comment between two steps, mentioning ${{ }} the way this file does.
-      - name: Acceptance leg
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: |
-          set -eu
-          for name in SUTURA_BQ_DATASET; do
-            if [ -z \"$(printenv \"$name\" || true)\" ]; then
-              echo \"the environment defines no $name\" >&2
-              exit 1
-            fi
-          done
-          nix run .#bigquery-acceptance
-
-      - name: Remove the credential
-        if: always()
-        run: rm -f \"$RUNNER_TEMP/bq-key.json\"
-
-  cross:
-    needs: [ci]
-";
 
     #[test]
     fn the_acceptance_job_as_it_stands_passes() {
