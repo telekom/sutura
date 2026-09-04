@@ -399,7 +399,11 @@ fn owning_package(root: &std::path::Path, path: &str) -> Option<String> {
 
 /// The `name` under `[package]`. Hand-parsed because xtask has no TOML dependency, and the
 /// shape it needs to read is two lines of a file this repo controls.
-fn package_name(manifest: &str) -> Option<String> {
+///
+/// `pub(crate)` for `causality::scoped`, which resolves the same question through a post-image
+/// reader rather than the filesystem. The WALK differs and stays separate; the manifest shape is
+/// what could rot, and one reader for it is enough.
+pub(crate) fn package_name(manifest: &str) -> Option<String> {
     let mut in_package = false;
     for line in manifest.lines() {
         let t = line.trim();

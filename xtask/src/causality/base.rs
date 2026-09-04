@@ -8,29 +8,29 @@
 //! whose whole job is to catch exactly that.
 //!
 //! SO A VERDICT NAMES WHAT REDDENED. Every failure the run reports is read back by name and
-//! compared against the tests under test. That comparison is the SECOND mechanism, and it is not
-//! redundant with scoping the run ([`super::scoped`]): a filter that stopped filtering - a
-//! nextest version whose expression syntax moved, a name this tree does not spell the way the
-//! extractor expects - would silently restore the wide run, and the wide run's failures are
-//! exactly what this refuses to read as evidence.
+//! compared against the tests under test, through [`super::scoped::AddedTest::claims`] - the same
+//! key the filter is built from, applied here by us instead of by nextest. That makes this a
+//! second ENFORCER of one key rather than a second key, and the distinction is load-bearing: it
+//! catches a filter that stopped filtering (a nextest version whose expression syntax moved, a
+//! predicate this tree spells differently) and it cannot catch a key that is too weak. The first
+//! version of this comparison was on the bare function name, which is not a key in this tree at
+//! all - see [`super::scoped`] for the measurement - so a name-collided failure passed both
+//! halves and the false green survived the fix that was supposed to remove it.
 //!
-//! FOUR ANSWERS, NOT TWO. An unrelated base failure is neither red-by-assertion nor "the base
+//! FIVE ANSWERS, NOT TWO. An unrelated base failure is neither red-by-assertion nor "the base
 //! tree does not build", and calling it either one misleads in a different direction. It is
 //! [`BaseOutcome::RedOutsideTheDiff`], and it FAILS: the gate's precondition - a base tree red
 //! only where this diff put it - was not met, so it has no answer to give. That is the same
 //! direction the HEAD half already takes when the suite is red there, and the symmetry is the
-//! argument. [`BaseOutcome::NotRun`] is the other new one: nextest matched none of the scoped
-//! tests, which is the ORPHANING trap (a new test module whose `mod` declaration sits in a
-//! reverted file is never compiled) and used to read as *green against base behaviour*.
-//!
-//! WHAT IS STILL NOT SPLIT. A failure this cannot attribute to any test at all - a linker
-//! signal, a runner that died before reporting - stays [`BaseOutcome::DidNotCompile`], whose
-//! report says "did not build". That is inherited and it is the conservative direction (no proof
-//! claimed), but the WORD is wrong for a run that got further than the compiler. Splitting it
-//! needs a fifth verdict nobody has a message for yet.
+//! argument. [`BaseOutcome::NotRun`] is nextest matching none of the scoped tests, which is the
+//! ORPHANING trap (a new test module whose `mod` declaration sits in a reverted file is never
+//! compiled) and used to read as *green against base behaviour*. And
+//! [`BaseOutcome::Unattributed`] is a run that got PAST the compiler and reported no failure this
+//! can name: it used to be folded into `DidNotCompile` and printed *the base tree does not build*
+//! about a tree that built fine, which is how a missing status word turned into a wrong sentence.
 
 use crate::Verdict;
-use crate::causality::scoped::TestName;
+use crate::causality::scoped::AddedTest;
 
 /// What the base run actually told us.
 #[derive(Debug, PartialEq, Eq)]
@@ -45,6 +45,8 @@ pub(crate) enum BaseOutcome {
     RedOutsideTheDiff { failed: Vec<String> },
     /// nextest matched none of the tests under test, so nothing was measured.
     NotRun,
+    /// Red past the compiler, with no failure any line attributes to a test.
+    Unattributed,
     /// The tree did not build. Red, but it proves nothing about behaviour.
     DidNotCompile,
 }
@@ -55,7 +57,7 @@ pub(crate) enum BaseOutcome {
 /// the compile check comes first or a build failure reads as a real red - that was this gate's
 /// first false green. And a run that matched no test prints no failure at all, so it is settled
 /// before the failure list is consulted rather than falling through as "unknown".
-pub(crate) fn classify_base(text: &str, succeeded: bool, scoped: &[TestName]) -> BaseOutcome {
+pub(crate) fn classify_base(text: &str, succeeded: bool, scoped: &[AddedTest]) -> BaseOutcome {
     if succeeded {
         return BaseOutcome::Green;
     }
@@ -67,8 +69,8 @@ pub(crate) fn classify_base(text: &str, succeeded: bool, scoped: &[TestName]) ->
     }
     let failed = failures(text);
     if failed.is_empty() {
-        // Unknown failure: do not claim a proof we did not get.
-        return BaseOutcome::DidNotCompile;
+        // Red, and about nothing this can name: do not claim a proof, and do not blame the build.
+        return BaseOutcome::Unattributed;
     }
     let under_test: Vec<String> = failed.iter().filter(|one| is_scoped(one, scoped)).cloned().collect();
     if under_test.is_empty() {
@@ -122,22 +124,43 @@ fn collect(text: &str, read: ReadFailure) -> Vec<String> {
     found
 }
 
-/// The statuses nextest prints for a test that did not pass.
+/// The non-signal statuses nextest prints for a test that did not pass, as of 0.9.143.
 ///
-/// The trailing ` [` is part of each: it is what separates the status from a test whose NAME
-/// begins with the same letters.
-const FAILING_STATUSES: &[&str] = &["FAIL [", "TIMEOUT [", "ABORT [", "SIGSEGV [", "LEAK-FAIL ["];
+/// `ABORT` is the WINDOWS spelling and never matches on this platform, which is the whole reason
+/// this list is measured rather than read off a status table: it was carried alone while an
+/// aborting base parsed to zero failures. Measured side by side on 0.9.143:
+///
+/// ```text
+///     SIGSEGV [   0.282s] (3/4) pa tests::segfaults
+///     SIGABRT [   0.265s] (2/4) pa tests::aborts
+///        FAIL [   0.255s] (1/4) pa tests::plain_fail
+///     TIMEOUT [   1.005s] (4/4) pa tests::hangs
+/// ```
+const FAILING_STATUSES: &[&str] = &["FAIL", "FAIL + LEAK", "TIMEOUT", "ABORT", "LEAK-FAIL"];
+
+/// Is this status one that a test did not pass under?
+///
+/// Abnormal termination is one status PER SIGNAL, so the rule for those is the SHAPE rather than
+/// a list that goes stale on the next platform or the next signal. `PASS`, `LEAK` and `XFAIL` are
+/// the statuses 0.9.143 prints that are not failures, and the direction of a status this does not
+/// recognise is [`BaseOutcome::Unattributed`] - no proof claimed - rather than a red attributed
+/// to whichever test the line happened to name.
+fn is_failing(status: &str) -> bool {
+    status.starts_with("SIG") || FAILING_STATUSES.contains(&status)
+}
 
 /// `FAIL [   0.183s] (1/1) a::unrelated needs_state` -> `a::unrelated needs_state`.
 ///
-/// The `(n/m)` counter is dropped: it is a property of the run's ordering rather than of the
-/// test, so keeping it would make one failure in two runs look like two failures.
+/// The status is everything before the ` [` that opens the duration, so a two-word one like
+/// `FAIL + LEAK` is read whole rather than matched by its first letters. The `(n/m)` counter is
+/// dropped: it is a property of the run's ordering rather than of the test, so keeping it would
+/// make one failure in two runs look like two failures.
 fn nextest_failure(trimmed: &str) -> Option<String> {
-    let status_line = strip_retry(trimmed);
-    if !FAILING_STATUSES.iter().any(|status| status_line.starts_with(status)) {
+    let (status, rest) = strip_retry(trimmed).split_once(" [")?;
+    if !is_failing(status) {
         return None;
     }
-    let (_, named) = status_line.split_once(']')?;
+    let (_, named) = rest.split_once(']')?;
     let words: Vec<&str> = named.split_whitespace().filter(|word| !is_progress(word)).collect();
     (!words.is_empty()).then(|| words.join(" "))
 }
@@ -162,18 +185,18 @@ fn cargo_test_failure(trimmed: &str) -> Option<String> {
 
 /// Does this failure name a test the diff added?
 ///
-/// The last whitespace token is the test's path, because nextest prints the binary id before it.
-/// A parametrised case sits one segment BELOW the function (`tests::sums::case_1`), so the
-/// comparison reaches two segments up and no further: wider would let a MODULE sharing a name
-/// with an added test read as in scope, which is the generous direction this gate is here to
-/// stop. Narrower would miss every `rstest` case.
-fn is_scoped(failure: &str, scoped: &[TestName]) -> bool {
-    let Some(path) = failure.split_whitespace().last() else {
-        return false;
+/// nextest prints `<binary id> <test path>` and `cargo test` prints a bare `<test path>`, so the
+/// last two words are the key's two halves and a one-word failure supplies only the second.
+/// [`AddedTest::claims`] holds the comparison itself, next to the filter it mirrors - one place
+/// for the key, because two spellings of it is how the filter and the check came to disagree.
+fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
+    let words: Vec<&str> = failure.split_whitespace().collect();
+    let (binary_id, path) = match *words.as_slice() {
+        [.., id, path] => (Some(id), path),
+        [path] => (None, path),
+        [] => return false,
     };
-    path.rsplit("::")
-        .take(2)
-        .any(|segment| scoped.iter().any(|name| name.as_str() == segment))
+    scoped.iter().any(|one| one.claims(binary_id, path))
 }
 
 /// Turn a base run into the gate's verdict.
@@ -222,6 +245,16 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
             eprintln!("the harness out of it and leave every assertion where it is.");
             Verdict::Fail
         }
+        BaseOutcome::Unattributed => {
+            println!("  base: red, and no line attributes it to a test");
+            println!("{}", tail(output, 12));
+            println!();
+            println!("xtask test-causality: INCONCLUSIVE - the base run named no failure.");
+            println!("It got past the compiler, so this is not a build failure: a runner that died");
+            println!("before reporting, a linker signal, or a status this gate does not recognise.");
+            println!("Nothing is proven either way - state the evidence in the handoff.");
+            Verdict::Pass
+        }
         BaseOutcome::DidNotCompile => {
             println!("  base: did not compile");
             println!("{}", tail(output, 12));
@@ -251,14 +284,44 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{BaseOutcome, classify_base, names_no_tests, tail};
-    use crate::causality::scoped::TestName;
+    use crate::causality::fixtures::{changed, tree};
+    use crate::causality::scoped::{AddedTest, Scan};
 
-    /// The tests under test, from their function names.
-    fn scoped(names: &[&str]) -> Vec<TestName> {
-        names
-            .iter()
-            .map(|name| TestName::parse(name).expect("a function name"))
-            .collect()
+    /// The tests under test, as if one file in `package` had added each of `names`.
+    ///
+    /// Through `Scan::of` rather than a hand-built key, so what these assertions measure is the
+    /// key the gate actually builds from a diff - a fixture that constructed one directly would
+    /// pass while the extractor produced something else.
+    fn scoped(package: &str, file: &str, names: &[&str]) -> Vec<AddedTest> {
+        let mut text = String::new();
+        let mut added: Vec<String> = Vec::new();
+        for name in names {
+            text.push_str("#[test]\n");
+            text.push_str(&format!("fn {name}() {{}}\n"));
+            added.push(String::from("#[test]"));
+            added.push(format!("fn {name}() {{}}"));
+        }
+        let borrowed: Vec<&str> = added.iter().map(String::as_str).collect();
+        let files = vec![changed(file, 1, &borrowed)];
+        let manifest = format!("[package]\nname = \"{package}\"\n");
+        let dir = file.split_once("/src/").or_else(|| file.split_once("/tests/"));
+        let read = tree(&[
+            (file, &text),
+            (&format!("{}/Cargo.toml", dir.expect("a package directory").0), &manifest),
+        ]);
+        match Scan::of(&files, &[String::from(file)], &read) {
+            Scan::Runnable(found) => found.tests().to_vec(),
+            other => panic!("expected runnable tests, got {other:?}"),
+        }
+    }
+
+    /// The audit record from #276, as the branch that first exposed the wide run declared it.
+    fn audit_record() -> Vec<AddedTest> {
+        scoped(
+            "sutura-cli",
+            "crates/sutura-cli/src/query.rs",
+            &["a_refused_question_is_recorded_and_names_the_refusal"],
+        )
     }
 
     /// The base run that reported the false green, as nextest printed it. Two tier-backed cells
@@ -277,8 +340,7 @@ mod tests {
         // THE DEFECT. Both failing cells are tier-backed cells this diff did not touch, and the
         // test it did add - the audit record - never ran. The old classifier saw "FAIL [" and
         // answered red-by-assertion, which the gate printed as `ok - red on base, green on head`.
-        let under_test = scoped(&["a_refused_question_is_recorded_and_names_the_refusal"]);
-        let outcome = classify_base(UNRELATED_RED, false, &under_test);
+        let outcome = classify_base(UNRELATED_RED, false, &audit_record());
         match outcome {
             BaseOutcome::RedOutsideTheDiff { ref failed } => {
                 assert_eq!(failed.len(), 2, "both cells are named: {failed:?}");
@@ -294,16 +356,15 @@ mod tests {
     #[test]
     fn a_failed_test_the_diff_added_is_the_evidence_wanted() {
         // The other direction, which matters as much: a genuinely causal change still passes.
-        // This is the real base red from the branch above, with the same run around it.
+        // This is the real base red from #276, with the same run around it.
         let text = concat!(
             "    Starting 3 tests across 47 binaries\n",
             "        FAIL [   0.021s] (2/3) sutura-cli::query audit::a_refused_question_is_recorded_and_names_the_refusal\n",
             "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 0 skipped\n",
             "error: test run failed\n",
         );
-        let under_test = scoped(&["a_refused_question_is_recorded_and_names_the_refusal"]);
         assert_eq!(
-            classify_base(text, false, &under_test),
+            classify_base(text, false, &audit_record()),
             BaseOutcome::RedByAssertion {
                 failed: vec![String::from(
                     "sutura-cli::query audit::a_refused_question_is_recorded_and_names_the_refusal"
@@ -321,7 +382,8 @@ mod tests {
             "        FAIL [   0.021s] (87/1810) sutura-cli::query audit::the_added_one\n",
             "error: test run failed\n",
         );
-        match classify_base(text, false, &scoped(&["the_added_one"])) {
+        let under_test = scoped("sutura-cli", "crates/sutura-cli/src/query.rs", &["the_added_one"]);
+        match classify_base(text, false, &under_test) {
             BaseOutcome::RedByAssertion { ref failed } => {
                 assert_eq!(failed.len(), 1, "only the test under test: {failed:?}");
                 assert!(failed.iter().all(|one| one.ends_with("audit::the_added_one")));
@@ -331,11 +393,48 @@ mod tests {
     }
 
     #[test]
+    fn a_failure_in_another_package_is_never_this_diffs_test() {
+        // THE FINDING THIS CLOSES. With the bare function name as the key, a failure anywhere in
+        // the workspace that happened to share a name was accepted - so a vacuous added test got
+        // `ok - red on base, green on head` on the strength of a pre-existing test in another
+        // crate. Both lines below name `sums`; neither is in `pa`.
+        let text = concat!(
+            "        FAIL [   0.313s] (1/6) pb other::sums\n",
+            "        FAIL [   0.204s] (2/6) pb sums::inner\n",
+            "error: test run failed\n",
+        );
+        match classify_base(text, false, &scoped("pa", "crates/pa/src/lib.rs", &["sums"])) {
+            BaseOutcome::RedOutsideTheDiff { ref failed } => assert_eq!(failed.len(), 2, "{failed:?}"),
+            other => panic!("another package's failure is not evidence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_failure_in_a_sibling_module_of_the_same_package_is_not_this_diffs_test() {
+        // The same collision inside ONE binary, which no package or binary qualifier separates:
+        // `deserialization_goes_through_the_constructor` occurs four times in `sutura-domain`'s
+        // own lib. The module path the file contributes is what tells them apart.
+        let text = concat!(
+            "        FAIL [   0.010s] (1/4) sutura-domain model::tests::deserialization_goes_through_the_constructor\n",
+            "error: test run failed\n",
+        );
+        let under_test = scoped(
+            "sutura-domain",
+            "crates/sutura-domain/src/calendar.rs",
+            &["deserialization_goes_through_the_constructor"],
+        );
+        match classify_base(text, false, &under_test) {
+            BaseOutcome::RedOutsideTheDiff { .. } => {}
+            other => panic!("a sibling module's failure is not evidence, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn a_parametrised_case_belongs_to_the_test_that_declared_it() {
         // `rstest` names a case one segment BELOW the function, so a comparison on the last
         // segment alone would call every case an unrelated failure.
         let text = "        FAIL [   0.010s] (1/4) sutura-sql::golden tests::renders::case_2\nerror: test run failed\n";
-        match classify_base(text, false, &scoped(&["renders"])) {
+        match classify_base(text, false, &scoped("sutura-sql", "crates/sutura-sql/tests/golden.rs", &["renders"])) {
             BaseOutcome::RedByAssertion { .. } => {}
             other => panic!("a case is its function's failure, got {other:?}"),
         }
@@ -345,12 +444,61 @@ mod tests {
     fn a_test_whose_name_merely_contains_a_scoped_one_is_outside_the_diff() {
         // The segment comparison is exact. A substring one would read `sums_by_month` as the
         // added `sums`, which is the generous direction that produced the false green.
-        let text =
-            "        FAIL [   0.313s] (1/9) sutura-app::differential tests::postgres::sums_by_month\nerror: test run failed\n";
-        match classify_base(text, false, &scoped(&["sums"])) {
+        let text = "        FAIL [   0.313s] (1/9) sutura-app::differential tests::postgres::sums_by_month\nerror: test run failed\n";
+        match classify_base(
+            text,
+            false,
+            &scoped("sutura-app", "crates/sutura-app/tests/differential.rs", &["sums"]),
+        ) {
             BaseOutcome::RedOutsideTheDiff { .. } => {}
             other => panic!("expected RedOutsideTheDiff, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn an_aborting_base_is_a_failure_rather_than_a_build_that_did_not_happen() {
+        // THE FINDING THIS CLOSES. `ABORT [` is the Windows word; Unix nextest 0.9.143 prints
+        // `SIGABRT [`, so a base run whose only failure was an abort - a double panic, a panic in
+        // `Drop`, a stack overflow - parsed to ZERO failures and printed *the base tree does not
+        // build* about a tree that built fine. Every signal status is one word per signal, so the
+        // rule is the shape.
+        let text = concat!(
+            "     SIGABRT [   0.265s] (1/2) sutura-domain calendar::tests::the_added_one\n",
+            "     SIGSEGV [   0.282s] (2/2) sutura-domain calendar::tests::neighbour\n",
+            "error: test run failed\n",
+        );
+        let under_test = scoped("sutura-domain", "crates/sutura-domain/src/calendar.rs", &["the_added_one"]);
+        match classify_base(text, false, &under_test) {
+            BaseOutcome::RedByAssertion { ref failed } => {
+                assert_eq!(failed.len(), 1, "only the test under test: {failed:?}");
+            }
+            other => panic!("an abort is a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_leaking_failure_and_a_timeout_are_failures_and_a_pass_is_not() {
+        // The status is everything before the ` [`, so a two-word one is read whole. `PASS`,
+        // `LEAK` and `XFAIL` are the statuses 0.9.143 prints that are NOT failures, and reading
+        // one as a failure would attribute a red to a test that passed.
+        let failing = concat!(
+            "     FAIL + LEAK [   0.010s] (1/3) pa tests::leaks\n",
+            "     TIMEOUT [   1.005s] (2/3) pa tests::hangs\n",
+            "error: test run failed\n",
+        );
+        match classify_base(failing, false, &scoped("pa", "crates/pa/src/lib.rs", &["leaks", "hangs"])) {
+            BaseOutcome::RedByAssertion { ref failed } => assert_eq!(failed.len(), 2, "{failed:?}"),
+            other => panic!("expected both, got {other:?}"),
+        }
+        let passing = concat!(
+            "        PASS [   0.010s] (1/2) pa tests::leaks\n",
+            "        LEAK [   0.010s] (2/2) pa tests::hangs\n",
+            "error: test run failed\n",
+        );
+        assert_eq!(
+            classify_base(passing, false, &scoped("pa", "crates/pa/src/lib.rs", &["leaks", "hangs"])),
+            BaseOutcome::Unattributed
+        );
     }
 
     #[test]
@@ -358,7 +506,8 @@ mod tests {
         // The false green this replaced: `cargo test` failed, so the gate said "red, as
         // required" and passed. A tree that does not build has run no tests.
         let compile = "error[E0432]: unresolved import `crate::thing`\nerror: could not compile";
-        assert_eq!(classify_base(compile, false, &scoped(&["t"])), BaseOutcome::DidNotCompile);
+        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
+        assert_eq!(classify_base(compile, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
     #[test]
@@ -366,7 +515,8 @@ mod tests {
         // nextest prints "error: test run failed" when the build failed too. Reading that as a
         // real red is the false green this gate already had once.
         let both = "error[E0433]: failed to resolve\nerror: could not compile\nerror: test run failed";
-        assert_eq!(classify_base(both, false, &scoped(&["t"])), BaseOutcome::DidNotCompile);
+        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
+        assert_eq!(classify_base(both, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
     #[test]
@@ -380,16 +530,18 @@ mod tests {
             "(hint: use `--no-tests` to customize)\n",
         );
         assert!(names_no_tests(text));
-        assert_eq!(classify_base(text, false, &scoped(&["orphaned"])), BaseOutcome::NotRun);
+        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["orphaned"]);
+        assert_eq!(classify_base(text, false, &under_test), BaseOutcome::NotRun);
     }
 
     #[test]
     fn the_cargo_test_wording_still_names_a_failure() {
         // So the classifier survives a runner swap. `cargo test` prints no binary id, so the
-        // whole token is the test's path.
+        // whole token is the test's path - and the coarse half of the key cannot be checked.
         let cargo = "running 3 tests\ntest suite::the_added_one ... FAILED\ntest result: FAILED. 2 passed; 1 failed";
+        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["the_added_one"]);
         assert_eq!(
-            classify_base(cargo, false, &scoped(&["the_added_one"])),
+            classify_base(cargo, false, &under_test),
             BaseOutcome::RedByAssertion {
                 failed: vec![String::from("suite::the_added_one")]
             }
@@ -399,27 +551,29 @@ mod tests {
     #[test]
     fn a_failure_no_line_names_claims_nothing() {
         // Deliberately conservative, and a CHANGE: this text used to be read as red-by-assertion
-        // on the strength of the word "panicked", which attributes the red to nothing at all.
+        // on the strength of the word "panicked", which attributes the red to nothing at all. It
+        // is not a build failure either, and saying so was the wrong sentence.
         let unnamed = "thread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
-        assert_eq!(
-            classify_base(unnamed, false, &scoped(&["the_added_one"])),
-            BaseOutcome::DidNotCompile
-        );
+        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["the_added_one"]);
+        assert_eq!(classify_base(unnamed, false, &under_test), BaseOutcome::Unattributed);
     }
 
     #[test]
     fn an_unrecognised_failure_claims_nothing() {
-        // Conservative on purpose: an unfamiliar failure is not evidence of causality.
+        // Conservative on purpose: an unfamiliar failure is not evidence of causality, and it is
+        // not a compile failure just because nothing else fits.
+        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
         assert_eq!(
-            classify_base("linker exited with signal 9", false, &scoped(&["t"])),
-            BaseOutcome::DidNotCompile
+            classify_base("linker exited with signal 9", false, &under_test),
+            BaseOutcome::Unattributed
         );
     }
 
     #[test]
     fn a_passing_base_means_the_test_does_not_test_the_change() {
+        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
         assert_eq!(
-            classify_base("test result: ok. 12 passed; 0 failed", true, &scoped(&["t"])),
+            classify_base("test result: ok. 12 passed; 0 failed", true, &under_test),
             BaseOutcome::Green
         );
     }
@@ -432,7 +586,8 @@ mod tests {
             "    TRY 2 FAIL [   0.010s] (1/2) sutura-http::served serves::the_added_one\n",
             "error: test run failed\n",
         );
-        match classify_base(text, false, &scoped(&["the_added_one"])) {
+        let under_test = scoped("sutura-http", "crates/sutura-http/tests/served.rs", &["the_added_one"]);
+        match classify_base(text, false, &under_test) {
             BaseOutcome::RedByAssertion { ref failed } => assert_eq!(failed.len(), 1, "{failed:?}"),
             other => panic!("expected RedByAssertion, got {other:?}"),
         }

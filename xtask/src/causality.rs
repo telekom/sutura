@@ -38,9 +38,15 @@
 //! the tests the diff ADDED ([`scoped`]), and the base run's verdict compares every failure it
 //! reported against that same set ([`base`]). Before that, the run was `--workspace` unfiltered
 //! and any assertion failure anywhere counted as red-by-assertion, so one unrelated failing cell
-//! early in the run answered "red on base" while the tests under test never ran at all. Two
-//! mechanisms rather than one, deliberately: the filter stops the unrelated failure happening,
-//! and the comparison stops it being read as evidence if the filter ever stops filtering.
+//! early in the run answered "red on base" while the tests under test never ran at all.
+//!
+//! IT ALL RESTS ON THE KEY. The filter and the comparison are two ENFORCERS of one key, not two
+//! independent keys: the comparison catches a filter that stopped filtering, and cannot catch a
+//! key too weak to identify a test. Keyed on the bare function name it was exactly that - 23 of
+//! this tree's 1782 test names are duplicated, so a collided failure passed both halves and a
+//! vacuous test got *ok - red on base, green on head* off a pre-existing one elsewhere. The key
+//! is the binary or package, the module path the file contributes, and the name; [`scoped`]
+//! carries the measurement and the collisions it still does not separate.
 //!
 //! THE OLD ANSWER WAS NOT EVEN STABLE, which is the part that made it hard to see. Whether an
 //! unrelated cell failed BEFORE the tests under test - and so, under fail-fast, whether the wide
@@ -75,7 +81,7 @@ mod scoped;
 use base::{BaseOutcome, classify_base, names_no_tests, report_base, tail};
 use diff::{ChangedFile, changed_with_additions};
 use regions::{PostImage, has_non_test_additions, scope};
-use scoped::{Scoped, adds_test};
+use scoped::{Ident, Scan, Scoped, adds_test};
 
 /// What the gate concluded, so the shape is testable without git or cargo.
 #[derive(Debug, PartialEq, Eq)]
@@ -370,9 +376,29 @@ fn report_unnamed_tests(test_files: &[String]) -> Verdict {
     eprintln!();
     eprintln!("Both runs are scoped to the tests the diff added, so naming none of them would");
     eprintln!("leave the gate measuring the whole suite and reading any failure in it as evidence");
-    eprintln!("about this change. An attribute `causality::scoped` does not recognise is the");
-    eprintln!("likely cause - add it there rather than widening the run.");
+    eprintln!("about this change. Two causes: an attribute `causality::scoped` does not recognise,");
+    eprintln!("or a file no `Cargo.toml` above it declares a package for. Fix the extractor rather");
+    eprintln!("than widening the run.");
     Verdict::Fail
+}
+
+/// Every test the diff added is `#[ignore]`d, so no run in this venue reaches one.
+///
+/// PASSES, loudly, and the opposite direction to the refusal above for a reason: an ignored test
+/// is not an extractor bug. Naming only ignored tests in a filterset matches nothing, which
+/// nextest reports as `no tests to run` and this gate read as a failure - a false RED on
+/// legitimate work, and a gate that reddens a correct change gets disabled. Running them instead
+/// fails CLOSED in a tree nothing provisioned, the trap [`nextest`] records for tier-backed cells.
+fn report_only_ignored(names: &[Ident]) -> Verdict {
+    println!("xtask test-causality: EVERY ADDED TEST IS `#[ignore]`d");
+    for name in names {
+        println!("  {} is ignored, so no run here reaches it", name.as_str());
+    }
+    println!();
+    println!("Nothing this gate can execute measures the change, so it has NOT verified");
+    println!("causality. State the evidence in the handoff instead: the task that runs these,");
+    println!("the failure before the fix, and the pass after.");
+    Verdict::Pass
 }
 
 /// The HEAD run did not come back green, so nothing can be measured against it.
@@ -386,9 +412,10 @@ fn report_head_failure(output: &str, only: &str) -> Verdict {
         eprintln!("xtask test-causality: FAILED - nextest matched none of the tests this diff added");
         eprintln!("  filter: {only}");
         eprintln!("  Nothing was measured, so this refuses rather than reporting on zero tests.");
-        eprintln!("  Two causes: a test attribute `causality::scoped` does not recognise, or a");
-        eprintln!("  shared target directory still holding the base run's binaries - see");
-        eprintln!("  `cargo_test`, and remove `target/causality-target` to rule the second out.");
+        eprintln!("  Three causes: a test attribute `causality::scoped` does not recognise, a");
+        eprintln!("  binary id or module path its file's PATH does not settle - a `[[test]]` whose");
+        eprintln!("  name is not the file's stem - or a shared target directory still holding the");
+        eprintln!("  base run's binaries: see `cargo_test`, and remove `target/causality-target`.");
     } else {
         eprintln!("xtask test-causality: FAILED - the tests this diff added are not green on HEAD");
     }
@@ -465,6 +492,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
     // red gate rather than a silent one.
     let shared_target = root.join("target").join("causality-target");
     let only = scoped.filterset();
+    println!("  filter:    {only}");
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
         return report_head_failure(&head_out, &only);
@@ -512,7 +540,7 @@ fn reconstruct_and_run(
 
     let only = scoped.filterset();
     let (base_ok, base_out) = cargo_test(wt, target, &only, Tree::Reconstructed);
-    let outcome = classify_base(&base_out, base_ok, scoped.names());
+    let outcome = classify_base(&base_out, base_ok, scoped.tests());
 
     if retry_with_held_back(&outcome, held) {
         println!("  base: did not compile with the held-back file(s) still at HEAD");
@@ -529,7 +557,7 @@ fn reconstruct_and_run(
             return Verdict::Fail;
         }
         let (retry_ok, retry_out) = cargo_test(wt, target, &only, Tree::Reconstructed);
-        return report_base(&classify_base(&retry_out, retry_ok, scoped.names()), &retry_out, true);
+        return report_base(&classify_base(&retry_out, retry_ok, scoped.tests()), &retry_out, true);
     }
 
     report_base(&outcome, &base_out, false)
@@ -620,10 +648,11 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                 println!("  regression test and this gate cannot prove it is causal.");
                 return Verdict::Pass;
             }
-            let Some(scoped) = Scoped::of(&files, &test_files, &working_tree) else {
-                return report_unnamed_tests(&test_files);
-            };
-            prove(&root, &base, &revert, &test_files, &held_back, &scoped)
+            match Scan::of(&files, &test_files, &working_tree) {
+                Scan::Runnable(scoped) => prove(&root, &base, &revert, &test_files, &held_back, &scoped),
+                Scan::OnlyIgnored(names) => report_only_ignored(&names),
+                Scan::Unnamed => report_unnamed_tests(&test_files),
+            }
         }
     }
 }
@@ -635,7 +664,7 @@ mod tests {
 
     use super::base::BaseOutcome;
     use super::fixtures::{changed, tree};
-    use super::scoped::Scoped;
+    use super::scoped::{Scan, Scoped};
     use super::{BaseState, Plan, Tree, apply, nextest, plan, retry_with_held_back};
 
     #[test]
@@ -907,8 +936,14 @@ mod tests {
     /// The tests one added file declares, for the two wiring assertions below.
     fn one_added_test() -> Scoped {
         let files = vec![changed("crates/x/tests/t.rs", 1, &["#[test]", "fn the_added_one() {}"])];
-        let read = tree(&[("crates/x/tests/t.rs", "#[test]\nfn the_added_one() {}\n")]);
-        Scoped::of(&files, &[String::from("crates/x/tests/t.rs")], &read).expect("one added test")
+        let read = tree(&[
+            ("crates/x/tests/t.rs", "#[test]\nfn the_added_one() {}\n"),
+            ("crates/x/Cargo.toml", "[package]\nname = \"x\"\n"),
+        ]);
+        match Scan::of(&files, &[String::from("crates/x/tests/t.rs")], &read) {
+            Scan::Runnable(scoped) => scoped,
+            other => panic!("expected one added test, got {other:?}"),
+        }
     }
 
     #[test]
@@ -924,8 +959,12 @@ mod tests {
         );
         let args: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         assert!(args.iter().any(|arg| arg == "-E"), "{args:?}");
+        // Qualified, and that is the half the wiring has to carry: an unqualified name is not a
+        // key in this tree, so a filterset built from one runs tests in packages the diff never
+        // touched - measured at six matches in three packages on nextest 0.9.143.
         assert!(
-            args.iter().any(|arg| arg == "test(/(?:^|::)the_added_one(?:::|$)/)"),
+            args.iter()
+                .any(|arg| arg == "(binary_id(=x::t) & test(/^(?:.*::)?the_added_one(?:::|$)/))"),
             "{args:?}"
         );
         // And the run completes, so which failures the verdict names is not a function of
