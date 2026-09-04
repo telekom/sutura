@@ -36,7 +36,11 @@
 //! `nix/shipped.nix` builds each binary with `--package <p>` alone, so features unify across that
 //! package's graph and no other. A single `nextest run` naming both packages resolves them together,
 //! which can enable a feature neither ships with - a different configuration, checked instead of the
-//! one that is published.
+//! one that is published. **The limit of that claim**: the package's own feature SELECTION is the
+//! release's, which is what both refusal tests turn on, but a test run resolves DEV-dependencies too
+//! - `sutura-serve`'s pull `sutura-dev` with `mock-issuer` - and a release derivation has no
+//! dev-dependency graph at all, so unification over a shared dependency can differ from what is
+//! published. What this runs is the shipped SELECTION, not a byte-identical build of the artefact.
 //!
 //! **AN EMPTY RUN IS RED**, because a lane that selects nothing and reports success is the defect
 //! this gate exists to end, one level up. `--no-tests fail` is passed rather than inherited, and the
@@ -70,12 +74,21 @@
 //!
 //! **What it does NOT reach**, and the first one is the limit to read before trusting this. It holds
 //! *the shipped lane's tests run*, NOT *the feature-off refusals are tested*: deleting both of them
-//! leaves this gate green over the several hundred tests that run in both configurations. What
-//! covers that is review of a diff removing a `#[cfg(not(feature = ...))]` test, and nothing
-//! mechanical. Then: the shipped packages only, so a feature-off test in a crate that does not ship
+//! leaves this gate green over the 67 tests that run in both configurations. What covers that is
+//! review of a diff removing a `#[cfg(not(feature = ...))]` test, and nothing mechanical. **That
+//! number is measured** (2026-09-04, `cargo nextest list` per package, the way this gate invokes
+//! them): `sutura-cli` lists 44 tests at the default set and 53 at `--all-features`, `sutura-serve`
+//! 25 and 33, with exactly one default-only test each - so 69 run here and 67 of them would still be
+//! here with both refusals deleted. An earlier wording said *several hundred*, which was the one
+//! unmeasured quantity in a header built on measurements. Then: the shipped packages only, so a feature-off test in a crate that does not ship
 //! is run by nothing here either; the HOST triple only, so the four `cross` builds stay the
 //! authority on a musl link; and nothing about a feature no shipped binary enables, which is what
 //! `--all-features` reaches.
+//!
+//! **And the VENUE, because `AGENTS.md` calls `just validate` the only thing that counts as
+//! verified**: this is neither a nix check nor in that recipe's loop. It reaches `just gates` and one
+//! `ci.yml` step - the same shape and the same reason as its sibling, which shells out to cargo and
+//! so cannot be a check at all. A green `just validate` says nothing about this lane.
 
 use std::path::Path;
 
