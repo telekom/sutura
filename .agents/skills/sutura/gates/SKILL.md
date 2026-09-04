@@ -294,10 +294,11 @@ down is which of the two it is.
 was an abort parsed to zero failures and printed *the base tree does not build* about a tree that
 built fine. And a filterset naming only `#[ignore]`d tests matches nothing, which nextest reports as
 `no tests to run` and exit 4 - a false RED, so ignored tests leave the scope rather than being
-named in a filter or forced to run. There are 12 such attributes in 3 files
-(`git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'`, 2026-09-05) - and the unanchored form of
-that command answers 23 in 7 files, because most `#[ignore` in this tree is a doc comment ABOUT
-one: this page's own rule about a count and the command beside it, in miniature.
+named in a filter or forced to run. `git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'` counts them,
+and the same command WITHOUT the anchor answers roughly twice as many across twice as many files -
+because most `#[ignore` in this tree is a doc comment ABOUT one. **No figure is written here on
+purpose:** the argument holds at any count above zero, so a number would only be a second thing to
+keep true - and the review that reported this defect cited the unanchored one.
 
 **Why one commit answered differently in two venues, which is the part nobody could have guessed:
 only one venue provisions the tier.** `just causality` sources `nix/with-tier.sh`, which starts

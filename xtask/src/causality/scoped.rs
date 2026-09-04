@@ -13,17 +13,18 @@
 //! `package(=..) & test(/../)` is the filter that follows, and [`AddedTest::claims`] is the same
 //! key applied to a failure the run reported.
 //!
-//! WHAT THE KEY STILL DOES NOT SEPARATE, measured rather than guessed. Every one of the 1850
-//! tests `just test` lists satisfies the key derived from its own declaring file - so the
-//! derivation never produces a filter that matches nothing. Separation is the other direction and
-//! is only partial: of 41 duplicated names, 16 are told apart and **25 are not**, and every one of
-//! the 25 is a `macro_rules!` body expanded into several modules of ONE file
-//! (`crates/sutura-app/tests/golden/`, where `mod $name {` is generated four times per dialect).
-//! No prefix read from a path or a declaration can separate those; only running nextest and asking
-//! could, which is the same filter. So the pattern allows any nesting below the file
-//! (`(?:.*::)?`), and a name shared between a module and its own DESCENDANT in one package is not
-//! discriminated either: a test added in `src/model.rs` also accepts
-//! `model::qualified::tests::<same name>`.
+//! WHAT THE KEY STILL DOES NOT SEPARATE, measured rather than guessed, and in both directions
+//! because only one of them is a false green. CONSISTENCY: every test `just test` lists satisfies
+//! the key derived from its own declaring file, so the derivation never produces a filter that
+//! matches nothing - that is the false-RED direction and it is clean. SEPARATION is the other one
+//! and is partial: **of 41 duplicated test names, 16 are told apart and 25 are not**
+//! (2026-09-05, over `just test`'s own listing of 1922). Every one of the 25 is a `macro_rules!`
+//! body expanded into several modules of ONE file - `crates/sutura-app/tests/golden/`, where
+//! `mod $name {` is generated once per dialect - so no prefix read from a path or a declaration
+//! can separate them; only running nextest and asking could, which is the same filter. That is
+//! also why the pattern allows any nesting below the file (`(?:.*::)?`), and why a name shared
+//! between a module and its own DESCENDANT in one package is not discriminated: a test added in
+//! `src/model.rs` also accepts `model::qualified::tests::<same name>`.
 //!
 //! What that residual can and cannot do: a collided failure only manufactures a false green if it
 //! is red on base AND green on head, which means the diff changed ITS behaviour - so the change is
@@ -38,13 +39,15 @@
 //!
 //! AN `#[ignore]`d TEST IS NAMED AND DROPPED, because a filterset naming only ignored tests
 //! matches nothing and nextest exits 4 with *error: no tests to run* - a false RED on legitimate
-//! work, and this tree holds 12 such attributes in 3 files
-//! (`git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'`, 2026-09-05; the unanchored form answers 23
-//! in 7, because most `#[ignore` here is a doc comment ABOUT one).
+//! work, and the acceptance suites here are full of them
+//! (`git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'` counts the attributes; the same command
+//! WITHOUT the anchor answers roughly twice as many across twice as many files, because most
+//! `#[ignore` in this tree is a doc comment ABOUT one - no number is written down, because the
+//! argument holds at any count above zero and a figure would rot within a PR).
 //! Running them is the wrong direction for the reason a tier-backed cell is not required in the
-//! reconstructed worktree
-//! (see [`super::nextest`]): they are ignored because this venue lacks what they need, so forcing
-//! them in a tree nothing provisioned fails CLOSED and reads as red-on-base. So they leave the
+//! reconstructed worktree (see [`super::nextest`]): they are ignored because this venue lacks what
+//! they need, so forcing them in a tree nothing provisioned fails CLOSED and reads as
+//! red-on-base. So they leave the
 //! scope, and a diff whose every added test is ignored gets [`Scan::OnlyIgnored`] - a statement
 //! that this gate has not verified the change, not a claim that the extractor is broken.
 //!
