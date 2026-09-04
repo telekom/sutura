@@ -167,6 +167,13 @@
 #[cfg(test)]
 mod support;
 
+// The per-run table naming harness, which is the mechanism this leg's re-entrancy rests on. Its own
+// module because it is a pure function of a bundle and a token - no endpoint - and its own file
+// rather than more of this one because this file is at the 1000-line cap. Every `#[test]` over it
+// stays here: `.agents/skills/sutura/gates` records why moving assertions instead orphans them.
+#[cfg(test)]
+mod naming;
+
 // `cfg(test)` around the whole file, which is the house pattern rather than a preference: clippy
 // honours `allow-expect-in-tests` only for code inside a `#[cfg(test)]` item, and
 // `tests_outside_test_module` wants the `#[test]` functions there too.
@@ -174,7 +181,6 @@ mod support;
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use sutura_domain::catalog::{Definitions, Description, Metric, Model, Relationship};
     use sutura_domain::model::{SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::Executable;
@@ -183,6 +189,7 @@ mod tests {
 
     use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline};
 
+    use crate::naming::{build_token, ci_run_id, run_token, suffixed_bundle};
     use crate::support::{Connection, Wired, bounds, opened, presented};
 
     /// What the fixture LOADS are bounded by, which is not what the questions are bounded by.
@@ -277,100 +284,6 @@ mod tests {
         sutura_catalog_local::LocalCatalog::new(name, example_root().join("catalog"), version)
             .load()
             .expect("the example catalog loads")
-    }
-
-    /// A token unique to this RUN of the leg, so two runs never share a fixture table.
-    ///
-    /// **`GITHUB_RUN_ID` under GitHub Actions, a clock+pid value otherwise.** The issue this solves
-    /// is a race between two runs against one dataset: two CI pull requests, or a developer's shell
-    /// beside a CI run, both pointing at the one `bq-test` dataset. The run id is the value CI
-    /// already has, and it is what the printed table names should show so a log says WHICH run wrote
-    /// them. Locally there is no run id, so the token is derived from the clock and the process id.
-    ///
-    /// **The CI branch is gated on `GITHUB_ACTIONS == "true"` as well as the run id**, because the
-    /// run id alone is not proof we are in CI: a version of this leg run anywhere else with a stale
-    /// `GITHUB_RUN_ID` exported would collapse two local shells onto one token and reintroduce the
-    /// very race this fixes. `GITHUB_ACTIONS` is set by every GitHub Actions job and by nothing else,
-    /// so requiring both means the run id is used exactly when GitHub supplies it.
-    ///
-    /// **The token never appears without a committed fixture name beside it, and only table names
-    /// are printed, never the dataset or the project** - so it is safe in a public log.
-    fn run_token() -> String {
-        let ci_run_id = match (std::env::var("GITHUB_ACTIONS"), std::env::var("GITHUB_RUN_ID")) {
-            (Ok(flag), Ok(id)) if flag == "true" && !id.trim().is_empty() => Some(id.trim().to_owned()),
-            _ => None,
-        };
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default();
-        build_token(ci_run_id.as_deref(), nanos, std::process::id())
-    }
-
-    /// Maps the run's identity inputs to its token, as a pure function so the token source is testable.
-    ///
-    /// **Separated from [`run_token`] so the two distinctness claims - two runs, and CI-versus-local -
-    /// can be asserted without mutating the process environment under nextest's parallelism.** The
-    /// CI branch is the run id alone (GitHub issues one per run); the local branch joins the clock
-    /// and the process id with `_` - a separator that makes the concatenation unambiguous (a
-    /// delimiter removes the `AB+C` vs `A+BC` collision a separator-less join leaves open) and that
-    /// [`TableName`] admits, where a hyphen would be refused.
-    fn build_token(ci_run_id: Option<&str>, nanos: u128, pid: u32) -> String {
-        ci_run_id.map_or_else(|| format!("{nanos:x}_{pid}"), String::from)
-    }
-
-    /// The table a model's committed fixture becomes: its committed name plus this run's suffix.
-    ///
-    /// **The whole of the re-entrancy fix sits on this one function.** Every table this leg writes is
-    /// named `dim_customer_<token>_<leg>` etc., so two runs - or this leg's own three tests running
-    /// in parallel under nextest - can never create or replace a table the other is reading. The
-    /// committed name is preserved at the front so a human reading a log or a dataset still sees
-    /// which model a table holds.
-    ///
-    /// The build is clipped to [`TableName`]'s 63-character ceiling via `parse`, which refuses a
-    /// name that would silently truncate at the endpoint.
-    fn suffixed_table(committed: &TableName, token: &str, leg: &str) -> TableName {
-        let raw = format!("{committed}_{token}_{leg}");
-        TableName::parse(&raw).unwrap_or_else(|e| panic!("the per-run table name {raw} is not a legal name: {e:?}"))
-    }
-
-    /// The bundle, with every model's table renamed to this run's suffixed physical table.
-    ///
-    /// **This is the seam that makes the plan agree with the dataset.** `sutura_semantic::compile`
-    /// resolves a question against the pinned definitions and the plan carries each model's table
-    /// name, so if the leg loaded fixtures under suffixed names but compiled against the committed
-    /// names, the two sides would read different tables. Rebuilding the definitions - only the
-    /// models' tables change, relationships and metrics are cloned verbatim - puts the suffixed
-    /// names where the plan reads them, for BOTH the engine and `BigQuery` (they share one bundle,
-    /// which is what keeps the comparison honest). The digest is recomputed by `pin` over the
-    /// suffixed definitions, so the answers carry a correct bundle.
-    fn suffixed_bundle(tokened: &PinnedDefinitions, token: &str, leg: &str) -> PinnedDefinitions {
-        let models: Vec<Model> = tokened
-            .definitions()
-            .models()
-            .values()
-            .map(|model| {
-                let table = suffixed_table(model.table_name(), token, leg);
-                Model::new(
-                    model.name().clone(),
-                    model.source().clone(),
-                    table,
-                    model.columns().clone(),
-                    Description::parse(model.description()).expect("a loaded description reparses"),
-                )
-            })
-            .collect();
-        let relationships: Vec<Relationship> = tokened.definitions().relationships().values().cloned().collect();
-        let metrics: Vec<Metric> = tokened.definitions().metrics().values().cloned().collect();
-        let suffixed = Definitions::assemble(models, relationships, metrics)
-            .expect("suffixing table names keeps the cross-references consistent");
-        sutura_domain::pinned::PinnedDefinitions::pin(
-            tokened.version().clone(),
-            suffixed,
-            tokened.knowledge().clone(),
-            tokened.manifest().clone(),
-        )
-        .expect("a suffixed bundle pins like the original")
     }
 
     /// Each suffixed fixture: the table this run wrote, and the committed CSV behind it.
@@ -506,7 +419,7 @@ mod tests {
     /// comparison below agree about nothing. The count comes from the CSV rather than from the
     /// endpoint; what proves the endpoint STORED them is the row comparison itself.
     ///
-    /// The tables are named *with* this run's token (see [`suffixed_table`]), so two concurrent
+    /// The tables are named *with* this run's token (see [`crate::naming::suffixed_table`]), so two concurrent
     /// runs - or this leg's own three tests under nextest's default parallelism - replace only their
     /// own tables. Each `CREATE` also carries a 24-hour expiration, so a cancelled run's tables
     /// self-delete even though `panic = "abort"` skips the explicit DROP.
@@ -708,9 +621,48 @@ mod tests {
         assert_eq!(ci, "1234567890");
     }
 
+    /// The CI branch is taken only when GitHub says it is CI, and that is a test, not a paragraph.
+    ///
+    /// **A run id alone is not proof of CI.** A developer with a stale `GITHUB_RUN_ID` exported would
+    /// otherwise have both of their runs collapse onto one token and race for one set of tables -
+    /// the defect the per-run suffix exists to remove. `GITHUB_ACTIONS` is `"true"` in every GitHub
+    /// Actions job and set by nothing else, so requiring both means the run id is used exactly when
+    /// GitHub supplies it. Asserted on the pure decision rather than through `std::env`, because a
+    /// test that mutates the process environment makes its own result depend on the other tests'.
+    #[test]
+    fn a_run_id_without_the_ci_flag_is_a_stale_export_rather_than_a_run() {
+        assert_eq!(
+            ci_run_id(Some("true"), Some("1234567890")).as_deref(),
+            Some("1234567890"),
+            "a real CI pair did not yield the run id"
+        );
+        assert_eq!(
+            ci_run_id(None, Some("1234567890")),
+            None,
+            "a run id with no CI flag was trusted - two local runs would collapse onto one token"
+        );
+        assert_eq!(
+            ci_run_id(Some("false"), Some("1234567890")),
+            None,
+            "GITHUB_ACTIONS=false was read as CI"
+        );
+        assert_eq!(
+            ci_run_id(Some("true"), None),
+            None,
+            "CI with no run id has to fall back to the clock, not to an empty suffix"
+        );
+        assert_eq!(
+            ci_run_id(Some("true"), Some("   ")),
+            None,
+            "a blank run id became a token, and a blank suffix is the collision"
+        );
+        // Trimmed, because the token becomes part of a table name and whitespace is not legal there.
+        assert_eq!(ci_run_id(Some("true"), Some(" 42 ")).as_deref(), Some("42"));
+    }
+
     /// The per-run table name's ceiling is owned by [`TableName::parse`], and this pins that.
     ///
-    /// A name longer than 63 characters is REFUSED by [`TableName::parse`] - and `suffixed_table`
+    /// A name longer than 63 characters is REFUSED by [`TableName::parse`] - and [`crate::naming::suffixed_table`]
     /// propagates that refusal as a panic - because a data system silently truncates a longer name
     /// and reading a truncated table is a wrong number. So the boundary is the parse, and the price
     /// is a loud failure at the first table rather than a silent rename. This test asserts both
@@ -740,6 +692,24 @@ mod tests {
             result.is_err(),
             "an over-long per-run name was accepted - it would silently become a truncated table"
         );
+
+        // **The LOCAL token's own shape, through the same parse, at its widest.** Everything above
+        // feeds a CI-shaped token; the local branch is `{nanos:x}_{pid}`, the longer of the two and
+        // the one no other deterministic test puts through `TableName::parse`. A 2026 clock is 16 hex
+        // digits and `u32::MAX` is the widest pid any platform can hand us, so this is the worst case
+        // that exists: on the longest committed fixture name and the longest leg it leaves three
+        // characters of headroom. Without this the local leg would panic on its first table while
+        // every test in this file stayed green.
+        let widest = build_token(None, 1_777_000_000_000_000_000, u32::MAX);
+        let locally = suffixed_bundle(&committed, &widest, "anchors");
+        for model in locally.definitions().models().values() {
+            assert!(
+                model.table_name().as_str().len() <= 63,
+                "the local token at its widest overflowed the ceiling: {} is {} characters",
+                model.table_name(),
+                model.table_name().as_str().len()
+            );
+        }
     }
 
     #[test]
