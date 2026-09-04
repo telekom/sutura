@@ -39,10 +39,13 @@
 //!   not a hole: `clippy::wildcard_imports` is on through `pedantic` and the gate runs with
 //!   `-D warnings`.
 //! * Comments and multi-line string interiors are blanked first, through the serde gate's
-//!   [`code_lines`](crate::serde_parse::scan::code_lines) - which is load-bearing, because this
-//!   file's own header names the forbidden path and several doc comments in the tree do too. A
-//!   SINGLE-line string literal keeps its content, so one holding that path would be reported;
-//!   none exists.
+//!   [`code_lines`](crate::serde_parse::scan::code_lines). **What makes that load-bearing is the
+//!   scanned set and not this file:** `xtask` declares no dependency on `sutura-app`, so this module
+//!   is never a caller and its own header could name the path freely - but
+//!   `crates/sutura-cli/src/commands.rs`, `src/mcp.rs` and `src/audit.rs` are all in the set and all
+//!   name the path in doc comments. A SINGLE-line string literal keeps its content, so a scanned
+//!   file holding the path in one would be reported; [`explain`] holds one and is out of scope for
+//!   the same reason.
 //! * It cannot see a caller that reaches the answer path some other way - an adapter's own
 //!   `Warehouse::execute`, say. It holds the one door the application opens.
 
@@ -58,10 +61,30 @@ const APPLICATION_PATH: &str = "sutura_app";
 /// `answer_federated` is `pub(crate)`, so this is the whole door.
 const ANSWER: &str = "answer";
 
+/// Where the door is defined, relative to the repo root.
+///
+/// Declared rather than searched, so a move is a red gate somebody looks at rather than a scan that
+/// quietly finds a function of that name somewhere else.
+pub(super) const APPLICATION_LIB: &str = "crates/sutura-app/src/lib.rs";
+
+/// How the door is spelled where it is defined.
+///
+/// Built from [`ANSWER`] so the needle this rule forbids in a caller and the needle it requires at
+/// the definition cannot drift apart.
+pub(super) fn door() -> String {
+    format!("pub fn {ANSWER}")
+}
+
 /// What the check looked at, and what it found.
 pub(super) struct Report {
     /// The callers it read, so a rule that found none cannot report `ok`.
     pub(super) callers: Vec<String>,
+    /// The line [`APPLICATION_LIB`] defines the door on, and `None` if it no longer defines one.
+    ///
+    /// **`None` is a failure, and it is the liveness half [`paths`](Report::paths) does not
+    /// provide.** That one counts paths rooted at [`APPLICATION_PATH`], so it catches a rename of
+    /// the CRATE and nothing else; a rename of the FUNCTION leaves it in the dozens.
+    pub(super) door: Option<usize>,
     /// Rust files examined.
     pub(super) files: usize,
     /// `sutura_app::…` paths read, test code included.
@@ -81,6 +104,12 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     };
     let callers = callers_of_the_application(meta, &root)?;
     let read = |rel: &str| std::fs::read_to_string(root.join(rel)).ok();
+    let Some(defines) = read(APPLICATION_LIB) else {
+        return Err(format!(
+            "`{APPLICATION_LIB}` could not be read, and that is where the door this rule guards is defined"
+        ));
+    };
+    let door = door_line(&crate::serde_parse::scan::code_lines(&defines).join("\n"));
     let mut problems = Vec::new();
     let mut scanned = 0_usize;
     let mut paths = 0_usize;
@@ -115,9 +144,41 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     }
     Ok(Report {
         callers: callers.into_iter().map(|caller| caller.name).collect(),
+        door,
         files: scanned,
         paths,
         problems,
+    })
+}
+
+/// The line [`APPLICATION_LIB`]'s code defines the door on, if it still defines one.
+///
+/// **The liveness half that was missing, and it was measured rather than argued.**
+/// [`Report::paths`] counts paths rooted at [`APPLICATION_PATH`], so `paths == 0` catches a rename
+/// of the CRATE and nothing else. Rename `sutura_app::answer` to `ask`, or move it under
+/// `sutura_app::surface`, and [`names_the_answer`] matches nothing forever while `paths` stays in
+/// the dozens - every caller still writes `use sutura_app::surface::{LocalService, Surface as _};`.
+/// Reproduced: with the door renamed in `sutura-app` and a bypass written to the new name in
+/// `crates/sutura-cli/src/commands.rs`, this half printed
+/// `ok - the answer path is reached through the port (94 path(s) in 54 file(s) ...)` and exited
+/// zero - a dead gate over a tree where a shipped command answers with no record, which is the one
+/// shape this module's header is written against. Found by review.
+///
+/// **`pub fn` and not the bare name**, so narrowing `answer` to `pub(crate)` is red too. That is the
+/// right direction: the whole reason this scan exists instead of the compiler is that `answer` is
+/// `pub` for the golden suites, so a narrowed door is a rule which has lost its reason and gets
+/// deleted rather than left printing `ok`.
+///
+/// Whole-token at the end, so `pub fn answer_federated` - which is `pub(crate)` today - is not read
+/// as the door.
+fn door_line(code: &str) -> Option<usize> {
+    let needle = door();
+    code.match_indices(&needle).find_map(|(at, _)| {
+        let rest = code.get(at.saturating_add(needle.len())..)?;
+        if rest.chars().next().is_some_and(is_ident) {
+            return None;
+        }
+        Some(code.get(..at)?.matches('\n').count().saturating_add(1))
     })
 }
 
@@ -165,25 +226,47 @@ fn application_paths(code: &str) -> Vec<ApplicationPath> {
     found
 }
 
-/// Do the segments of the path or `use` tree at the start of `rest` include [`ANSWER`]?
+/// Does the path or `use` tree at the start of `rest` reach [`ANSWER`] itself?
+///
+/// **Immediately after the root, or inside a brace group - not any segment.** Any segment reported a
+/// call THROUGH the port spelled with its full path: `sutura_app::surface::Surface::answer(&service,
+/// ..)` was a violation, and [`explain`] then told the author to compose a service and call
+/// `Surface::answer`, which is what they had just done. `crates/sutura-http/src/routes/v1/query.rs`
+/// writes that spelling in prose, so it is a shape somebody reaches for. Found by review.
+///
+/// A brace group is NOT narrowed to its first segment: `use sutura_app::{surface::answer}` reaches
+/// the same door by a longer route, and over-reporting inside a `use` tree costs an author one
+/// spelling rather than an argument.
 fn names_the_answer(rest: &str) -> bool {
     let mut segment = String::new();
+    let mut depth = 0_usize;
+    // The root's own `::` has not been passed yet, so the first segment to complete is the one
+    // written directly on the application.
+    let mut on_the_root = true;
+    let reaches = |segment: &str, depth: usize, on_the_root: bool| segment == ANSWER && (depth > 0 || on_the_root);
     for character in rest.chars() {
         if is_ident(character) {
             segment.push(character);
             continue;
         }
-        if segment == ANSWER {
-            return true;
+        if !segment.is_empty() {
+            if reaches(&segment, depth, on_the_root) {
+                return true;
+            }
+            on_the_root = false;
+            segment.clear();
         }
-        segment.clear();
-        // What a path and a `use` tree are made of, and nothing else. A `(`, a `;`, a `<` or an
-        // operator ends the path.
-        if !matches!(character, ':' | '{' | '}' | ',' | '*') && !character.is_whitespace() {
-            return false;
+        match character {
+            '{' => depth = depth.saturating_add(1),
+            '}' => depth = depth.saturating_sub(1),
+            // What a path and a `use` tree are made of, and nothing else. A `(`, a `;`, a `<` or an
+            // operator ends the path.
+            ':' | ',' | '*' => {}
+            _ if character.is_whitespace() => {}
+            _ => return false,
         }
     }
-    segment == ANSWER
+    reaches(&segment, depth, on_the_root)
 }
 
 /// A character an identifier is made of.
@@ -210,7 +293,8 @@ pub(super) fn explain() {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApplicationPath, application_paths, names_the_answer};
+    use super::{APPLICATION_LIB, ApplicationPath, application_paths, door, door_line, names_the_answer};
+    use crate::serde_parse::scan::code_lines;
 
     /// A path at `line`, and whether it reached the answer function.
     fn at(line: usize, names_the_answer: bool) -> ApplicationPath {
@@ -266,5 +350,69 @@ mod tests {
     fn the_root_is_matched_as_a_whole_token() {
         assert_eq!(application_paths("use not_sutura_app::answer;"), Vec::new());
         assert_eq!(application_paths("use sutura_apps::answer;"), Vec::new());
+    }
+
+    /// A turbofish is still the segment, because the match is the bare name.
+    ///
+    /// The hole a `sutura_app::answer(` scan would have had: `answer::<W, B>(` does not contain it.
+    #[test]
+    fn a_turbofish_call_is_still_the_answer_path() {
+        assert_eq!(
+            application_paths("let o = sutura_app::answer::<W, StaticCredentialBroker>(&v, &q);"),
+            vec![at(1, true)]
+        );
+    }
+
+    /// A call THROUGH the port, spelled with its full path, is not a bypass.
+    ///
+    /// Red against the previous rule by construction: it accepted [`ANSWER`] as ANY segment, so both
+    /// of these were reported and the printed advice was to do what the author had already done.
+    #[test]
+    fn a_call_through_the_port_is_not_the_answer_path() {
+        assert_eq!(
+            application_paths("let o = sutura_app::surface::Surface::answer(&service, &context, &query)?;"),
+            vec![at(1, false)]
+        );
+        assert_eq!(
+            application_paths("let o = <Composed<W> as sutura_app::surface::Surface>::answer(&service, &c, &q)?;"),
+            vec![at(1, false)]
+        );
+        assert!(!names_the_answer("::surface::Surface::answer(&service, &context, &query)"));
+    }
+
+    /// The door is where this rule believes it is, over the REAL file.
+    ///
+    /// The non-vacuity assertion this half was missing: without it a rename of the function leaves
+    /// `names_the_answer` matching nothing and the gate printing `ok` over dozens of paths, because
+    /// the only liveness check counted paths rooted at the CRATE.
+    #[test]
+    fn the_door_is_still_defined_where_this_rule_reads_it() {
+        let root = crate::repo::root().expect("the repo root");
+        let text = std::fs::read_to_string(root.join(APPLICATION_LIB)).expect("the application's lib.rs is readable");
+        assert!(
+            door_line(&code_lines(&text).join("\n")).is_some(),
+            "`{}` is not in {APPLICATION_LIB} - this rule now forbids a path that names nothing",
+            door()
+        );
+    }
+
+    /// Every way the door can move out from under the rule, and none of them reads as the door.
+    #[test]
+    fn a_door_that_moved_or_narrowed_is_not_found() {
+        for gone in [
+            // Renamed.
+            "pub fn ask<W, B>(\n",
+            // Moved under a module, so the crate-rooted path is one segment longer.
+            "pub mod surface {\n    pub fn ask<W, B>(\n}\n",
+            // Narrowed - which is the rule losing its reason rather than a bypass, and it is still red.
+            "pub(crate) fn answer<W, B>(\n",
+            // A longer identifier is not the segment.
+            "pub(crate) fn answer_federated<W, B>(\n",
+            // And prose naming it is not a definition, which is what the blanking buys.
+            "/// `pub fn answer` is the whole door.\n",
+        ] {
+            assert_eq!(door_line(&code_lines(gone).join("\n")), None, "{gone}");
+        }
+        assert_eq!(door_line(&code_lines("pub fn answer<W, B>(\n").join("\n")), Some(1));
     }
 }

@@ -31,6 +31,7 @@ fn example() -> PathBuf {
 /// Filtered to the two messages the sink writes, so an unrelated line from the engine or the
 /// settings cannot make a count assertion pass or fail for the wrong reason.
 fn records(question: &str) -> Vec<serde_json::Value> {
+    refuse_a_configured_process();
     let sink = Capture::new();
     let telemetry = sutura_config::TelemetrySettings::new(
         sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
@@ -54,6 +55,52 @@ fn records(question: &str) -> Vec<serde_json::Value> {
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .filter(|line| matches!(message(line), Some("answered" | "refused")))
         .collect()
+}
+
+/// Refuses to run if this process carries a variable the command's settings load reads.
+///
+/// **This test drives the command IN-PROCESS, so the developer's environment is an input to it.**
+/// [`crate::commands::query`] reaches [`crate::sources::configured`], which is
+/// `Sources::from_process_environment`, and that function's own header states the cost:
+/// `SUTURA_ENVIRONMENT=production sutura query …` stops on `security.access_token`, and an
+/// off-loopback `SUTURA__SERVER__HOST` stops it on TLS termination, from a command that binds
+/// nothing. Either one leaves no record, and [`only`] then fails with `one record per outcome: []` -
+/// an assertion about the audit record for what is actually a settings refusal, on a machine where
+/// somebody runs `sutura-serve` too. `crates/sutura-cli/tests/mcp.rs` records this exact pair
+/// turning six passing tests red, and `tests/declared_source.rs` strips every such variable from the
+/// child it spawns for that reason.
+///
+/// **In-process there is no child to strip.** `std::env::set_var` and `remove_var` are `unsafe` in
+/// this edition and the workspace forbids them, and the command has to be driven through its own
+/// entry point for the causality gate's sake - `crate::commands::query` is the one signature both
+/// versions of that file have. So what is left is to refuse the run and NAME the variable, which is
+/// the difference between a red run that says which variable caused it and one that points at the
+/// record.
+///
+/// The set is derived from the three things a load reads, not guessed at: the two exported names,
+/// and the `SUTURA__` prefix the environment layer is built with. Scoped that way rather than to
+/// every `SUTURA`-prefixed name deliberately - `SUTURA_DEV_REQUIRE_TIER` is exported into `just
+/// test` by `nix/with-tier.sh` and `SUTURA_STABLE_BIN` by the dev shell, and a guard that fired on
+/// those would be red on every green machine and deleted within a day.
+///
+/// What it does not reach: a configuration DIRECTORY is the only file input and there is no default
+/// location for one, so absence of these names means the embedded defaults and nothing else.
+fn refuse_a_configured_process() {
+    let nested = format!("{}{}", sutura_config::VARIABLE_PREFIX, sutura_config::VARIABLE_SEPARATOR);
+    let carried: Vec<String> = std::env::vars_os()
+        .filter_map(|(key, _)| key.into_string().ok())
+        .filter(|key| {
+            key == sutura_config::ENVIRONMENT_VARIABLE || key == sutura_config::CONFIG_DIR_VARIABLE || key.starts_with(&nested)
+        })
+        .collect();
+    assert!(
+        carried.is_empty(),
+        "this test drives `sutura query` in-process, so a deployment's settings decide whether it \
+         passes: {carried:?} set in this process. Unset them and run it again - `{}`, `{}` and any \
+         `{nested}` name reach the command's settings load.",
+        sutura_config::ENVIRONMENT_VARIABLE,
+        sutura_config::CONFIG_DIR_VARIABLE,
+    );
 }
 
 /// The message a record carries: `answered` or `refused`.

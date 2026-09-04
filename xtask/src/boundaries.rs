@@ -373,6 +373,11 @@ fn declared_ports() -> Verdict {
 /// The same `--no-deps --all-features` metadata [`declared_ports`] reads, and for the same reason:
 /// this half needs workspace members and their DECLARED dependencies, because a crate that reaches
 /// the application transitively is a caller of a transport rather than of its port.
+///
+/// Written as early returns rather than as its siblings' one `match`, because it has FOUR ways to
+/// fail and two of them are the rule reading nothing: the door it forbids no longer being defined,
+/// and no caller naming the application at all. The green line names both of the things those two
+/// check, so a reader can tell a pass from a vacuous one without running anything.
 fn answer_through_the_port() -> Verdict {
     let meta = match crate::cargo_metadata(&["--no-deps", "--all-features"]) {
         Ok(value) => value,
@@ -381,42 +386,55 @@ fn answer_through_the_port() -> Verdict {
             return Verdict::Fail;
         }
     };
-    match answer_path::check(&meta) {
+    let report = match answer_path::check(&meta) {
+        Ok(report) => report,
         Err(message) => {
             eprintln!("xtask check-boundaries: {message}");
-            Verdict::Fail
+            return Verdict::Fail;
         }
-        // Zero paths read is a FAILURE and not a pass: a rule that no longer finds the application
-        // in any caller is reading nothing while printing `ok`.
-        Ok(report) if report.paths == 0 => {
-            eprintln!(
-                "xtask check-boundaries: FAILED - no caller of the driving port names the application \
-                 in {} file(s) ({}). Either it was renamed or the path spelling changed, and this rule \
-                 is checking nothing.",
-                report.files,
-                report.callers.join(", ")
-            );
-            Verdict::Fail
-        }
-        Ok(report) if report.problems.is_empty() => {
-            println!(
-                "xtask check-boundaries: ok - the answer path is reached through the port ({} path(s) in {} file(s) in {})",
-                report.paths,
-                report.files,
-                report.callers.join(", ")
-            );
-            Verdict::Pass
-        }
-        Ok(report) => {
-            eprintln!("xtask check-boundaries: FAILED - a caller of the driving port answers without it:");
-            for problem in &report.problems {
-                eprintln!("  {problem}");
-            }
-            eprintln!();
-            answer_path::explain();
-            Verdict::Fail
-        }
+    };
+    // A door that moved is a FAILURE and not a pass. `paths` below counts paths rooted at the
+    // CRATE, so it catches a rename of that and nothing else - with the FUNCTION renamed and a
+    // bypass written to the new name, this half printed `ok` over 94 paths.
+    let Some(door) = report.door else {
+        eprintln!(
+            "xtask check-boundaries: FAILED - `{}` is not defined in {}, so the path this rule forbids \
+             names nothing. A caller could answer without recording and this half would still print \
+             `ok`. Move the needle with the door, or delete this half if the door is gone.",
+            answer_path::door(),
+            answer_path::APPLICATION_LIB
+        );
+        return Verdict::Fail;
+    };
+    // Zero paths read is a FAILURE and not a pass: a rule that no longer finds the application
+    // in any caller is reading nothing while printing `ok`.
+    if report.paths == 0 {
+        eprintln!(
+            "xtask check-boundaries: FAILED - no caller of the driving port names the application \
+             in {} file(s) ({}). Either it was renamed or the path spelling changed, and this rule \
+             is checking nothing.",
+            report.files,
+            report.callers.join(", ")
+        );
+        return Verdict::Fail;
     }
+    if !report.problems.is_empty() {
+        eprintln!("xtask check-boundaries: FAILED - a caller of the driving port answers without it:");
+        for problem in &report.problems {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        answer_path::explain();
+        return Verdict::Fail;
+    }
+    println!(
+        "xtask check-boundaries: ok - the answer path is reached through the port ({} path(s) in {} file(s) in {}, door at {}:{door})",
+        report.paths,
+        report.files,
+        report.callers.join(", "),
+        answer_path::APPLICATION_LIB
+    );
+    Verdict::Pass
 }
 
 /// Which way dependencies point, a third time: no edge INSIDE one class of adapter.

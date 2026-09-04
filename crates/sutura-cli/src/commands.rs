@@ -391,6 +391,11 @@ pub(crate) type Composed<W> = LocalService<W, TracingAuditSink, sutura_config::S
 /// time. Skipped for a data system nothing was attached to, which is the narrowing
 /// `crate::sources::OpenedWith` documents - nothing to compare is not the same as nothing missing.
 ///
+/// **For `query` that is a behaviour change and not a refactor**, which the commit that introduced
+/// this function understated: the honest sentence is that `query` gains the refusals `mcp` already
+/// had. A bundle this command previously served, and then failed on at query time, is now refused
+/// here. Right direction, and a reader of a diff deserves to be told rather than reassured.
+///
 /// **The working-set number is `runtime.working_set_max_bytes` and not a `1 << 30` literal** - a
 /// review correction, and the same one `crate::sources` took. The answer path reads it only on the
 /// federated leg, which both commands refuse, so nothing observable changes today; what changes is
