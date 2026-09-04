@@ -321,27 +321,38 @@ mod tests {
         // The other half: the line is worth nothing if it says the same thing either way. One real
         // file, so what is asserted is the path reaching the log - which is the thing an operator
         // compares against the path they meant to mount.
+        const PORT: &str = "9101";
         let dir = std::env::temp_dir().join(format!("sutura-runtime-layers-{}", std::process::id()));
         drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
-        std::fs::write(dir.join("base.yaml"), "server:\n  port: 9101\n").expect("a scratch file is writable");
+        std::fs::write(dir.join("base.yaml"), format!("server:\n  port: {PORT}\n")).expect("a scratch file is writable");
 
-        let recorded = crate::testing::capture(|| {
-            let settings = Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone()))
-                .expect("one layer over the defaults loads");
-            announce_provenance(&settings);
-        });
-        assert!(recorded.contains("base.yaml"), "{recorded}");
+        let settings = Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone()))
+            .expect("one layer over the defaults loads");
+        let layers = settings.layers().to_string();
+        let recorded = crate::testing::capture(|| announce_provenance(&settings));
+        drop(std::fs::remove_dir_all(&dir));
+
+        assert!(
+            recorded.contains(&layers),
+            "the layer list did not reach the log:\n{recorded}"
+        );
         assert!(
             !recorded.contains("embedded defaults only"),
             "a deployment with a file is not running on defaults only:\n{recorded}"
         );
-        // Paths, and never a value: the port came out of that file and has no business on this line.
+        // Paths, and never a value: the port came out of that file and has no business on this
+        // line. Searched in the FIELD and not in the rendered line, and that is a fix rather than a
+        // narrowing: the line also carries the subscriber's own metadata, and a nanosecond timestamp
+        // is nine arbitrary digits. This assertion failed once in CI on
+        // `"time":"2026-09-03T19:26:32.069101003Z"` with the field itself clean - a flake, not a
+        // regression, and one no amount of re-running would have explained. What this function
+        // controls is the field, so the field is the haystack; the assertion above is what holds the
+        // field to what reached the log.
         assert!(
-            !recorded.contains("9101"),
-            "a value from a file reached the provenance line:\n{recorded}"
+            !layers.contains(PORT),
+            "a value from a file reached the provenance line:\n{layers}"
         );
-        drop(std::fs::remove_dir_all(&dir));
     }
 
     #[test]
