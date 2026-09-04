@@ -458,10 +458,19 @@ statement of what that scalar means.
 vocabularies.** The `measure` is the `sutura-domain` `Measure` type itself - the closed set,
 written exactly as this repository writes it - the `grains` and `required_filters` are the
 closed `Grain` and `RequiredFilter` enums, and a `dimension` and an `anchor` mirror the markdown
-document's shapes with `deny_unknown_fields` at every depth refusing a property this adapter
-does not recognise rather than guessing. An aggregate out of the closed set, an unknown operator,
-an unparseable value, an unknown grain, an unclosed namespace key - all fail the decode before
-the conversion sees them.
+document's shapes. `deny_unknown_fields` sits on this document, on the measure and on the term
+inside it, on a filter, on a dimension, on the anchor and on the range inside the anchor, and
+refuses a property this adapter does not recognise rather than guessing. An aggregate out of the
+closed set, an unknown operator, an unparseable value, an unknown grain, an unknown key at any of
+those levels - all fail the decode before the conversion sees them, naming the key.
+
+**The range is where that used to stop**, which is worth recording because the claim read *at
+every depth* while it was one depth short: `sutura_domain::calendar::TimeRangeInput` carried no
+`deny_unknown_fields`, so a key written INSIDE the range object was discarded in silence rather
+than named, and the metric was certified from a document nobody had read in full. The attribute
+is on that domain shape now, which closes the same hole on the markdown catalog and question
+paths that decode the same type, and
+`a_key_inside_an_anchor_range_is_refused_through_the_load_path` is what holds it here.
 
 The three free strings - `model`, `time_column`, and each nested `column` - are the one thing
 this shape cannot close, and they are parsed as domain identifier types during the conversion
