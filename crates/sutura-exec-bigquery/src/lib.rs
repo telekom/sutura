@@ -708,12 +708,7 @@ where
             // decision CAN be made on it, and which decision - refuse or warn - is not settled,
             // because a listing that fails here is a warning the deployment serves past. Reading it
             // now would pick that answer by accident.
-            absent.extend(
-                asked
-                    .into_iter()
-                    .filter(|table| !held.holds(table.name().as_str()))
-                    .cloned(),
-            );
+            absent.extend(asked.into_iter().filter(|table| !held.holds(table.name().as_str())).cloned());
         }
         Ok(TablesPresent::of(absent))
     }

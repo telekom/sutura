@@ -452,6 +452,89 @@ Not the one the read is attributed to - `Self::billed_to` is.
 
 `Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
 
+### `struct HeldTables`
+
+```rust
+pub struct HeldTables
+```
+
+Every table one dataset holds, by the id it knows each under - and what the listing said about
+how many there were supposed to be.
+
+**A struct rather than the `BTreeSet<String>` alias it was, and the second field is the whole
+reason.** The set alone cannot tell an EMPTY dataset from a document whose shape the service
+changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
+absent*. `ListingTotal` is what the two can be told apart by, and it has to travel on this
+answer because the decision that would read it lives above the transport while the document that
+carries it is only visible below.
+
+The set is still what a caller asks with - `Self::holds` is the only question the pre-flight
+puts to it - so nothing above here reads a count in order to conclude anything.
+
+#### Methods
+
+```rust
+pub fn holds(&self, id: &str) -> bool
+```
+
+Whether the dataset holds a table under exactly this id.
+
+Case-SENSITIVE, because `GoogleSQL` does not fold a table name - `BigQueryWarehouse::preflight`
+carries the argument, and this is the call it makes.
+
+```rust
+pub const fn named(&self) -> &BTreeSet<String>
+```
+
+Every id the listing named.
+
+```rust
+pub const fn of(named: BTreeSet<String>, total: ListingTotal) -> Self
+```
+
+The ids a listing named, and what its own total said about them.
+
+```rust
+pub const fn total(&self) -> ListingTotal
+```
+
+What the listing's own reported total said about the entries it carried.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum ListingTotal`
+
+```rust
+pub enum ListingTotal
+```
+
+What a listing's own reported total said, against the entries the same document carried.
+
+**Four variants rather than an `Option<u64>`, because each says something different about what a
+caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
+have merged with the answer. A reader has to name the case, which is the reason
+`sutura_domain::source::AnchorsRunAs` is an enum with a third variant rather than an `Option`.
+
+**The comparison is against the entries the document CARRIED and never against the ids it
+named**, and the difference is a wrong claim avoided rather than a nicety: a listing entry whose
+table id is outside `usable_table_id`'s accepted set is DROPPED, so a dataset holding tables this
+crate cannot match legitimately names fewer ids than it carried entries - and `BigQuery` does
+permit an id this crate would drop. Comparing a total against the named set would report that
+ordinary dataset as short of its own total, which is a shape change nobody served.
+
+#### Variants
+
+- `Unreported` - The document carried no total at all, so an empty listing and an empty dataset are one value.
+- `Unreadable` - It carried a total this crate could not read as a count.
+- `Accounted` - It reported a total, and carried an entry for every table the total claims.
+- `Short` - It reported MORE tables than it carried entries for.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `enum NamedResource`
 
 ```rust
@@ -656,14 +739,6 @@ nothing; `list_tables` sends a metadata read rather than a statement, which is w
 cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
 statement-issuing method - present only in a build that loads fixtures, so no deployment can
 reach it.
-
-### `type_alias HeldTables`
-
-Every table one dataset holds, by the id it knows each under.
-
-A name rather than the type, because `Result<BTreeSet<String>, _>` is over the `type_complexity`
-threshold this workspace tightened - the same reason `crate::BigQueryWarehouse`'s `Mapped`
-exists - and because *table ids* is what the set means where `BTreeSet<String>` is not.
 
 ## Module `wire`
 

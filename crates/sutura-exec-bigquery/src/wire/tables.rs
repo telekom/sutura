@@ -184,6 +184,55 @@ fn reported_total(field: Option<&serde_json::Value>, carried: usize) -> ListingT
     }
 }
 
+/// A listing being read, one page at a time.
+///
+/// **A type rather than three locals inside [`list`], because the decisions worth pinning are the
+/// ones that span pages** - which page's total counts, and that the entry count is the whole
+/// listing's rather than the last page's. As locals in a loop only a socket can drive, both would be
+/// claims in a doc comment; here `super::tests` folds pages in by hand and asserts them.
+#[derive(Debug, Default)]
+struct Accumulating {
+    /// The ids read so far, after every id this crate cannot match was dropped.
+    named: BTreeSet<String>,
+    /// Every entry the document carried, BEFORE any of that dropping. See [`ListingTotal`].
+    carried: usize,
+    /// The first page's `totalItems`, still as the service spelled it.
+    total: Option<serde_json::Value>,
+    /// How many pages have been folded in, which is the only way [`Self::absorb`] knows it is first.
+    pages: usize,
+}
+
+impl Accumulating {
+    /// Folds one page in and answers the page token it carried, if it carried one.
+    fn absorb(&mut self, page: Listing) -> Option<String> {
+        // **The FIRST page's total, and the choice matters in one direction only.** The service
+        // documents the number as the DATASET's rather than the page's, so every page should repeat
+        // it; where they disagree, the page that decides is the one whose emptiness is the whole
+        // ambiguity - a listing whose first page carries no entries carries no page token either, so
+        // it is also the only page there is.
+        if self.pages == 0 {
+            self.total = page.total_items;
+        }
+        self.pages += 1;
+        self.carried += page.tables.len();
+        self.named.extend(
+            page.tables
+                .into_iter()
+                .filter_map(|entry| entry.table_reference?.table_id)
+                .filter(|id| usable_table_id(id)),
+        );
+        page.next_page_token
+    }
+
+    /// The answer, once the service has said there is no more of the listing.
+    ///
+    /// Only reached where the listing FINISHED: a run out of pages or of budget is an `Err`, so a
+    /// total is never compared against a count this transport knows is short.
+    fn finish(self) -> HeldTables {
+        HeldTables::of(self.named, reported_total(self.total.as_ref(), self.carried))
+    }
+}
+
 /// Every table id one dataset holds, read one page at a time.
 ///
 /// **One absolute deadline for the whole listing and not one per page**, which is `submit`'s
@@ -205,11 +254,9 @@ where
     let call = CallDeadline::opened(wire.agent.bounds().deadline());
     let now = BigQueryWire::<C>::now()?;
     let bearer = wire.source_bearer(now, call)?;
-    let mut named = BTreeSet::new();
-    let mut carried: usize = 0;
-    let mut total: Option<serde_json::Value> = None;
+    let mut listing = Accumulating::default();
     let mut token: Option<String> = None;
-    for page_number in 0..MAX_PAGES {
+    for _ in 0..MAX_PAGES {
         let left = call.remaining().ok_or(WireError::DeadlineSpent {
             budget_seconds: wire.agent.bounds().deadline().seconds,
         })?;
@@ -247,25 +294,8 @@ where
             return Err(crate::wire::document::refusal(status.as_u16(), &text));
         }
         let page: Listing = serde_json::from_str(&text).map_err(|cause| WireError::NotAListing { cause })?;
-        // **The FIRST page's total, and the choice matters in one direction only.** The service
-        // documents the number as the DATASET's rather than the page's, so every page should repeat
-        // it; where they disagree, the page that decides is the one whose emptiness is the whole
-        // ambiguity - a listing whose first page carries no entries carries no page token either, so
-        // it is also the only page there is.
-        if page_number == 0 {
-            total = page.total_items;
-        }
-        // Counted BEFORE the ids this crate cannot match are dropped, which is the comparison
-        // `ListingTotal` requires and the one a named-set count would get wrong.
-        carried += page.tables.len();
-        named.extend(
-            page.tables
-                .into_iter()
-                .filter_map(|entry| entry.table_reference?.table_id)
-                .filter(|id| usable_table_id(id)),
-        );
-        match page.next_page_token {
-            None => return Ok(HeldTables::of(named, reported_total(total.as_ref(), carried))),
+        match listing.absorb(page) {
+            None => return Ok(listing.finish()),
             Some(next) if usable_token(&next) => token = Some(next),
             Some(next) => {
                 return Err(WireError::UnusablePageToken {
@@ -349,10 +379,24 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        Listing, MAX_PAGE_TOKEN_BYTES, MAX_PAGES, MAX_TABLE_ID_BYTES, PAGE_SIZE, WireError, page_url, usable_table_id,
-        usable_token, was_refused,
+        Accumulating, Listing, MAX_PAGE_TOKEN_BYTES, MAX_PAGES, MAX_TABLE_ID_BYTES, PAGE_SIZE, WireError, page_url,
+        usable_table_id, usable_token, was_refused,
     };
-    use crate::transport::{DatasetAddress, DatasetId, ProjectId};
+    use crate::transport::{DatasetAddress, DatasetId, HeldTables, ListingTotal, ProjectId};
+
+    /// One page of a listing, read the way [`super::list`] reads one - and nothing more.
+    ///
+    /// A helper rather than a copy of the loop: what it leaves out is the socket, the deadline and
+    /// the page token, which is the whole of what a document cannot say. Pages are folded in in
+    /// order, so a multi-page listing is written as a slice of documents.
+    fn read(pages: &[&str]) -> HeldTables {
+        let mut listing = Accumulating::default();
+        for body in pages {
+            let page: Listing = serde_json::from_str(body).expect("a listing document decodes");
+            listing.absorb(page);
+        }
+        listing.finish()
+    }
 
     /// A CROSS-PROJECT address, and the two projects differ on purpose.
     ///
@@ -470,13 +514,151 @@ mod tests {
         // caller is the direction it fails in: an empty listing refuses the deployment rather than
         // serving it, and `AGENTS.md` records that as a stated limit rather than a guarantee.
         //
-        // An empty `tables` really is what the service sends for an empty dataset, so this cannot be
-        // told from a shape change here - which is exactly why it is written down.
+        // An empty `tables` really is what the service sends for an empty dataset. What tells the two
+        // apart is the SAME document's own total, and that is the test below rather than a sentence
+        // here - these three documents are the ones where it cannot help, because none of them
+        // reports a total above zero.
         for body in ["{}", r#"{"kind":"bigquery#tableList","totalItems":0}"#, r#"{"tables":[]}"#] {
             let page: Listing = serde_json::from_str(body).expect("a document with no tables still decodes");
             assert!(page.tables.is_empty(), "{body}");
             assert!(page.next_page_token.is_none(), "{body}");
         }
+    }
+
+    #[test]
+    fn a_listing_carrying_no_entries_beside_a_non_zero_total_is_not_an_empty_dataset() {
+        // **THE cross-check, and the reason it is worth a decoder change:** an empty listing means
+        // *every table is absent* one port up, and until the total was read that answer was the same
+        // value whether the dataset was empty or the document had stopped being a document this crate
+        // can read. The three cases are three different things a caller may conclude, so they are
+        // three variants rather than a boolean.
+        assert_eq!(
+            read(&[r#"{"kind":"bigquery#tableList","totalItems":7,"tables":[]}"#]).total(),
+            ListingTotal::Short { reported: 7, carried: 0 },
+            "a dataset that answers with no entries while claiming seven tables is a shape change"
+        );
+        assert_eq!(
+            read(&[r#"{"kind":"bigquery#tableList","totalItems":0,"tables":[]}"#]).total(),
+            ListingTotal::Accounted { reported: 0 },
+            "the service saying zero twice is an empty dataset, which is the case the shape change \
+             was indistinguishable from"
+        );
+        assert_eq!(
+            read(&["{}"]).total(),
+            ListingTotal::Unreported,
+            "a document that reports no total leaves the two indistinguishable, and says so"
+        );
+    }
+
+    #[test]
+    fn a_total_the_document_never_sent_is_told_from_one_this_crate_could_not_read() {
+        // **Two absences a `#[serde(default)]` decode is famous for merging**, and merging them here
+        // would cost the finding: *the service stopped sending the field* and *the service sent
+        // something else* are different shape changes, and only the second says the document is being
+        // generated differently.
+        assert_eq!(read(&[r#"{"tables":[]}"#]).total(), ListingTotal::Unreported);
+        assert_eq!(
+            read(&[r#"{"totalItems":null,"tables":[]}"#]).total(),
+            ListingTotal::Unreported
+        );
+        for spelling in [
+            r#"{"totalItems":-1,"tables":[]}"#,
+            r#"{"totalItems":1.5,"tables":[]}"#,
+            r#"{"totalItems":true,"tables":[]}"#,
+            r#"{"totalItems":{"count":2},"tables":[]}"#,
+            r#"{"totalItems":[2],"tables":[]}"#,
+            r#"{"totalItems":"","tables":[]}"#,
+            r#"{"totalItems":"two","tables":[]}"#,
+        ] {
+            assert_eq!(read(&[spelling]).total(), ListingTotal::Unreadable, "{spelling}");
+        }
+        // A count spelled as a string IS read, and that is not defensive clutter: this service spells
+        // `totalRows` as a JSON string in the sibling document, so a quoted count is its own habit.
+        assert_eq!(
+            read(&[r#"{"totalItems":"12","tables":[]}"#]).total(),
+            ListingTotal::Short {
+                reported: 12,
+                carried: 0
+            }
+        );
+    }
+
+    #[test]
+    fn a_total_this_crate_cannot_read_never_costs_the_listing_that_carried_it() {
+        // **The property the field is decoded as raw JSON for**, and the direction that makes it
+        // matter: a decode failure here is `NotAListing`, which `was_refused` puts in the WARNING
+        // half - so a deployment would serve on past a pre-flight that had quietly stopped verifying
+        // anything. A field nothing yet decides on must not be able to do that.
+        for hostile in [
+            r#"{"totalItems":{"count":2},"tables":[{"tableReference":{"tableId":"dim_customer"}}]}"#,
+            r#"{"totalItems":"lots","tables":[{"tableReference":{"tableId":"dim_customer"}}]}"#,
+            r#"{"totalItems":-2,"tables":[{"tableReference":{"tableId":"dim_customer"}}]}"#,
+        ] {
+            let held = read(&[hostile]);
+            assert!(held.holds("dim_customer"), "the ids survived the unreadable total: {hostile}");
+            assert_eq!(held.total(), ListingTotal::Unreadable, "{hostile}");
+        }
+    }
+
+    #[test]
+    fn a_table_id_this_crate_dropped_does_not_read_as_a_listing_short_of_its_own_total() {
+        // **The wrong claim this cross-check would otherwise make, and it is why the comparison is
+        // against the entries a document CARRIED rather than the ids it named.** `BigQuery` permits a
+        // table id outside `usable_table_id`'s set, and such an id is dropped from the listing - so a
+        // dataset holding one names fewer ids than its total claims while nothing whatever is wrong.
+        // Comparing against the named set would report it as a shape change: an overstated finding
+        // replacing an unsettled question, which is the defect this whole change is about.
+        let held = read(&[r#"{"totalItems":3,"tables":[
+            {"tableReference":{"tableId":"dim_customer"}},
+            {"tableReference":{"tableId":"dim-region"}},
+            {"tableReference":{"tableId":"fct_orders"}}
+        ]}"#]);
+        assert_eq!(
+            held.named().len(),
+            2,
+            "the hyphenated id is dropped, which is the case that makes this test necessary"
+        );
+        assert_eq!(
+            held.total(),
+            ListingTotal::Accounted { reported: 3 },
+            "three entries against a total of three is accounted for, however many ids survived"
+        );
+    }
+
+    #[test]
+    fn the_total_that_counts_is_the_first_pages_and_the_entries_are_every_pages() {
+        // **The two decisions that span pages**, which as locals in a loop only a socket can drive
+        // were a doc comment and nothing else. A dataset reporting three tables over two pages is
+        // accounted for; the same first page followed by one carrying nothing is short of it.
+        let first = r#"{"totalItems":3,"tables":[
+            {"tableReference":{"tableId":"dim_customer"}},
+            {"tableReference":{"tableId":"fct_orders"}}
+        ],"nextPageToken":"more"}"#;
+        assert_eq!(
+            read(&[
+                first,
+                r#"{"totalItems":3,"tables":[{"tableReference":{"tableId":"dim_plan"}}]}"#
+            ])
+            .total(),
+            ListingTotal::Accounted { reported: 3 },
+            "the entry count is the whole listing's, so a paged dataset is not short of its own total"
+        );
+        assert_eq!(
+            read(&[first, r#"{"totalItems":3,"tables":[]}"#]).total(),
+            ListingTotal::Short { reported: 3, carried: 2 },
+            "a page that carried nothing is still a page that carried nothing"
+        );
+        // And the FIRST page decides, so a later page disagreeing with itself cannot change the
+        // number the comparison is made against.
+        assert_eq!(
+            read(&[
+                first,
+                r#"{"totalItems":99,"tables":[{"tableReference":{"tableId":"dim_plan"}}]}"#
+            ])
+            .total(),
+            ListingTotal::Accounted { reported: 3 },
+            "the total is read once, from the page whose emptiness would be the ambiguity"
+        );
     }
 
     #[test]

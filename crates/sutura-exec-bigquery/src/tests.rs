@@ -22,7 +22,7 @@ use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
 
-use crate::transport::{Cell, Field, FieldType, JobRows};
+use crate::transport::{Cell, Field, FieldType, JobRows, ListingTotal};
 use crate::{BigQueryError, BigQueryWarehouse};
 
 /// The transports and fixtures these assertions are written against.
@@ -556,6 +556,35 @@ fn a_bundle_whose_tables_are_all_there_is_asked_about_and_answered_clean() {
     let answered = warehouse.preflight(&asked(&["dim_customer"])).expect("the dataset answered");
     assert_eq!(answered, TablesPresent::All);
     assert!(answered.was_asked(), "this adapter really looked: {answered:?}");
+}
+
+#[test]
+fn a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named() {
+    // **The deliberate non-decision, pinned so it stays deliberate.** The listing now says whether
+    // an empty answer came from an empty dataset or from a document that stopped being one, and
+    // NOTHING here reads it: an empty listing whose own total claims three tables still reports the
+    // bundle's table absent, exactly as it did before the field was decoded.
+    //
+    // That is `docs/adr/0018`'s order - measure, then decide - and the decision is not a formality:
+    // an `Err` from this method is a WARNING the deployment serves past, so refusing on a shape
+    // change would move it from *refused for the wrong reason* to *served anyway*, which is the
+    // worse direction. Whoever settles that changes this test, and the record with it.
+    let warehouse = open(
+        Recording::empty().holding_with_total(
+            "acme-analytics/warehouse",
+            &[],
+            ListingTotal::Short { reported: 3, carried: 0 },
+        ),
+        shared_posture(),
+    );
+    let answered = warehouse
+        .preflight(&asked(&["dim_customer"]))
+        .expect("a listing that contradicts itself is still a listing the dataset answered");
+    assert_eq!(
+        absent_names(&answered),
+        vec![String::from("dim_customer")],
+        "the total is carried and decides nothing yet"
+    );
 }
 
 #[test]

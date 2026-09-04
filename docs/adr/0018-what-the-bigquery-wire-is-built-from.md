@@ -555,22 +555,58 @@ bullets down:
 - **A document whose shape the service changes decodes to an EMPTY listing**, because every field is
   `#[serde(default)]` - and an empty listing means *every table is absent*. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
-  behaviour so the direction is a measured property rather than a hope. It cannot be told from an
-  empty dataset, which really does answer with no `tables` array. **A `totalItems` cross-check would
-  tell the two apart** - a non-zero total beside an empty `tables` array is a shape change and not an
-  empty dataset - and it is deliberately NOT built: nothing here has seen whether the service
-  populates that field on a real listing, and a decoder that refuses on a field the service may omit
-  would refuse every boot. **The run named above as what would settle it cannot**, and that is worth
-  recording as its own shape of overstatement rather than quietly fixed: the leg asserts on
-  `TablesPresent`, `Listing` decodes `tables` and `nextPageToken` and nothing else, so no
-  `totalItems` value reaches an assertion, a panic message or a log line - checked against both green
-  runs above, whose output contains the string nowhere. What would settle it is therefore a DECODER
-  change and not another run: the field read as an `Option` that cannot refuse a document omitting
-  it, reported by the acceptance leg, and only then a decision about the cross-check. Measure, then
-  decide - with something that measures. **Tracked as telekom/sutura#263**, because it
-  spans the document, the port's answer and a refusal decision - and because a deferral pointing at a
-  run that cannot make the measurement is the overstatement, so the citation has to move rather than
-  the sentence being softened.
+  behaviour so the direction is a measured property rather than a hope. On its own it cannot be told
+  from an empty dataset, which really does answer with no `tables` array. **`totalItems` is what
+  tells the two apart, and it is now DECODED** - a non-zero total beside a document that carried no
+  entries is a shape change and not an empty dataset. Four things about how, because each is a way
+  the obvious version would have been wrong:
+
+  - **Read as raw JSON and turned into a `ListingTotal`, never as an `Option<u64>`.** An `Option`
+    already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
+    spelled some other way, and a failed decode here is `NotAListing` - which
+    `listing_was_refused` puts in the warning half, so the deployment would serve on past a
+    pre-flight that had silently stopped verifying anything. A field nothing yet decides on must not
+    be able to switch off the check it exists to sharpen. This service already spells the sibling
+    `totalRows` as a JSON string, so a count arriving quoted is its own habit rather than a
+    hypothetical, and a string is read too.
+  - **Four variants rather than a number, and the two that mean *nothing to compare* are separate.**
+    *The service sent no total* and *the service sent something this crate could not read* are
+    different findings; the second is itself evidence the document is being generated differently.
+  - **The comparison is against the entries the document CARRIED, never against the ids it named**,
+    and this is the wrong claim the cross-check would otherwise make. An id outside
+    `usable_table_id`'s accepted set is dropped from the listing, and `BigQuery` permits one - so a
+    dataset holding such a table names fewer ids than its own total claims while nothing whatever is
+    wrong. Comparing against the named set would report that ordinary dataset as short of its total:
+    an overstated finding replacing an unsettled question, which is the same defect one turn on.
+  - **The DATASET's number, not the page's, and that is measured rather than assumed.** In the
+    endpoint's own discovery document, read on 2026-09-04 at revision `20260811`,
+    `TableList.totalItems` is `{"format": "int32", "type": "integer"}` - a bare JSON number -
+    described as *"The total number of tables in the dataset"*, beside the neighbouring `etag`'s *"A
+    hash of this page of results"*. Nothing there calls it approximate. So it is compared against a
+    whole FINISHED listing: the first page's total against every page's entries, with a listing that
+    ran out of pages or budget staying an `Err` rather than a comparison against a count this
+    transport knows is short.
+
+  **Nothing refuses on it, and that is the decision this record deliberately does not take.** The
+  choice looks like *`Err` or `WARN`* and is not: an `Err` out of `preflight` **is** the warning half
+  unless `listing_was_refused` changes with it, so refusing on a shape change would move the outcome
+  from *deployment refused for the wrong reason* to *deployment served anyway* - the worse direction.
+  `a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named` pins the non-decision, so
+  whoever settles it changes a test and this record together.
+
+  **The correction worth recording rather than quietly making:** the version of this bullet before
+  #263 deferred the question to *the live run above*, and that run could not make the measurement in
+  either direction - the leg asserts on `TablesPresent`, and the decoder read no such field, so no
+  `totalItems` value reached an assertion, a panic message or a log line. A deferral pointing at
+  evidence that cannot bear it is the overstatement this record is otherwise built to avoid.
+  `a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried` is what measures it
+  now, in `just bigquery-acceptance`, one rung BELOW the domain port because `TablesPresent` carries
+  no count and should not. It prints the verdict and requires a total the crate could read - red, not
+  silent, if the service populates nothing, because a cross-check whose input never arrives has no
+  teeth. **Its limits:** it does not require the total to be EXACT, because the dataset is written to
+  by the corpus leg beside it and a moving number would be a leg failing for a reason outside the
+  diff; and until that job has run on a head carrying it, *whether the service populates the field*
+  is still unmeasured here.
 - **A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
   wording.** Issue #120's own verification asked for a run asserting the boot refusal, and until
   `a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table` the two
