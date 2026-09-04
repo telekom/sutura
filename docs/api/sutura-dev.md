@@ -850,6 +850,10 @@ let problem = provisioned::in_worktree(&std::env::temp_dir(), "postgres")
     .expect_err("nothing is provisioned in a temporary directory");
 assert_eq!(problem.service(), "postgres");
 assert!(problem.to_string().contains("no default port"), "{problem}");
+
+// And the remedy is derived from the directory that was ASKED about, not from this repository:
+// a temporary directory declares `postgres` under neither venue, so there is no task to name.
+assert!(problem.to_string().contains("nothing declares `postgres` yet"), "{problem}");
 ```
 
 ### `fn here`
