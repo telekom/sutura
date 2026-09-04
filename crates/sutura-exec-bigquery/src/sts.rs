@@ -269,18 +269,24 @@ where
         // **The FLOOR, `docs/adr/0008` part 6, and it is why `with_floor` exists:** this broker
         // refuses to hand back a credential already inside the floor rather than presenting it and
         // letting a leg fail at the source mid-query. It lives here because this is the component
-        // with both a clock and (via the composition root) the configured query timeout. The clock is
-        // read only when there is an exchanged deadline - `clears_floor` answers `NothingExpires`
-        // without one.
-        let now_unix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|cause| ExchangeUnusable::NoClock { cause })?
-            .as_secs();
-        if let Some((source, _)) = deadlines
-            .iter()
-            .find(|(_, expiry)| !clears_floor(*expiry, now_unix, self.floor_seconds))
-        {
-            return Ok(Minted::Refused { source: source.clone() });
+        // with both a clock and (via the composition root) the configured query timeout.
+        //
+        // **The clock is read only when the floor can fire.** A purely shared mint has no exchanged
+        // deadline to age out, and a ZERO floor means floor disabled (the `empty()` contract) - in
+        // both of those shapes nothing can be refused here, so no `SystemTime` read happens and a
+        // `SystemTimeError` cannot fail a mint that has no need of the time. Both guards are on the
+        // one branch below: `!deadlines.is_empty()` and `self.floor_seconds > 0`.
+        if !deadlines.is_empty() && self.floor_seconds > 0 {
+            let now_unix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|cause| ExchangeUnusable::NoClock { cause })?
+                .as_secs();
+            if let Some((source, _)) = deadlines
+                .iter()
+                .find(|(_, expiry)| !clears_floor(*expiry, now_unix, self.floor_seconds))
+            {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
         }
         LegCredentials::minted(context.chain().subject().clone(), not_after, sources, presented)
             .map(|credentials| Minted::Granted { credentials })
@@ -294,7 +300,15 @@ where
 /// as the floor and the timeout's exact semantics are testable with fixed instants rather than against
 /// a wall clock. `NothingExpires` always clears the floor - a static credential has no deadline to
 /// age out - and a deadline clears it when it is at least a full floor away.
+///
+/// **A ZERO floor means floor disabled** (the `empty()` contract): nothing at all is refused, so even
+/// an already-past deadline clears it and is left to the domain's `Expiry::passed_by` check at the
+/// leg. That guard lives here rather than only at [`WorkloadIdentityBroker::mint`]'s call site so the
+/// pure function and the broker cannot disagree about what zero means.
 const fn clears_floor(not_after: Expiry, now_unix_seconds: u64, floor_seconds: u64) -> bool {
+    if floor_seconds == 0 {
+        return true;
+    }
     match not_after.unix_seconds() {
         None => true,
         Some(unix) => unix >= now_unix_seconds.saturating_add(floor_seconds),
@@ -313,6 +327,11 @@ mod tests {
 
     /// A fake exchange that mints a token echoing the caller's, so a test can assert WHOSE credential
     /// reached the leg.
+    ///
+    /// **It mints with NO lifetime on purpose.** These tests are about WHO was exchanged, not WHEN it
+    /// expires, so a fixed expiry would make them depend on the wall clock (an expiry far enough ahead
+    /// today is one that ages out next year); a static credential has no deadline, which is the honest
+    /// shape for a test that asserts the asker, and it is also what keeps them deterministic forever.
     #[derive(Default)]
     struct FakeExchange {
         exchanged: std::cell::RefCell<std::collections::BTreeMap<String, String>>,
@@ -330,9 +349,24 @@ mod tests {
             self.exchanged.borrow_mut().insert(raw.clone(), raw.clone());
             Ok(StsCredential::of(
                 Secret::new(format!("exchanged-for-{raw}")),
-                Expiry::At {
-                    unix_seconds: 1_800_000_000,
-                },
+                Expiry::NothingExpires,
+            ))
+        }
+    }
+
+    /// A fake exchange that mints a credential ALREADY DEAD, so the FLOOR's two branches - refuse a
+    /// positive floor, leave a zero floor to the domain - are both deterministic against any clock:
+    /// unix second `1` is in the past for every clock there has been.
+    #[derive(Default)]
+    struct DyingFake;
+
+    impl StsExchange for DyingFake {
+        type Error = std::convert::Infallible;
+
+        fn exchange(&self, _audience: &str, _scope: &str, _subject_token: &Secret) -> Result<StsCredential, Self::Error> {
+            Ok(StsCredential::of(
+                Secret::new("exchanged-for-a-credential-already-dead"),
+                Expiry::At { unix_seconds: 1 },
             ))
         }
     }
@@ -381,12 +415,9 @@ mod tests {
             panic!("an impersonating source gets a subject token");
         };
         assert_eq!(material.expose_secret(), "exchanged-for-caller-token");
-        assert_eq!(
-            credentials.not_after(),
-            Expiry::At {
-                unix_seconds: 1_800_000_000
-            }
-        );
+        // No lifetime: the fake mints a static credential, so the answer carries `NothingExpires` -
+        // what this test is about is WHOSE material reached the leg, asserted just above.
+        assert_eq!(credentials.not_after(), Expiry::NothingExpires);
     }
 
     #[test]
@@ -453,22 +484,28 @@ mod tests {
         assert!(!clears_floor(Expiry::At { unix_seconds: now + 29 }, now, 30));
         // An already-passed deadline is inside any positive floor.
         assert!(!clears_floor(Expiry::At { unix_seconds: now }, now, 30));
-        // A zero floor refuses nothing that is not already past, matching the default constructor.
-        assert!(clears_floor(Expiry::At { unix_seconds: now + 1 }, now, 0));
+        // **A ZERO floor is floor disabled, including for an already-past deadline** - that an
+        // already-dead token is refused is the DOMAIN's `Expiry::passed_by` job, not this adapter's,
+        // which is exactly what the `empty()` contract promises.
+        assert!(clears_floor(Expiry::At { unix_seconds: now }, now, 0));
+        assert!(clears_floor(
+            Expiry::At {
+                unix_seconds: now - 100_000
+            },
+            now,
+            0
+        ));
     }
 
     #[test]
     fn a_credential_inside_the_floor_is_refused_rather_than_presented() {
-        // The broker-level half of the floor, and it is deterministic without a wall clock: a floor
-        // of `u64::MAX` makes the fake's far-future expiry (2027) a credential already inside the
-        // floor, so minting has to refuse naming the source rather than present it and let the leg
-        // fail at the source mid-query.
-        let broker = WorkloadIdentityBroker::empty(FakeExchange::default())
-            .with_floor(u64::MAX)
-            .impersonating(
-                source("warehouse"),
-                WorkloadIdentity::of(String::from("audience"), String::from("scope")),
-            );
+        // The broker-level half of the floor, deterministic against any clock: the fake mints an
+        // already-dead credential (unix second `1`), and a positive floor refuses it naming the
+        // source rather than presenting it and letting the leg fail at the source mid-query.
+        let broker = WorkloadIdentityBroker::empty(DyingFake).with_floor(30).impersonating(
+            source("warehouse"),
+            WorkloadIdentity::of(String::from("audience"), String::from("scope")),
+        );
         let minted = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect("a refusal is an Ok");
@@ -476,14 +513,33 @@ mod tests {
     }
 
     #[test]
-    fn a_floor_does_not_refuse_a_source_whose_deadline_clears_it() {
-        // The control beside the refusal above, and it is what keeps the refusal leg honest: with
-        // the default (zero) floor the same far-future expiry is granted, so the previous test's red
-        // is the floor and not a broken mint.
-        let broker = WorkloadIdentityBroker::empty(FakeExchange::default()).impersonating(
+    fn a_zero_floor_leaves_an_already_dead_credential_to_the_domain() {
+        // The other half of the floor's contract, and what keeps the refusal above honest: with the
+        // default (zero) floor the SAME already-dead credential is granted - the adapter does not
+        // refuse it here, because the domain's `Expiry::passed_by` rejects a dead deadline at the
+        // leg before anything is presented. The refusal above is the floor, and this is not a red
+        // mint.
+        let broker = WorkloadIdentityBroker::empty(DyingFake).impersonating(
             source("warehouse"),
             WorkloadIdentity::of(String::from("audience"), String::from("scope")),
         );
+        let minted = broker
+            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
+            .expect("the exchange does not fail");
+        assert!(matches!(minted, Minted::Granted { .. }));
+    }
+
+    #[test]
+    fn a_positive_floor_grants_a_credential_that_clears_it() {
+        // A positive floor rejects only what ages out within it: a credential with no lifetime (the
+        // shape `FakeExchange` mints) always clears it, so a broker wired with a query budget still
+        // serves a source whose exchange yields a static credential.
+        let broker = WorkloadIdentityBroker::empty(FakeExchange::default())
+            .with_floor(30)
+            .impersonating(
+                source("warehouse"),
+                WorkloadIdentity::of(String::from("audience"), String::from("scope")),
+            );
         let minted = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect("the exchange does not fail");
