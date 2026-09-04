@@ -156,6 +156,11 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
 }
 
 /// `describe <dir> <metric>`: one metric in full, prose included.
+///
+/// **`prompt.catalog_prose` is deliberately not read here, and the reader is why.** That setting
+/// decides who may put words in front of an AGENT; this command prints to a terminal for somebody
+/// who named the catalog directory on the command line and can therefore read the documents
+/// themselves. Withholding the prose from them would omit nothing they do not already have.
 pub(crate) fn describe(args: &[String]) -> ExitCode {
     report((|| {
         let usage = "describe <catalog-dir> <metric>";
@@ -257,11 +262,7 @@ type ResolvedPromptText = (CatalogProse, Option<String>);
 /// written down, so absence means the operator's rules are missing from a document that says it
 /// carries them, and serving that quietly is the failure this repository refuses everywhere else.
 fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPromptText, String> {
-    let prose = if settings.catalog_prose().is_quoted() {
-        CatalogProse::Quoted
-    } else {
-        CatalogProse::Omitted
-    };
+    let prose = catalog_prose(settings.catalog_prose());
     let instructions = match settings.instructions_file() {
         None => None,
         Some(configured) => {
@@ -276,6 +277,24 @@ fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPro
         }
     };
     Ok((prose, instructions))
+}
+
+/// The word an operator wrote, as the type that acts on it.
+///
+/// **The one place the two vocabularies meet, and an exhaustive match rather than a question asked
+/// of one variant** - `is_quoted()` inside an `if` reads every future spelling as the `else`, which
+/// on this setting means it reads it as *omitted* and silently withholds prose nobody asked to
+/// withhold. Here a third variant is a compile error.
+///
+/// It is a function and not an inline conversion because it has two callers, and the second one is
+/// the point: `crate::mcp` served `CatalogProse::Quoted` as a constant and read the setting nowhere,
+/// so a deployment that had dropped its catalog prose got every description over the agent surface
+/// (`#266`'s `H1`). A conversion with one home cannot be forgotten in a second root.
+pub(crate) const fn catalog_prose(setting: sutura_config::CatalogProse) -> CatalogProse {
+    match setting {
+        sutura_config::CatalogProse::Quoted => CatalogProse::Quoted,
+        sutura_config::CatalogProse::Omitted => CatalogProse::Omitted,
+    }
 }
 
 /// `compile <dir> <question> [dialect]`: the statement, without a data system.
@@ -525,7 +544,28 @@ mod tests {
     use sutura_domain::model::{DimensionName, MetricName};
     use sutura_domain::query::{MAX_RANGE_DAYS, RefusalReason};
 
-    use super::{prompt_inputs, render_refusal};
+    use super::{catalog_prose, prompt_inputs, render_refusal};
+
+    /// The two spellings of one decision agree, and this crate is the only place that can say so.
+    ///
+    /// `sutura_config` parses the word an operator wrote and `sutura_app` owns the type that acts on
+    /// it, and neither crate can see the other - which is what keeps a driving port from being owned
+    /// by a caller. So the claim *a surface echoing the setting echoes the operator's own word* has
+    /// its mechanism here, in the one member that depends on both, rather than in a comment on
+    /// either side.
+    ///
+    /// **What this loop proves is narrower than it reads, and the narrower claim is the true one:**
+    /// the two spellings agree for every name currently offered to an operator. It walks
+    /// `sutura_config::CatalogProse::NAMES`, which is hand-written, and `parse` has a `_ =>` arm - so
+    /// nothing here grows when the enum does. *A third variant cannot be added on one side alone* is
+    /// held by the exhaustive match in [`catalog_prose`], as a compile error, and by nothing else.
+    #[test]
+    fn the_two_spellings_of_the_prose_setting_are_one_vocabulary() {
+        for name in sutura_config::CatalogProse::NAMES {
+            let configured = sutura_config::CatalogProse::parse(name).expect("an accepted spelling parses");
+            assert_eq!(catalog_prose(configured).as_str(), configured.as_str(), "{name}");
+        }
+    }
 
     #[test]
     fn the_prompt_settings_reach_the_renderer() {

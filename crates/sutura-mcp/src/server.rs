@@ -296,8 +296,12 @@ fn describe<S>(service: &Arc<S>, prose: sutura_app::prompt::CatalogProse) -> Cal
 where
     S: Surface,
 {
-    let content = CatalogContent::from(service.definitions());
-    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text(prose))]);
+    // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
+    // `#266`: the text block honoured it while `structured_content` beside it carried every
+    // description, so a deployment that had withheld its catalog prose shipped it anyway to any
+    // client reading the structured half. `CatalogContent::of` cannot be called without the answer.
+    let content = CatalogContent::of(service.definitions(), prose);
+    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
     // to say so.
