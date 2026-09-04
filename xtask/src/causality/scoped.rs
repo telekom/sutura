@@ -526,8 +526,14 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 }
 
 /// Blank, a comment or another attribute: the things that legitimately sit between an attribute
-/// and the function it applies to. Anything else ends the search, so a stray attribute does not
+/// and the item it applies to. Anything else ends the search, so a stray attribute does not
 /// reach down the file and name an unrelated test.
+///
+/// The same three clauses as `regions::carries_no_behaviour`, and deliberately not that function:
+/// it answers *does this ADDED line change what the code does*, which is a question about a diff,
+/// and this answers *may this line sit between an attribute and its item*, which is a question
+/// about Rust's grammar. They agree today by coincidence, and only one of them should follow
+/// `#![..]` inner attributes.
 fn sits_between(trimmed: &str) -> bool {
     trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#[")
 }
