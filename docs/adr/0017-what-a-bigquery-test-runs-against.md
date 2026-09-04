@@ -1011,12 +1011,20 @@ is held by REVIEW until that lands, and the
 general lesson is the one the remedy scan already taught from the other side - ask what reads a
 mechanism's own prose, and expect the answer to be nothing until somebody has registered it.
 
-**And the lane fails closed on the defect it exists to catch, reproduced rather than assumed.** A
-type error was planted behind `#[cfg(feature = "bigquery")]` in `crates/sutura-cli/src/sources/`
-and both host derivations built from the same tree: the shipped `-ci` build **succeeded** (exit 0,
-105 units) and the probe **failed** (exit 1, `error[E0308]: mismatched types`). That asymmetry is
-the whole argument for the step existing - before it, every one of those four jobs was green on a
-tree where the documented source build did not compile.
+**And the lane fails closed on the defect it exists to catch, reproduced rather than assumed, and
+re-reproduced on the merged tree on 2026-09-04.** A type error was planted inside the feature-ON
+`open` in `crates/sutura-cli/src/sources/bigquery.rs`, and both host derivations were built from
+that one tree:
+
+| derivation | result | crate-derivation units |
+| --- | --- | --- |
+| `sutura-aarch64-apple-darwin-ci` (shipped) | **exit 0** - blind to it | 105 |
+| `sutura-bigquery-aarch64-apple-darwin-ci` (probe) | **exit 1**, `error[E0308]: mismatched types` at `bigquery.rs:70:25` | 117 |
+
+The 105 and the 117 are the same +12 the four CI triples show, taken from the same pair of builds
+that produced the asymmetry - so one reproduction answers both questions. That asymmetry is the
+whole argument for the step existing: before it, every one of those four jobs was green on a tree
+where the documented source build did not compile.
 
 **The limits of this measurement, next to it.** The probe links and never RUNS, so nothing here says
 the feature works - only that it builds. Binary size is unmeasured: no step prints it, so the
