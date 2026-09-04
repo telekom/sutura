@@ -95,6 +95,14 @@ artifact in it.
 - **Fail open:** `classify` / `check-changed` / `changed-packages`. An unmapped path, a bad base
   ref, an empty diff or a git that will not answer all run *everything* and say why, because the
   expensive failure is a new directory silently skipped, not a wasted CI minute.
+- **Fail open, with one veto:** the docker gate (`require_docker` / `absent`). No container runtime
+  SKIPS on a developer machine and FAILS in CI, because nix deliberately does not pin docker, so
+  "not installed" is a legitimate configuration. The veto is the lesson: a daemon that is
+  installed, running and **never answers** is a FAULT on a machine that HAS the tier, not a machine
+  without one, so `Missing::WedgedDaemon` refuses to be skipped whatever `SUTURA_DEV_REQUIRE_TIER`
+  says. Bounding the probe without this changed an indefinite hang into a green run over an
+  unprovisioned tier - **a bounded probe that fails closed is worth nothing if its caller fails
+  open**, and the two directions have to be read together.
 - **Fail closed:** `clean-branches`. It deletes local branches and the worktrees holding them, so
   anything undetermined KEEPS the branch and the report names the signal that was missing. Dry run
   unless `--delete`, and no flag overrides a refusal. `git branch --merged` is deliberately not its

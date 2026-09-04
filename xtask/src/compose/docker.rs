@@ -92,8 +92,8 @@ impl Missing {
 /// | `super::wait_until_healthy` | **The consequential one.** Its deadline is checked only AFTER `docker compose ps` returns, so a daemon that wedges *after* `presence` passed hangs `just dev-up` with `SUTURA_DEV_READY_TIMEOUT_SECS` never consulted. |
 ///
 /// So the honest claim is narrow: a daemon already wedged when a gate starts is now reported, and one
-/// that wedges mid-run is not. The remaining half is tracked as its own issue rather than asserted
-/// away here.
+/// that wedges mid-run is not. The remaining half is `github.com/telekom/sutura#265` rather than a
+/// sentence asserting it away here.
 ///
 /// Ten seconds because the question is "is a daemon answering at all", not "is it quick": a busy
 /// daemon on a cold start answers in a second or two, and nothing here needs to tell slow from dead
