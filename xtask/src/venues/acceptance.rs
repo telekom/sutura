@@ -233,7 +233,7 @@ fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
 
     // Property 1's other half. The file's own comment says this job waits for `ci` so a red local
     // gate spends no cloud request; nothing read it.
-    if !block.iter().any(|line| waits_for(line, NEEDS)) {
+    if !waits_for(block, NEEDS) {
         problems.push(format!(
             "{WORKFLOW}: the `{JOB}` job waits for no `{NEEDS}` - it is the one job here that calls \
              a cloud provider, so running it beside the lints spends a request on a tree they were \

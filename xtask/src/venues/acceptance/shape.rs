@@ -2,9 +2,12 @@
 //!
 //! Every reader here answers one question about one line - is this a step key, does this print,
 //! does this turn tracing on, is this path under `$RUNNER_TEMP` - and [`super::problems`] composes
-//! them into the properties. The split is where the review value is: **six of these predicates
-//! were green for the wrong reason**, each because it read a line as text where the thing it was
-//! deciding is a shape, and each is now stated once with the escape it missed written beside it.
+//! them into the properties. The split is where the review value is: **ten of these predicates
+//! were green for the wrong reason across two rounds of review**, each because it read a line as
+//! text where the thing it was deciding is a shape, and each is now stated once with the escape it
+//! missed written beside it. Four of the ten went the other way as well - a shape that made the
+//! gate fail a CORRECT job - and that direction is the one that gets a gate deleted, so both are
+//! written down where the predicate is.
 
 use std::collections::BTreeMap;
 
@@ -71,6 +74,11 @@ pub(super) fn step_key(line: &str) -> &str {
 /// A body ends at the first line indented no deeper than its own `run:` key, which is what keeps a
 /// comment written between two steps out of it. A shell comment INSIDE a body stays in, because an
 /// expression in one would still be an expression in the file.
+///
+/// **The depth is the KEY's column, not the list marker's.** For a nameless step the two differ by
+/// two, and recording the marker's held the body open across the step's own siblings: an `env:`
+/// written after a `- run: |` was collected as shell, so its `${{ }}` values were reported as
+/// interpolated into a body that does not contain them.
 pub(super) fn shell<'a>(block: &[&'a str]) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut inside: Option<usize> = None;
@@ -86,7 +94,7 @@ pub(super) fn shell<'a>(block: &[&'a str]) -> Vec<&'a str> {
         }
         let key = step_key(line);
         if key.starts_with("run:") {
-            inside = Some(indent);
+            inside = Some(line.len().saturating_sub(key.len()));
             out.push(key);
         }
     }
@@ -295,13 +303,38 @@ pub(super) fn configures_tracing(line: &str) -> bool {
     key.strip_prefix("SHELLOPTS:").is_some_and(shellopts_traces)
 }
 
+/// Is the rule at `at` under a `!` - written against it, or against a group holding it?
+///
+/// **A `!` against a GROUP is the third spelling of this question**, and the text-before test could
+/// not see it: `!(github.event_name == 'pull_request' && <the rule>)` leaves `&&` immediately
+/// before the rule, so no `!` was found - and that condition is TRUE for every fork's pull request,
+/// which is the one thing this property exists to refuse. So the parentheses still open where the
+/// rule sits are tracked, and a `!` on any of them negates it.
+fn negated(before: &str) -> bool {
+    let mut groups = Vec::new();
+    let mut previous = None;
+    for character in before.chars() {
+        match character {
+            '(' => groups.push(previous == Some('!')),
+            ')' => {
+                groups.pop();
+            }
+            _ => {}
+        }
+        if !character.is_whitespace() {
+            previous = Some(character);
+        }
+    }
+    previous == Some('!') || groups.contains(&true)
+}
+
 /// Does this condition state the fork rule, and does nothing beside it answer for a fork?
 ///
 /// **`!` before the rule and `!` anywhere are different questions**, and the first draft asked the
 /// second: `!line.contains('!')`, which refuses the rule inverted - a job that runs on forks ONLY -
 /// and equally refuses `github.event_name != 'schedule'` or `!cancelled()` beside a correct rule.
 /// A gate that fails a correct strengthening is one somebody deletes, so what is read is the text
-/// immediately before the rule, past the spaces and open parentheses a writer may put there.
+/// before the rule, through [`negated`].
 ///
 /// **And a condition is a boolean expression, not a haystack.** Reading only the text before the
 /// rule left `<the rule> || github.event_name == 'pull_request'` green - and `true || <the rule>`
@@ -318,13 +351,9 @@ pub(super) fn states_fork_rule(condition: &str) -> bool {
     let mut stated = false;
     for disjunct in expression.split("||") {
         match disjunct.find(FORK_RULE) {
-            // The text immediately before the rule, past the spaces and open parentheses a
-            // writer may put there. A `!` there states the rule backwards.
+            // A `!` anywhere in front of the rule that applies TO it states the rule backwards.
             Some(at) => {
-                if disjunct
-                    .get(..at)
-                    .is_none_or(|before| before.trim_end_matches([' ', '(']).ends_with('!'))
-                {
+                if disjunct.get(..at).is_none_or(negated) {
                     return false;
                 }
                 stated = true;
@@ -412,23 +441,43 @@ fn named_outside_substitution(text: &str, file: &str) -> bool {
 /// every guard below it still reaches its `exit 1`, the guard window is still satisfied, and an
 /// unset `vars.` value SKIPS and reports a pass - which is the property telekom/sutura#81 states
 /// most exactly. Only the in-body half was held.
+///
+/// The value is compared with its quotes stripped, because `continue-on-error: 'false'` is valid
+/// YAML saying exactly what the bare word says - and reporting it would fail a correct job.
 pub(super) fn downgrades_failure(line: &str) -> bool {
     step_key(line)
         .strip_prefix("continue-on-error:")
-        .is_some_and(|value| value.trim() != "false")
+        .is_some_and(|value| unquoted(value) != "false")
 }
 
-/// Does this line declare `job` among what this one waits for?
+/// One YAML scalar, past the quotes and the spaces around it.
+fn unquoted(value: &str) -> &str {
+    value.trim().trim_matches(['\'', '"']).trim()
+}
+
+/// Does this block declare `job` among what it waits for?
 ///
 /// The list rather than a substring, because `needs: [ci]` and `needs: [cross]` differ by the
 /// characters a `contains` would ignore.
-pub(super) fn waits_for(line: &str, job: &str) -> bool {
-    step_key(line).strip_prefix("needs:").is_some_and(|list| {
-        list.trim()
-            .trim_start_matches('[')
-            .trim_end_matches(']')
+///
+/// **Both YAML forms, which is why this reads the BLOCK and not one line.** A `needs:` with a block
+/// sequence under it has an empty inline value, so a per-line read of the flow form reported a
+/// correct job as waiting for nothing - the same direction as every other false positive here.
+pub(super) fn waits_for(block: &[&str], job: &str) -> bool {
+    let mut lines = block.iter().skip_while(|line| !step_key(line).starts_with("needs:"));
+    let Some(key) = lines.next() else {
+        return false;
+    };
+    let inline = step_key(key).strip_prefix("needs:").unwrap_or_default();
+    let sequence = lines
+        .take_while(|line| line.trim_start().starts_with("- "))
+        .map(|line| line.trim_start().trim_start_matches("- "));
+    std::iter::once(inline).chain(sequence).any(|value| {
+        value
+            .trim()
+            .trim_matches(['[', ']'])
             .split(',')
-            .any(|name| name.trim().trim_matches(['\'', '"']) == job)
+            .any(|name| unquoted(name) == job)
     })
 }
 
@@ -438,4 +487,67 @@ pub(super) fn exits_non_zero(line: &str) -> bool {
         return false;
     };
     code.trim().trim_end_matches(';').parse::<i32>().is_ok_and(|code| code != 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FORK_RULE, downgrades_failure, shell, states_fork_rule, waits_for};
+
+    #[test]
+    fn a_negation_reaches_the_rule_through_a_grouping() {
+        // `!(A && <rule>)` is `!A || !<rule>`, so it is TRUE for every fork's pull request - while
+        // leaving `&&` immediately before the rule, which is the text the draft read.
+        for backwards in [
+            format!("!({FORK_RULE})"),
+            format!("!(github.event_name == 'pull_request' && {FORK_RULE})"),
+            format!("!(github.event_name == 'push' && ({FORK_RULE}))"),
+        ] {
+            assert!(!states_fork_rule(&backwards), "{backwards}");
+        }
+        // A `!` whose group has CLOSED before the rule applies to something else, which is the
+        // correct strengthening this has to keep accepting.
+        for stated in [
+            format!("${{{{ !cancelled() && ({FORK_RULE}) }}}}"),
+            format!("github.event_name == 'push' || {FORK_RULE}"),
+        ] {
+            assert!(states_fork_rule(&stated), "{stated}");
+        }
+    }
+
+    #[test]
+    fn a_needs_written_as_a_block_sequence_is_the_same_declaration() {
+        // Two YAML forms, one property. Read off the key's own line, the block form has an EMPTY
+        // value - so a correct job was reported as waiting for nothing.
+        assert!(waits_for(&["    needs: [ci]"], "ci"));
+        assert!(waits_for(&["    needs:", "      - cross", "      - ci"], "ci"));
+        assert!(!waits_for(&["    needs:", "      - cross"], "ci"));
+        // The sequence ends where the next key begins, so a name below that is not in this list.
+        assert!(!waits_for(
+            &["    needs:", "      - cross", "    if: true", "      - ci"],
+            "ci"
+        ));
+        assert!(!waits_for(&["    runs-on: ubuntu-latest"], "ci"));
+    }
+
+    #[test]
+    fn a_quoted_false_is_the_one_value_this_job_may_give_that_key() {
+        assert!(!downgrades_failure("    continue-on-error: false"));
+        assert!(!downgrades_failure("    continue-on-error: 'false'"));
+        assert!(downgrades_failure("    continue-on-error: true"));
+        assert!(downgrades_failure("      - continue-on-error: 'true'"));
+    }
+
+    #[test]
+    fn a_nameless_step_holds_its_body_open_to_its_own_column_and_no_further() {
+        // The depth was the `-` column, two shallower than the `run:` key, so the step's SIBLING
+        // keys were collected as shell - and an `env:` value's `${{ }}` was then reported as an
+        // interpolation into a body that does not contain it.
+        let step = [
+            "      - run: |",
+            "          set -eu",
+            "        env:",
+            "          K: ${{ secrets.a }}",
+        ];
+        assert_eq!(shell(&step), vec!["run: |", "          set -eu"]);
+    }
 }
