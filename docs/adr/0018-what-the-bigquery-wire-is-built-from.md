@@ -561,31 +561,31 @@ bullets down:
   entries is a shape change and not an empty dataset. Four things about how, because each is a way
   the obvious version would have been wrong:
 
-  - **Read as raw JSON and turned into a `ListingTotal`, never as an `Option<u64>`.** An `Option`
-    already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
-    spelled some other way, and a failed decode here is `NotAListing` - which
-    `listing_was_refused` puts in the warning half, so the deployment would serve on past a
-    pre-flight that had silently stopped verifying anything. A field nothing yet decides on must not
-    be able to switch off the check it exists to sharpen. This service already spells the sibling
-    `totalRows` as a JSON string, so a count arriving quoted is its own habit rather than a
-    hypothetical, and a string is read too.
-  - **Four variants rather than a number, and the two that mean *nothing to compare* are separate.**
-    *The service sent no total* and *the service sent something this crate could not read* are
-    different findings; the second is itself evidence the document is being generated differently.
-  - **The comparison is against the entries the document CARRIED, never against the ids it named**,
-    and this is the wrong claim the cross-check would otherwise make. An id outside
-    `usable_table_id`'s accepted set is dropped from the listing, and `BigQuery` permits one - so a
-    dataset holding such a table names fewer ids than its own total claims while nothing whatever is
-    wrong. Comparing against the named set would report that ordinary dataset as short of its total:
-    an overstated finding replacing an unsettled question, which is the same defect one turn on.
-  - **The DATASET's number, not the page's, and that is measured rather than assumed.** In the
-    endpoint's own discovery document, read on 2026-09-04 at revision `20260811`,
-    `TableList.totalItems` is `{"format": "int32", "type": "integer"}` - a bare JSON number -
-    described as *"The total number of tables in the dataset"*, beside the neighbouring `etag`'s *"A
-    hash of this page of results"*. Nothing there calls it approximate. So it is compared against a
-    whole FINISHED listing: the first page's total against every page's entries, with a listing that
-    ran out of pages or budget staying an `Err` rather than a comparison against a count this
-    transport knows is short.
+    - **Read as raw JSON and turned into a `ListingTotal`, never as an `Option<u64>`.** An `Option`
+      already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
+      spelled some other way, and a failed decode here is `NotAListing` - which
+      `listing_was_refused` puts in the warning half, so the deployment would serve on past a
+      pre-flight that had silently stopped verifying anything. A field nothing yet decides on must not
+      be able to switch off the check it exists to sharpen. This service already spells the sibling
+      `totalRows` as a JSON string, so a count arriving quoted is its own habit rather than a
+      hypothetical, and a string is read too.
+    - **Four variants rather than a number, and the two that mean *nothing to compare* are separate.**
+      *The service sent no total* and *the service sent something this crate could not read* are
+      different findings; the second is itself evidence the document is being generated differently.
+    - **The comparison is against the entries the document CARRIED, never against the ids it named**,
+      and this is the wrong claim the cross-check would otherwise make. An id outside
+      `usable_table_id`'s accepted set is dropped from the listing, and `BigQuery` permits one - so a
+      dataset holding such a table names fewer ids than its own total claims while nothing whatever is
+      wrong. Comparing against the named set would report that ordinary dataset as short of its total:
+      an overstated finding replacing an unsettled question, which is the same defect one turn on.
+    - **The DATASET's number, not the page's, and that is measured rather than assumed.** In the
+      endpoint's own discovery document, read on 2026-09-04 at revision `20260811`,
+      `TableList.totalItems` is `{"format": "int32", "type": "integer"}` - a bare JSON number -
+      described as *"The total number of tables in the dataset"*, beside the neighbouring `etag`'s *"A
+      hash of this page of results"*. Nothing there calls it approximate. So it is compared against a
+      whole FINISHED listing: the first page's total against every page's entries, with a listing that
+      ran out of pages or budget staying an `Err` rather than a comparison against a count this
+      transport knows is short.
 
   **Nothing refuses on it, and that is the decision this record deliberately does not take.** The
   choice looks like *`Err` or `WARN`* and is not: an `Err` out of `preflight` **is** the warning half
