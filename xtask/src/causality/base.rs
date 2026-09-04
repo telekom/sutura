@@ -293,23 +293,20 @@ mod tests {
     /// key the gate actually builds from a diff - a fixture that constructed one directly would
     /// pass while the extractor produced something else.
     fn scoped(package: &str, file: &str, names: &[&str]) -> Vec<AddedTest> {
-        let mut text = String::new();
-        let mut added: Vec<String> = Vec::new();
-        for name in names {
-            text.push_str("#[test]\n");
-            text.push_str(&format!("fn {name}() {{}}\n"));
-            added.push(String::from("#[test]"));
-            added.push(format!("fn {name}() {{}}"));
-        }
-        let borrowed: Vec<&str> = added.iter().map(String::as_str).collect();
-        let files = vec![changed(file, 1, &borrowed)];
+        let lines: Vec<String> = names
+            .iter()
+            .flat_map(|name| [String::from("#[test]"), format!("fn {name}() {{}}")])
+            .collect();
+        let text = format!("{}\n", lines.join("\n"));
+        let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let dir = file
+            .split_once("/src/")
+            .or_else(|| file.split_once("/tests/"))
+            .expect("a package directory")
+            .0;
         let manifest = format!("[package]\nname = \"{package}\"\n");
-        let dir = file.split_once("/src/").or_else(|| file.split_once("/tests/"));
-        let read = tree(&[
-            (file, &text),
-            (&format!("{}/Cargo.toml", dir.expect("a package directory").0), &manifest),
-        ]);
-        match Scan::of(&files, &[String::from(file)], &read) {
+        let read = tree(&[(file, &text), (&format!("{dir}/Cargo.toml"), &manifest)]);
+        match Scan::of(&[changed(file, 1, &borrowed)], &[String::from(file)], &read) {
             Scan::Runnable(found) => found.tests().to_vec(),
             other => panic!("expected runnable tests, got {other:?}"),
         }
@@ -319,7 +316,7 @@ mod tests {
     fn audit_record() -> Vec<AddedTest> {
         scoped(
             "sutura-cli",
-            "crates/sutura-cli/src/query.rs",
+            "crates/sutura-cli/src/audit.rs",
             &["a_refused_question_is_recorded_and_names_the_refusal"],
         )
     }
@@ -359,7 +356,7 @@ mod tests {
         // This is the real base red from #276, with the same run around it.
         let text = concat!(
             "    Starting 3 tests across 47 binaries\n",
-            "        FAIL [   0.021s] (2/3) sutura-cli::query audit::a_refused_question_is_recorded_and_names_the_refusal\n",
+            "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::a_refused_question_is_recorded_and_names_the_refusal\n",
             "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 0 skipped\n",
             "error: test run failed\n",
         );
@@ -367,7 +364,7 @@ mod tests {
             classify_base(text, false, &audit_record()),
             BaseOutcome::RedByAssertion {
                 failed: vec![String::from(
-                    "sutura-cli::query audit::a_refused_question_is_recorded_and_names_the_refusal"
+                    "sutura-cli::bin/sutura audit::tests::a_refused_question_is_recorded_and_names_the_refusal"
                 )]
             }
         );
@@ -379,14 +376,14 @@ mod tests {
         // the change, and the operator gets the run's own tail underneath it for the rest.
         let text = concat!(
             "        FAIL [   0.313s] (86/1810) sutura-app::differential tests::postgres::sums_by_month\n",
-            "        FAIL [   0.021s] (87/1810) sutura-cli::query audit::the_added_one\n",
+            "        FAIL [   0.021s] (87/1810) sutura-cli::bin/sutura audit::tests::the_added_one\n",
             "error: test run failed\n",
         );
-        let under_test = scoped("sutura-cli", "crates/sutura-cli/src/query.rs", &["the_added_one"]);
+        let under_test = scoped("sutura-cli", "crates/sutura-cli/src/audit.rs", &["the_added_one"]);
         match classify_base(text, false, &under_test) {
             BaseOutcome::RedByAssertion { ref failed } => {
                 assert_eq!(failed.len(), 1, "only the test under test: {failed:?}");
-                assert!(failed.iter().all(|one| one.ends_with("audit::the_added_one")));
+                assert!(failed.iter().all(|one| one.ends_with("audit::tests::the_added_one")));
             }
             other => panic!("expected RedByAssertion, got {other:?}"),
         }
@@ -403,7 +400,7 @@ mod tests {
             "        FAIL [   0.204s] (2/6) pb sums::inner\n",
             "error: test run failed\n",
         );
-        match classify_base(text, false, &scoped("pa", "crates/pa/src/lib.rs", &["sums"])) {
+        match classify_base(text, false, &scoped("pa", "pa/src/lib.rs", &["sums"])) {
             BaseOutcome::RedOutsideTheDiff { ref failed } => assert_eq!(failed.len(), 2, "{failed:?}"),
             other => panic!("another package's failure is not evidence, got {other:?}"),
         }
@@ -433,8 +430,8 @@ mod tests {
     fn a_parametrised_case_belongs_to_the_test_that_declared_it() {
         // `rstest` names a case one segment BELOW the function, so a comparison on the last
         // segment alone would call every case an unrelated failure.
-        let text = "        FAIL [   0.010s] (1/4) sutura-sql::golden tests::renders::case_2\nerror: test run failed\n";
-        match classify_base(text, false, &scoped("sutura-sql", "crates/sutura-sql/tests/golden.rs", &["renders"])) {
+        let text = "        FAIL [   0.010s] (1/4) sutura-app::golden tests::renders::case_2\nerror: test run failed\n";
+        match classify_base(text, false, &scoped("sutura-app", "crates/sutura-app/tests/golden.rs", &["renders"])) {
             BaseOutcome::RedByAssertion { .. } => {}
             other => panic!("a case is its function's failure, got {other:?}"),
         }
@@ -486,7 +483,7 @@ mod tests {
             "     TIMEOUT [   1.005s] (2/3) pa tests::hangs\n",
             "error: test run failed\n",
         );
-        match classify_base(failing, false, &scoped("pa", "crates/pa/src/lib.rs", &["leaks", "hangs"])) {
+        match classify_base(failing, false, &scoped("pa", "pa/src/lib.rs", &["leaks", "hangs"])) {
             BaseOutcome::RedByAssertion { ref failed } => assert_eq!(failed.len(), 2, "{failed:?}"),
             other => panic!("expected both, got {other:?}"),
         }
@@ -496,7 +493,7 @@ mod tests {
             "error: test run failed\n",
         );
         assert_eq!(
-            classify_base(passing, false, &scoped("pa", "crates/pa/src/lib.rs", &["leaks", "hangs"])),
+            classify_base(passing, false, &scoped("pa", "pa/src/lib.rs", &["leaks", "hangs"])),
             BaseOutcome::Unattributed
         );
     }
@@ -506,7 +503,7 @@ mod tests {
         // The false green this replaced: `cargo test` failed, so the gate said "red, as
         // required" and passed. A tree that does not build has run no tests.
         let compile = "error[E0432]: unresolved import `crate::thing`\nerror: could not compile";
-        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
+        let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
         assert_eq!(classify_base(compile, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
@@ -515,7 +512,7 @@ mod tests {
         // nextest prints "error: test run failed" when the build failed too. Reading that as a
         // real red is the false green this gate already had once.
         let both = "error[E0433]: failed to resolve\nerror: could not compile\nerror: test run failed";
-        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
+        let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
         assert_eq!(classify_base(both, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
@@ -530,7 +527,7 @@ mod tests {
             "(hint: use `--no-tests` to customize)\n",
         );
         assert!(names_no_tests(text));
-        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["orphaned"]);
+        let under_test = scoped("pa", "pa/src/lib.rs", &["orphaned"]);
         assert_eq!(classify_base(text, false, &under_test), BaseOutcome::NotRun);
     }
 
@@ -539,7 +536,7 @@ mod tests {
         // So the classifier survives a runner swap. `cargo test` prints no binary id, so the
         // whole token is the test's path - and the coarse half of the key cannot be checked.
         let cargo = "running 3 tests\ntest suite::the_added_one ... FAILED\ntest result: FAILED. 2 passed; 1 failed";
-        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["the_added_one"]);
+        let under_test = scoped("pa", "pa/src/lib.rs", &["the_added_one"]);
         assert_eq!(
             classify_base(cargo, false, &under_test),
             BaseOutcome::RedByAssertion {
@@ -554,7 +551,7 @@ mod tests {
         // on the strength of the word "panicked", which attributes the red to nothing at all. It
         // is not a build failure either, and saying so was the wrong sentence.
         let unnamed = "thread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
-        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["the_added_one"]);
+        let under_test = scoped("pa", "pa/src/lib.rs", &["the_added_one"]);
         assert_eq!(classify_base(unnamed, false, &under_test), BaseOutcome::Unattributed);
     }
 
@@ -562,7 +559,7 @@ mod tests {
     fn an_unrecognised_failure_claims_nothing() {
         // Conservative on purpose: an unfamiliar failure is not evidence of causality, and it is
         // not a compile failure just because nothing else fits.
-        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
+        let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
         assert_eq!(
             classify_base("linker exited with signal 9", false, &under_test),
             BaseOutcome::Unattributed
@@ -571,7 +568,7 @@ mod tests {
 
     #[test]
     fn a_passing_base_means_the_test_does_not_test_the_change() {
-        let under_test = scoped("pa", "crates/pa/src/lib.rs", &["t"]);
+        let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
         assert_eq!(
             classify_base("test result: ok. 12 passed; 0 failed", true, &under_test),
             BaseOutcome::Green
@@ -582,11 +579,11 @@ mod tests {
     fn a_retry_is_the_same_failure_once() {
         // nextest prints every attempt. Two lines for one test must not read as two failures.
         let text = concat!(
-            "    TRY 1 FAIL [   0.010s] (1/2) sutura-http::served serves::the_added_one\n",
-            "    TRY 2 FAIL [   0.010s] (1/2) sutura-http::served serves::the_added_one\n",
+            "    TRY 1 FAIL [   0.010s] (1/2) sutura-serve::served serves::the_added_one\n",
+            "    TRY 2 FAIL [   0.010s] (1/2) sutura-serve::served serves::the_added_one\n",
             "error: test run failed\n",
         );
-        let under_test = scoped("sutura-http", "crates/sutura-http/tests/served.rs", &["the_added_one"]);
+        let under_test = scoped("sutura-serve", "crates/sutura-serve/tests/served.rs", &["the_added_one"]);
         match classify_base(text, false, &under_test) {
             BaseOutcome::RedByAssertion { ref failed } => assert_eq!(failed.len(), 1, "{failed:?}"),
             other => panic!("expected RedByAssertion, got {other:?}"),
