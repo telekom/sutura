@@ -375,6 +375,27 @@ fn report_unnamed_tests(test_files: &[String]) -> Verdict {
     Verdict::Fail
 }
 
+/// The HEAD run did not come back green, so nothing can be measured against it.
+///
+/// Two failures wearing one exit code, and they ask for different things. A filter that matched
+/// NOTHING means the gate named a test nextest does not know - never a pass over zero tests, which
+/// is what nextest's own `--no-tests` default makes impossible. Anything else means the tests this
+/// diff added are simply red here.
+fn report_head_failure(output: &str, only: &str) -> Verdict {
+    if names_no_tests(output) {
+        eprintln!("xtask test-causality: FAILED - nextest matched none of the tests this diff added");
+        eprintln!("  filter: {only}");
+        eprintln!("  Nothing was measured, so this refuses rather than reporting on zero tests.");
+        eprintln!("  Two causes: a test attribute `causality::scoped` does not recognise, or a");
+        eprintln!("  shared target directory still holding the base run's binaries - see");
+        eprintln!("  `cargo_test`, and remove `target/causality-target` to rule the second out.");
+    } else {
+        eprintln!("xtask test-causality: FAILED - the tests this diff added are not green on HEAD");
+    }
+    eprintln!("{}", tail(output, 30));
+    Verdict::Fail
+}
+
 /// The base state to put a worktree into: files to check out at `base`, files to delete.
 ///
 /// Two of these exist per proof. The first is the implementation change; the second is the files
@@ -446,18 +467,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
     let only = scoped.filterset();
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
-        if names_no_tests(&head_out) {
-            eprintln!("xtask test-causality: FAILED - nextest matched none of the tests this diff added");
-            eprintln!("  filter: {only}");
-            eprintln!("  Nothing was measured, so this refuses rather than reporting on zero tests.");
-            eprintln!("  Two causes: a test attribute `causality::scoped` does not recognise, or a");
-            eprintln!("  shared target directory still holding the base run's binaries - see");
-            eprintln!("  `cargo_test`, and remove `target/causality-target` to rule the second out.");
-        } else {
-            eprintln!("xtask test-causality: FAILED - the tests this diff added are not green on HEAD");
-        }
-        eprintln!("{}", tail(&head_out, 30));
-        return Verdict::Fail;
+        return report_head_failure(&head_out, &only);
     }
     println!("  head: green");
 
