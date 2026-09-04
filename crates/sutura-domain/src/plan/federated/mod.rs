@@ -309,6 +309,17 @@ pub enum FederatedFailure {
     /// it is refused rather than counted as zero.
     #[error("a `{aggregate:?}` re-aggregation met a non-numeric leaf cell (`{value:?}`)")]
     NonNumericLeaf { aggregate: Aggregate, value: Value },
+    /// A leaf column carried two numeric types, so no total or comparison over it is exact.
+    ///
+    /// A result column in a data system has one logical type. [`RowSet`] constrains a row's width and
+    /// nothing about its cells, so a column mixing [`Value::Integer`] and [`Value::Real`] cells is
+    /// representable here, and the two ways to answer one are both wrong numbers: dropping either
+    /// subtotal loses it outright, and folding the integer one into the real one is an `i64 as f64`
+    /// widening - the same silent widening `DuckDB`'s own conversion refuses for a 32-bit float and
+    /// for a wide integer that does not fit an `i64`. Refused instead, which is also what leaves the
+    /// aggregates above comparing and adding one type.
+    #[error("a `{aggregate:?}` re-aggregation met a leaf column mixing integer and real cells")]
+    MixedNumericLeaf { aggregate: Aggregate },
     /// A leaf total overflowed a 64-bit integer.
     #[error("a `{aggregate:?}` re-aggregation overflowed a 64-bit integer")]
     Overflow { aggregate: Aggregate },
@@ -746,90 +757,149 @@ fn leaf_values(federation: &Federation, leaf_rows: &[Vec<Value>], metric: &Metri
 /// **The only aggregates that arrive here are the ones a decomposable measure re-aggregates with.** A
 /// `Count` leaf re-aggregates with a sum and is itself an integer; the splitter refuses a `Carried::Keys`
 /// leaf entirely, so `combine` is a total, minimum or maximum over a list of numbers. A group with no
-/// non-null value contributes null; a cell that is not a number, an overflow, or a non-finite total is
-/// a refusal, never a silent zero or null.
-#[expect(
-    clippy::float_arithmetic,
-    reason = "the re-aggregation of a leg column sums real numbers by design"
-)]
+/// non-null value contributes null; a cell that is not a number, a column that is not one kind of
+/// number, an overflow, or a non-finite total is a refusal, never a silent zero or null.
+///
+/// **The column is read before the aggregate is chosen**, so each aggregate below sees one numeric
+/// type - see [`LeafColumn`], which is where that decision and its reason live.
 fn aggregate<'a>(
     aggregate: Aggregate,
     values: impl Iterator<Item = &'a Value>,
     metric: &MetricName,
 ) -> Result<Value, FederatedFailure> {
-    let numeric: Vec<&Value> = values.filter(|v| !matches!(*v, Value::Null)).collect();
-    if numeric.is_empty() {
+    let column = LeafColumn::parse(values, aggregate)?;
+    if matches!(column, LeafColumn::Empty) {
         return Ok(Value::Null);
     }
     match aggregate {
-        Aggregate::Sum => {
-            let mut sum_i: i64 = 0;
-            let mut sum_r: f64 = 0.0;
-            let mut has_real = false;
-            for value in numeric {
-                match value {
-                    Value::Integer(v) => {
-                        sum_i = sum_i.checked_add(*v).ok_or(FederatedFailure::Overflow {
-                            aggregate: Aggregate::Sum,
-                        })?;
-                    }
-                    Value::Real(v) => {
-                        has_real = true;
-                        sum_r += v.get();
-                    }
-                    other => {
-                        return Err(FederatedFailure::NonNumericLeaf {
-                            aggregate: Aggregate::Sum,
-                            value: other.clone(),
-                        });
-                    }
-                }
-            }
-            if has_real {
-                return Real::parse(sum_r).map_or_else(
-                    |_| Err(FederatedFailure::NonFinite { metric: metric.clone() }),
-                    |real| Ok(Value::Real(real)),
-                );
-            }
-            Ok(Value::Integer(sum_i))
-        }
-        Aggregate::Min => minmax(numeric, false),
-        Aggregate::Max => minmax(numeric, true),
+        Aggregate::Sum => column.total(metric),
+        Aggregate::Min => Ok(column.extreme(Extreme::Least)),
+        Aggregate::Max => Ok(column.extreme(Extreme::Greatest)),
         other => Err(FederatedFailure::UnsupportedAggregate { aggregate: other }),
     }
 }
 
-/// The minimum or maximum of a non-empty numeric list, preserving the winning cell's own type.
-fn minmax(values: Vec<&Value>, max: bool) -> Result<Value, FederatedFailure> {
-    let mut best: Option<Value> = None;
-    for value in values {
-        let candidate = (*value).clone();
-        best = Some(match best {
-            None => candidate,
-            Some(current) => {
-                let candidate_is_better = match value {
-                    Value::Integer(_) | Value::Real(_) => match (to_f64(&current), to_f64(&candidate)) {
-                        (Some(a), Some(b)) => {
-                            if max {
-                                b > a
-                            } else {
-                                b < a
-                            }
-                        }
-                        _ => false,
-                    },
-                    other => {
-                        return Err(FederatedFailure::NonNumericLeaf {
-                            aggregate: if max { Aggregate::Max } else { Aggregate::Min },
-                            value: other.clone(),
-                        });
-                    }
-                };
-                if candidate_is_better { candidate } else { current }
+/// Which end of a leaf column an aggregate asks for.
+#[derive(Clone, Copy)]
+enum Extreme {
+    Least,
+    Greatest,
+}
+
+/// One leaf column's non-null cells, once their single numeric type is established.
+///
+/// **Reading the whole column before any aggregate touches it is what makes the arithmetic exact
+/// rather than checked.** A total, a minimum and a maximum each see one type, so nothing widens an
+/// `i64` to an `f64` to add it or to compare it - which is two wrong numbers this shape removes at
+/// once. `Sum` dropped whichever subtotal was not the last kind it saw, and `Min`/`Max` compared
+/// every cell as `f64`, so two integers a data system tells apart read as equal above `2^53` and the
+/// answer was whichever arrived first.
+///
+/// A result column in a data system has one logical type, so a column carrying two is a defect in
+/// this workspace's own wiring rather than data, and [`FederatedFailure::MixedNumericLeaf`] says so.
+/// A cell that is no kind of number is the refusal that variant's neighbour already named, now taken
+/// for every aggregate rather than inside two of them: a lone `Text` cell used to be accepted as its
+/// own minimum without ever being read as a number.
+///
+/// `Integers` and `Reals` are non-empty by construction - [`LeafColumn::parse`] answers `Empty` for a
+/// column with no non-null cell, because a group contributing nothing is a null and not a zero.
+enum LeafColumn {
+    /// Every non-null cell was a [`Value::Integer`].
+    Integers(Vec<i64>),
+    /// Every non-null cell was a [`Value::Real`], and so is already finite.
+    Reals(Vec<Real>),
+    /// The column had no non-null cell.
+    Empty,
+}
+
+impl LeafColumn {
+    /// One leaf column's cells, or the reason they are not one column of numbers.
+    fn parse<'a>(values: impl Iterator<Item = &'a Value>, aggregate: Aggregate) -> Result<Self, FederatedFailure> {
+        let mut integers: Vec<i64> = Vec::new();
+        let mut reals: Vec<Real> = Vec::new();
+        for value in values {
+            match *value {
+                Value::Null => {}
+                Value::Integer(cell) => integers.push(cell),
+                Value::Real(cell) => reals.push(cell),
+                ref other @ Value::Text(_) => {
+                    return Err(FederatedFailure::NonNumericLeaf {
+                        aggregate,
+                        value: other.clone(),
+                    });
+                }
             }
-        });
+        }
+        match (integers.is_empty(), reals.is_empty()) {
+            (false, true) => Ok(Self::Integers(integers)),
+            (true, false) => Ok(Self::Reals(reals)),
+            (true, true) => Ok(Self::Empty),
+            (false, false) => Err(FederatedFailure::MixedNumericLeaf { aggregate }),
+        }
     }
-    Ok(best.unwrap_or(Value::Null))
+
+    /// The column's total, in the column's own type.
+    ///
+    /// An integer column totals as `i64` and overflow is a refusal; a real column totals as `f64`,
+    /// which is the same float addition the mono path's own `SUM` performs, and a total that leaves
+    /// the finite range is a refusal because [`Real`] cannot hold it.
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "the re-aggregation of a real-valued leg column sums real numbers by design"
+    )]
+    fn total(&self, metric: &MetricName) -> Result<Value, FederatedFailure> {
+        match *self {
+            Self::Integers(ref cells) => {
+                let mut total: i64 = 0;
+                for cell in cells {
+                    total = total.checked_add(*cell).ok_or(FederatedFailure::Overflow {
+                        aggregate: Aggregate::Sum,
+                    })?;
+                }
+                Ok(Value::Integer(total))
+            }
+            Self::Reals(ref cells) => {
+                let mut total: f64 = 0.0;
+                for cell in cells {
+                    total += cell.get();
+                }
+                Real::parse(total).map_or_else(
+                    |_not_finite| Err(FederatedFailure::NonFinite { metric: metric.clone() }),
+                    |real| Ok(Value::Real(real)),
+                )
+            }
+            Self::Empty => Ok(Value::Null),
+        }
+    }
+
+    /// The column's least or greatest cell, in the column's own type.
+    ///
+    /// `Value::Null` is unreachable for the two non-empty variants and is what `Empty` answers.
+    fn extreme(&self, extreme: Extreme) -> Value {
+        let wanted = match extreme {
+            Extreme::Least => std::cmp::Ordering::Less,
+            Extreme::Greatest => std::cmp::Ordering::Greater,
+        };
+        match *self {
+            Self::Integers(ref cells) => cells
+                .iter()
+                .copied()
+                .reduce(|best, cell| if cell.cmp(&best) == wanted { cell } else { best })
+                .map_or(Value::Null, Value::Integer),
+            Self::Reals(ref cells) => cells
+                .iter()
+                .copied()
+                .reduce(|best, cell| {
+                    if cell.get().total_cmp(&best.get()) == wanted {
+                        cell
+                    } else {
+                        best
+                    }
+                })
+                .map_or(Value::Null, Value::Real),
+            Self::Empty => Value::Null,
+        }
+    }
 }
 
 /// Applies the divide tree above a group's re-aggregated leaves, returning the measure.
