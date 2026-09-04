@@ -558,8 +558,8 @@ bullets down:
   behaviour so the direction is a measured property rather than a hope. On its own it cannot be told
   from an empty dataset, which really does answer with no `tables` array. **`totalItems` is what
   tells the two apart, and it is now DECODED** - a non-zero total beside a document that carried no
-  entries is a shape change and not an empty dataset. Four things about how, because each is a way
-  the obvious version would have been wrong:
+  entries is a shape change and not an empty dataset. What is worth reading about HOW, because each
+  of them is a way the obvious version would have been wrong:
 
     - **Read as raw JSON and turned into a `ListingTotal`, never as an `Option<u64>`.** An `Option`
       already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
@@ -613,9 +613,9 @@ bullets down:
   **And it has now RUN, green, in the `bigquery-acceptance` job on 2026-09-04**, which is what the
   earlier deferral was owed: a real `tables.list` answered `ListingTotal::Accounted`, so the service
   populates the field and its number agreed with the entries the same document carried. The
-  cross-check has a real input, and *whether it does* is no longer the open question. **Three limits
-  on that, in this record's habit of putting them beside the claim:** it is ONE dataset at one moment,
-  and a second deployment's service behaviour is not a property this run establishes; the leg
+  cross-check has a real input, and *whether it does* is no longer the open question. **What that run
+  does not establish, counted by nobody:** it is ONE dataset at one moment, and a second
+  deployment's service behaviour is not a property this run establishes; the leg
   deliberately does not require the total to be EXACT, because the corpus leg writes four tables to
   the same dataset and a moving number would be a leg failing for a reason outside the diff; and the
   case the cross-check exists for - a document carrying no entries beside a non-zero total - has
