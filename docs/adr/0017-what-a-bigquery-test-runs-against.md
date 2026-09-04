@@ -914,8 +914,8 @@ output path. The job logs confirm the shared half from the other end by never bu
 **The cost, as COMPILED UNITS.** Seconds drift with whatever else a runner is doing; a unit count
 does not. Counted off the `Compiling` lines of the CRATE derivation's own log and not the job's -
 `sutura-deps-<triple>` is the shared dependency build and is excluded, which is the whole reason
-units beat seconds here - for all four published triples of CI runs 33808343712 and 33838360913,
-feature off and then on, the same in both:
+units beat seconds here - for all four published triples of CI runs 33808343712, 33838360913 and
+33843494162, feature off and then on, the same in all three:
 
 | triple | OFF | ON |
 | --- | --- | --- |
@@ -923,6 +923,9 @@ feature off and then on, the same in both:
 | `aarch64-unknown-linux-gnu` | 100 | 112 |
 | `x86_64-unknown-linux-musl` | 100 | 112 |
 | `aarch64-unknown-linux-musl` | 100 | 112 |
+
+Re-taken on 33843494162 with the same answer in all four cells, which is the point of counting
+units: the seconds moved by 20% across those three runs and this table did not move at all.
 
 **+12 units on every one of the four, none dropped, and the same twelve crates every time:**
 `ring`, `untrusted`, `rustls`, `rustls-pki-types`, `rustls-webpki`, `webpki-roots`, `ureq`,
@@ -934,10 +937,12 @@ figure would leave open which triple the closure is dearer on, and none of them 
 runs 33781193001 and 33792642655 gave `+0.5 / -0.1 / +1.2 / +1.3s` and `+0.4 / -0.3 / +1.3 / +0.9s`
 over crate derivations of 69-84s - so **-0.4% to +1.7% across two runs**, which is noise. Cite that
 range, never a cell, and prefer the unit counts. The STEP's cost is the other number and it is not
-small: the probe is a second crate derivation, so run 33808343712 spent **69s, 74s, 75s and 85s**
-on it, one per job, and 33838360913 spent 72s, 72s, 73s and 80s. Feature-off and feature-on both
-LINKED on all four triples in every run, with `file` reporting the right architecture for each -
-`statically linked` on aarch64-musl,
+small: the probe is a second crate derivation, and three runs of it read **62-85s** per job:
+33808343712 gave 69/74/75/85s, 33838360913 gave 72/72/73/80s, 33843494162 gave 62/71/73/73s.
+**That third run is why the range is cited and not a cell** - it put a value BELOW the low end this
+record had stated twice, which is what a wall clock on a shared runner does. Feature-off and
+feature-on both LINKED on all four triples in every run, with `file` reporting the right
+architecture for each - `statically linked` on aarch64-musl,
 `static-pie linked` on x86_64-musl, `dynamically linked` on the gnu pair, exactly as the shipped
 builds report on the same triple.
 
@@ -1070,9 +1075,10 @@ where the documented source build did not compile.
   builds natively. The musl link has been exercised green on every pull request and never red, and
   CI is the only venue that can redden it, because a musl dependency closure is not cached on a
   developer's machine.
-- **The cost of HAVING the probe is real even though the cost of the feature is not:** 69-85s on
-  each of four `cross` jobs, per pull request, across runs 33808343712 and 33838360913. That is the
-  price of the answer rather than the price of the feature.
+- **The cost of HAVING the probe is real even though the cost of the feature is not:** 62-85s on
+  each of four `cross` jobs, per pull request, across runs 33808343712, 33838360913 and
+  33843494162. That is the price of the answer rather than the price of the feature - and the range
+  widened downward on the third run, so quote the range.
 - **The `file` readout asserts the CPU and not the libc.** `nix/assert-linked.sh` matches `file`'s
   answer against the triple's CPU and refuses a path that is not executable - which is what the
   bare `file` here did not do, since it exits zero on a missing path. What it does not assert is

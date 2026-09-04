@@ -83,8 +83,8 @@ the numbers; the transferable part is that `--features bigquery` adds exactly **
 - the adapter plus the outbound TLS closure, the same twelve on all four published triples - and
 that they cost under 2% of a `cross` job (CI runs 33808343712 and 33838360913, 2026-09-04; a figure
 with no run beside it cannot be re-taken). **Do not read the step's own elapsed seconds as that
-number:** it prints a whole second crate derivation, 69-85s, and the step said *the price of the
-feature ON* for one run before somebody read it. Two more traps in reading it:
+number:** it prints a whole second crate derivation, 62-85s over three runs, and the step said
+*the price of the feature ON* for one run before somebody read it. Two more traps in reading it:
 
 | Trap | What is actually true |
 | --- | --- |
