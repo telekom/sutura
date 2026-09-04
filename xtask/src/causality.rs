@@ -64,6 +64,8 @@ use crate::repo;
 
 mod base;
 mod diff;
+#[cfg(test)]
+mod fixtures;
 // `pub(crate)` rather than private: `crate::refusals` reads the same test regions this gate does,
 // because "which lines of this file are test code" is one question and a second implementation of
 // it would be a second thing to keep in step. Nothing else about the module moved.
@@ -191,9 +193,9 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
 /// So a run can be measuring the OTHER tree's code, and it reaches this repository twice: the
 /// postgres harness resolves its endpoint by walking up from `env!("CARGO_MANIFEST_DIR")`, which
 /// is baked into whichever tree compiled the binary; and the reverted source is baked in the same
-/// way. That is why the failure this gate was reported for is intermittent - one tree answered
-/// differently in two venues - and it is a defect in this optimisation rather than in the
-/// classification below.
+/// way. It is a defect in this optimisation rather than in the classification below, and it is one
+/// reason two runs of one tree can disagree - the other, and the larger one, is that only
+/// `just causality` provisions a tier at all (see [`nextest`]).
 ///
 /// The direction it fails in is what makes it survivable now: a stale binary makes a scoped test
 /// pass on base ("green against base behaviour") or vanish from HEAD, both of which are loud. It
@@ -240,6 +242,12 @@ enum Tree {
 /// change that touched neither. `sutura_dev::requirement`'s own rule is that only the thing which
 /// provisioned a tier may declare one - so a run in a tree nothing provisioned gets the
 /// developer-machine direction, which skips loudly and names what did not run.
+///
+/// AND IT IS WHY ONE COMMIT ANSWERED DIFFERENTLY IN TWO VENUES. `just causality` sources
+/// `nix/with-tier.sh` and so provisions a tier; `just ship-check` and `nix run .#causality` do
+/// not, so there those cells skipped and the verdict was about the change. The false green was
+/// reachable from the one venue a person runs by hand and cites, which is the worst place for it
+/// to live and the reason it went unnoticed.
 ///
 /// WHAT THAT LEAVES: a tier-backed cell cannot be proven causal by this gate. It skips in the
 /// reconstructed tree instead of running, so the base run is green and the verdict is *green
@@ -616,35 +624,9 @@ mod tests {
     use std::path::Path;
 
     use super::base::BaseOutcome;
-    use super::regions::AddedLine;
+    use super::fixtures::{changed, tree};
     use super::scoped::Scoped;
-    use super::{BaseState, ChangedFile, Plan, Tree, apply, nextest, plan, retry_with_held_back};
-
-    /// A post-image reader over a fixed set of files, standing in for the working tree.
-    fn tree(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
-        let owned: Vec<(String, String)> = files
-            .iter()
-            .map(|&(path, text)| (String::from(path), String::from(text)))
-            .collect();
-        move |wanted: &str| owned.iter().find(|(path, _)| path == wanted).map(|(_, text)| text.clone())
-    }
-
-    /// A changed file whose added lines run consecutively from `first`.
-    fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
-        ChangedFile {
-            path: String::from(path),
-            added: added_from(first, texts),
-        }
-    }
-
-    /// Added lines numbered consecutively from `first`.
-    fn added_from(first: usize, texts: &[&str]) -> Vec<AddedLine> {
-        texts
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| AddedLine::new(first + offset, *text))
-            .collect()
-    }
+    use super::{BaseState, Plan, Tree, apply, nextest, plan, retry_with_held_back};
 
     #[test]
     fn no_changed_tests_means_nothing_to_prove() {

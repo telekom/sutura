@@ -462,30 +462,13 @@ fn skip_char_literal(chars: &mut Chars<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddedLine, Braces, Range, TestScope, cfg_test_regions, has_non_test_additions, scope};
-
-    /// A post-image reader over a fixed set of files, standing in for the working tree.
-    fn tree(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
-        let owned: Vec<(String, String)> = files
-            .iter()
-            .map(|&(path, text)| (String::from(path), String::from(text)))
-            .collect();
-        move |wanted: &str| owned.iter().find(|(path, _)| path == wanted).map(|(_, text)| text.clone())
-    }
+    use super::{Braces, Range, TestScope, cfg_test_regions, has_non_test_additions, scope};
+    use crate::causality::fixtures::{added_from as from, tree};
 
     /// The expected regions, as `(first, past_last)` pairs. A helper rather than `vec![a..b]`
     /// because a one-element vec of a `Range` is a clippy finding on its own.
     fn spans(pairs: &[(usize, usize)]) -> Vec<Range<usize>> {
         pairs.iter().map(|&(first, past_last)| first..past_last).collect()
-    }
-
-    /// Added lines numbered consecutively from `first`.
-    fn from(first: usize, texts: &[&str]) -> Vec<AddedLine> {
-        texts
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| AddedLine::new(first + offset, *text))
-            .collect()
     }
 
     #[test]

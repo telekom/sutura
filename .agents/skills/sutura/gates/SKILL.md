@@ -261,13 +261,23 @@ before, the pass after. Everything else fails, and the three that fail are the t
 has no answer rather than a bad one: green against base, red outside the diff, and the added tests
 not running at all.
 
-**What it could not tell apart until #278, and what it still cannot.** The base run used to be the
-whole suite and any assertion failure counted, so with fail-fast one unrelated cell was the entire
-verdict and the tests under test never ran - `ok - red on base` about something else. Both runs are
-scoped to the tests the diff added now, the verdict NAMES what reddened, and a failure outside the
-diff is its own answer. **The hole that remains is the shared target directory**: both runs use one,
-cargo treats the two trees as one unit and decides freshness by mtime, so a build in either
-overwrites the other's binaries and the next run silently executes them - reverted source and
-`env!("CARGO_MANIFEST_DIR")` included. That is why the same commit answered differently in two
-venues. **So a causality verdict is only about the tree whose binaries are in
+**What it could not tell apart until #278.** The base run was the whole suite and any assertion
+failure counted, so with fail-fast one unrelated cell was the entire verdict and the tests under
+test never ran - `ok - red on base` about something else. Both runs are scoped to the tests the diff
+added now, the verdict NAMES what reddened, and a failure outside the diff is its own answer.
+
+**Why one commit answered differently in two venues, which is the part nobody could have guessed:
+only one venue provisions the tier.** `just causality` sources `nix/with-tier.sh`, which starts
+Postgres and exports `SUTURA_DEV_REQUIRE_TIER` into the whole process tree - and the endpoint that
+requirement belongs to is published under the ROOT, in a gitignored file the base worktree cannot
+have. So the tier-backed cells failed closed there and became the base run's red. `just ship-check`
+and CI's `nix run .#causality` provision no tier, so those cells skipped and the verdict was about
+the change. **The false green was reachable from the one venue a person runs by hand and cites.**
+The base run drops that variable now, in the gate, because only the thing that provisioned a tier
+may declare one.
+
+**The hole that remains is the shared target directory.** Both runs use one; cargo treats the two
+trees as one unit and decides freshness by mtime, so a build in either overwrites the other's
+binaries and the next run silently executes them - reverted source and `env!("CARGO_MANIFEST_DIR")`
+included. **So a causality verdict is only about the tree whose binaries are in
 `target/causality-target`** - remove that directory before trusting a surprising answer.

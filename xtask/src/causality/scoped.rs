@@ -166,28 +166,8 @@ fn function_name(line: &str) -> Option<TestName> {
 mod tests {
     use super::{Scoped, TestName, adds_test};
     use crate::causality::diff::ChangedFile;
+    use crate::causality::fixtures::{changed, tree};
     use crate::causality::regions::{AddedLine, PostImage};
-
-    /// A post-image reader over a fixed set of files, standing in for the working tree.
-    fn tree(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
-        let owned: Vec<(String, String)> = files
-            .iter()
-            .map(|&(path, text)| (String::from(path), String::from(text)))
-            .collect();
-        move |wanted: &str| owned.iter().find(|(path, _)| path == wanted).map(|(_, text)| text.clone())
-    }
-
-    /// A changed file whose added lines run consecutively from `first`.
-    fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
-        ChangedFile {
-            path: String::from(path),
-            added: texts
-                .iter()
-                .enumerate()
-                .map(|(offset, text)| AddedLine::new(first + offset, *text))
-                .collect(),
-        }
-    }
 
     /// The names `Scoped::of` extracts, as plain strings.
     fn scoped_names(files: &[ChangedFile], provable: &[&str], read: &PostImage<'_>) -> Option<Vec<String>> {
