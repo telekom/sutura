@@ -247,10 +247,28 @@ pub(crate) struct DocumentedBuild {
 /// **`cargo build` and not `cargo run`**, for the reason the module header gives. Both the spaced
 /// and the `=` form of each flag are read, because a page may legitimately write either and a gate
 /// that sees one shape silently passes the other.
+///
+/// **INSIDE A FENCED BLOCK ONLY, and that boundary was forced by running the rule.** The first
+/// version read any line, and the gate's own report went from one reconciled build to two the
+/// moment `docs/adr/0017` gained a sentence *quoting* the command this rule reconciles. The two
+/// are different things: a fenced block is an instruction a reader follows, an inline citation is
+/// a MENTION - and a decision record legitimately quotes a command that is no longer current,
+/// which would then fail a correct tree. A gate that does that gets disabled, so the fence is the
+/// boundary. **It was only visible because the report NAMES the rows** - a count would have read
+/// `2` and looked like more coverage.
+///
+/// What it gives up: a page instructing inline rather than in a block is not read. The fail-closed
+/// check in [`run`] is what stops that being silent - with no such block anywhere, the gate refuses
+/// rather than reconciling nothing.
 fn documented_builds(page: &str, text: &str) -> Vec<DocumentedBuild> {
     let mut out = Vec::new();
+    let mut fenced = false;
     for (index, line) in text.lines().enumerate() {
-        if !line.contains("cargo build") {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if !fenced || !line.contains("cargo build") {
             continue;
         }
         let (Some(package), Some(features)) = (flag_value(line, "-p", "--package"), flag_value(line, "", "--features")) else {
@@ -444,21 +462,44 @@ fn documented_pages(root: &std::path::Path) -> Vec<DocumentedBuild> {
     found
 }
 
+/// What reconciling `probeFeatures` against the documented builds found.
+///
+/// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
+/// is right to, for `workflows::Scan`'s reason one file over: two `Vec<String>` side by side say
+/// nothing about which one is the failure and which one is the evidence that anything was checked.
+struct Reconciliation {
+    /// Documented feature builds no probe covers. Each row names a page, a line and a feature.
+    problems: Vec<String>,
+    /// One row per documented build that named a shipped package, so the report can SAY what it
+    /// reconciled. Empty is a failure and not a pass - see [`run`].
+    probed: Vec<String>,
+}
+
 /// The second rule: a documented `cargo build --features` of a SHIPPED package is probed.
 ///
-/// Returns the failures, and how many documented builds named a shipped package at all - the
+/// Returns the failures, and one row per documented build that named a shipped package - the
 /// second is what keeps the first from running over an empty set, the failure mode a
-/// text-scanning check is most prone to.
-fn unprobed(records: &[Record], documented: &[DocumentedBuild]) -> (Vec<String>, usize) {
+/// text-scanning check is most prone to, and it is rows rather than a count so a reader can see
+/// WHICH builds were reconciled instead of trusting a number.
+fn unprobed(records: &[Record], documented: &[DocumentedBuild]) -> Reconciliation {
     let mut problems = Vec::new();
-    let mut reconciled = 0_usize;
+    let mut probed = Vec::new();
     for build in documented {
         let Some(record) = records.iter().find(|r| r.package == build.package) else {
             // A page documenting a feature build of something this repository does not ship has
             // no `probeFeatures` field to disagree with. Not this gate's business.
             continue;
         };
-        reconciled = reconciled.saturating_add(1);
+        // NAMED rather than counted. A number nobody can attribute is the shape `sutura/gates`
+        // warns about: this one read 2 when one page documents one build, and only printing the
+        // rows said where the second came from.
+        probed.push(format!(
+            "{}:{} {} [{}]",
+            build.page,
+            build.line,
+            build.package,
+            build.features.join(",")
+        ));
         for feature in &build.features {
             if !record.probe_features.iter().any(|p| p == feature) {
                 problems.push(format!(
@@ -469,7 +510,7 @@ fn unprobed(records: &[Record], documented: &[DocumentedBuild]) -> (Vec<String>,
             }
         }
     }
-    (problems, reconciled)
+    Reconciliation { problems, probed }
 }
 
 /// `cargo xtask check-shipped-binaries` - every release-path literal equals `nix/shipped.nix`.
@@ -515,7 +556,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     let documented = documented_pages(&root);
-    let (unprobed_problems, reconciled) = unprobed(&records(&source), &documented);
+    let reconciliation = unprobed(&records(&source), &documented);
 
     if !mismatches.is_empty() {
         eprintln!(
@@ -541,7 +582,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // page documents a feature build of a shipped package, `probeFeatures` is reconciled against
     // nothing and `docs/adr/0017`'s claim that *the documented feature-on source build is linked*
     // has no referent left. A page reworded out of existence is a verdict, not a pass.
-    if reconciled == 0 {
+    if reconciliation.probed.is_empty() {
         eprintln!("xtask check-shipped-binaries: FAILED - no page under docs/ documents a `cargo build`");
         eprintln!("  with both a shipped package and `--features`, so {SOURCE}'s probeFeatures is");
         eprintln!("  compared to nothing. docs/adr/0017 claims the documented feature-on build is");
@@ -549,12 +590,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    if !unprobed_problems.is_empty() {
+    if !reconciliation.problems.is_empty() {
         eprintln!(
             "xtask check-shipped-binaries: FAILED - {} documented feature build(s) are linked by nothing",
-            unprobed_problems.len()
+            reconciliation.problems.len()
         );
-        for problem in &unprobed_problems {
+        for problem in &reconciliation.problems {
             eprintln!("  {problem}");
         }
         eprintln!();
@@ -565,10 +606,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     println!(
-        "xtask check-shipped-binaries: ok - {} literal(s) agree with {SOURCE} ({}), {reconciled} documented feature build(s) probed",
+        "xtask check-shipped-binaries: ok - {} literal(s) agree with {SOURCE} ({})",
         checked,
         expected.join(" ")
     );
+    for row in &reconciliation.probed {
+        println!("  probed: {row}");
+    }
     Verdict::Pass
 }
 
@@ -623,24 +667,28 @@ mod tests {
     #[test]
     fn a_documented_feature_build_is_read_in_every_shape_a_page_writes_it() {
         let page = concat!(
+            // A MENTION, outside any block, and it must NOT be read - a record quoting a command
+            // is not a page instructing a reader to run it. This line is why the fence boundary
+            // exists: `docs/adr/0017` gained exactly this sentence, and the gate's report went
+            // from one reconciled build to two.
+            "the page says `cargo build -p sutura-cli --features bigquery`, so it must be probed\n",
+            "```bash\n",
             "cargo build --release -p sutura-cli --features bigquery\n",
             "cargo build --package sutura-cli --features=bigquery,postgres\n",
-            "run `cargo build -p sutura-cli --features bigquery` to get one\n",
-            // Neither of these is a documented feature BUILD, and both must be ignored: the first
-            // has no feature list, the second is a `cargo run`, which builds for the host and is
-            // not what a cross probe answers for.
+            // Neither of these is a documented feature BUILD, even inside the block: the first has
+            // no feature list, the second is a `cargo run`, which builds for the host and is not
+            // what a cross probe answers for.
             "cargo build --release -p sutura-cli\n",
             "cargo run -p sutura-serve --features tls\n",
+            "```\n",
+            "and outside the block again: cargo build -p sutura-cli --features nonsense\n",
         );
         let found = super::documented_builds("docs/p.md", page);
-        assert_eq!(found.len(), 3);
+        assert_eq!(found.len(), 2, "{found:?}");
         assert_eq!(found[0].package, "sutura-cli");
+        assert_eq!(found[0].line, 3);
         assert_eq!(found[0].features, vec![String::from("bigquery")]);
         assert_eq!(found[1].features, vec![String::from("bigquery"), String::from("postgres")]);
-        // The backticked citation yields the same value the fenced block does, rather than
-        // `bigquery\``, which is what a naive scan to the next space returns.
-        assert_eq!(found[2].line, 3);
-        assert_eq!(found[2].features, vec![String::from("bigquery")]);
     }
 
     #[test]
@@ -656,14 +704,20 @@ mod tests {
         );
         let documented = super::documented_builds(
             "docs/getting-started.md",
-            "cargo build --release -p sutura-cli --features bigquery\n",
+            "```bash\ncargo build --release -p sutura-cli --features bigquery\n```\n",
         );
-        let (problems, reconciled) = super::unprobed(&super::records(nix), &documented);
-        assert_eq!(reconciled, 1);
-        assert_eq!(problems.len(), 1);
-        assert!(problems[0].contains("docs/getting-started.md:1"));
-        assert!(problems[0].contains("bigquery"));
-        assert!(problems[0].contains("sutura"));
+        let found = super::unprobed(&super::records(nix), &documented);
+        assert_eq!(found.probed.len(), 1, "{:?}", found.probed);
+        assert_eq!(found.problems.len(), 1);
+        // Line 2, not 1: the fence opener is line 1. The number is asserted because a message
+        // naming a page and not a line is a message nobody can act on.
+        assert!(
+            found.problems[0].contains("docs/getting-started.md:2"),
+            "{:?}",
+            found.problems
+        );
+        assert!(found.problems[0].contains("bigquery"));
+        assert!(found.problems[0].contains("sutura"));
     }
 
     #[test]
@@ -671,10 +725,13 @@ mod tests {
         // No `probeFeatures` field exists to disagree with, and `reconciled` must not count it -
         // or the fail-closed test below would pass on a tree where nothing was reconciled.
         let nix = "  binaries = [\n    { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ ]; }\n  ];\n";
-        let documented = super::documented_builds("docs/p.md", "cargo build -p some-other-crate --features whatever\n");
-        let (problems, reconciled) = super::unprobed(&super::records(nix), &documented);
-        assert!(problems.is_empty());
-        assert_eq!(reconciled, 0);
+        let documented = super::documented_builds(
+            "docs/p.md",
+            "```bash\ncargo build -p some-other-crate --features whatever\n```\n",
+        );
+        let found = super::unprobed(&super::records(nix), &documented);
+        assert!(found.problems.is_empty());
+        assert!(found.probed.is_empty(), "{:?}", found.probed);
     }
 
     #[test]
@@ -682,24 +739,49 @@ mod tests {
         // Deliberate: a probe nobody asked for costs a job and breaks no claim. The direction
         // this gate holds is the other one.
         let nix = "  binaries = [\n    { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ \"bigquery\" \"postgres\" ]; }\n  ];\n";
-        let documented = super::documented_builds("docs/p.md", "cargo build -p sutura-cli --features bigquery\n");
-        let (problems, reconciled) = super::unprobed(&super::records(nix), &documented);
-        assert!(problems.is_empty());
-        assert_eq!(reconciled, 1);
+        let documented = super::documented_builds("docs/p.md", "```bash\ncargo build -p sutura-cli --features bigquery\n```\n");
+        let found = super::unprobed(&super::records(nix), &documented);
+        assert!(found.problems.is_empty());
+        assert_eq!(found.probed.len(), 1, "{:?}", found.probed);
     }
 
     #[test]
     fn the_repositorys_own_documented_feature_build_is_probed() {
-        // The gate over the real tree, so the reconciliation is not only exercised on fixtures.
-        // `docs/getting-started.md` tells a reader to build `sutura-cli --features bigquery`, and
-        // `nix/shipped.nix` must therefore probe it. This is the assertion that goes red if
-        // somebody deletes the probe and keeps the page.
+        // The rule over the REAL tree, so the reconciliation is not only exercised on fixtures.
+        //
+        // **POSITIVE assertions and not `problems.is_empty()`, because that shape is green for the
+        // wrong reason and it was measured being so.** With the feature comparison disabled -
+        // `if false && !record.probe_features…` - `just test` reported this test PASS and only
+        // `a_documented_feature_the_probe_set_omits_is_linked_by_nothing` went red. An assertion
+        // that nothing is wrong cannot distinguish a clean tree from a check that does nothing, so
+        // what is asserted here is which pair was reconciled, by name.
         let root = crate::repo::root().expect("could not locate the repo");
         let source = std::fs::read_to_string(root.join(super::SOURCE)).expect("could not read nix/shipped.nix");
         let documented = super::documented_pages(&root);
-        let (problems, reconciled) = super::unprobed(&super::records(&source), &documented);
-        assert!(reconciled > 0, "no page documents a feature build of a shipped package");
-        assert!(problems.is_empty(), "{problems:?}");
+        let records = super::records(&source);
+
+        let build = documented
+            .iter()
+            .find(|b| b.package == "sutura-cli")
+            .expect("no page under docs/ documents a `cargo build -p sutura-cli --features ...`");
+        assert!(build.features.contains(&String::from("bigquery")), "{build:?}");
+        let record = records
+            .iter()
+            .find(|r| r.package == "sutura-cli")
+            .expect("nix/shipped.nix declares no sutura-cli record");
+        assert!(
+            record.probe_features.contains(&String::from("bigquery")),
+            "{:?}",
+            record.probe_features
+        );
+
+        // And the gate's own verdict on the tree, which is what a reader of a green run assumes.
+        let found = super::unprobed(&records, &documented);
+        assert!(
+            !found.probed.is_empty(),
+            "nothing was reconciled, so the rule ran over an empty set"
+        );
+        assert!(found.problems.is_empty(), "{:?}", found.problems);
     }
 
     #[test]
