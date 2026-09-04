@@ -612,6 +612,11 @@ reachable without the setting fails OPEN - it ships the prose of a deployment th
 none, which is the defect this function exists to close, and it is how that defect arrived
 here. A second argument cannot be left out.
 
+It also asks nothing of the setting itself: `Carried::under` and `prose::notice` are the
+crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
+without the operator's decision, and a third `CatalogProse` spelling is a compile error in
+both rather than an `else` arm here.
+
 #### Implements
 
 `Debug`, `Serialize`
