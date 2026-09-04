@@ -20,6 +20,28 @@ If it reproduces only in CI, the difference is the environment, and there are th
 ones: **no `.git` in the Nix sandbox**, **no network in a Nix build**, and **`--all-features`
 in the gates but not in your inner loop**.
 
+## 1a. A gate that HANGS is a different failure, and it prints nothing
+
+No error to paste, so it reads as a slow machine and sends you to the wrong place. Measured cost
+here before it was understood: 38 min, 50 min, and an 864s SIGTERM, across **three sessions that
+each diagnosed it independently and declined it as out of lane.**
+
+The cause is a subprocess wait with no timeout. `Command::status()` and `.output()` wait forever, so
+a dependency that ACCEPTS and never answers - a wedged Docker Desktop is the case that happened -
+hangs whatever called it. `docker version` and `docker info` were both still running when a 25s
+external timeout killed them, twice, 50 minutes apart.
+
+| Symptom | What to check |
+| --- | --- |
+| `just test` / `just causality` / `just ship-check` and every pre-commit tier block, no output | `timeout 20 docker info; echo $?` - **124 means wedged**, and `SKIP=rust-tests` will not help because the hang is not in the hook's own step |
+| stray processes accumulate | the probe kills its child, not the child's descendants; `docker` CLI plugins outlive it until the daemon recovers |
+| a gate hangs only AFTER provisioning starts | `wait_until_healthy` checks its deadline only after `docker compose ps` returns, so `SUTURA_DEV_READY_TIMEOUT_SECS` is never consulted |
+
+`presence()` is bounded now (`SUTURA_DOCKER_PROBE_TIMEOUT_SECS`, default 10s per probe, three
+probes, clamped 1..600). A daemon already wedged when a gate starts is reported; one that wedges
+mid-run is not. **If a gate hangs for minutes with no output, kill it and say so** - a hang is
+evidence, not a slow machine.
+
 ## 2. Get the real error
 
 - Paste the actual message. Do not paraphrase it: `unknown lint: 'warnings\r'` and
