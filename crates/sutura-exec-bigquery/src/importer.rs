@@ -38,6 +38,20 @@
 //! bytes billed for a `CREATE TABLE AS SELECT` over a literal array are the bytes it scans, which is
 //! none.
 //!
+//! **Since #119 every created table carries an EXPIRATION, because `panic = "abort"` means a
+//! cancelled runner's cleanup never runs.** This crate's acceptance leg runs under
+//! `[profile.ci] panic = "abort"` on `nix run .#bigquery-acceptance`, so a killed job unwinds
+//! nothing - a `Drop` guard on the loader would be skipped before it ran. Table expiration is the
+//! one mechanism that survives that: the table self-deletes a fixed interval after the DDL, whether
+//! or not anybody drops it. The explicit DROP at the end of a run is the tidy half (no table
+//! lingers even for the interval); the expiration is the guarantee half (a run that never reaches
+//! the DROP still leaves nothing but itself after [`EXPIRATION_HOURS`]).
+//!
+//! The fixture tables are named *with* the run's suffix - see `tests/corpus.rs` - so the DDL
+//! carries no dataset or project, which is how a per-run table name stays safe to print in a public
+//! log: the TABLE names are committed fixture names plus a token, and only the dataset and project
+//! are resources.
+//!
 //! The first element carries the explicit `STRUCT<...>` type and the rest are bare tuples that
 //! coerce to it, which is what pins the column types - an array of bare tuples would let `GoogleSQL`
 //! infer them, and inferring `INT64` for a column whose fixture happens to hold no decimal is how a
@@ -247,6 +261,11 @@ impl Fixture {
     /// The table is named UNQUALIFIED, so it resolves in the job's `defaultDataset` - the same
     /// resolution every statement this adapter renders relies on, which is what keeps a dataset name
     /// out of a statement and therefore out of any log.
+    ///
+    /// **Every statement sets [`EXPIRATION_HOURS`] as the table's `expiration_timestamp`, and the
+    /// module header says why that is part of correctness rather than tidiness:** a cancelled runner
+    /// (which `panic = "abort"` makes irreversible) never runs the explicit DROP, so the expiration
+    /// is the only thing that guarantees the next run is not asked to clean up a table this one left.
     pub(crate) fn create_statement(&self, table: &TableName) -> String {
         let declared: Vec<String> = self
             .columns
@@ -255,9 +274,15 @@ impl Fixture {
             .collect();
         // Built by concatenation rather than by `write!`, because `write!` into a `String` returns a
         // `Result` that cannot fail and that the workspace's lint table gives no clean way to discard.
+        // The `OPTIONS` block sits between the table name and the `AS`, which is the shape the
+        // endpoint accepts for a `CREATE ... AS SELECT`. The interval comes from a constant rather
+        // than a caller, so no path can create a table that never expires.
         let mut out = format!(
-            "CREATE OR REPLACE TABLE `{}` AS SELECT * FROM UNNEST([STRUCT<{}>",
+            "CREATE OR REPLACE TABLE `{}` \
+             OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {} HOUR)) \
+             AS SELECT * FROM UNNEST([STRUCT<{}>",
             table.as_str(),
+            EXPIRATION_HOURS,
             declared.join(", ")
         );
         for (index, tuple) in self.tuples.iter().enumerate() {
@@ -269,7 +294,26 @@ impl Fixture {
         out.push_str("])");
         out
     }
+
+    /// The statement that removes the table, named unqualified like the load.
+    ///
+    /// The DROP is the tidy half of cleanup; [`Self::create_statement`]'s expiration is the
+    /// guarantee half. The caller submits it after the corpus, and the endpoint's `accessDenied`
+    /// surface is identical to the load's - the grant that lets this leg create a table is the same
+    /// `bigquery.tables.delete` a DROP needs.
+    pub(crate) fn drop_statement(table: &TableName) -> String {
+        format!("DROP TABLE IF EXISTS `{}`", table.as_str())
+    }
 }
+
+/// How long every fixture table lives before expiring on its own.
+///
+/// **The number that would otherwise be the leak's lifetime.** It bounds how long a cancelled run's
+/// tables linger - `panic = "abort"`'s cleanup never runs, so this is the only mechanism - and it
+/// has to be long enough that a complete run never touches it: the load has its own two-minute
+/// deadline and the corpus run is a handful of queries, both far inside a day. Twenty-four hours is
+/// generous headroom with a hard floor for the aborted-run case.
+const EXPIRATION_HOURS: u32 = 24;
 
 /// Splits one CSV line on commas.
 ///
@@ -386,6 +430,12 @@ where
 /// point, and erasing it would lose which transport failed.
 pub type Loaded<E> = Result<usize, FixtureNotLoaded<E>>;
 
+/// What a DROP answers with: nothing, or why it did not happen.
+///
+/// Named for the same reason [`Loaded`] is - `Result<(), FixtureNotLoaded<T::Error>>` is over the
+/// `type_complexity` threshold this workspace tightened, and the generic error is the point.
+pub type Dropped<E> = Result<(), FixtureNotLoaded<E>>;
+
 #[cfg(test)]
 mod tests {
     use super::{ColumnType, FixtureNotUsable, read_fixture};
@@ -408,12 +458,16 @@ mod tests {
         let sql = fixture.create_statement(&table);
         assert!(
             sql.starts_with(
-                "CREATE OR REPLACE TABLE `fct` AS SELECT * FROM UNNEST([STRUCT<`month` DATE, \
+                "CREATE OR REPLACE TABLE `fct` \
+                 OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)) \
+                 AS SELECT * FROM UNNEST([STRUCT<`month` DATE, \
                  `subscription_key` INT64, `status` STRING, `mrr_cents` INT64, \
                  `churned_in_month` BOOL, `data_gb` FLOAT64>"
             ),
             "{sql}"
         );
+        assert!(sql.contains("expiration_timestamp"), "{sql}");
+        assert!(sql.contains("INTERVAL 24 HOUR"), "{sql}");
         assert!(
             sql.contains("(DATE '2026-01-01', 1001, 'active', 3749, FALSE, 2.47)"),
             "{sql}"
@@ -421,6 +475,26 @@ mod tests {
         assert!(sql.contains("(DATE '2026-02-01', 1002, 'active', 5000, TRUE, 3.5)"), "{sql}");
         assert!(sql.ends_with("])"), "{sql}");
         assert_eq!(fixture.rows(), 2);
+    }
+
+    #[test]
+    fn the_drop_names_the_table_unqualified_and_is_idempotent() {
+        let table = sutura_domain::model::TableName::parse("fct").expect("a table name parses");
+        let sql = super::Fixture::drop_statement(&table);
+        assert_eq!(sql, "DROP TABLE IF EXISTS `fct`");
+    }
+
+    #[test]
+    fn no_statement_may_omit_the_expiration() {
+        // The table name is a committed fixture name plus a per-run suffix, so it carries no dataset
+        // or project. The expiration is what guarantees a cancelled run leaves nothing behind after
+        // a bounded interval - see the module header for why that is part of correctness.
+        let fixture = read_fixture(ROWS).expect("the fixture headers are column names");
+        let table = sutura_domain::model::TableName::parse("fct").expect("a table name parses");
+        let sql = fixture.create_statement(&table);
+        assert!(sql.contains("OPTIONS (expiration_timestamp ="), "{sql}");
+        assert!(!sql.contains("`project"), "{sql}");
+        assert!(!sql.contains("`dataset"), "{sql}");
     }
 
     #[test]

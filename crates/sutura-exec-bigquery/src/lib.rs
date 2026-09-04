@@ -112,7 +112,7 @@ pub mod wire;
 #[cfg(feature = "fixtures")]
 mod importer;
 #[cfg(feature = "fixtures")]
-pub use crate::importer::{FixtureNotLoaded, FixtureNotUsable, Loaded};
+pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
 mod sts;
 pub use sts::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
@@ -431,6 +431,29 @@ where
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })?;
         Ok(fixture.rows())
+    }
+
+    /// Removes one table from the connection's dataset.
+    ///
+    /// **The tidy half of per-run fixture cleanup.** A run names its tables with a per-run suffix
+    /// (see `tests/corpus.rs`), so what it removes is its OWN tables and never a colleague's. The
+    /// [`crate::importer`] header states the guarantee half - every `CREATE` also carries a 24-hour
+    /// expiration, because `panic = "abort"` means a cancelled runner never reaches this method and
+    /// the expiration is what still cleans up after it.
+    ///
+    /// It takes a table name and never a statement, for the same reason `load_fixture` does: the
+    /// statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
+    ///
+    /// Behind the same `fixtures` feature and in the same impl block, for the same two reasons.
+    #[cfg(feature = "fixtures")]
+    pub fn drop_table(&self, table: &TableName) -> Dropped<T::Error> {
+        let statement = crate::importer::Fixture::drop_statement(table);
+        // No parameters and no subject bearer, exactly as the load: a DROP is a thing the identity
+        // this transport already holds does to its own dataset, like the `CREATE` that built it.
+        let request = JobRequest::new(&statement, &[], &self.billing_project, &self.default_dataset, None);
+        self.transport
+            .apply(&request)
+            .map_err(|cause| FixtureNotLoaded::Endpoint { cause })
     }
 
     /// One cell, as the domain names it.

@@ -589,14 +589,14 @@ rather than anything this repository can carry.
   `bigquery` feature on a binary `nix` does not package, and the image and all four cross binaries are
   `sutura-cli`, which links the engine only. So no published artifact opens a dataset, and a green here
   says nothing about one that does.
-- **NEW: this leg WRITES, and two runs against one dataset will race.** Four tables named after the
-  example models - `dim_customer`, `dim_product`, `fct_subscription_monthly` and `fct_usage_daily` -
-  are replaced on every run. The names are fixed rather than suffixed because the generator renders a
-  model's table unqualified and the job's `defaultDataset` resolves it, so a per-run name would need
-  the catalog to change. The dataset this is pointed at should therefore hold nothing else under those
-  names, and a second concurrent job in the same dataset is a defect nothing here prevents. The names
-  themselves are committed fixtures rather than resources, so unlike the project and the dataset they
-  need no `::add-mask::` in a public log.
+- **This leg WRITES, and two runs against one dataset will race** - *and, since #119, no longer.*
+  Four tables named after the example models - `dim_customer`, `dim_product`,
+  `fct_subscription_monthly` and `fct_usage_daily` - used to be replaced on every run under names
+  that were fixed because the generator rendered them unqualified and the job's `defaultDataset`
+  resolved them. The seventh amendment below is the closure: every table is now suffixed with the
+  run's own token, and a per-run table name stays safe to print because only the dataset and the
+  project are resources. The committed fixture names themselves need no `::add-mask::` in a public
+  log.
 
 ## Fourth amendment, 2026-08-31: the finding is fixed, and the leg's tolerance is deleted rather than relaxed
 
@@ -690,6 +690,7 @@ sign-on. The venue for that is a developer's own machine, one-off, and recorded.
 ### The decision: four venues, four claims
 
 | Venue | What runs there | What it is allowed to claim |
+
 | --- | --- | --- |
 | **CI, every run, every contributor** | **Fakes** at the port (the house rule - ports get fakes, not mocked HTTP) | Every outcome the port can produce, including each refusal |
 | **CI, in-repo runs only** | The acceptance leg, on a **service-account key** in an environment secret | `BigQuery` accepts what we generate, and the rows agree with the engine |
@@ -1145,3 +1146,57 @@ does fail closed, freely: a matrix target that is not a release target has no
 `feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a matrix
 cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
 reconciling this pair too. It is the same shape as the rule above and is a separate change.
+## Seventh amendment, 2026-09-04: the acceptance leg is re-entrant, and two runs no longer race
+
+**Status of the amendment: accepted.** The third amendment's "NEW" bullet - *this leg WRITES, and two
+runs against one dataset will race* - stopped being true in #119, and this is its record. The bullet
+itself now points here; a merged record that quietly stops being true is worse than one wrong from
+the start, and the race was the one way this leg could fail for a reason that looked like a product
+bug.
+
+### The mechanism: a per-run table suffix, applied before the plan is compiled
+
+Every corpus table is now named with a token unique to the run (`GITHUB_RUN_ID` in CI, a clock+pid
+value locally) and a per-test leg (`accept`, `rows`, `anchors`) - `dim_customer_<token>_rows`, and so
+on. The suffixed names live in the DEFINITIONS: the leg rebuilds a `PinnedDefinitions` whose models'
+tables carry the suffix, and both the engine and `BigQuery` compile against that bundle, so the plan
+and the dataset agree (only the models' tables change; relationships and metrics are cloned verbatim,
+and `pin` recomputes the digest). Two runs, or this leg's own three tests under nextest's default
+parallelism, each create, read and drop only their own tables.
+
+### The two mechanisms that keep it clean, and why both are there
+
+- **Each `CREATE` sets a 24-hour table expiration.** This is the GUARANTEE half, and it exists for a
+  reason specific to this crate: the shipped profiles run `panic = "abort"`, so a cancelled runner
+  never unwinds - a `Drop` guard that would clean up is skipped before it runs. Table expiration is
+  the mechanism that survives that: the table self-deletes after the interval whether or not anybody
+  drops it.
+- **Each run DROPs its own tables when it finishes.** This is the TIDY half - a complete run leaves
+  nothing behind even for the 24-hour interval. It is not the guarantee, because an abort skips it;
+  the expiration is.
+
+### The per-run table name is safe to print
+
+The suffixed names are committed-fixture-names-plus-tokens, not resources: only the dataset and the
+project are resources. A run prints its table names as they load, which is what lets a log say which
+run wrote them; the dataset and project are still masked in CI, and a table name never carries them.
+
+### The belt: a CI concurrency group shared across refs
+
+`ci.yml`'s `bigquery-acceptance` job now carries a job-level `concurrency` group keyed on the
+dataset (`vars.SUTURA_BQ_DATASET`), not on the ref, with `cancel-in-progress: false`. Two in-repo
+runs against the one `bq-test` dataset therefore QUEUE rather than interleave. It is the belt, not
+the braces: the per-run suffix is what makes them safe, and the developer's own local run is a
+concurrent writer the group cannot serialise - its per-run table names announce it on the shared
+dataset, and the `just bigquery-acceptance` comment says that in one sentence.
+
+### What becomes provable, and how
+
+`just bigquery-acceptance` twice concurrently, locally, both green - the table names differ per run,
+and each run drops its own. The CI job is green on a branch, its printed table names carrying the
+run suffix.
+
+### Not in scope
+
+Cross-dataset fixtures (#118) and the conformance packs (#116) are still future work; this change
+makes the first safe to add rather than doing it.
