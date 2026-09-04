@@ -466,6 +466,13 @@ reason.** The set alone cannot tell an EMPTY dataset from a document whose shape
 changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
 absent*. `ListingTotal` is what the two can be told apart by.
 
+**And exactly that far, which is the limit next to the claim.** It reaches a shape change the
+same document still reports a readable count beside: a service that re-spelled `totalItems` as
+well leaves `ListingTotal::Unreported` or `ListingTotal::Unreadable`, and those say *nothing
+to compare* rather than *empty dataset*. Nor does it reach a dataset every one of whose ids this
+crate drops - that is `ListingTotal::Accounted` beside no ids, deliberately, because it is an
+ordinary dataset no model in the bundle could have named anyway.
+
 **Why it travels on the answer rather than being decided here, which is not the same as *it
 could not be*:** `JobTransport::listing_was_refused` is proof that this port can hold a
 decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
@@ -502,7 +509,7 @@ The ids a listing named, and what its own total said about them.
 pub const fn total(&self) -> ListingTotal
 ```
 
-What the listing's own reported total said about the entries it carried.
+What the listing's own reported total said about the ids the same document carried.
 
 #### Implements
 
@@ -514,19 +521,23 @@ What the listing's own reported total said about the entries it carried.
 pub enum ListingTotal
 ```
 
-What a listing's own reported total said, against the entries the same document carried.
+What a listing's own reported total said, against the entries of the same document whose table
+id it could read.
 
 **Four variants rather than an `Option<u64>`, because each says something different about what a
 caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
 have merged with the answer. A reader has to name the case, for the reason
 `sutura_domain::source::AnchorIdentity` names `NoneDeclared` rather than answering `None`.
 
-**The comparison is against the entries the document CARRIED and never against the ids it
-named**, and the difference is a wrong claim avoided rather than a nicety: a listing entry whose
-table id is outside `usable_table_id`'s accepted set is DROPPED, so a dataset holding tables this
-crate cannot match legitimately names fewer ids than it carried entries - and `BigQuery` does
-permit an id this crate would drop. Comparing a total against the named set would report that
-ordinary dataset as short of its own total, which is a shape change nobody served.
+**The comparison is against the entries that carried a table id this crate could READ - neither
+the ids the listing NAMED nor the entries it merely counted**, and each half of that is a wrong
+claim avoided. An id outside `usable_table_id`'s accepted set is DROPPED from the named set, and
+`BigQuery` permits such an id, so comparing against the named set would report an ordinary
+dataset as short of its own total. The entry count is the mistake the other way, and it was this
+type's first shape: a document whose `tableReference` the service renamed or nested carries
+entries and no readable id, which read `Self::Accounted` over no ids at all - the pre-flight
+reporting every table absent while the cross-check read clean. An entry with no readable id is
+the shape signal; an id `usable_table_id` rejected is the legitimate drop, and it still counts.
 
 The same cross-check one document over is `crate::BigQueryError::Incomplete`, which compares
 `delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
@@ -537,8 +548,8 @@ wrong number, and this one cannot, because a short listing is a boot warning.
 
 - `Unreported` - The document carried no total at all, so an empty listing and an empty dataset are one value.
 - `Unreadable` - It carried a total this crate could not read as a count.
-- `Accounted` - It reported a total, and carried an entry for every table the total claims.
-- `Short` - It reported MORE tables than it carried entries for.
+- `Accounted` - It reported a total, and carried a readable table id for every table the total claims.
+- `Short` - It reported MORE tables than the same document carried readable table ids for.
 
 #### Implements
 
