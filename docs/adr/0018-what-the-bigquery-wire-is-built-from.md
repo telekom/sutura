@@ -164,9 +164,17 @@ the one working it out: `ureq` plus the eighteen crates above, compiled for that
 question is `ring`, which is the only one with a native component - and `ring` ships **pregenerated
 assembly** for `linux64` on both `x86_64` and `aarch64`, so it needs a C compiler for its shims and
 neither Perl nor nasm. `rustls` needs no system library at all, which is the same argument
-`tokio-rustls` already carries in the root manifest for the inbound side. **Not proved by a build
-here:** no musl cross build was run on this machine, and no shipped artifact links the feature, so
-this paragraph is a prediction with its mechanism named rather than a measurement.
+`tokio-rustls` already carries in the root manifest for the inbound side.
+
+**That prediction has since been run, and it held.** This paragraph said *no musl cross build was
+run on this machine, so this is a prediction with its mechanism named rather than a measurement*.
+`telekom/sutura#121` built it: the four `cross` jobs link `sutura-cli --features bigquery` for both
+musl triples on every pull request, and the feature is twelve compiled units - `ring`, `untrusted`,
+`rustls`, `rustls-pki-types`, `rustls-webpki`, `webpki-roots`, `ureq`, `ureq-proto`, `httparse`,
+`getrandom 0.2`, `utf8-zero`, `sutura-exec-bigquery`. `docs/adr/0017` carries the numbers, the
+derivation A/B behind them and the limits, including the one that matters here: the probe builds the
+`ci` profile, so `release`'s thin LTO and `panic = "abort"` over that assembly are still unmeasured.
+It remains true that no shipped artifact links the feature.
 
 ### What it costs the licence gate: nothing, and one thing changes anyway
 
