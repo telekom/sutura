@@ -493,6 +493,14 @@ mod tests {
         dir
     }
 
+    /// The backtick span a nix tier's remedy has to carry, spelled from the service.
+    ///
+    /// ONE derivation for the three assertions that read one, so a literal cannot creep back into
+    /// just one of them - and a literal is what pinned `just test` as the task for every tier.
+    fn tier_task(service: &str) -> String {
+        format!("`just {service}-tier start`")
+    }
+
     /// A service every default provision brings up, read from the declaration rather than typed.
     fn a_default_service() -> &'static Service {
         SERVICES
@@ -562,7 +570,7 @@ mod tests {
         assert!(message.contains("postgres"), "{message}");
         assert!(message.contains("no default port"), "{message}");
         assert!(
-            message.contains("`just postgres-tier start`"),
+            message.contains(&tier_task("postgres")),
             "the advice names no task, or not this tier's own: {message}"
         );
         assert!(message.contains(module), "the advice does not name the module: {message}");
@@ -841,7 +849,7 @@ mod tests {
         // and `just test` starts no other tier - so it was wrong for the one service that has both
         // a tier and a compose profile, which is the very service this fixture is built from.
         assert!(
-            message.contains(&format!("`just {}-tier start`", profiled.name())),
+            message.contains(&tier_task(profiled.name())),
             "the advice names no task, or not this tier's own: {message}"
         );
         // The venue that is no longer this service's, in both spellings this message ever had.
@@ -887,17 +895,12 @@ mod tests {
                 // as whichever existing branch happened to be closest.
                 match super::venue(Some(&root), &service) {
                     Venue::NixTier { ref module } => {
-                        // DERIVED FROM THE SERVICE, not a literal. This assertion read
-                        // `contains("`just test`")` for every tier, and `just test` sources
-                        // `nix/with-tier.sh`, which starts the Postgres tier and no other - so the
-                        // walk below asserted, for `keycloak`, advice that starts nothing for it.
-                        // A literal here cannot tell one tier's task from another's, which is how
-                        // a test written to close a wrong-venue defect came to pin one. The name
-                        // is resolved to a recipe that exists by
-                        // `every_command_this_remedy_names_is_a_just_task_that_exists`; that it
-                        // PROVISIONS `{service}` is measured, not checked - see `Venue::advice`.
+                        // DERIVED, never a literal: this read `contains("`just test`")` for
+                        // every tier, and the walk includes `keycloak`, for which that task starts
+                        // nothing - so the test written to close the wrong-venue class pinned one.
+                        // What holds the name and what does not: see `Venue::advice`.
                         assert!(
-                            remedy.contains(&format!("`just {service}-tier start`")),
+                            remedy.contains(&tier_task(&service)),
                             "{arm} does not name the task that starts `{service}`'s own tier: {remedy}"
                         );
                         assert!(remedy.contains(module), "{arm} does not name `{module}`: {remedy}");
