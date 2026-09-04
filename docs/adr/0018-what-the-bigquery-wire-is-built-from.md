@@ -505,7 +505,7 @@ this became its second caller.
   in the warning half:** a dataset that is not there cannot be told from a name somebody is about to
   fix, and the endpoint answers `404` for an invisible project too.
 
-**Five limits, in this record's own tradition of stating them next to the claim:**
+**Six limits, in this record's own tradition of stating them next to the claim:**
 
 - **A live dataset HAS now answered a listing, and the documents this suite decodes are still ours.**
   The three response documents were written here, which is this record's existing limit restated for
@@ -552,16 +552,37 @@ this became its second caller.
   runs above, whose output contains the string nowhere. What would settle it is therefore a DECODER
   change and not another run: the field read as an `Option` that cannot refuse a document omitting
   it, reported by the acceptance leg, and only then a decision about the cross-check. Measure, then
-  decide - with something that measures.
-- **The live run stops at the ADAPTER's answer, so *the boot refusal fires end to end* is not a
-  measured claim.** Issue #120's own verification asked for a run asserting the boot refusal; what
-  both green runs assert is the `TablesPresent` that `BigQueryWarehouse::preflight` returns, and the
-  decision above it - the shared one, plus each root's own sentence through its own sink - is
-  exercised against a `Warehouse` fake. The two greens do not meet: no test in the tree feeds a real
-  listing into a real boot decision. **Nor can this leg close it, and that is structural rather than
-  an omission:** the acceptance targets live in `sutura-exec-bigquery`, which the composition roots
-  depend ON, so a test here cannot reach a root's decision. What would close it is an acceptance leg
-  in a composition root - a different crate, and its own change.
+  decide - with something that measures. **Tracked as telekom/sutura#263**, because it
+  spans the document, the port's answer and a refusal decision - and because a deferral pointing at a
+  run that cannot make the measurement is the overstatement, so the citation has to move rather than
+  the sentence being softened.
+- **A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
+  wording.** Issue #120's own verification asked for a run asserting the boot refusal, and until
+  `a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table` the two
+  halves did not meet: the legs above assert the `TablesPresent` that `BigQueryWarehouse::preflight`
+  returns, and every test of the decision above it ran against a `Warehouse` fake. That leg loads a
+  bundle through `sutura_catalog_local::LocalCatalog` naming one table the dataset holds and one it
+  does not, hands it to `sutura_app::preflight::ask` over a real warehouse, and requires
+  `Verdict::Absent` naming the absent table and the **model** behind it - with the clean bundle
+  answering `Verdict::Present` first, because an empty listing produces `Absent` too. **An earlier
+  version of this bullet called the seam structurally unreachable from here, and it was wrong by one
+  dependency edge:** `sutura-app` is already a dev-dependency of this crate and
+  `sutura_app::preflight::ask` is the decision sequence *both* composition roots call, which
+  `sutura_serve::boot::refuse_absent_tables`' own documentation states. **What genuinely stays out of
+  reach is the words and the sink** - each root's own sentence for each verdict, through its own
+  transport's sink. Those are `pub(crate)` in crates that depend ON this one, and they are rendering
+  rather than decision; a run that asserted them would be an acceptance leg in a composition root,
+  which is a different crate and its own change.
+- **That leg's own harness has a control, and it is the one test in the acceptance file that is not
+  `#[ignore]`d.** `ask` **skips** a source the bundle names no model in, so a scratch bundle that
+  reached this leg's source with nothing - a `source:` that stopped matching, a document the parse
+  refused - would hand the decision an empty question rather than fail.
+  `a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about` reads no project and
+  opens no socket, so it runs in `just test` and in `checks.nextest` while `just bigquery-acceptance`
+  skips it: a harness defect fails in the gate every change runs, not in the one venue that costs a
+  credential. Provoked both ways to check it fires - the document's `source:` pointed elsewhere gives
+  `left: []` against the two models expected, and a harness writing no document at all fails on the
+  catalog adapter's own `Empty`.
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
