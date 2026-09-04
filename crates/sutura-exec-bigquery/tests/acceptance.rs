@@ -78,6 +78,14 @@
 //! skips only on a fork's pull request - the runner there cannot see an environment's secrets, which
 //! is *skip where the runner had no choice, fail where somebody typed the command*.
 //!
+//! **One test here is NOT `#[ignore]`d, and it is the exception the paragraph above needs stating
+//! next to it.** `a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about` reads
+//! no project and opens no socket: it is the control on the HARNESS the pre-flight seam leg is built
+//! out of - the bundle written to a scratch directory and read back through the catalog adapter. So
+//! it runs in `just test` and in `checks.nextest`, and `just bigquery-acceptance` skips it, because
+//! `--run-ignored only` reaches the ignored set alone. That is the right way round: a harness defect
+//! should fail in the gate every change runs, not in the one venue that costs a credential.
+//!
 //! # How to run it
 //!
 //! ```text
@@ -136,6 +144,7 @@ mod tests {
     use sutura_domain::model::{
         Aggregate, ColumnName, DatasetName, Grain, MetricName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
     };
+    use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::{
         Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
         StatementTables,
@@ -143,7 +152,29 @@ mod tests {
     use sutura_domain::warehouse::preflight::TablesPresent;
     use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
 
+    use sutura_app::Warehouses;
+    use sutura_app::preflight::{Verdict, ask};
+    use sutura_catalog_local::LocalCatalog;
+
     use crate::support::{Connection, Wired, bounds, named, opened, presented};
+
+    /// A table name no dataset holds, and the one name in this file that needs no masking.
+    ///
+    /// **A constant rather than four literals**, because four legs ask the same question - *what does
+    /// this dataset do with a name it does not hold* - and a copy that drifted by a character would be
+    /// a leg passing for the wrong reason: `preflight` reports an unknown name absent whatever it is,
+    /// so nothing here would go red.
+    const NO_SUCH_TABLE: &str = "sutura_acceptance_no_such_table";
+
+    /// A dataset name the fixture's project does not hold, for the leg about a listing that FAILS.
+    const NO_SUCH_DATASET: &str = "sutura_acceptance_no_such_dataset";
+
+    /// The model the seam leg's bundles declare over the table the dataset really holds.
+    const MODEL_ON_A_HELD_TABLE: &str = "held_here";
+
+    /// The model the seam leg's bundle declares over [`NO_SUCH_TABLE`] - the name a refusal has to
+    /// print, because an operator fixes a `table:` by opening the model that wrote it.
+    const MODEL_ON_AN_ABSENT_TABLE: &str = "not_here";
 
     /// What this leg needs from the environment: the shared [`Connection`], plus the one variable only
     /// this leg reads.
@@ -196,12 +227,23 @@ mod tests {
         /// and dataset, so no value here is written into the repository - which is the same rule the
         /// two variables above are read under.
         fn in_project(&self) -> QualifiedTable {
+            self.qualified_in_project(self.connection.dataset.as_str(), self.table.clone())
+        }
+
+        /// `project.dataset.table` in the fixture's OWN project, for any dataset and table.
+        ///
+        /// **One place parses the project id, which is why this is a method and not a second literal
+        /// in a test body.** [`Self::in_project`] asks it about the real dataset; the soft-edge leg
+        /// asks it about one the project does not hold. Two copies of the same
+        /// `ProjectName::parse(billing_project)` would be two answers to *which project pays*, which
+        /// is the live bug `x-goog-user-project` already cost this adapter once.
+        fn qualified_in_project(&self, dataset: &str, table: TableName) -> QualifiedTable {
             QualifiedTable::new(
                 Some(TableQualifier::in_project(
                     ProjectName::parse(self.connection.billing_project.as_str()).expect("a project id is also a project name"),
-                    DatasetName::parse(self.connection.dataset.as_str()).expect("a dataset id is also a dataset name"),
+                    DatasetName::parse(dataset).expect("a dataset id is also a dataset name"),
                 )),
-                self.table.clone(),
+                table,
             )
         }
     }
@@ -445,7 +487,7 @@ mod tests {
         // `panic = "abort"`.
         let fixture = Fixture::required();
         let warehouse = warehouse(fixture);
-        let absent = QualifiedTable::from(TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"));
+        let absent = QualifiedTable::from(TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
         let plan = plan(&absent);
 
         let refused = warehouse
@@ -495,7 +537,7 @@ mod tests {
         // A fictitious literal, so it is the one name in this leg nothing needs masking - and it is
         // the same spelling the `dry_run` control above uses, because both are asking *what does this
         // dataset do with a name it does not hold*.
-        let absent = QualifiedTable::from(TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"));
+        let absent = QualifiedTable::from(TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
         let warehouse = warehouse(fixture);
 
         let clean = BTreeSet::from([present.clone()]);
@@ -554,13 +596,8 @@ mod tests {
         // billed for nothing.
         let fixture = Fixture::required();
         let present = fixture.unqualified();
-        let nowhere = QualifiedTable::new(
-            Some(TableQualifier::in_project(
-                ProjectName::parse(fixture.connection.billing_project.as_str()).expect("a project id is also a project name"),
-                DatasetName::parse("sutura_acceptance_no_such_dataset").expect("a dataset name parses"),
-            )),
-            TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"),
-        );
+        let nowhere =
+            fixture.qualified_in_project(NO_SUCH_DATASET, TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
         let warehouse = warehouse(fixture);
 
         assert_eq!(
@@ -586,5 +623,161 @@ mod tests {
             !warehouse.preflight_was_refused(&unverified),
             "a dataset that is not there is a condition that passes, not a grant an operator adds: {unverified:?}"
         );
+    }
+
+    /// A bundle naming one model per `(model, table)` pair, on this leg's own source.
+    ///
+    /// **Through [`LocalCatalog`] rather than `PinnedDefinitions::pin`, because the pre-flight seam
+    /// is about a bundle a deployment AUTHORED.** `pin` would let this file hand the decision a
+    /// `Definitions` assembled in memory, which is a shape no operator can produce - and the mistake
+    /// #120 exists for is a typed `table:` in a document. So the documents are written and read back
+    /// through the adapter a composition root loads one through, and `columns:` is present because
+    /// the format requires it rather than because the pre-flight reads it: `tables.list` reports
+    /// existence, and this record's own limit is that it says nothing about the columns a model names.
+    ///
+    /// The scratch directory is cleared on the way IN, which is `sutura_catalog_local`'s own
+    /// argument: a failing run leaves its documents on disk to read, and the next run still starts
+    /// clean. `tempfile` is not a dependency of this workspace and two tests are not the argument for
+    /// adding one.
+    fn bundle_naming(what: &str, models: &[(&str, &str)]) -> PinnedDefinitions {
+        let root = std::env::temp_dir().join(format!("sutura-preflight-seam-{what}-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&root).expect("a scratch directory is creatable");
+        for (model, table) in models {
+            let document = format!(
+                "---\nkind: model\nname: {model}\nsource: {}\ntable: {table}\ncolumns: [day]\n---\n\
+                 One model, so the pre-flight has a `table:` to ask this dataset about.\n",
+                source()
+            );
+            std::fs::write(root.join(format!("{model}.md")), document).expect("a scratch document is writable");
+        }
+        LocalCatalog::new(
+            SourceName::parse("scratch").expect("a catalog name is a name"),
+            root,
+            DefinitionVersion::parse("preflight-seam-1").expect("a definition version parses"),
+        )
+        .load()
+        .expect("a bundle of model documents this file just wrote loads")
+    }
+
+    /// The control on the harness the seam leg below is built out of, and **the one test in this file
+    /// that is not `#[ignore]`d** - it needs no project, so a gate can hold it.
+    ///
+    /// **Without it the seam leg's evidence rests on a bundle nobody checked.** `preflight::ask`
+    /// SKIPS a source the bundle names no model in, so a `bundle_naming` that silently wrote nothing
+    /// this source claims - a `source:` that stopped matching, a document the parse refused, a
+    /// directory the walk missed - would hand the decision an empty question. The leg's
+    /// `answers.len()` assertion catches that, but only in the one venue that costs a credential and
+    /// a CI job; this catches it in `just test`.
+    #[test]
+    fn a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about() {
+        let pinned = bundle_naming(
+            "harness",
+            &[
+                (MODEL_ON_A_HELD_TABLE, "any_table_at_all"),
+                (MODEL_ON_AN_ABSENT_TABLE, NO_SUCH_TABLE),
+            ],
+        );
+        let declared: Vec<(String, String)> = pinned
+            .definitions()
+            .models()
+            .values()
+            .filter(|model| *model.source() == source())
+            .map(|model| (model.name().to_string(), model.table().to_string()))
+            .collect();
+        assert_eq!(
+            declared,
+            vec![
+                (String::from(MODEL_ON_A_HELD_TABLE), String::from("any_table_at_all")),
+                (String::from(MODEL_ON_AN_ABSENT_TABLE), String::from(NO_SUCH_TABLE)),
+            ],
+            "the seam leg's bundle has to reach this leg's own source, or the decision it feeds is asked nothing"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table() {
+        // **The last bullet of issue #216 that no run had reached: the two halves MEETING.** The
+        // legs above stop at `BigQueryWarehouse::preflight`'s `TablesPresent`, and every test of the
+        // decision above it - `sutura_app::preflight::ask` and each root's own sentence - runs against
+        // a `Warehouse` fake. So a real listing had never produced a real verdict, and #216 named that
+        // as the seam a live run covers.
+        //
+        // **What is reachable from here is the DECISION, and what is not is each root's WORDS.**
+        // `sutura_app::preflight::ask` is the one decision sequence both composition roots call -
+        // `sutura_serve::boot::refuse_absent_tables`' own documentation says so - and `sutura-app` is
+        // already a dev-dependency of this crate. What stays out of reach is the rendering: those
+        // functions are `pub(crate)` in crates that depend ON this one, and they are the sentence and
+        // the sink rather than the decision. An earlier revision of `docs/adr/0018` called the whole
+        // seam structurally unreachable from here, which was wrong by one dependency edge.
+        //
+        // **The control is the clean bundle, asked FIRST, and it is doing more work here than in the
+        // legs above.** `Verdict::Absent` is what an empty listing produces too, so a single-sided
+        // claim would be satisfied by a decoder that read nothing. And `ask` skips a source the bundle
+        // names no model in, so a bundle that reached this source with nothing would produce NO
+        // answers at all - which is why the count is asserted before the verdict is read.
+        let fixture = Fixture::required();
+        let held = String::from(fixture.table.as_str());
+        let held_table = fixture.unqualified();
+        let absent_table = QualifiedTable::from(TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
+        let engines = Warehouses::of(warehouse(fixture));
+
+        let clean = bundle_naming("clean", &[(MODEL_ON_A_HELD_TABLE, held.as_str())]);
+        match one_verdict(&clean, &engines) {
+            Verdict::Present { asked } => assert_eq!(
+                asked, 1,
+                "the control: the decision asked this dataset about the one table the bundle names in it"
+            ),
+            other => panic!("the control: a bundle naming only {held_table} is present, and the decision said {other:?}"),
+        }
+
+        let mixed = bundle_naming(
+            "mixed",
+            &[
+                (MODEL_ON_A_HELD_TABLE, held.as_str()),
+                (MODEL_ON_AN_ABSENT_TABLE, NO_SUCH_TABLE),
+            ],
+        );
+        match one_verdict(&mixed, &engines) {
+            Verdict::Absent(absent) => {
+                assert_eq!(
+                    absent.named().keys().collect::<Vec<&QualifiedTable>>(),
+                    vec![&absent_table],
+                    "the real listing named the table that is not there, and nothing the dataset holds"
+                );
+                assert_eq!(
+                    absent
+                        .named()
+                        .get(&absent_table)
+                        .map(|models| models.iter().map(ToString::to_string).collect::<Vec<String>>()),
+                    Some(vec![String::from(MODEL_ON_AN_ABSENT_TABLE)]),
+                    "a refusal an operator can act on names the model whose `table:` is wrong: {absent}"
+                );
+            }
+            other => panic!("a bundle naming {absent_table} has to be refused, and the decision said {other:?}"),
+        }
+    }
+
+    /// The one verdict this leg's single-source registry can produce, or a panic saying what it got.
+    ///
+    /// **The count is asserted here rather than in each caller**, because it is the same guard both
+    /// times and it is the one that catches a bundle that reached this source with no models: `ask`
+    /// skips such a source, so the honest failure is *no answer* rather than a verdict that is wrong.
+    fn one_verdict(
+        pinned: &PinnedDefinitions,
+        engines: &Warehouses<Wired>,
+    ) -> Verdict<<Wired as sutura_domain::warehouse::Warehouse>::Error> {
+        let answers = ask(pinned, engines);
+        assert_eq!(
+            answers.len(),
+            1,
+            "one source is open and the bundle names models in it, so the decision has exactly one answer"
+        );
+        answers
+            .into_iter()
+            .next()
+            .expect("a vector of one has a first element")
+            .into_verdict()
     }
 }
