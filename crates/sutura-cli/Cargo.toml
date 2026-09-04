@@ -16,22 +16,30 @@ path = "src/main.rs"
 [features]
 # The BigQuery adapter, and with it the outbound HTTP stack its wire needs.
 #
-# **Default-off, and the reason is the FOUR CROSS BUILDS rather than a preference for narrow
-# defaults** - the same decision `sutura-serve`'s feature of the same name carries, and it is sharper
-# here because THIS is the crate those builds name. `sutura-exec-bigquery`'s own `wire` feature pulls
-# `ureq` and its rustls closure - `ring` included, which compiles C and assembly - and two of the four
-# release triples are musl. A non-optional dependency here would put that closure into every cross
-# build of the command-line tool, and `crane.buildDepsOnly` is deliberately unscoped so the checks can
-# share one dependency derivation, so it would land in all four dependency derivations as well.
+# **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
+# decision `sutura-serve`'s feature of the same name carries. No published binary links an outbound
+# TLS stack, and `checks.shipped-features` asserts that out of each binary's own embedded dependency
+# list rather than out of this manifest.
+#
+# **The build-cost reason this comment used to give was measured false, and the correction is worth
+# more than the sentence was.** `sutura-exec-bigquery`'s `wire` pulls `ureq` and its rustls closure -
+# `ring` included, which compiles C and assembly - but that dependency is `optional`, so at cargo's
+# default set it contributes nothing. The closure is in all four `sutura-deps-<triple>` derivations
+# regardless: `crane.buildDepsOnly` is deliberately unscoped so the checks can share one dependency
+# derivation, and it builds dev-dependencies, of which `sutura-catalog-datahub` has a NON-optional
+# one on `ureq` for its provisioned-instance probe. Measured with `cargo tree` on 2026-09-04: on
+# `aarch64-unknown-linux-musl` that dev-dependency is the ONLY edge into `ureq` at the default set,
+# and a second host-side copy arrives as a build-dependency of `libduckdb-sys`. So making this
+# feature non-optional would add nothing to any cross dependency derivation - what it would change
+# is what the published binary links. `docs/adr/0017` carries the measurement.
 #
 # So the adapter arrives by asking: `cargo build -p sutura-cli --features bigquery`, or
 # `--all-features`, which is what `just lint`, `just test` and every nix check already pass - so the
 # registration is compiled, linted and tested on every run, and a bare `cargo build` is unchanged.
 #
-# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes both binaries
-# with cargo's DEFAULT features - so no published artefact links this adapter, and
-# `checks.shipped-features` reads `ureq`'s and `ring`'s absence out of each shipped binary's own
-# embedded dependency list rather than out of this manifest.
+# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes both
+# binaries with cargo's DEFAULT features. The gate that holds it is named in the first paragraph;
+# what this one adds is that turning the feature on here would not change what a release contains.
 #
 # **Which gate sees the feature OFF, because every other one passes `--all-features`.**
 # `cargo xtask check-default-features`, in `just gates`, derives its package list from
@@ -76,7 +84,8 @@ sutura-mcp = { workspace = true }
 # `TracingAuditSink`, the implementor of the `AuditSink` the service requires, plus the async
 # runtime that drives `serve_stdio`. The sink writes to `tracing`; a locally launched process has no
 # subscriber, so records go nowhere until a composition installs one - the same posture the `query`
-# command takes when it writes none.
+# command takes, which since issue #266's A1 composes the same service rather than writing no
+# record at all.
 sutura-runtime = { workspace = true }
 # The runtime `serve_stdio` runs in. `rt-multi-thread` is on in this binary regardless - the engine
 # drives its own current-thread runtime but the workspace resolves the feature through it - so this
@@ -101,9 +110,19 @@ insta = { workspace = true }
 # The far side of the `mcp` handshake test: a real MCP client from the same SDK, over an in-memory
 # pipe. Nothing this crate wrote sits between the assertion and the protocol.
 rmcp = { workspace = true, features = ["client"] }
-# The request JSON in that test, and the tool result's structured content.
+# The request JSON in that test, and the tool result's structured content. Also the audit records
+# `src/audit.rs` reads back: a record is asserted by KEY, which needs the line parsed.
 serde_json = { workspace = true }
+# `testing::Capture`, the writer `src/audit.rs` puts a subscriber over. Declared again HERE rather
+# than as a feature on the normal dependency above, which is what keeps `test-capture` out of the
+# shipped build: dev-dependencies are not in the graph a `cargo build` resolves. The same
+# arrangement `sutura-http` uses, and for the same reason - a second copy of that writer would be a
+# second thing to keep in step.
+sutura-runtime = { workspace = true, features = ["test-capture"] }
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
+# `subscriber::with_default`, which is what scopes that subscriber to the thread the command runs
+# on. Only a test installs one: this binary deliberately installs none.
+tracing = { workspace = true }
 
 [lints]
 workspace = true

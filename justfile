@@ -679,6 +679,14 @@ infra-set:
 # Every other test task skips them, and an unconfigured run fails rather than reporting green without
 # reaching a real project.
 #
+# **The dataset is SHARED** - the `SUTURA_BQ_DATASET` this targets is the same one CI's
+# `bq-test` job targets, by configuration. Since the closure of #119 every run names its own tables
+# with a per-run token (the CI run id, or a local clock+pid value), so a local run and a CI run
+# pointing at one dataset no longer race - each reads, and drops, only its own tables, which also
+# carry a 24-hour expiration in case a run is cancelled. A local run ANNOUNCES itself the same way
+# a CI run does: its table names, printed as they load, carry its token, so a log says which run
+# wrote them.
+#
 # Needs `just gcloud-login` once, and three values in the developer's own environment. Their names
 # are in that file's header; their values belong on the machine, which is what `.envrc` already
 # sources a file outside this repository for.

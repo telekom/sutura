@@ -23,16 +23,27 @@ use super::{Kind, collect};
 /// introducing the NEXT job - which `ci.yml` writes at two spaces - ends the block rather than
 /// joining it.
 ///
-/// Here rather than in `venues::acceptance`, which is where it was written: that gate reads the
-/// acceptance job's five properties, this one reads a step's, and two copies of the indentation
-/// contract above is how one of them stops matching the file after a reindent.
+/// Here rather than in `venues::acceptance`, which is where both readers were written: that gate
+/// reads the acceptance job's properties, this one reads a step's, and two copies of the
+/// indentation contract is how one of them stops matching the file after a reindent.
 pub(crate) fn job<'a>(text: &'a str, name: &str) -> Option<Vec<&'a str>> {
-    let header = format!("  {name}:");
+    keyed_block(text, "  ", name)
+}
+
+/// The lines under `name:` written at `indent`, up to the next line no deeper than that key.
+///
+/// One reader for two scopes, because the second one is what `venues::acceptance`'s tracing check
+/// was missing: column zero is the WORKFLOW's own mapping, where `defaults:` and `env:` hold keys
+/// that decide how a job's shells start. A block is a block at either indentation, so the depth is
+/// an argument rather than a second function that can disagree with this one.
+pub(crate) fn keyed_block<'a>(text: &'a str, indent: &str, name: &str) -> Option<Vec<&'a str>> {
+    let header = format!("{indent}{name}:");
+    let deeper = format!("{indent}  ");
     let mut lines = text.lines().skip_while(|line| *line != header);
     lines.next()?;
     Some(
         lines
-            .take_while(|line| line.trim().is_empty() || line.starts_with("    "))
+            .take_while(|line| line.trim().is_empty() || line.starts_with(&deeper))
             .collect(),
     )
 }

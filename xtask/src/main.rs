@@ -190,9 +190,14 @@ const TASKS: &[Task] = &[
         // `nix/shipped.nix`'s `binaries` list and the copies are `BINARIES` in two workflows and
         // an input default in two composite actions - which cannot be derived from it, because a
         // matrix takes literals and a job cannot evaluate a flake before installing nix.
+        //
+        // `Reads::Prose` because its second rule reads `docs/**` - the documented `cargo build
+        // --features` a `probeFeatures` entry has to cover. Declared here rather than left at
+        // `Code`, which is the failure `docs/implementation-plan-identity-and-services.md` records
+        // for `check-crap`: a gate whose inputs grew into `docs/` while its classification did not.
         name: "check-shipped-binaries",
-        description: "every release-path binary literal equals nix/shipped.nix",
-        kind: Kind::Hygiene(Reads::Code),
+        description: "every release-path binary literal equals nix/shipped.nix, and every documented feature build is probed",
+        kind: Kind::Hygiene(Reads::Prose),
         run: shipped::run,
     },
     Task {

@@ -211,6 +211,23 @@ therefore does not see.
 - **A count in prose is only as good as the command beside it.** An anchored
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.
+- **A READOUT under a comment claiming it is an assertion, which is the cheapest version of this
+  whole class.** Both `ci.yml` link-check steps ended in `file <path>`, and the older one said so:
+  *"Proves the arch, not just the exit code."* It proves neither. Measured: `file` on a path that
+  does not exist prints ``cannot open`` and **exits 0**, and nothing compared its answer to the
+  triple - so a renamed or missing executable was green, and the feature-probe step reads that name
+  out of a manifest. `nix/assert-linked.sh` asserts the two things the sentence claimed and names
+  the one it still does not (the libc half, unmeasured, so a musl target linked dynamically
+  passes). **The transferable question:** for every command a step runs for its side effect, ask
+  what its EXIT CODE is a function of. `file`, `echo`, `grep -c` and any `| head` answer zero on
+  inputs a reader would call a failure.
+- **A refusal that is weaker than the claim it defends, and the tell is a quantifier.** The same
+  step refuses an EMPTY probe manifest, which reads as *a probe cannot silently disappear* and is
+  not that claim: with a second binary declaring a probe, deleting the first one's leaves the
+  manifest non-empty and the job green. *At least one row* defends nothing about WHICH row. What
+  closes it is a second declaration that must agree - here `cargo xtask check-shipped-binaries`
+  reconciling `nix/shipped.nix`'s `probeFeatures` against the `cargo build --features` a page
+  documents, failing closed when no page documents one at all.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
@@ -251,3 +268,14 @@ When a file with tests hits the 1000-line cap, move the **harness** - fakes, fix
 anything with no `#[test]` - and keep every assertion where it is. Only a *green* base verdict
 fails; "the base tree does not build" and "not separable" both pass, and the second asks for
 evidence instead: the command you ran, the failure before, the pass after.
+
+**Expect that harness move to answer INCONCLUSIVE, and know why before reading it as a pass.**
+Measured on #119: the new harness file added no `#[test]`, so it is *revertible*, while the test file
+declaring `mod <harness>;` added tests and is *held* - so the base tree is a `mod` pointing at a file
+that is not there, `E0583`, and the verdict is `INCONCLUSIVE - the base tree does not build`. That is
+the gate being honest rather than broken, and it is the **expected** outcome of following the rule
+above, not a sign of doing it wrong. What it costs is the proof: causality establishes nothing about
+your assertions in that run, so a **mutation** takes its place - break the thing each new test
+claims, one at a time, and paste the test that reddens. Scope it to a whole test binary
+(`-E 'binary_id(<pkg>::<target>)'`), never a name pattern: a filter that omits the guarding test
+reports green and proves nothing, which happened on that same PR before it was caught.

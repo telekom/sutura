@@ -22,15 +22,15 @@ use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
 
-use crate::transport::{Cell, Field, FieldType, JobRows};
+use crate::transport::{Cell, Field, FieldType, JobRows, ListingTotal};
 use crate::{BigQueryError, BigQueryWarehouse};
 
 /// The transports and fixtures these assertions are written against.
 mod fakes;
 
 use fakes::{
-    Broken, Case, Paged, Recording, Refusing, a_subject_token, day, impersonating_posture, leg_of, one_cell, open, other_posture,
-    plan, shared_posture, source,
+    Broken, Case, ListingRefused, Paged, Recording, Refusing, a_subject_token, day, impersonating_posture, leg_of, one_cell,
+    open, other_posture, plan, shared_posture, source,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -559,6 +559,45 @@ fn a_bundle_whose_tables_are_all_there_is_asked_about_and_answered_clean() {
 }
 
 #[test]
+fn a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named() {
+    // **The deliberate non-decision, pinned so it stays deliberate.** The listing now says whether
+    // an empty answer came from an empty dataset or from a document that stopped being one, and
+    // NOTHING here reads it: an empty listing whose own total claims three tables still reports the
+    // bundle's table absent, exactly as it did before the field was decoded.
+    //
+    // That is `docs/adr/0018`'s order - measure, then decide - and the decision is not a formality:
+    // an `Err` from this method is a WARNING the deployment serves past, so refusing on a shape
+    // change would move it from *refused for the wrong reason* to *served anyway*, which is the
+    // worse direction. Whoever settles that - `telekom/sutura#275` - changes this test, and the
+    // record with it.
+    //
+    // **What this test is NOT, said next to it:** it is not a regression test. Its assertion holds
+    // identically on the base tree - the behaviour it pins is the behaviour that was already there -
+    // so a `just causality` green over it would be a COMPILE artifact of naming `ListingTotal`. What
+    // it holds is the absence of a decision, and the evidence for that is a mutation: `preflight`
+    // made to skip a dataset whose listing is `Short` turns this red.
+    let warehouse = open(
+        Recording::empty().holding_with_total(
+            "acme-analytics/warehouse",
+            &[],
+            ListingTotal::Short {
+                reported: 3,
+                identified: 0,
+            },
+        ),
+        shared_posture(),
+    );
+    let answered = warehouse
+        .preflight(&asked(&["dim_customer"]))
+        .expect("a listing that contradicts itself is still a listing the dataset answered");
+    assert_eq!(
+        absent_names(&answered),
+        vec![String::from("dim_customer")],
+        "the total is carried and decides nothing yet"
+    );
+}
+
+#[test]
 fn one_call_per_dataset_and_not_one_per_model() {
     // The cost argument that made this check affordable, asserted rather than claimed: five models
     // over two datasets is two metadata reads. A call per model is what kept the check from existing,
@@ -755,5 +794,31 @@ fn a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome() {
     assert!(
         !broken.preflight_was_refused(&error),
         "an outage must stay a warning, not become a boot refusal: {error:?}"
+    );
+}
+
+#[test]
+fn a_failed_listing_carries_the_transports_own_error_on_the_chain() {
+    // **The regression guard for `#[source]` on the one variant `preflight` can fail with**, and it
+    // is here rather than in the acceptance leg because that is the venue that costs a credential.
+    // `BigQueryError::Endpoint` is the only error `preflight` produces - the single `map_err` on that
+    // path - so a live assertion that the source is merely PRESENT could only ever fail if somebody
+    // deleted the attribute, which is a hermetic property paid for over the network.
+    //
+    // **It asserts the source's CONTENT, which is what makes it more than its neighbour.**
+    // `a_dry_run_the_endpoint_rejects_is_not_reported_as_accepted` already asserts `source().is_some()`
+    // on the same variant off the `dry_run` path - so presence was covered and the listing path was
+    // not, and neither asserted WHAT survived. What a root needs is the content:
+    // `refuse_absent_tables` prints `flatten(cause)`, and *the data system did not answer* on its own
+    // tells an operator nothing. The endpoint's own words are one link down.
+    let refused = open(Refusing, shared_posture());
+    let error = refused
+        .preflight(&asked(&["dim_customer"]))
+        .expect_err("a refused listing is a failure of the call");
+    let source = core::error::Error::source(&error).expect("the transport's own error is on the chain");
+    assert_eq!(
+        source.to_string(),
+        ListingRefused.to_string(),
+        "the chain has to carry what the TRANSPORT said, not a second copy of the adapter's sentence"
     );
 }
