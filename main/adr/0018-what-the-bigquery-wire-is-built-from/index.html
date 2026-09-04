@@ -3285,26 +3285,104 @@ bullets down:</p>
   dataset-specific rather than an identity that reads nothing.
   <strong>The REFUSAL half still is not live:</strong> it needs an identity holding no <code>bigquery.tables.list</code>,
   which the acceptance environment's identity is not, so <code>401</code>/<code>403</code> remains a fake-transport claim.</li>
-<li><strong>A document whose shape the service changes decodes to an EMPTY listing</strong>, because every field is
+<li>
+<p><strong>A document whose shape the service changes decodes to an EMPTY listing</strong>, because every field is
   <code>#[serde(default)]</code> - and an empty listing means <em>every table is absent</em>. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
-  behaviour so the direction is a measured property rather than a hope. It cannot be told from an
-  empty dataset, which really does answer with no <code>tables</code> array. <strong>A <code>totalItems</code> cross-check would
-  tell the two apart</strong> - a non-zero total beside an empty <code>tables</code> array is a shape change and not an
-  empty dataset - and it is deliberately NOT built: nothing here has seen whether the service
-  populates that field on a real listing, and a decoder that refuses on a field the service may omit
-  would refuse every boot. <strong>The run named above as what would settle it cannot</strong>, and that is worth
-  recording as its own shape of overstatement rather than quietly fixed: the leg asserts on
-  <code>TablesPresent</code>, <code>Listing</code> decodes <code>tables</code> and <code>nextPageToken</code> and nothing else, so no
-  <code>totalItems</code> value reaches an assertion, a panic message or a log line - checked against both green
-  runs above, whose output contains the string nowhere. What would settle it is therefore a DECODER
-  change and not another run: the field read as an <code>Option</code> that cannot refuse a document omitting
-  it, reported by the acceptance leg, and only then a decision about the cross-check. Measure, then
-  decide - with something that measures. <strong>Tracked as telekom/sutura#263</strong>, because it
-  spans the document, the port's answer and a refusal decision - and because a deferral pointing at a
-  run that cannot make the measurement is the overstatement, so the citation has to move rather than
-  the sentence being softened.</li>
-<li><strong>A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
+  behaviour so the direction is a measured property rather than a hope. On its own it cannot be told
+  from an empty dataset, which really does answer with no <code>tables</code> array. <strong><code>totalItems</code> is what
+  tells the two apart, and it is now DECODED</strong> - a non-zero total beside a document that carried no
+  readable table id is a shape change and not an empty dataset. What is worth reading about HOW,
+  because each of them is a way the obvious version would have been wrong:</p>
+<ul>
+<li><strong>Read as raw JSON and turned into a <code>ListingTotal</code>, never as an <code>Option&lt;u64&gt;</code>.</strong> An <code>Option</code>
+  already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
+  spelled some other way, and a failed decode here is <code>NotAListing</code> - which
+  <code>listing_was_refused</code> puts in the warning half, so the absent-table check for that dataset is
+  lost whole: <code>Verdict::Unverified</code>, a <code>WARN</code> naming the source, and the deployment serves. Loud,
+  and serving anyway. <strong>This bullet read <em>silently</em> and the mechanism does not support it</strong> - a
+  review correction, and the accurate cost carries the decision on its own: a field nothing yet
+  decides on must not be able to switch off the check it exists to sharpen. This service already
+  spells the sibling <code>totalRows</code> as a JSON string, so a count arriving quoted is its own habit
+  rather than a hypothetical, and a string is read too.</li>
+<li><strong>Four variants rather than a number, and the two that mean <em>nothing to compare</em> are separate.</strong>
+  <em>The service sent no total</em> and <em>the service sent something this crate could not read</em> are
+  different findings; the second is itself evidence the document is being generated differently.</li>
+<li><strong>The comparison is against the entries that carried a table id this crate could READ - neither
+  the ids the listing named nor the entries it merely counted</strong>, and both halves of that are a
+  wrong claim avoided. An id outside <code>usable_table_id</code>'s accepted set is dropped from the named
+  set, and <code>BigQuery</code> permits one - so a dataset holding such a table names fewer ids than its own
+  total claims while nothing whatever is wrong, and comparing against the named set would report
+  that ordinary dataset as short of its total. <strong>The entry count is the mistake the other way, and
+  it is a review finding on this change rather than a hypothetical:</strong> a document whose
+  <code>tableReference</code> the service renamed or nested carries entries and no readable id, and counting
+  entries answered <code>Accounted { reported: 3 }</code> over zero ids - the pre-flight reporting every
+  table in the bundle absent while the cross-check read clean, over exactly the ambiguity the
+  field is decoded to remove. Reproduced before it was fixed, and
+  <code>a_listing_whose_entries_carry_no_readable_id_is_short_of_its_own_total</code> is what holds it: an
+  entry with no readable id is the shape signal, an id <code>usable_table_id</code> rejected is the
+  legitimate drop, and the two tests are a pair.</li>
+<li><strong>What the value still does not reach, stated where the claim is:</strong> a service that re-spells the
+  COUNT as well as the entry leaves <code>Unreported</code> or <code>Unreadable</code>, which say <em>nothing to compare</em>
+  rather than <em>empty dataset</em>; a dataset every one of whose ids this crate drops is <code>Accounted</code>
+  beside no ids by design; and a <code>Short</code> whose identified count is non-zero does not separate a
+  shape change from a table created or deleted between the total and the array. The raw entry
+  count is not kept, so an identified count of zero merges <em>the array was empty</em> with <em>no entry
+  carried an id</em> - the same finding for the only caller there is, and a third number for a
+  decision that needs more.</li>
+<li><strong>The DATASET's number, not the page's, and that is measured rather than assumed.</strong> In the
+  endpoint's own discovery document, read on 2026-09-04 at revision <code>20260811</code>,
+  <code>TableList.totalItems</code> is <code>{"format": "int32", "type": "integer"}</code> - a bare JSON number -
+  described as <em>"The total number of tables in the dataset"</em>, beside the neighbouring <code>etag</code>'s <em>"A
+  hash of this page of results"</em>. Nothing there calls it approximate. So it is compared against a
+  whole FINISHED listing: the first page's total against every page's entries, with a listing that
+  ran out of pages or budget staying an <code>Err</code> rather than a comparison against a count this
+  transport knows is short.</li>
+</ul>
+</li>
+</ul>
+<p><strong>Nothing refuses on it, and that is the decision this record deliberately does not take.</strong> The
+  choice looks like <em><code>Err</code> or <code>WARN</code></em> and is not: an <code>Err</code> out of <code>preflight</code> <strong>is</strong> the warning half
+  unless <code>listing_was_refused</code> changes with it, so refusing on a shape change would move the outcome
+  from <em>deployment refused for the wrong reason</em> to <em>deployment served anyway</em> - the worse direction.
+  <code>a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named</code> pins the non-decision, so
+  whoever settles it changes a test and this record together. <strong>Tracked as telekom/sutura#275</strong>,
+  which carries the three shapes the decision has to choose between - a refusal-half <code>WireError</code>, a
+  <code>WARN</code>, or deleting the value - and why none of them is free. Until then, read this bullet as <em>the
+  input now arrives</em>, never as <em>a shape change is told apart</em>; the built-and-not-wired register in
+  <code>.agents/skills/sutura/query-surface</code> has the entry, and states that no gate notices a change that
+  wires a refusal without revisiting this paragraph.</p>
+<p><strong>The correction worth recording rather than quietly making:</strong> the version of this bullet before
+  #263 deferred the question to <em>the live run above</em>, and that run could not make the measurement in
+  either direction - the leg asserts on <code>TablesPresent</code>, and the decoder read no such field, so no
+  <code>totalItems</code> value reached an assertion, a panic message or a log line. A deferral pointing at
+  evidence that cannot bear it is the overstatement this record is otherwise built to avoid.
+  <code>a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried</code> is what measures it
+  now, in <code>just bigquery-acceptance</code>, one rung BELOW the domain port because <code>TablesPresent</code> carries
+  no count and should not. It prints the verdict and requires a total the crate could read - red, not
+  silent, if the service populates nothing, because a cross-check whose input never arrives has no
+  teeth.</p>
+<p><strong>And it has now RUN, green, in the <code>bigquery-acceptance</code> job on 2026-09-04</strong>, which is what the
+  earlier deferral was owed: a real <code>tables.list</code> answered <code>ListingTotal::Accounted</code>, so the service
+  populates the field and its number agreed with the readable table ids the same document carried.
+  The cross-check has a real input, and <em>whether it does</em> is no longer the open question. <strong>What that
+  run does not establish, counted by nobody:</strong> it is ONE dataset at one moment, and a second
+  deployment's service behaviour is not a property this run establishes; the leg
+  deliberately does not require the total to be EXACT, because the corpus leg writes four tables to
+  the same dataset and a moving number would be a leg failing for a reason outside the diff; and the
+  case the cross-check exists for - a document carrying no readable table id beside a non-zero total
+  - has never been seen live and cannot be provoked from here, so what holds its MEANING is the
+  hermetic suite over documents. <strong>The 2026-09-04 run predated the counting correction above</strong>, so
+  what it established is that the field arrives and is comparable at all - not which basis the
+  comparison is made on, because <code>Accounted</code> over an entry count says nothing about readable ids.
+  <strong>The job has now answered that too, green on the head carrying the correction</strong>: a real
+  <code>tables.list</code> still answers <code>ListingTotal::Accounted</code>, and the total it reported equalled the
+  usable ids the same document carried - so on that dataset every entry carried an id this crate can
+  read, and the corrected count did not turn an ordinary listing into a shape change. One dataset at
+  one moment, again, and the case the cross-check exists for is still not among the things a live run
+  here has seen. It has never run on a developer machine either, for the reason the leg above
+  it has not: no dataset is named in this environment.
+- <strong>A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
   wording.</strong> Issue #120's own verification asked for a run asserting the boot refusal, and until
   <code>a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table</code> the two
   halves did not meet: the legs above assert the <code>TablesPresent</code> that <code>BigQueryWarehouse::preflight</code>
@@ -3320,8 +3398,8 @@ bullets down:</p>
   reach is the words and the sink</strong> - each root's own sentence for each verdict, through its own
   transport's sink. Those are <code>pub(crate)</code> in crates that depend ON this one, and they are rendering
   rather than decision; a run that asserted them would be an acceptance leg in a composition root,
-  which is a different crate and its own change.</li>
-<li><strong>That leg's own harness has a control, and what holds it is prose rather than a gate.</strong> <code>ask</code>
+  which is a different crate and its own change.
+- <strong>That leg's own harness has a control, and what holds it is prose rather than a gate.</strong> <code>ask</code>
   <strong>skips</strong> a source the bundle names no model in, so a scratch bundle that reached this leg's source
   with nothing - a <code>source:</code> that stopped matching, a document the parse refused - would hand the
   decision an empty question rather than fail. So
@@ -3336,11 +3414,10 @@ bullets down:</p>
   <code>Fixture::required()</code>, which fails rather than skips. What would hold the other is a line-scan gate
   asserting the partition - every <code>#[test]</code> in those two targets that reaches <code>Connection::required()</code>
   is <code>#[ignore]</code>d, and every one that does not is not - on <code>check-boot-order</code>'s pattern. Not built
-  here: it is an <code>xtask</code> module plus two classification-table rows, which is its own change.</li>
-<li><strong><code>tables.list</code> reports existence and nothing else.</strong> Not the columns a model names, and not
+  here: it is an <code>xtask</code> module plus two classification-table rows, which is its own change.
+- <strong><code>tables.list</code> reports existence and nothing else.</strong> Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
-  are two grants. An anchor is what covers both, for the metrics that have one.</li>
-</ul>
+  are two grants. An anchor is what covers both, for the metrics that have one.</p>
 
 
 
