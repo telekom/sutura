@@ -89,7 +89,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::identity::{Presented, Secret};
+    use sutura_domain::identity::Presented;
     use sutura_domain::model::{
         Aggregate, ColumnName, DatasetName, Grain, MetricName, QualifiedTable, SourceName, TableName, TableQualifier,
     };
@@ -98,13 +98,12 @@ mod tests {
         QueryPlan, StatementTables,
     };
     use sutura_domain::source::SourcePosture;
-    use sutura_domain::warehouse::{ParamValue, RowSet, Warehouse as _};
-    use sutura_exec_bigquery::BigQueryWarehouse;
+    use sutura_domain::warehouse::{ParamValue, RowSet, Value, Warehouse as _};
     use sutura_exec_bigquery::transport::DatasetId;
-    use sutura_exec_bigquery::wire::credential::{AccessTokens as _, Bearer, Credential, CredentialFile};
-    use sutura_exec_bigquery::wire::{BigQueryWire, CallDeadline, WireAgent};
+    use sutura_exec_bigquery::wire::credential::{AccessTokens as _, Credential, CredentialFile};
+    use sutura_exec_bigquery::wire::{CallDeadline, WireAgent};
 
-    use crate::support::{Connection, Wired, bounds, named, opened, presented};
+    use crate::support::{Connection, Wired, bounds, named, opened, opened_as, presented};
 
     /// The label the grouping column is projected under.
     ///
@@ -231,22 +230,13 @@ mod tests {
             let minted = credential
                 .bearer(now, CallDeadline::opened(bounds().deadline()))
                 .expect("the authorization server minted a token for this principal's key");
-            re_presented(&minted)
-        }
-    }
-
-    /// The minted bearer, as the credential a leg presents.
-    ///
-    /// One exposure, in one function, so the diff that adds a second one is visible - which is the
-    /// whole reason `expose_secret` is a lint rather than a habit.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a bearer minted from a principal's own key has to cross the port as this leg's \
-                  subject credential, and `Presented::SubjectToken` takes owned material"
-    )]
-    fn re_presented(minted: &Bearer) -> Presented {
-        Presented::SubjectToken {
-            material: Secret::new(minted.token().expose_secret()),
+            // **Cloned and never exposed**, which is what `sutura_exec_bigquery::sts` does with an
+            // exchanged token: `Secret` is `Clone` and a clone is still opaque, so the exposure this
+            // line first took - and the `#[expect]` entry it added to the ledger `clippy.toml`
+            // keeps greppable - was buying nothing.
+            Presented::SubjectToken {
+                material: minted.token().clone(),
+            }
         }
     }
 
@@ -298,6 +288,16 @@ mod tests {
     /// The CI credential and the billing project come from [`Connection::required`] - the same
     /// environment reading both other legs do - and only the DATASET is this leg's own, because the
     /// policied table is not in the dataset the acceptance legs run against.
+    ///
+    /// **It therefore READS `SUTURA_BQ_DATASET` and throws the value away, which is a wart and is
+    /// named rather than hidden.** `Connection::required` demands it, this cell replaces it, and the
+    /// cell cannot reach past that reading: a shared test module is compiled once per target and
+    /// `dead_code` is `deny`, so a `required_in(variable)` that only this leg called would be dead
+    /// in the other two and a `required` that only they called would be dead here. The tidy fix is
+    /// to move all three legs onto one `required_in`, which touches `tests/corpus.rs` - being
+    /// rewritten by telekom/sutura#283 - so it is deferred rather than done here. **What the wart
+    /// costs, concretely:** the workflow step for this cell has to set a variable it does not use,
+    /// or the leg panics on a precondition before it opens a socket.
     fn connection() -> Connection {
         let mut connection = Connection::required();
         connection.dataset = DatasetId::parse(named(
@@ -355,6 +355,10 @@ mod tests {
 
     /// The adapter over the policied dataset, declared `impersonation-at-source`.
     ///
+    /// **Through the shared module's own composition**, so this cell and the two acceptance legs are
+    /// evidence for one wiring rather than for three that resemble each other - and so the money
+    /// ceiling reaches all of them the same way.
+    ///
     /// **The transport holds the CI credential and the subject legs never use it**, which is not a
     /// convenience: `BigQueryWire::submit` decides which bearer authorizes the job once, before
     /// anything is built, and a leg carrying a subject's own credential never reaches the credential
@@ -362,13 +366,7 @@ mod tests {
     /// and [`the_deployments_own_identity_reads_neither_principals_rows`] is what turns that from a
     /// claim about our code into a claim about the endpoint.
     fn impersonating(connection: Connection) -> Wired {
-        BigQueryWarehouse::new(
-            source(),
-            SourcePosture::ImpersonationAtSource,
-            connection.billing_project,
-            connection.dataset,
-            BigQueryWire::new(WireAgent::pinned(bounds()), connection.credentials),
-        )
+        opened_as(source(), SourcePosture::ImpersonationAtSource, connection, bounds())
     }
 
     /// The grouping values an answer carries, as a set.
@@ -380,13 +378,9 @@ mod tests {
         let at = rows
             .column_index(GRANT_LABEL)
             .unwrap_or_else(|| panic!("{who}: the answer projects `{GRANT_LABEL}`, which is what the grant is read from"));
-        rows.rows()
-            .iter()
-            .map(|row| {
-                row.get(at)
-                    .unwrap_or_else(|| panic!("{who}: every row is as wide as the schema"))
-                    .render()
-            })
+        (0..rows.rows().len())
+            .filter_map(|row| rows.cell(row, at))
+            .map(Value::render)
             .collect()
     }
 
@@ -396,11 +390,11 @@ mod tests {
         // **The cell.** One statement, submitted twice, differing only in the credential presented -
         // and the endpoint answers each with the rows that principal's row access policy grants.
         //
-        // Three assertions, and the third is the one a reader should look for: each principal's answer
-        // is made of ITS OWN grant (so the policy's predicate decided it), the two answers are
-        // DISJOINT (so neither leaked the other's), and neither is EMPTY (so the run is not two
-        // vacuous greens over an unseeded table - which is the shape this cell would otherwise pass
-        // as).
+        // Two assertions per principal, and the second is the one a reader should look for: each
+        // answer is made of ITS OWN grant (so the policy's predicate decided it), and neither is
+        // EMPTY (so the run is not two vacuous greens over an unseeded table - which is the shape
+        // this cell would otherwise pass as). Disjointness follows and is not asserted; the comment
+        // at the foot of this test says why.
         let fixture = Fixture::required();
         let table = fixture.table();
         let plan = plan(&table, &fixture.group_column);
@@ -442,10 +436,11 @@ mod tests {
             principals.b.entitled_to(),
             "principal B read rows outside its own grant"
         );
-        assert!(
-            a_saw.is_disjoint(&b_saw),
-            "the two principals read overlapping rows, so nothing was filtered by identity"
-        );
+        // **No disjointness assertion, and its absence is the point rather than an omission.** It
+        // cannot fail once the two above pass: each answer is one grouping value, and
+        // `Principals::of` has already refused a pair whose two values are equal. An assertion that
+        // cannot go red reads as a third independent check and is not one - which is why that
+        // refusal is a control with a test of its own rather than a nicety.
     }
 
     #[test]
@@ -467,23 +462,24 @@ mod tests {
         let principals = fixture.principals;
         let warehouse = opened(source(), fixture.connection, bounds());
 
-        match warehouse.execute(Executable::Query(&plan), &presented()) {
-            Ok(rows) => {
-                let saw = grants_in("the deployment's own identity", &rows);
-                println!(
-                    "bigquery-two-principals: the deployment's own identity read {} grant(s)",
-                    saw.len()
-                );
-                assert!(
-                    !saw.contains(&principals.a.grants) && !saw.contains(&principals.b.grants),
-                    "the deployment's own identity read a principal's rows, so the rows the cell \
-                     attributes to a presented bearer are the transport's"
-                );
-            }
-            Err(refused) => {
+        let Ok(rows) = warehouse
+            .execute(Executable::Query(&plan), &presented())
+            .inspect_err(|refused| {
                 println!("bigquery-two-principals: the deployment's own identity was refused - {refused}");
-            }
-        }
+            })
+        else {
+            return;
+        };
+        let saw = grants_in("the deployment's own identity", &rows);
+        println!(
+            "bigquery-two-principals: the deployment's own identity read {} grant(s)",
+            saw.len()
+        );
+        assert!(
+            !saw.contains(&principals.a.grants) && !saw.contains(&principals.b.grants),
+            "the deployment's own identity read a principal's rows, so the rows the cell \
+             attributes to a presented bearer are the transport's"
+        );
     }
 
     #[test]
@@ -524,9 +520,9 @@ mod tests {
             TableName::parse("policied").expect("a table name parses"),
         );
         let plan = plan(&table, "segment");
-        let keys = plan.keys();
-        assert_eq!(keys.len(), 1, "the cell asks exactly one grouping key");
-        let key = keys.first().expect("one key");
+        let [key] = plan.keys() else {
+            panic!("the cell asks exactly one grouping key");
+        };
         assert_eq!(key.label(), GRANT_LABEL);
         assert_eq!(key.column().column().as_str(), "segment");
         assert_eq!(key.column().table().as_str(), "policied");

@@ -14,6 +14,13 @@
 //! * **Every cell states a verdict from a closed vocabulary.** An unclassifiable cell is a venue
 //!   that has silently lost its limit for that claim. Two were in that state when this was
 //!   written - see `a_cell_that_states_a_sentence_instead_of_a_verdict_fails`.
+//! * **A test that is WRITTEN and has never run says `unrun`, and its venue's section has to use
+//!   that word.** The verdict exists because `can` was carrying two states that a reader cannot
+//!   tell apart and a citation must: *the standing test lives in another venue* and *the standing
+//!   test lives here and nothing has run it*. The second is not evidence for anything, and the
+//!   first is. Before this, a venue in that state had to say `can` and explain itself in prose -
+//!   which put the difference exactly where nothing reads it, and left *the change that carries
+//!   the first green run moves this cell* held by recall.
 //! * **A venue nothing runs claims nothing**, and a venue that IS reached and answers no claim is
 //!   a row with no reason to be there.
 //! * **Every venue has its own section**, and every `##` section is a venue's or one of the three
@@ -62,10 +69,15 @@ const CLAIMS_HEADER: &str = "| Claim |";
 const STRUCTURAL: &[&str] = &["The venues", "Which venue answers which claim", "Keeping this page honest"];
 
 /// Every verdict a cell may state, longest first so `only here` is not read as two words. `-` is
-/// *not answered here*, `redundant` *could and need not*, `can` *capable, standing test
-/// elsewhere*, `only here` the column's reason to exist. Anything else is a sentence, and a
-/// sentence is what the matrix is there instead of.
-const VERDICTS: &[&str] = &["only here", "redundant", "yes", "can", "no", "-"];
+/// *not answered here*, `redundant` *could and need not*, `can` *capable, and the standing test is
+/// in another venue*, `unrun` *the standing test is HERE and nothing has run it*, `only here` the
+/// column's reason to exist. Anything else is a sentence, and a sentence is what the matrix is
+/// there instead of.
+///
+/// **`unrun` is not a softer `can`.** A `can` cell points at evidence somewhere else; an `unrun`
+/// cell points at none. Only `yes` and `can` may be cited for a claim, and only `unrun` and those
+/// two count as a venue having a reason to be in the table - see [`page_problems`].
+const VERDICTS: &[&str] = &["only here", "redundant", "unrun", "yes", "can", "no", "-"];
 
 /// What a venue that runs nowhere says in its `Reached by` cell.
 const NOT_BUILT: &str = "not built";
@@ -204,6 +216,32 @@ fn cited_tests(text: &str) -> BTreeSet<String> {
     out
 }
 
+/// The body of one venue's `##` section: every line from its heading to the next `## `.
+///
+/// `None` when no heading matches, which is a separate failure the section check already reports -
+/// so this returning `None` cannot make an `unrun` cell pass. Bounded at the next `## ` rather than
+/// read to the end of the page, because a check satisfied by the word appearing ANYWHERE below is
+/// the dead-gate shape this file's own header is about.
+fn section_body(text: &str, venue: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.iter().position(|line| {
+        line.strip_prefix("## ")
+            .is_some_and(|heading| key(heading.trim()) == key(venue))
+    })?;
+    Some(
+        lines
+            .iter()
+            .skip(start.saturating_add(1))
+            .take_while(|line| !line.starts_with("## "))
+            .copied()
+            .collect::<Vec<&str>>()
+            .join(
+                "
+",
+            ),
+    )
+}
+
 /// Every test function in the workspace, by name.
 ///
 /// A test rather than any function, because the page's claim is that these names ARE the standing
@@ -292,7 +330,14 @@ fn page_problems(text: &str, tests: &BTreeSet<String>) -> Vec<String> {
         ));
     }
 
-    let mut answered: BTreeSet<&str> = BTreeSet::new();
+    // `claimed` is *does this row have a reason to be in the table*, which `yes`, `can` and
+    // `unrun` all earn - a written test is a reason for a row, and is not evidence. **What is NOT
+    // held here, said plainly: *may this venue be CITED for that claim*, which only `yes` and
+    // `can` earn.** That distinction is carried by [`VERDICTS`]'s own documentation and by the
+    // `unrun` arm below refusing a venue nothing reaches; a set of citable venues collected here
+    // would have been read by nothing, which `clippy::collection_is_never_read` said out loud.
+    let mut claimed: BTreeSet<&str> = BTreeSet::new();
+    let mut unrun: BTreeSet<&str> = BTreeSet::new();
     for row in &claims {
         let claim = row.first().map_or("", String::as_str);
         if row.len() != listed.len().saturating_add(1) {
@@ -313,12 +358,25 @@ fn page_problems(text: &str, tests: &BTreeSet<String>) -> Vec<String> {
                     venue.name
                 )),
                 Some(word @ ("yes" | "can")) => {
-                    answered.insert(venue.name.as_str());
+                    claimed.insert(venue.name.as_str());
                     if !venue.is_built() {
                         problems.push(format!(
                             "{PAGE}: `{}` is `{NOT_BUILT}` and claims `{word}` about `{claim}` - a \
                              venue nothing runs cannot be cited for anything, which is the \
                              overstatement this page exists to prevent",
+                            venue.name
+                        ));
+                    }
+                }
+                Some("unrun") => {
+                    claimed.insert(venue.name.as_str());
+                    unrun.insert(venue.name.as_str());
+                    if !venue.is_built() {
+                        problems.push(format!(
+                            "{PAGE}: `{}` is `{NOT_BUILT}` and says `unrun` about `{claim}` - \
+                             `unrun` is a test that EXISTS and has not been run, so a venue \
+                             nothing reaches cannot be in that state: either something reaches it \
+                             and the `Reached by` cell should say so, or the cell is `-`",
                             venue.name
                         ));
                     }
@@ -329,10 +387,12 @@ fn page_problems(text: &str, tests: &BTreeSet<String>) -> Vec<String> {
     }
 
     for venue in listed.iter().filter(|venue| venue.is_built()) {
-        if !answered.contains(venue.name.as_str()) {
+        if !claimed.contains(venue.name.as_str()) {
             problems.push(format!(
-                "{PAGE}: `{}` is reached by `{}` and answers no claim in the matrix - either it \
-                 answers one and the column does not say so, or the row has no reason to be there",
+                "{PAGE}: `{}` is reached by `{}` and claims nothing in the matrix - not one `yes`, \
+                 `can` or `unrun`. Either it answers a claim and the column does not say so, a \
+                 test is written for it and the cell should say `unrun`, or the row has no reason \
+                 to be there",
                 venue.name, venue.reached
             ));
         }
@@ -359,6 +419,23 @@ fn page_problems(text: &str, tests: &BTreeSet<String>) -> Vec<String> {
                 "{PAGE}: the section `{heading}` is neither a venue in the table nor one of \
                  {STRUCTURAL:?} - a venue described in a section and absent from the table is a \
                  venue with no limit"
+            ));
+        }
+    }
+
+    // A venue whose cell says `unrun` has to say it in its own SECTION too, in that word. The
+    // exclusion a reader needs is *no run has happened*, and a section that explains a `can` in
+    // prose is how the two drifted apart before this verdict existed.
+    for venue in &listed {
+        if !unrun.contains(venue.name.as_str()) {
+            continue;
+        }
+        if !section_body(text, &venue.name).is_some_and(|body| body.contains("unrun")) {
+            problems.push(format!(
+                "{PAGE}: `{}` says `unrun` in the matrix and its own section never uses that word \
+                 - the cell is where the state is read and the section is where it is explained, \
+                 and a section that explains it in other words is how the two came apart",
+                venue.name
             ));
         }
     }
@@ -498,6 +575,53 @@ Not built.
         assert!(found.iter().any(|p| p.contains("cannot be cited for anything")), "{found:?}");
     }
 
+    /// [`MAP`] with the shared-key venue's one answer downgraded to `unrun`, and the word added to
+    /// its section - which is the whole state the verdict exists for: a test written here, no run.
+    fn map_with_an_unrun_cell() -> String {
+        MAP.replace(
+            "| A statement is accepted | no | **yes** | - |",
+            "| A statement is accepted | no | **unrun** | - |",
+        )
+        .replace(
+            "## A real dataset under a shared key\n\nNothing about who asked.\n",
+            "## A real dataset under a shared key\n\nNothing about who asked, and the leg is unrun.\n",
+        )
+    }
+
+    #[test]
+    fn a_venue_whose_only_verdict_is_unrun_still_has_a_reason_to_be_in_the_table() {
+        // The state `can` used to have to carry: the standing test is HERE and nothing has run it.
+        // It is not evidence, so it is not `yes` or `can` - and it IS a reason for the row, so the
+        // *claims nothing in the matrix* arm must not fire.
+        assert_eq!(problems(&map_with_an_unrun_cell()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_venue_nothing_runs_may_not_say_unrun() {
+        // RED WHEN WRITTEN: `unrun` is a test that exists and has not been run, so a venue nothing
+        // reaches cannot be in that state - it would read as *written, waiting* over a venue with
+        // nothing to run it.
+        let overstated = MAP.replace(
+            "| An exchange endpoint accepts it | no | no | **only here** |",
+            "| An exchange endpoint accepts it | no | no | **unrun** |",
+        );
+        let found = problems(&overstated);
+        assert!(found.iter().any(|p| p.contains("cannot be in that state")), "{found:?}");
+    }
+
+    #[test]
+    fn an_unrun_cell_whose_section_never_uses_the_word_fails() {
+        // The tie that makes `unrun` a token rather than a caveat: the cell is where the state is
+        // read and the section is where it is explained, and prose explaining it in other words is
+        // exactly how the two came apart while `can` carried both meanings.
+        let unexplained = MAP.replace(
+            "| A statement is accepted | no | **yes** | - |",
+            "| A statement is accepted | no | **unrun** | - |",
+        );
+        let found = problems(&unexplained);
+        assert!(found.iter().any(|p| p.contains("never uses that word")), "{found:?}");
+    }
+
     #[test]
     fn a_venue_with_no_column_in_the_matrix_fails() {
         let unpaired = MAP.replace(
@@ -564,6 +688,7 @@ Not built.
     fn the_verdict_vocabulary_reads_a_word_and_not_a_prefix() {
         assert_eq!(verdict("**yes**, that *we refuse one*"), Some("yes"));
         assert_eq!(verdict("**can** - the builder takes several audiences"), Some("can"));
+        assert_eq!(verdict("**unrun** - the only venue that could"), Some("unrun"));
         assert_eq!(verdict("no - one key is one identity"), Some("no"));
         assert_eq!(verdict("**only here**"), Some("only here"));
         assert_eq!(verdict("-"), Some("-"));
@@ -573,6 +698,7 @@ Not built.
         // `nothing` starts with no verdict, and `yesterday` is not `yes`.
         assert_eq!(verdict("yesterday"), None);
         assert!(VERDICTS.contains(&"only here"));
+        assert!(VERDICTS.contains(&"unrun"));
     }
 
     #[test]

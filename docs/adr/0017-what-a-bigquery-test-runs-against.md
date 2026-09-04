@@ -1217,10 +1217,48 @@ all. Two consequences, and both are limits rather than defects:
    grouping column, and the grouping value each policy grants. `sync-bq-test-env.sh` exports them
    from the stack now, so `just infra-set` is the mechanism; it needs the pulumi state, which lives
    with whoever ran `just infra-up`.
-2. **The CI job has to run the leg.** That is a separate change on top of this one, for a reason
-   worth stating: wiring a job to five variables that do not exist yet turns the
-   `bigquery-acceptance` job red on every push until somebody sets them, and a job that is red for a
-   configuration reason is a job people learn to ignore. The order is the environment first, the job
-   second. `.github/workflows/ci.yml` is also at the 1000-line cap that
+2. **The CI job has to run the leg, and that change is WRITTEN and must not merge yet.** It is a
+   separate pull request stacked on this one rather than a future one - the sentence this item first
+   carried said it had not happened, and it had - and it stays in draft for the reason it was kept
+   separate: wiring a job to five variables that do not exist yet turns the `bigquery-acceptance` job
+   red on every push until somebody sets them, and a job that is red for a configuration reason is a
+   job people learn to ignore. The order is the environment first, the job second.
+   `.github/workflows/ci.yml` is also over the 1000-line cap that
    [#285](https://github.com/telekom/sutura/issues/285) is about, so that change carries the cap
-   decision too rather than smuggling it in beside a test.
+   decision, and `devco/max-lines-ignore` records that **that change is what put the file over** -
+   987 lines to 1042 - rather than implying it was already there.
+
+### Three things review of the cell found, recorded because each was a claim rather than a bug
+
+**A verdict was carrying two states.** The venue page's `can` meant *the venue is capable and the
+standing test lives somewhere else*, and this cell needed *the standing test lives here and nothing
+has run it*. Those are not the same and only the first is evidence, so `cargo xtask check-venues`
+grew a sixth verdict - `unrun` - which it refuses from a venue nothing reaches and which the venue's
+own section has to use in that word. Before it, *the change that carries the first green run moves
+that cell* was a sentence nothing read.
+
+**One assertion in the cell could not fail.** With each answer asserted to be exactly its own
+principal's grouping value, and the fixture control already refusing a pair whose values are equal,
+disjointness followed. It is deleted rather than kept: an assertion that cannot go red reads as an
+independent check and is not one, and it made the page and this record advertise three where there
+are two.
+
+**The step this amendment asks for nearly broke the venue that HAS a green run.** The two policied
+resource names were added to the masking step's emptiness guard, which exits non-zero and runs
+before the shared-key leg - so an unset value belonging to a venue with no run would have stopped
+the only BigQuery venue with evidence. Masked there, guarded in the cell's own step. `check-venues`
+was satisfied either way, which is why review and not the gate found it, and it is the sharpest
+example of this record's own warning about a job red for a configuration reason.
+
+### And two limits this cell does not close, named so they are not read as closed
+
+**`check-venues` reads ONE credential path.** It takes the job's `GOOGLE_APPLICATION_CREDENTIALS`,
+so *written under `$RUNNER_TEMP` and removed* and *the file is a second copy of the secret* are held
+for the CI key and by review for the two principal keys placed beside it. Deriving the credential set
+from the job is the fix; `xtask/src/venues/acceptance.rs` is at 991 lines, so it needs that file split
+first.
+
+**Nothing checks that the two nextest filters are complements.** `binary(two_principals)` and
+`not binary(two_principals)` appear in two `just` recipes and two flake apps, and no gate reads a
+nextest filter expression - so renaming the target would silently un-filter the acceptance app.
+Two nextest profiles carrying the pair once, next to the tests, is the shape that would close it.

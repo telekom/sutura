@@ -10,11 +10,17 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 !!! note "What this page is not"
 
     It is a map of venues, not a coverage report. **yes** means a venue can answer the claim and a
-    test in it does; **can** means the venue is capable and the claim is not yet ANSWERED here -
-    either the standing test lives somewhere else, or it lives here and has not been run, and the
-    cell says which. The test names in the venue sections are what has actually been written, and
-    they are the list to check a claim against. **A written test is not a green run**, which is the
-    distinction the two-keys venue below exists at the wrong end of today.
+    test in it does; **can** means the venue is capable and the standing test lives somewhere else,
+    with the cell saying where; **unrun** means the standing test lives HERE and nothing has run it.
+    The test names in the venue sections are what has actually been written, and they are the list
+    to check a claim against.
+
+    **`unrun` is a token and not a caveat, and the difference is the point.** A written test is not
+    a green run, so a venue in that state may not be cited - and `cargo xtask check-venues` holds
+    it: only `yes` and `can` count as answering, an `unrun` cell is refused for a venue nothing
+    reaches, and the venue's own section has to use that word. It exists because the two-keys venue
+    below is at the wrong end of it today and saying so in prose put the difference where nothing
+    read it.
 
 ## The venues
 
@@ -64,7 +70,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - |
 | The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - |
 | `credential_unavailable` through the request path | - | **yes** | - | - | - | - |
-| Two subjects driving two different credentials to the port | - | **yes** | - | redundant - two credentials reach the port here too, and the standing test is one venue left | - | - |
+| Two subjects driving two different credentials to the port | - | **yes** | - | no - two credentials reach the port here, and neither is a subject's | - | - |
 | The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | redundant |
 | The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | redundant |
 | A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - |
@@ -74,7 +80,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **only here** |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **can** - the only venue that could, and no run has happened | no | redundant |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
 
 ## The fake at the port
 
@@ -235,8 +241,13 @@ disjoint set of rows. `docs/adr/0017`'s seventh amendment is the record, and iss
 than the one the transport holds. `each_principal_reads_exactly_the_rows_its_row_access_policy_grants_and_not_the_others`
 submits one statement twice - one `QueryPlan` value, borrowed twice, so it is the same statement and not
 two that resemble each other - and asserts that each answer is made of that principal's own grouping
-value, that the two are disjoint, and that **neither is empty**. The third is there because two vacuous
-greens over an unseeded table is the shape this cell would otherwise pass as.
+value and that **neither is empty**. The second is there because two vacuous greens over an unseeded
+table is the shape this cell would otherwise pass as.
+
+**There is no disjointness assertion, and its absence is a property rather than a gap.** It could not
+fail once the two equalities passed - each answer is one grouping value, and the fixture control below
+has already refused a pair whose two values are equal - and an assertion that cannot go red reads as a
+third independent check while being none. That is why the refusal is a control with a test of its own.
 
 `the_deployments_own_identity_reads_neither_principals_rows` is the control without which those two
 greens are satisfied by a coincidence: the same statement over the same table under the DEPLOYMENT's own
@@ -257,11 +268,14 @@ rows differ only by arithmetic.
 
 ### What it cannot answer - read this before citing a green run
 
-1. **That the row this venue answers has been answered.** *Nothing has run it.* The five values the leg
-   must be pointed at - the policied dataset and table, the grouping column, and the value each policy
-   grants - are not in the environment that holds the two keys, so the matrix says `can` and not `yes`.
-   **The change that carries the first green run is the change that moves that cell**, and until then
-   this venue is a capability with a written test and no evidence.
+1. **That the row this venue answers has been answered.** *Nothing has run it*, which the matrix says
+   in one word: **`unrun`**, not `yes` and not `can`. The five values the leg must be pointed at - the
+   policied dataset and table, the grouping column, and the value each policy grants - are not in the
+   environment that holds the two keys. **The change that carries the first green run is the change
+   that moves that cell to `yes`**, and `cargo xtask check-venues` is what makes that a diff rather
+   than a promise: it refuses `unrun` from a venue nothing reaches, and refuses an `unrun` cell whose
+   venue's section does not use the word. Until then this venue is a capability with a written test
+   and no evidence.
 2. **Whether a deployment can OBTAIN such a credential for the caller who asked.** Each bearer here is
    minted from a service-account key *on disk*, through the crate's own `Credential`, so what a green run
    establishes is that a source executes as the principal whose credential a leg carried. Nobody asked

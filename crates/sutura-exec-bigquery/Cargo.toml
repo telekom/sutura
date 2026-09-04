@@ -87,9 +87,10 @@ required-features = ["wire", "fixtures"]
 # The TWO-PRINCIPAL cell - the one leg here whose claim is about identity rather than about SQL.
 #
 # A third target rather than more of `acceptance.rs`, for the same two reasons the corpus leg is one:
-# that file is already over four fifths of the 1000-line ceiling `cargo xtask max-lines` holds, and
-# this leg proves a different thing over a different fixture - a table with row access policies, in a
-# dataset the other two legs never open.
+# that file is already the largest in this crate's `tests/` (`wc -l crates/sutura-exec-bigquery/tests/*.rs`
+# on 2026-09-04: 818, against the 1000-line ceiling `cargo xtask max-lines` holds), and this leg
+# proves a different thing over a different fixture - a table with row access policies, in a dataset
+# the other two legs never open.
 #
 # `wire` only, and NOT `fixtures`: this leg deliberately loads nothing. `load_fixture` renders
 # `CREATE OR REPLACE TABLE`, which drops a table's row access policies - so the loader that seeds the

@@ -45,6 +45,16 @@ group_column = cfg.require("group_column")
 # deployment; they are data, not logic.
 principal_a_rows = cfg.get("principal_a_rows") or "a"
 principal_b_rows = cfg.get("principal_b_rows") or "b"
+# They must DIFFER, and the refusal belongs HERE rather than only in the acceptance cell that reads
+# them. Equal values provision a fixture whose two row sets are identical, which the cell can only
+# report as *the policies are not enforced* - a red run blaming the data system for a line of stack
+# config. The cell refuses it too, because a stack somebody else applied is not this repository's to
+# trust; two independent refusals of one misconfiguration is the point, not a duplicate.
+if principal_a_rows == principal_b_rows:
+    raise ValueError(
+        "principal_a_rows and principal_b_rows must differ: the two row access policies would "
+        "otherwise grant the same rows, and the two-principal acceptance cell asserts they do not"
+    )
 
 # The dataset location (may be a multi-region like `EU`) and the provider's COMPUTE region/zone are
 # separate: BigQuery takes its own `location`, while the GCP provider uses a compute region/zone to
