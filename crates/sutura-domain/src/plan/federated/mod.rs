@@ -767,10 +767,9 @@ fn aggregate<'a>(
     values: impl Iterator<Item = &'a Value>,
     metric: &MetricName,
 ) -> Result<Value, FederatedFailure> {
-    let column = LeafColumn::parse(values, aggregate)?;
-    if matches!(column, LeafColumn::Empty) {
+    let Some(column) = LeafColumn::parse(values, aggregate)? else {
         return Ok(Value::Null);
-    }
+    };
     match aggregate {
         Aggregate::Sum => column.total(metric),
         Aggregate::Min => Ok(column.extreme(Extreme::Least)),
@@ -789,32 +788,29 @@ enum Extreme {
 /// One leaf column's non-null cells, once their single numeric type is established.
 ///
 /// **Reading the whole column before any aggregate touches it is what makes the arithmetic exact
-/// rather than checked.** A total, a minimum and a maximum each see one type, so nothing widens an
-/// `i64` to an `f64` to add it or to compare it - which is two wrong numbers this shape removes at
-/// once. `Sum` dropped whichever subtotal was not the last kind it saw, and `Min`/`Max` compared
-/// every cell as `f64`, so two integers a data system tells apart read as equal above `2^53` and the
-/// answer was whichever arrived first.
+/// rather than checked**, and it removes two wrong numbers at once: `Sum` accumulated an integer
+/// subtotal and a real one and returned only the real one, and `Min`/`Max` compared every cell as an
+/// `f64`, so two integers a data system tells apart read as equal above `2^53` and the answer was
+/// whichever arrived first. Now each aggregate sees one type and nothing widens an `i64` to add it or
+/// to compare it.
 ///
-/// A result column in a data system has one logical type, so a column carrying two is a defect in
-/// this workspace's own wiring rather than data, and [`FederatedFailure::MixedNumericLeaf`] says so.
-/// A cell that is no kind of number is the refusal that variant's neighbour already named, now taken
-/// for every aggregate rather than inside two of them: a lone `Text` cell used to be accepted as its
-/// own minimum without ever being read as a number.
+/// A cell that is no kind of number is refused for **every** aggregate rather than inside two of
+/// them: a lone `Text` cell used to be accepted as its own minimum without being read as a number,
+/// and `DuckDB` returns a `DECIMAL` money column as one. A column carrying both numeric types is
+/// [`FederatedFailure::MixedNumericLeaf`], which carries that reasoning.
 ///
-/// `Integers` and `Reals` are non-empty by construction - [`LeafColumn::parse`] answers `Empty` for a
+/// Both variants are non-empty by construction: [`parse`](LeafColumn::parse) answers `None` for a
 /// column with no non-null cell, because a group contributing nothing is a null and not a zero.
 enum LeafColumn {
     /// Every non-null cell was a [`Value::Integer`].
     Integers(Vec<i64>),
     /// Every non-null cell was a [`Value::Real`], and so is already finite.
     Reals(Vec<Real>),
-    /// The column had no non-null cell.
-    Empty,
 }
 
 impl LeafColumn {
-    /// One leaf column's cells, or the reason they are not one column of numbers.
-    fn parse<'a>(values: impl Iterator<Item = &'a Value>, aggregate: Aggregate) -> Result<Self, FederatedFailure> {
+    /// One leaf column's cells, `None` for a column of nulls, or the reason it is neither.
+    fn parse<'a>(values: impl Iterator<Item = &'a Value>, aggregate: Aggregate) -> Result<Option<Self>, FederatedFailure> {
         let mut integers: Vec<i64> = Vec::new();
         let mut reals: Vec<Real> = Vec::new();
         for value in values {
@@ -831,9 +827,9 @@ impl LeafColumn {
             }
         }
         match (integers.is_empty(), reals.is_empty()) {
-            (false, true) => Ok(Self::Integers(integers)),
-            (true, false) => Ok(Self::Reals(reals)),
-            (true, true) => Ok(Self::Empty),
+            (false, true) => Ok(Some(Self::Integers(integers))),
+            (true, false) => Ok(Some(Self::Reals(reals))),
+            (true, true) => Ok(None),
             (false, false) => Err(FederatedFailure::MixedNumericLeaf { aggregate }),
         }
     }
@@ -841,8 +837,8 @@ impl LeafColumn {
     /// The column's total, in the column's own type.
     ///
     /// An integer column totals as `i64` and overflow is a refusal; a real column totals as `f64`,
-    /// which is the same float addition the mono path's own `SUM` performs, and a total that leaves
-    /// the finite range is a refusal because [`Real`] cannot hold it.
+    /// which is the float addition the mono path's own `SUM` performs, and a total that leaves the
+    /// finite range is a refusal because [`Real`] cannot hold it.
     #[expect(
         clippy::float_arithmetic,
         reason = "the re-aggregation of a real-valued leg column sums real numbers by design"
@@ -868,13 +864,13 @@ impl LeafColumn {
                     |real| Ok(Value::Real(real)),
                 )
             }
-            Self::Empty => Ok(Value::Null),
         }
     }
 
     /// The column's least or greatest cell, in the column's own type.
     ///
-    /// `Value::Null` is unreachable for the two non-empty variants and is what `Empty` answers.
+    /// `reduce` answers `None` only for an empty column, which [`parse`](LeafColumn::parse) answers
+    /// `None` for instead - so the `Value::Null` below is unreachable rather than a case.
     fn extreme(&self, extreme: Extreme) -> Value {
         let wanted = match extreme {
             Extreme::Least => std::cmp::Ordering::Less,
@@ -897,7 +893,6 @@ impl LeafColumn {
                     }
                 })
                 .map_or(Value::Null, Value::Real),
-            Self::Empty => Value::Null,
         }
     }
 }
