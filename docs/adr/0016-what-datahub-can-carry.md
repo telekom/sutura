@@ -778,10 +778,10 @@ adapter's inference.
 
 **A real `AspectReader` and a served composition.** The adapter is a dev-dependency of `sutura-app`,
 no composition root links it, and `sutura-serve` refuses `catalog.kind: datahub` by name. The only
-reader is the recorded fixture source, so the flat form and its assembly are proven against recorded
-documents - and against a live instance nothing is: the read path's cost remains the open measurement
-this record leaves, and `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired*
-register records that nothing serves it.
+reader is the recorded fixture source, so no library code shapes a request or maps a response, and
+`.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired* register records that nothing
+serves it. The read path's COST is no longer the open measurement this record leaves - see
+*Revision, 2026-09-04* below - but a reader is still owed.
 
 ### How it is proven
 

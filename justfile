@@ -755,7 +755,7 @@ dev-up-identity:
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
-# The provisioned DataHub, asked whether it serves the surface a reader would call.
+# The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 #
 # A named task rather than a cell in the default suite, and NOT because a network is missing - the
 # `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers:
@@ -772,8 +772,11 @@ datahub-acceptance:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, the provisioned instance's"
-    echo "datahub-acceptance: reachability. It proves the VENUE and not the adapter's read path."
+    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two cells: the instance is"
+    echo "datahub-acceptance: reachable, and a document written under a property THE DEPLOYMENT names"
+    echo "datahub-acceptance: comes back and decodes into a certified metric. There is no HTTP"
+    echo "datahub-acceptance: AspectReader, so this is NOT a read path - the requests and the mapping"
+    echo "datahub-acceptance: onto the adapter's shape are in the test, not in src/."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture
