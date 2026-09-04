@@ -505,7 +505,9 @@ this became its second caller.
   in the warning half:** a dataset that is not there cannot be told from a name somebody is about to
   fix, and the endpoint answers `404` for an invisible project too.
 
-**Three limits, in this record's own tradition of stating them next to the claim:**
+**The limits, in this record's own tradition of stating them next to the claim** - counted by nobody,
+because a hand-maintained number over a list that grows is the same defect as the ordinal deleted two
+bullets down:
 
 - **A live dataset HAS now answered a listing, and the documents this suite decodes are still ours.**
   The three response documents were written here, which is this record's existing limit restated for
@@ -514,12 +516,34 @@ this became its second caller.
   beside its neighbours and asks a real dataset about a set of one table it holds and one it does
   not, with the clean set asserted FIRST as the control. **It has never run on a developer machine
   here** - no dataset is named in this environment, so `just bigquery-acceptance` fails on its own
-  precondition rather than reporting green. **It has RUN, green, in CI on 2026-09-02** - the
-  `bigquery-acceptance` job, 9 tests passed, this one the sixth of the endpoint leg's - and it keeps
-  running there, because `--run-ignored only` reaches every `#[ignore]`d test in the crate rather
-  than a set somebody has to remember to extend. **What the run does not reach is the soft edge:** no
-  live dataset has FAILED to answer, so the refusal-versus-warning split of `preflight_was_refused`
-  is still exercised against a fake transport only.
+  precondition rather than reporting green. **It has RUN, green, in the `bigquery-acceptance` job** -
+  on #221's own branch on 2026-09-02 and again on `main` at the commit that merged it on 2026-09-03 -
+  and it keeps running there, because `--run-ignored only` reaches every `#[ignore]`d test in the
+  crate rather than a set somebody has to remember to extend. An earlier version of this sentence
+  also placed it in that run's test list by ORDINAL, and the ordinal was wrong: it is deleted rather
+  than corrected, because nextest reports in completion order and a position in that list is not a
+  property of the suite.
+- **A dataset that is not there is answered with a non-2xx, which is the one thing no fake can say -
+  and it is NARROWER than the claim this bullet first made.** The first version said
+  `a_dataset_the_credential_cannot_list_is_unverified_and_never_every_table_absent` *pins the warning
+  half* of `preflight_was_refused`. It does not: that decision is already held hermetically, twice
+  with controls - `wire::tables`' `was_refused` suite asserts `404` warns beside `401`, `403`, `500`
+  and `503`, and `a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome` asserts the same
+  thing one port up. A predicate over a status needs no service. **What needs one is the status
+  itself:** every field of `Listing` is `#[serde(default)]`, so a `200` with an empty body for a
+  dataset that does not exist would read as *every table is absent* and refuse a deployment over a
+  dataset name. The leg asks a real endpoint about a fictitious dataset in a project the credential
+  can see, and requires `WireError::Refused { status: 404 }` - so the empty-decode path is measured
+  not to be what a missing dataset produces.
+  **The oracle names the status because review caught it green for the wrong reasons.** `expect_err`
+  plus a surviving `#[source]` plus `!preflight_was_refused` is satisfied by `Unreachable`, by a `500`
+  or `503`, by `DeadlineSpent`, and by the two `403`s this crate deliberately puts in the warning half
+  (`rateLimitExceeded`, `quotaExceeded`) - in each of which the endpoint never answered about that
+  dataset, while the leg reported *a dataset that is not there warns*. The clean set asked FIRST is a
+  control on a second axis: this credential really can list this project, so the failure is
+  dataset-specific rather than an identity that reads nothing.
+  **The REFUSAL half still is not live:** it needs an identity holding no `bigquery.tables.list`,
+  which the acceptance environment's identity is not, so `401`/`403` remains a fake-transport claim.
 - **A document whose shape the service changes decodes to an EMPTY listing**, because every field is
   `#[serde(default)]` - and an empty listing means *every table is absent*. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
@@ -528,8 +552,50 @@ this became its second caller.
   tell the two apart** - a non-zero total beside an empty `tables` array is a shape change and not an
   empty dataset - and it is deliberately NOT built: nothing here has seen whether the service
   populates that field on a real listing, and a decoder that refuses on a field the service may omit
-  would refuse every boot. The live run above is what would settle it, which is the honest order:
-  measure, then decide.
+  would refuse every boot. **The run named above as what would settle it cannot**, and that is worth
+  recording as its own shape of overstatement rather than quietly fixed: the leg asserts on
+  `TablesPresent`, `Listing` decodes `tables` and `nextPageToken` and nothing else, so no
+  `totalItems` value reaches an assertion, a panic message or a log line - checked against both green
+  runs above, whose output contains the string nowhere. What would settle it is therefore a DECODER
+  change and not another run: the field read as an `Option` that cannot refuse a document omitting
+  it, reported by the acceptance leg, and only then a decision about the cross-check. Measure, then
+  decide - with something that measures. **Tracked as telekom/sutura#263**, because it
+  spans the document, the port's answer and a refusal decision - and because a deferral pointing at a
+  run that cannot make the measurement is the overstatement, so the citation has to move rather than
+  the sentence being softened.
+- **A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
+  wording.** Issue #120's own verification asked for a run asserting the boot refusal, and until
+  `a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table` the two
+  halves did not meet: the legs above assert the `TablesPresent` that `BigQueryWarehouse::preflight`
+  returns, and every test of the decision above it ran against a `Warehouse` fake. That leg loads a
+  bundle through `sutura_catalog_local::LocalCatalog` naming one table the dataset holds and one it
+  does not, hands it to `sutura_app::preflight::ask` over a real warehouse, and requires
+  `Verdict::Absent` naming the absent table and the **model** behind it - with the clean bundle
+  answering `Verdict::Present` first, because an empty listing produces `Absent` too. **An earlier
+  version of this bullet called the seam structurally unreachable from here, and it was wrong by one
+  dependency edge:** `sutura-app` is already a dev-dependency of this crate and
+  `sutura_app::preflight::ask` is the decision sequence *both* composition roots call, which
+  `sutura_serve::boot::refuse_absent_tables`' own documentation states. **What genuinely stays out of
+  reach is the words and the sink** - each root's own sentence for each verdict, through its own
+  transport's sink. Those are `pub(crate)` in crates that depend ON this one, and they are rendering
+  rather than decision; a run that asserted them would be an acceptance leg in a composition root,
+  which is a different crate and its own change.
+- **That leg's own harness has a control, and what holds it is prose rather than a gate.** `ask`
+  **skips** a source the bundle names no model in, so a scratch bundle that reached this leg's source
+  with nothing - a `source:` that stopped matching, a document the parse refused - would hand the
+  decision an empty question rather than fail. So
+  `a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about` is the one test in
+  that file which is not `#[ignore]`d; the acceptance file's own header carries the venue argument.
+  **Provoked both ways under `just test` on 2026-09-03, which is the venue and is named because a
+  mutation result without one is the shape this record is about:** the document's `source:` pointed
+  elsewhere gave `left: []` against the two models expected, and a harness writing no document at all
+  failed on the catalog adapter's own `Empty { path: ... }`. Each edit reverted after. **The direction nothing holds is the reverse one** - `#[ignore]` added to
+  that control drops it out of every gate into the credentialled venue alone, silently. The
+  *dangerous* direction is already mechanical, because a live leg missing `#[ignore]` reaches
+  `Fixture::required()`, which fails rather than skips. What would hold the other is a line-scan gate
+  asserting the partition - every `#[test]` in those two targets that reaches `Connection::required()`
+  is `#[ignore]`d, and every one that does not is not - on `check-boot-order`'s pattern. Not built
+  here: it is an `xtask` module plus two classification-table rows, which is its own change.
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
