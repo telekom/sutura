@@ -81,12 +81,17 @@ let
   #   * **THAT FIRST BULLET IS FALSE ON COST, and it is left standing because the correction is
   #     the useful part.** `craneLib.buildDepsOnly` is called on `args` - deliberately unscoped, so
   #     the checks share one dependency derivation - with `cargoExtraArgs` set on the final attrset
-  #     instead, so that derivation resolves the WHOLE workspace at cargo's default set.
-  #     `sutura-exec-bigquery` takes `ureq` non-optionally, so `ring`, `rustls` and the rest of
-  #     that closure compile inside `sutura-deps-<triple>` on all four triples WITH THE FEATURE
-  #     OFF - read out of the `cross` logs, not predicted. The feature gates the edge from
-  #     `sutura-cli`, not the closure's arrival on the builder, so the musl C and assembly is paid
-  #     on every pull request either way.
+  #     instead, so that derivation resolves the WHOLE workspace at cargo's default set AND builds
+  #     its dev-dependencies. `ring`, `rustls` and `ureq` therefore compile inside
+  #     `sutura-deps-<triple>` on all four triples WITH THE FEATURE OFF - read out of the `cross`
+  #     logs, not predicted - so the musl C and assembly is paid on every pull request either way.
+  #   * **AND NOT BECAUSE OF THIS ADAPTER, which is a second correction the first one needed.**
+  #     `sutura-exec-bigquery`'s `ureq` is `optional` behind its `wire` feature, so it contributes
+  #     nothing at the default set. `cargo tree` on 2026-09-04 gives the real edges: for
+  #     `aarch64-unknown-linux-musl` the only one is `sutura-catalog-datahub`'s NON-optional `ureq`
+  #     dev-dependency, and `libduckdb-sys` puts a host-side copy there as a build-dependency. So
+  #     the cost is paid by a dev-dependency elsewhere in the workspace, and it would come back if
+  #     that dependency went - which is the kind of thing a comment asserting the wrong cause hides.
   #   * The failure is loud rather than silent, which is what makes the choice defensible instead
   #     of merely cheap. `security.tls_termination: in-process` on a build without `tls` is a
   #     startup refusal naming the feature, and so is a `kind: bigquery` source on a build without
@@ -363,7 +368,22 @@ let
       b.probeFeatures)
     binaries;
 
-  featurePackages = builtins.listToAttrs (map (p: { inherit (p) name value; }) probes);
+  # DISJOINT BY ASSERTION, because `//` is right-biased and this is the one place the
+  # two-views-of-one-list argument stops - one level ABOVE the list. `flake.nix` merges
+  # `crossPackages // ... // featurePackages`, so a probe whose name equalled a shipped package's
+  # would SHADOW it: the shipped link step would build a probe while its notice named an artefact.
+  # A `sutura-cli` feature called `serve` is exactly that collision - `sutura-serve-<triple>-ci` is
+  # a `crossPackages` key. A `throw` rather than a naming rule, so the failure names the collision.
+  featurePackages =
+    let
+      attrs = builtins.listToAttrs (map (p: { inherit (p) name value; }) probes);
+      shippedNames = crossPackages // nativeBinaries;
+      clashes = builtins.filter (n: builtins.hasAttr n shippedNames) (builtins.attrNames attrs);
+    in
+    if clashes == [ ] then attrs
+    else throw ("nix/shipped.nix: probe package name(s) ${builtins.concatStringsSep ", " clashes} "
+      + "collide with a shipped package. `//` is right-biased in flake.nix, so the probe would "
+      + "shadow the artefact. Rename the feature, or the probe naming rule.");
 
   # WHAT TO BUILD FOR ONE TRIPLE, as a file at a FIXED attribute name: `feature-probes-<triple>`
   # holds one row per probe - the package to build, the executable it installs, and the feature it

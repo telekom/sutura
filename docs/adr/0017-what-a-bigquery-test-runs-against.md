@@ -948,12 +948,35 @@ much. Half of that is right and half of it is not:
 
 - **Right:** `craneLib.buildDepsOnly` is called on the unscoped argument set, deliberately, so the
   checks share one dependency derivation; `cargoExtraArgs` is set on the final attrset instead. That
-  derivation therefore resolves the WHOLE workspace at cargo's default features, and
-  `sutura-exec-bigquery` is a workspace member taking `ureq` non-optionally - so `ring`, `rustls`
-  and `ureq` are compiled inside `sutura-deps-<triple>` on all four triples **with the feature
-  off**, visible in all four job logs. The musl C-and-assembly cost this record priced on 2026-09-02
-  is paid on every pull request either way. The feature gates the edge from `sutura-cli` to that
-  crate, not the closure's arrival on the builder.
+  derivation therefore resolves the WHOLE workspace at cargo's default features - so `ring`,
+  `rustls` and `ureq` are compiled inside `sutura-deps-<triple>` on all four triples **with the
+  feature off**, visible in all four job logs. The musl C-and-assembly cost this record priced on
+  2026-09-02 is paid on every pull request either way.
+- **Wrong about WHY, and this is the correction of the correction.** The sentence above used to end
+  *"and `sutura-exec-bigquery` is a workspace member taking `ureq` non-optionally"*. It does not:
+  `crates/sutura-exec-bigquery/Cargo.toml` declares `ureq = { workspace = true, optional = true }`
+  behind its `wire` feature, so at the default set that crate contributes nothing. The observation
+  was right and the mechanism was invented, which is the harder half of this defect class to
+  notice - a green measurement makes a plausible explanation feel checked. Measured 2026-09-04:
+
+  ```
+  $ cargo tree --workspace --target aarch64-unknown-linux-musl -i ureq -e normal,dev
+  ureq v3.4.0
+  [dev-dependencies]
+  `-- sutura-catalog-datahub          <- non-optional, for its provisioned-instance probe
+
+  $ cargo tree --workspace -i ureq -e normal,build
+  ureq v3.4.0
+  [build-dependencies]
+  `-- libduckdb-sys -> duckdb -> sutura-exec-duckdb    <- host side only
+  ```
+
+  So for a musl target the ONE edge into `ureq` at the default set is a **dev-dependency** of the
+  DataHub catalog crate, and `buildDepsOnly` builds dev-dependencies - which is what puts the
+  closure in the shared derivation. `libduckdb-sys` accounts for the host-side copy, and is why the
+  gnu host job's log shows `ring` compiled twice. **What that changes for the decision:** nothing,
+  and it is worth knowing anyway, because the cost is paid by a dependency that has nothing to do
+  with this adapter. Drop that dev-dependency and the musl build-cost argument comes back.
 - **Wrong:** that those units are then REUSED. They are not. The deps build compiles at the
   workspace feature union while the probe asks for one package, so the v2 resolver hands it a
   narrower feature set, a different `-C metadata`, and a recompile - `sutura> Compiling ring

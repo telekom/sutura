@@ -46,11 +46,17 @@ script, so the two cannot drift.
 
 ## Why a networked adapter hides behind a default-off feature
 
-**A release derivation's `--package` is not enough on its own.** `crane.buildDepsOnly` is
-deliberately unscoped so the checks can share one dependency derivation - which means each cross
-build compiles the whole workspace's dependency *closure* for its target even though it builds one
-binary out of it. With a networked adapter non-optional, its TLS stack cross-compiles for four
-targets, two of them musl, for a binary that links none of it.
+**Not to save build time - that reason was measured and retracted.** `crane.buildDepsOnly` is
+deliberately unscoped so the checks can share one dependency derivation, which means each cross
+build compiles the whole workspace's dependency *closure* for its target. It also builds
+DEV-dependencies, and `sutura-catalog-datahub` has a non-optional `ureq` one - so the outbound TLS
+closure is in all four `sutura-deps-<triple>` derivations at cargo's default set already, and
+`cargo tree` on 2026-09-04 shows that dev-dependency as the only edge into `ureq` for a musl target.
+Making a networked adapter non-optional would add nothing there.
+
+**The reason is the ARTEFACT.** No published binary links an outbound TLS stack, and
+`checks.shipped-features` asserts it out of each binary's own embedded dependency list rather than
+out of a manifest. Cite it that way.
 
 **The general rule:** an adapter with a native or outbound-TLS dependency arrives behind a
 default-off feature on whichever composition root wants it, and the four `cross` CI jobs are the
@@ -81,12 +87,12 @@ feature ON* for one run before somebody read it. Two more traps in reading it:
 
 | Trap | What is actually true |
 | --- | --- |
-| *The deps derivation already built `ring`, so the probe reuses it* | It does not. `buildDepsOnly` runs unscoped at the workspace feature union; a one-package build gets a narrower set, a different `-C metadata` and a **recompile**. The probe's log says `sutura> Compiling ring`. |
+| *The deps derivation already built `ring`, so the probe reuses it* | It does not. `buildDepsOnly` runs unscoped and the probe asks for one package, so the resolver gives a narrower feature set, a different `-C metadata` and a **recompile**. The probe's log says `sutura> Compiling ring`. |
 | *So the feature is nearly free* | It is nearly free **in this graph**, because those units finish inside the slack ahead of `datafusion` on the critical path. A shorter critical path would expose them as time. |
+| *The adapter is why the closure is in the deps derivation* | It is not - its `ureq` is `optional` behind `wire`. A **dev-dependency** of `sutura-catalog-datahub` is, and a build-dependency of `libduckdb-sys` puts a host-side copy there too. Drop that dev-dependency and the musl cost comes back. |
+| *The probe links what the tutorial tells a reader to build* | The same package and features, at the **`ci` profile**. The page says `--release`, whose thin LTO and `panic = "abort"` are a different link, and nothing measures that one. |
 
-The deps derivation compiling that closure with the feature OFF is still what makes the musl C and
-assembly a cost paid on every pull request either way - that half was right. Binary size remains
-unmeasured; no step prints it.
+Binary size remains unmeasured; no step prints it.
 
 A feature-gated adapter's absence is a **startup refusal naming the feature**, never a silent
 degradation - and `sutura_config` cannot see a link, so which adapters a BUILD contains is not in
