@@ -24,11 +24,10 @@
 //!
 //! # The rule, and why it is derived rather than listed
 //!
-//! Over [`TIER_ROOT`] and everything under [`TIER_DIR`], every file containing one of [`WAITS`]
-//! must be either
+//! Over the Rust matched by [`TIER`], every file containing one of [`WAITS`] must be either
 //!
-//! 1. **the docker module** ([`RUNTIME_ROOT`] or under [`RUNTIME_DIR`]), of which **exactly one
-//!    file** may wait - that file is the tier's waiter, whatever it is called; or
+//! 1. **the docker module** ([`RUNTIME`]), of which **exactly one file** may wait - that file is
+//!    the tier's waiter, whatever it is called; or
 //! 2. **a declared allowance** - one entry today, in [`ALLOWED`], each carrying what it runs and
 //!    why a bound would be wrong there.
 //!
@@ -68,8 +67,8 @@
 //!
 //! **A wait laundered through a helper elsewhere is invisible.** The scan reads text in this tier;
 //! a function in another module that waits, called from here, is not found. So is a wait added to a
-//! directory nobody put in scope - which is the reason the scope is two constants and not a glob
-//! over `xtask/`, where the unbounded `git` and `cargo` calls legitimately live.
+//! directory nobody put in scope - which is the price of scoping to two narrow patterns rather than
+//! sweeping `xtask/`, where the unbounded `git` and `cargo` calls legitimately live.
 //!
 //! **Comments and multi-line string interiors are blanked first**, through the shared lexer
 //! [`code_lines`](crate::serde_parse::scan::code_lines), and that is load-bearing rather than tidy:
@@ -89,20 +88,17 @@ use crate::Verdict;
 use crate::repo;
 use crate::serde_parse::scan::code_lines;
 
-/// The compose tier's module root. This file and everything under [`TIER_DIR`] is what the gate
-/// judges - deliberately not the whole of `xtask/`, where waiting on `git`, `cargo` and `nix`
-/// without a bound is correct.
-const TIER_ROOT: &str = "xtask/src/compose.rs";
+/// The compose tier: its module root, and the Rust beside it.
+///
+/// Deliberately not the whole of `xtask/`, where waiting on `git`, `cargo` and `nix` without a
+/// bound is correct. Read by [`repo::matches`], the matcher every path-scoped check here shares.
+const TIER: &[&str] = &["xtask/src/compose.rs", "xtask/src/compose/**/*.rs"];
 
-/// The directory beside [`TIER_ROOT`].
-const TIER_DIR: &str = "xtask/src/compose/";
-
-/// The docker module's root: the one place in the tier where waiting on a child is the contract.
-const RUNTIME_ROOT: &str = "xtask/src/compose/docker.rs";
-
-/// The directory beside [`RUNTIME_ROOT`]. Named as a prefix rather than as a file, so the waiter
-/// splitting out of the module root is a move and not a red gate.
-const RUNTIME_DIR: &str = "xtask/src/compose/docker/";
+/// The docker module inside the tier: the one place where waiting on a child is the contract.
+///
+/// A pattern pair rather than a file name, so the waiter splitting out of the module root is a
+/// move and not a red gate.
+const RUNTIME: &[&str] = &["xtask/src/compose/docker.rs", "xtask/src/compose/docker/**/*.rs"];
 
 /// The calls that wait on a child process, as they are written.
 ///
@@ -176,6 +172,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     let problems = judged(scanned, &waiting);
     if problems.is_empty() {
+        // Exactly one, or `judged` would have said which direction was wrong.
         let waiter = waiting.iter().find(|found| in_runtime(&found.path));
         let sites = waiter.map_or(0, |found| found.sites.len());
         let named = waiter.map_or("", |found| found.path.as_str());
@@ -208,8 +205,9 @@ fn judged(scanned: usize, waiting: &[Waiting]) -> Vec<String> {
         // it is the only one that returns before the rest: with no files read, every other
         // question below is answered by an absence rather than by the tree.
         problems.push(format!(
-            "no Rust in scope, so this gate checked nothing - it expected {TIER_ROOT} and the \
-             files under {TIER_DIR}, so either the tier moved or the listing it reads is empty"
+            "no Rust in scope, so this gate checked nothing - it expected {}, so either the tier \
+             moved or the listing it reads is empty",
+            TIER.join(", ")
         ));
         return problems;
     }
@@ -221,8 +219,9 @@ fn judged(scanned: usize, waiting: &[Waiting]) -> Vec<String> {
         .collect();
     match runtime.len() {
         0 => problems.push(format!(
-            "nothing in {RUNTIME_ROOT} or under {RUNTIME_DIR} waits on a child process - the wait \
-             this gate is about has left the module, or the scan stopped finding it"
+            "nothing matching {} waits on a child process - the wait this gate is about has left \
+             the module, or the scan stopped finding it",
+            RUNTIME.join(", ")
         )),
         1 => {}
         found => problems.push(format!(
@@ -241,7 +240,7 @@ fn judged(scanned: usize, waiting: &[Waiting]) -> Vec<String> {
     }
 
     for found in waiting {
-        if in_runtime(&found.path) || allowance_for(&found.path).is_some() {
+        if in_runtime(&found.path) || is_allowed(&found.path) {
             continue;
         }
         for (line, needle) in &found.sites {
@@ -259,9 +258,9 @@ fn stale(waiting: &[Waiting]) -> impl Iterator<Item = &'static Allowance> {
         .filter(move |allowance| !waiting.iter().any(|found| found.path == allowance.path))
 }
 
-/// The declared allowance for `rel`, if there is one.
-fn allowance_for(rel: &str) -> Option<&'static Allowance> {
-    ALLOWED.iter().find(|allowance| allowance.path == rel)
+/// Is a wait in `rel` declared?
+fn is_allowed(rel: &str) -> bool {
+    ALLOWED.iter().any(|allowance| allowance.path == rel)
 }
 
 /// Printed on failure. A gate that only says no gets worked around.
@@ -286,21 +285,17 @@ fn explain() {
 
 /// Is this file part of the compose tier?
 fn in_tier(rel: &str) -> bool {
-    (rel == TIER_ROOT || rel.starts_with(TIER_DIR)) && is_rust(rel)
+    matched_by(TIER, rel)
 }
 
 /// Is this file part of the docker module?
 fn in_runtime(rel: &str) -> bool {
-    rel == RUNTIME_ROOT || rel.starts_with(RUNTIME_DIR)
+    matched_by(RUNTIME, rel)
 }
 
-/// Case-insensitive, because a case-sensitive extension test is wrong on a case-insensitive
-/// filesystem - the reason `causality`'s own path test gives.
-fn is_rust(rel: &str) -> bool {
-    std::path::Path::new(rel)
-        .extension()
-        .and_then(std::ffi::OsStr::to_str)
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
+/// Does any of `patterns` match `rel`?
+fn matched_by(patterns: &[&str], rel: &str) -> bool {
+    patterns.iter().any(|pattern| repo::matches(pattern, rel))
 }
 
 /// Every wait site in `code`, as a 1-based line number and the needle found.
@@ -323,8 +318,15 @@ fn wait_sites(code: &[String]) -> Vec<(usize, &'static str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED, RUNTIME_ROOT, TIER_ROOT, WAITS, Waiting, in_runtime, in_tier, judged, wait_sites};
+    use super::{ALLOWED, WAITS, Waiting, in_runtime, in_tier, judged, wait_sites};
     use crate::serde_parse::scan::code_lines;
+
+    /// The tier's module root as a PATH - what the first entry of `TIER` matches, spelled out so
+    /// these tests assert about files rather than about the patterns that select them.
+    const TIER_ROOT: &str = "xtask/src/compose.rs";
+
+    /// The docker module's root, for the same reason.
+    const RUNTIME_ROOT: &str = "xtask/src/compose/docker.rs";
 
     /// A file with one wait site, as the scan would have reported it.
     fn waits(path: &str) -> Waiting {
