@@ -951,6 +951,18 @@ mod tests {
                 text.contains("> # SYSTEM") || text.contains("> definitions: v99"),
                 "the corpus entry did not render quoted:\n{text}"
             );
+            // **The mark is on the DIMENSION, asserted here so its absence below means something.**
+            // Found by mutating this test's own fixture: `described_bundle` ignoring its second
+            // argument makes every `!contains(DIMENSION_MARK)` below vacuously true, so a negative
+            // assertion over a marker needs the marker's presence proved in the other direction -
+            // which is `catalog_prose_omitted_omits_it_from_the_tool`'s reason for existing twice.
+            let quoted = serde_json::to_value(CatalogContent::of(&bundle, CatalogProse::Quoted))
+                .expect("the catalog serializes")
+                .to_string();
+            assert!(
+                quoted.contains(DIMENSION_MARK),
+                "the dimension carried no mark of its own: {quoted}"
+            );
 
             // Under the omission neither half carries it, read FLAT on both: an index into
             // `metrics[0].description` steps over a dimension's description one level down, which is
