@@ -98,9 +98,19 @@ insta = { workspace = true }
 # The far side of the `mcp` handshake test: a real MCP client from the same SDK, over an in-memory
 # pipe. Nothing this crate wrote sits between the assertion and the protocol.
 rmcp = { workspace = true, features = ["client"] }
-# The request JSON in that test, and the tool result's structured content.
+# The request JSON in that test, and the tool result's structured content. Also the audit records
+# `src/audit.rs` reads back: a record is asserted by KEY, which needs the line parsed.
 serde_json = { workspace = true }
+# `testing::Capture`, the writer `src/audit.rs` puts a subscriber over. Declared again HERE rather
+# than as a feature on the normal dependency above, which is what keeps `test-capture` out of the
+# shipped build: dev-dependencies are not in the graph a `cargo build` resolves. The same
+# arrangement `sutura-http` uses, and for the same reason - a second copy of that writer would be a
+# second thing to keep in step.
+sutura-runtime = { workspace = true, features = ["test-capture"] }
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
+# `subscriber::with_default`, which is what scopes that subscriber to the thread the command runs
+# on. Only a test installs one: this binary deliberately installs none.
+tracing = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,5 +1,5 @@
-//! The architecture-boundary gate. FIVE halves - three about which way dependencies point, one
-//! about who DECLARES a port, and one about what the crossing looks like:
+//! The architecture-boundary gate. SIX halves - three about which way dependencies point, two
+//! about the driving port, and one about what the crossing looks like:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
@@ -7,6 +7,9 @@
 //!   definition, which is the whole of the work in that rule)
 //! * a driving port is not declared by one of its callers ([`declared_ports`], and `ports`) - the
 //!   one half that reads which crate declares a TRAIT rather than which crate depends on which
+//! * a caller of that port reaches the answer path THROUGH it ([`answer_through_the_port`], and
+//!   `answer_path`) - the half that keeps the audit record un-skippable, because the record is
+//!   written by the port's implementor and by nothing else
 //! * a library's types and errors are a typed contract, not a struct with public fields
 //!   returning `Result<_, String>` (`api_shape`)
 //!
@@ -33,6 +36,7 @@
 //! dependency moved.
 
 mod adapters;
+mod answer_path;
 mod api_shape;
 mod ports;
 
@@ -314,8 +318,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let edges = forbidden_edges();
     let classes = adapter_classes();
     let declared = declared_ports();
+    let through = answer_through_the_port();
     let surface = typed_surface();
-    let halves = [direction, edges, classes, declared, surface];
+    let halves = [direction, edges, classes, declared, through, surface];
     if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass
     } else {
@@ -358,6 +363,57 @@ fn declared_ports() -> Verdict {
             }
             eprintln!();
             ports::explain();
+            Verdict::Fail
+        }
+    }
+}
+
+/// The other half about the driving port: a caller reaches the answer path THROUGH it.
+///
+/// The same `--no-deps --all-features` metadata [`declared_ports`] reads, and for the same reason:
+/// this half needs workspace members and their DECLARED dependencies, because a crate that reaches
+/// the application transitively is a caller of a transport rather than of its port.
+fn answer_through_the_port() -> Verdict {
+    let meta = match crate::cargo_metadata(&["--no-deps", "--all-features"]) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            return Verdict::Fail;
+        }
+    };
+    match answer_path::check(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        // Zero paths read is a FAILURE and not a pass: a rule that no longer finds the application
+        // in any caller is reading nothing while printing `ok`.
+        Ok(report) if report.paths == 0 => {
+            eprintln!(
+                "xtask check-boundaries: FAILED - no caller of the driving port names the application \
+                 in {} file(s) ({}). Either it was renamed or the path spelling changed, and this rule \
+                 is checking nothing.",
+                report.files,
+                report.callers.join(", ")
+            );
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - the answer path is reached through the port ({} path(s) in {} file(s) in {})",
+                report.paths,
+                report.files,
+                report.callers.join(", ")
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - a caller of the driving port answers without it:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            answer_path::explain();
             Verdict::Fail
         }
     }
