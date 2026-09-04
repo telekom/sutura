@@ -474,21 +474,19 @@ pub struct DescribeCatalogArgs {}
 ///
 /// # Why the structured half reads the prose setting
 ///
-/// `prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
-/// `serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
-/// nothing in this half escapes anything. It is a decision about **who may put words in front of an
-/// agent**, and that is a property of the deployment rather than of one field on one surface. The
-/// text half of this very result honoured it while this half shipped every description beside it,
-/// which is `docs/adr/0022`'s amendment happening a second time one field lower down.
+/// Not to escape anything - `serde` owns the field boundary here, so a description cannot cross one
+/// whatever it spells. `prompt.catalog_prose` decides **who may put words in front of an agent**,
+/// which is a property of the deployment rather than of one field on one surface. This half shipped
+/// every description while the text block beside it withheld them: `docs/adr/0022`'s second
+/// amendment.
 #[derive(Debug, serde::Serialize)]
 pub struct CatalogContent {
     /// Which snapshot this listing describes. The same version and digest an answer carries, so a
     /// model can tell that the metric it read about is the metric it measured.
     provenance: ProvenanceContent,
-    // ONE field for one fact, read by both halves of the result: `as_text` renders the notice and
-    // the descriptions from it, and serde writes it out as the operator's own spelling. Storing the
-    // string as well would be two statements about one decision, and passing the setting to
-    // `as_text` separately would let the two halves of one result disagree.
+    // ONE field for one fact, read by both halves of the result: `as_text` picks its notice from it
+    // and serde writes it out. A setting passed to `as_text` separately would let the two halves of
+    // one reply disagree about a decision the operator made once.
     /// Which way the operator's `prompt.catalog_prose` setting points, so an absent description is a
     /// fact a client can read rather than one it has to infer.
     #[serde(rename = "catalog_prose")]
@@ -530,10 +528,9 @@ pub struct DimensionContent {
 
 /// The prose setting, wearing the encoding a client reads it in.
 ///
-/// A wrapper and not a `serialize_with` on the field, because a free serializer function is a
-/// signature clippy reads as a complex type passed by reference and both `#[expect]`s would be
-/// suppression rather than design. It is not a second spelling either: `Serialize` here delegates to
-/// `CatalogProse::as_str`, which is the one the settings parser accepts.
+/// A wrapper rather than a `serialize_with` on the field: a free serializer function is a signature
+/// clippy reads twice over, and two `#[expect]`s for one helper would be suppression rather than
+/// design. Not a second spelling either - `Serialize` delegates to `CatalogProse::as_str`.
 #[derive(Debug)]
 struct ProseSetting(CatalogProse);
 
