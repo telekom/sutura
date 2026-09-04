@@ -73,7 +73,8 @@ sutura-mcp = { workspace = true }
 # `TracingAuditSink`, the implementor of the `AuditSink` the service requires, plus the async
 # runtime that drives `serve_stdio`. The sink writes to `tracing`; a locally launched process has no
 # subscriber, so records go nowhere until a composition installs one - the same posture the `query`
-# command takes when it writes none.
+# command takes, which since issue #266's A1 composes the same service rather than writing no
+# record at all.
 sutura-runtime = { workspace = true }
 # The runtime `serve_stdio` runs in. `rt-multi-thread` is on in this binary regardless - the engine
 # drives its own current-thread runtime but the workspace resolves the feature through it - so this

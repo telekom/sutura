@@ -141,12 +141,14 @@ where
 
 /// The agent surface this command serves: the `query` composition behind the driving port.
 ///
-/// The same answer path `query` exercises, wrapped in the service an agent client speaks to. The
-/// one difference worth stating is the audit sink: [`LocalService::start`] requires one (a service
-/// with no sink does not exist), and `TracingAuditSink` is it. A locally launched process installs
-/// no subscriber, so those records go nowhere for the whole session - a different weight than
-/// `query`, where one person's own terminal loses nothing, but the same honest default: nothing
-/// claims a record was kept when none was. The sink is only the writer, so any composition that
+/// The same answer path `query` exercises, wrapped in the service an agent client speaks to -
+/// including the audit sink: [`LocalService::start`] requires one (a service with no sink does not
+/// exist), and `TracingAuditSink` is it. **That used to be the one difference between the two
+/// commands and is not any more**: `query` called the answer function directly and wrote no record
+/// at all, which is issue #266's A1, and it now composes the service the same way. A locally
+/// launched process installs no subscriber either way, so those records go nowhere for the whole
+/// session - the honest default rather than a claim that a record was kept when none was, and the
+/// limit the invariants row states. The sink is only the writer, so any composition that
 /// does install a subscriber must send it to standard error - on this transport standard output is
 /// the protocol channel, which is why the startup notice is an `eprintln!`.
 fn mcp_service<W>(
