@@ -902,31 +902,43 @@ release triple, and the four `cross` jobs build them beside the shipped set on e
 The record's build-cost reasoning above it is corrected here rather than in place, per this page's
 own convention.
 
-**First, that the A/B is an A/B.** The probe derivation and the shipped `-ci` derivation for one
-triple were dumped and diffed: they agree on every environment key but three - the cargo build
-command, which gains a trailing `--features bigquery`; the disabled check command, which gains the
-same; and the output path. They name the **same** `cargoArtifacts` store path, so the dependency
-derivation is shared rather than rebuilt, which the job logs confirm by never building a second
+**First, that the A/B is an A/B, and it was re-taken on the triple that is the risk.** The probe
+derivation and the shipped `-ci` derivation for `aarch64-unknown-linux-musl` were dumped and
+diffed. Their input sets are IDENTICAL - 23 input derivations and 4 input sources on both sides,
+including the same `sutura-deps-aarch64-unknown-linux-musl`, so the dependency derivation is shared
+rather than rebuilt - and exactly three environment keys differ: the cargo build command, which
+gains a trailing `--features bigquery`; the disabled check command, which gains the same; and the
+output path. The job logs confirm the shared half from the other end by never building a second
 `sutura-deps-<triple>`. Nothing else varies between the two columns below.
 
 **The cost, as COMPILED UNITS.** Seconds drift with whatever else a runner is doing; a unit count
-does not. From the `Compiling` lines of the crate derivation's own log, feature off and then on:
+does not. Counted off the `Compiling` lines of the CRATE derivation's own log and not the job's -
+`sutura-deps-<triple>` is the shared dependency build and is excluded, which is the whole reason
+units beat seconds here - for all four published triples of CI run 33808343712, feature off and
+then on:
 
-| where | OFF | ON |
+| triple | OFF | ON |
 | --- | --- | --- |
-| `x86_64-unknown-linux-gnu`, CI run 33794910687 | 100 | 112 |
-| `aarch64-apple-darwin`, a laptop, 2026-09-03 | 105 | 117 |
+| `x86_64-unknown-linux-gnu` | 100 | 112 |
+| `aarch64-unknown-linux-gnu` | 100 | 112 |
+| `x86_64-unknown-linux-musl` | 100 | 112 |
+| `aarch64-unknown-linux-musl` | 100 | 112 |
 
-**+12 units on both, none dropped, and all twelve are the feature:** `ring`, `untrusted`, `rustls`,
-`rustls-pki-types`, `rustls-webpki`, `webpki-roots`, `ureq`, `ureq-proto`, `httparse`,
-`getrandom 0.2`, `utf8-zero`, `sutura-exec-bigquery`. That is the adapter plus the outbound TLS
-closure and nothing besides.
+**+12 units on every one of the four, none dropped, and the same twelve crates every time:**
+`ring`, `untrusted`, `rustls`, `rustls-pki-types`, `rustls-webpki`, `webpki-roots`, `ureq`,
+`ureq-proto`, `httparse`, `getrandom 0.2`, `utf8-zero`, `sutura-exec-bigquery`. That is the adapter
+plus the outbound TLS closure and nothing besides. The unanimity is the useful part: a per-triple
+figure would leave open which triple the closure is dearer on, and none of them is.
 
-**The seconds, for whoever wants them.** Runs 33781193001 and 33792642655 gave `+0.5 / -0.1 / +1.2 /
-+1.3s` and `+0.4 / -0.3 / +1.3 / +0.9s` over crate derivations of 69-84s - so **-0.4% to +1.7%
-across two runs**, which is noise. Cite that range, never a cell, and prefer the unit counts. All
-four triples LINKED in both runs, with `file` reporting the right architecture on each - static-pie
-on the musl pair, dynamically linked on the gnu pair, as the shipped builds are.
+**The seconds, for whoever wants them, and they are two different numbers.** The FEATURE's delta:
+runs 33781193001 and 33792642655 gave `+0.5 / -0.1 / +1.2 / +1.3s` and `+0.4 / -0.3 / +1.3 / +0.9s`
+over crate derivations of 69-84s - so **-0.4% to +1.7% across two runs**, which is noise. Cite that
+range, never a cell, and prefer the unit counts. The STEP's cost is the other number and it is not
+small: the probe is a second crate derivation, so run 33808343712 spent **69s, 74s, 75s and 85s**
+on it, one per job. Feature-off and feature-on both LINKED on all four triples in every run, with
+`file` reporting the right architecture for each - `statically linked` on aarch64-musl,
+`static-pie linked` on x86_64-musl, `dynamically linked` on the gnu pair, exactly as the shipped
+builds report on the same triple.
 
 **Was default-off necessary? For build cost, no. And the first version of this amendment got the
 REASON wrong, which is worth recording because the wrong reason was the plausible one.** It said the
@@ -982,6 +994,22 @@ directions were then reproduced by hand rather than argued:
 `file` cannot carry any of this and is a readout rather than an assertion: it exits **zero** on a
 path that does not exist, measured. What asserts the link is `nix build` succeeding.
 
+**And the same verification caught the step's own printed SENTENCE overstating, which is the
+smaller half of the same defect.** It printed its elapsed seconds as *"That is the price of the
+feature ON"* - and did so in CI, four times a pull request: `85s`, `69s`, `75s`, `74s` in run
+33808343712. Those seconds are the whole probe. The feature is the +12 units above, worth under 2%,
+and a wall clock in that step cannot separate the two, so the number was off by roughly the width
+of the thing it claimed to measure. Corrected to say which number it is and where the other lives.
+
+**And it is corrected in prose rather than held, which is the part worth writing down.**
+`check-guidance` DOES read `.github/**` - its file scope is `md`, `nix`, `yml`, `yaml`, `toml` and
+`sh` - so this sentence was reachable by the one gate in the repository that fails a false claim,
+and nothing had registered it. Registering it now is 15 lines more than
+`xtask/src/guidance/claims.rs` has: 985 of an unexemptable 1000-line cap, and the split that makes
+room is in flight on another branch. So the correction is held by REVIEW until that lands, and the
+general lesson is the one the remedy scan already taught from the other side - ask what reads a
+mechanism's own prose, and expect the answer to be nothing until somebody has registered it.
+
 **And the lane fails closed on the defect it exists to catch, reproduced rather than assumed.** A
 type error was planted behind `#[cfg(feature = "bigquery")]` in `crates/sutura-cli/src/sources/`
 and both host derivations built from the same tree: the shipped `-ci` build **succeeded** (exit 0,
@@ -995,6 +1023,17 @@ artefact-closure argument above is still qualitative. `sutura-serve`'s `tls` and
 deliberately unprobed, so none of this is evidence about the server. The planted-error red was
 reproduced on `aarch64-apple-darwin`, the one triple that host builds natively - **the musl link
 that is the actual risk has only ever been exercised green**, and CI is the only venue that can
-redden it. And the cost of *having* the probe is real even though the cost of the feature is not: it
-adds roughly 72-87s to each of four `cross` jobs on every pull request, which is the price of the
-answer rather than the price of the feature.
+redden it, because a musl dependency closure is not cached on a developer's machine. And the cost
+of *having* the probe is real even though the cost of the feature is not: **69-85s on each of four
+`cross` jobs**, per pull request, measured in run 33808343712. That is the price of the answer
+rather than the price of the feature.
+
+**One coupling this lane rests on and does not hold.** `ci.yml`'s `cross` matrix spells the four
+triples as literals, as `release.yml`'s does, and `cargo xtask check-shipped-binaries` reconciles
+the shipped BINARIES between those files and `nix/shipped.nix` - not the TARGETS. So a triple added
+to `crossTargets` and to `release.yml` but not to `ci.yml` would ship having been linked by
+nothing, with the feature or without it, and the only thing saying otherwise is a comment above the
+matrix. The reverse direction does fail closed, freely: a matrix target that is not a release target
+has no `feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a
+matrix cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
+reconciling this pair too; it is not this branch's to add and it is not held today.

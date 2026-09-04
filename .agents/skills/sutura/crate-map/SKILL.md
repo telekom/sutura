@@ -64,8 +64,8 @@ a developer lane: CI has the four `cross` builds for the compile half and nothin
 
 **What makes that rule a gate rather than a wish** is `probeFeatures` in `nix/shipped.nix`: a
 feature named there gets a `<bin>-<feature>-<triple>-ci` package per release triple, and the `cross`
-jobs build them beside the shipped set - so the price of the feature ON is a job time on every pull
-request rather than an argument. Until it existed the only evidence was a native `cargo check`,
+jobs build them beside the shipped set, so the documented feature-on build is LINKED on every pull
+request rather than argued about. Until it existed the only evidence was a native `cargo check`,
 which stops at metadata and therefore says nothing about the musl link that is the whole risk.
 **What it does not cover:** it links and never runs, and it probes only the features a binary
 declares - `sutura-serve`'s `tls` and `bigquery` are the same shape and are deliberately unprobed,
@@ -73,9 +73,11 @@ because the closure is compiled per target and three probes would triple the job
 
 **Running it corrected the paragraph above, and default-off is a decision about the ARTEFACT and
 not about build time** - cite it that way, held by `checks.shipped-features`. `docs/adr/0017` carries
-the numbers; the transferable part is that `--features bigquery` adds exactly **12 compiled units**,
-the adapter plus the outbound TLS closure, and that they cost under 2% of a `cross` job. Two traps
-in reading that:
+the numbers; the transferable part is that `--features bigquery` adds exactly **12 compiled units**
+- the adapter plus the outbound TLS closure, the same twelve on all four published triples - and
+that they cost under 2% of a `cross` job. **Do not read the step's own elapsed seconds as that
+number:** it prints a whole second crate derivation, 69-85s, and the step said *the price of the
+feature ON* for one run before somebody read it. Two more traps in reading it:
 
 | Trap | What is actually true |
 | --- | --- |
