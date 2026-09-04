@@ -734,6 +734,12 @@ jobs:
   # cache for it and a red local gate spends no cloud request. Nothing needs this job, so an endpoint
   # failure still does not hold the cross matrix; whether it becomes required is a branch-protection
   # decision rather than one this file makes.
+  #
+  # **A concurrency group shared across REFS - the CI belt to the per-run-table braces.** The
+  # dataset (`docs/adr/0017`'s seventh amendment) is one resource and every in-repo run shares it;
+  # the group is keyed on the DATASET not the ref so two refs queue rather than interleave, with
+  # `cancel-in-progress: false`. A developer's own local run is the one concurrent writer this
+  # cannot serialise; per-run table names keep it safe anyway.
   bigquery-acceptance:
     needs: [ci]
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
@@ -747,6 +753,12 @@ jobs:
     # secrets to a `pull_request` run from a fork, which is exactly the exposure `docs/adr/0017`
     # refused CI over - so naming it here is what makes the amendment true rather than asserted.
     environment: bq-test
+    # **The belt to the per-run-table braces:** two CI runs sharing one dataset queue rather than
+    # interleave. Keyed on the dataset (a `vars` value) and shared across refs - see the comment
+    # above the job.
+    concurrency:
+      group: bigquery-acceptance-${{ vars.SUTURA_BQ_DATASET }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
