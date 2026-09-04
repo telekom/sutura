@@ -872,7 +872,7 @@ mod tests {
         );
 
         // The control, and it is what stops the assertion below being satisfied by a listing that
-        // named nothing: a total reported beside no entries is the shape change itself.
+        // named nothing: a total reported beside no readable id is the shape change itself.
         assert!(
             held.holds(fixture.table.as_str()),
             "the listing named the fixture table, so this is a real listing of a real dataset"

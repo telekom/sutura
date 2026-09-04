@@ -580,7 +580,10 @@ fn a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named() {
         Recording::empty().holding_with_total(
             "acme-analytics/warehouse",
             &[],
-            ListingTotal::Short { reported: 3, carried: 0 },
+            ListingTotal::Short {
+                reported: 3,
+                identified: 0,
+            },
         ),
         shared_posture(),
     );

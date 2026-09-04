@@ -48,7 +48,11 @@ struct Listing {
     /// **The one field here that must not be able to refuse a document, which is stronger than
     /// tolerating its absence.** `Option<u64>` would already read a missing field as [`None`]; what
     /// it would ALSO do is fail the whole decode on a value spelled some other way - and a failed
-    /// decode of this listing is a pre-flight that stops verifying, silently, in the warning half.
+    /// decode of this listing is [`WireError::NotAListing`], which [`was_refused`] puts in the
+    /// WARNING half: the absent-table check for that dataset is lost WHOLE, downgraded to a
+    /// `Verdict::Unverified` both serving roots report as a `WARN` naming the source, and the
+    /// deployment serves. Loud, and serving anyway - *silently* was the word here and the mechanism
+    /// does not support it, which is a review correction; the accurate cost is enough on its own.
     /// So a field nothing yet decides on could turn a working boot check off. This crate already
     /// knows the service spells one count as a JSON number and another as a string:
     /// `document::QueryAnswer::total_rows` is `Option<String>` because `totalRows` is a `uint64`.
@@ -154,7 +158,8 @@ fn usable_table_id(id: &str) -> bool {
 /// `BigQuery`'s own documented maximum table-id length, in characters.
 const MAX_TABLE_ID_BYTES: usize = 1024;
 
-/// What a finished listing's own `totalItems` says, against the entries the document carried.
+/// What a finished listing's own `totalItems` says, against the entries whose table id it could
+/// read.
 ///
 /// **Infallible by construction, and that is the property rather than an implementation detail.**
 /// Every way the field can arrive that this crate cannot read as a count lands on
@@ -163,21 +168,30 @@ const MAX_TABLE_ID_BYTES: usize = 1024;
 /// answers that mean something. [`Listing::total_items`] argues why that matters and why a quoted
 /// count is read too.
 ///
-/// `carried` is the count of entries the whole finished listing carried - every page, before any id
-/// this crate cannot match was dropped. [`ListingTotal`] says why it may not be the named set.
-fn reported_total(field: Option<&serde_json::Value>, carried: usize) -> ListingTotal {
+/// **A JSON `null` is [`ListingTotal::Unreported`] and has no arm of its own**, which review had to
+/// point out: `Option`'s `Deserialize` calls `deserialize_option`, and `serde_json` answers a `null`
+/// with `visit_none` - so it arrives as [`None`] and never as `Some(Value::Null)`. A pattern for it
+/// read as coverage for a case that cannot occur, and the assertion below now goes through the arm
+/// the decoder really takes.
+///
+/// `identified` is how many entries of the whole finished listing carried a table id this crate
+/// could READ - every page, and before [`usable_table_id`] dropped any. [`ListingTotal`] says why
+/// that is neither the entry count nor the named set.
+fn reported_total(field: Option<&serde_json::Value>, identified: usize) -> ListingTotal {
     let reported = match field {
-        None | Some(serde_json::Value::Null) => return ListingTotal::Unreported,
+        None => return ListingTotal::Unreported,
         Some(serde_json::Value::Number(number)) => number.as_u64(),
         Some(serde_json::Value::String(text)) => text.parse::<u64>().ok(),
         Some(_) => None,
     };
-    // The loop below reads at most `MAX_PAGES * PAGE_SIZE` entries, so the fallback is unreachable -
-    // and it is the direction that cannot invent a shape change out of a conversion.
-    let carried = u64::try_from(carried).unwrap_or(u64::MAX);
+    // Unreachable because `usize` is at most 64 bits on every target this builds for - NOT because
+    // of `MAX_PAGES * PAGE_SIZE`, which bounds the pages read and not one page's `tables` length:
+    // `maxResults` is a hint the service is not bound by, and only `MAX_ANSWER_BYTES` bounds a page.
+    // `u64::MAX` is the direction that cannot invent a shape change out of a conversion.
+    let identified = u64::try_from(identified).unwrap_or(u64::MAX);
     match reported {
         None => ListingTotal::Unreadable,
-        Some(reported) if reported > carried => ListingTotal::Short { reported, carried },
+        Some(reported) if reported > identified => ListingTotal::Short { reported, identified },
         Some(reported) => ListingTotal::Accounted { reported },
     }
 }
@@ -192,8 +206,14 @@ fn reported_total(field: Option<&serde_json::Value>, carried: usize) -> ListingT
 struct Accumulating {
     /// The ids read so far, after every id this crate cannot match was dropped.
     named: BTreeSet<String>,
-    /// Every entry the document carried, BEFORE any of that dropping. See [`ListingTotal`].
-    carried: usize,
+    /// How many entries carried a table id this crate could READ, before any of that dropping.
+    ///
+    /// **Not the entry count, and the difference is a review finding rather than a refinement.**
+    /// Counting entries made a document whose `tableReference` the service renamed or nested read
+    /// [`ListingTotal::Accounted`] with no ids at all - the pre-flight reporting every table in the
+    /// bundle absent while the cross-check read clean, over exactly the ambiguity the total is
+    /// decoded to remove. See [`ListingTotal`].
+    identified: usize,
     /// The first page's `totalItems`, still as the service spelled it.
     total: Option<serde_json::Value>,
     /// How many pages have been folded in, which is the only way [`Self::absorb`] knows it is first.
@@ -212,13 +232,17 @@ impl Accumulating {
             self.total = page.total_items;
         }
         self.pages += 1;
-        self.carried += page.tables.len();
-        self.named.extend(
-            page.tables
-                .into_iter()
-                .filter_map(|entry| entry.table_reference?.table_id)
-                .filter(|id| usable_table_id(id)),
-        );
+        // **The two fates of an entry, counted differently on purpose.** An id outside
+        // `usable_table_id`'s set is dropped from the named set and still ACCOUNTED for, because
+        // `BigQuery` permits such an id and the dataset holding it is ordinary. An entry that
+        // carried no readable id at all is accounted for by nothing, because that is the shape
+        // change - and counting it made the renamed-`tableReference` document read clean.
+        for id in page.tables.into_iter().filter_map(|entry| entry.table_reference?.table_id) {
+            self.identified += 1;
+            if usable_table_id(&id) {
+                self.named.insert(id);
+            }
+        }
         page.next_page_token
     }
 
@@ -227,7 +251,7 @@ impl Accumulating {
     /// Only reached where the listing FINISHED: a run out of pages or of budget is an `Err`, so a
     /// total is never compared against a count this transport knows is short.
     fn finish(self) -> HeldTables {
-        HeldTables::of(self.named, reported_total(self.total.as_ref(), self.carried))
+        HeldTables::of(self.named, reported_total(self.total.as_ref(), self.identified))
     }
 }
 
@@ -532,7 +556,10 @@ mod tests {
         // three variants rather than a boolean.
         assert_eq!(
             read(&[r#"{"kind":"bigquery#tableList","totalItems":7,"tables":[]}"#]).total(),
-            ListingTotal::Short { reported: 7, carried: 0 },
+            ListingTotal::Short {
+                reported: 7,
+                identified: 0
+            },
             "a dataset that answers with no entries while claiming seven tables is a shape change"
         );
         assert_eq!(
@@ -555,6 +582,11 @@ mod tests {
         // something else* are different shape changes, and only the second says the document is being
         // generated differently.
         assert_eq!(read(&[r#"{"tables":[]}"#]).total(), ListingTotal::Unreported);
+        // A JSON `null` goes through the `None` arm rather than a pattern of its own, and this line
+        // is what holds that: `reported_total` had a `Some(Value::Null)` pattern until review, which
+        // could not be reached because `deserialize_option` answers a `null` with `visit_none` - so
+        // this assertion read as covering a case the decoder cannot produce. With the pattern gone a
+        // `null` reaching `Some(_)` would answer `Unreadable` and redden this line.
         assert_eq!(
             read(&[r#"{"totalItems":null,"tables":[]}"#]).total(),
             ListingTotal::Unreported
@@ -577,7 +609,7 @@ mod tests {
             read(&[r#"{"totalItems":"12","tables":[]}"#]).total(),
             ListingTotal::Short {
                 reported: 12,
-                carried: 0
+                identified: 0
             }
         );
     }
@@ -600,12 +632,13 @@ mod tests {
 
     #[test]
     fn a_table_id_this_crate_dropped_does_not_read_as_a_listing_short_of_its_own_total() {
-        // **The wrong claim this cross-check would otherwise make, and it is why the comparison is
-        // against the entries a document CARRIED rather than the ids it named.** `BigQuery` permits a
-        // table id outside `usable_table_id`'s set, and such an id is dropped from the listing - so a
-        // dataset holding one names fewer ids than its total claims while nothing whatever is wrong.
-        // Comparing against the named set would report it as a shape change: an overstated finding
-        // replacing an unsettled question, which is the defect this whole change is about.
+        // **The wrong claim this cross-check would otherwise make, and it is why an id
+        // `usable_table_id` REJECTED still counts as identified.** `BigQuery` permits a table id
+        // outside that set, and such an id is dropped from the named set - so a dataset holding one
+        // names fewer ids than its total claims while nothing whatever is wrong. Comparing against
+        // the named set would report it as a shape change: an overstated finding replacing an
+        // unsettled question, which is the defect this whole change is about. The test below is the
+        // other direction of the same distinction, and the two are a pair.
         let held = read(&[r#"{"totalItems":3,"tables":[
             {"tableReference":{"tableId":"dim_customer"}},
             {"tableReference":{"tableId":"dim-region"}},
@@ -620,6 +653,57 @@ mod tests {
             held.total(),
             ListingTotal::Accounted { reported: 3 },
             "three entries against a total of three is accounted for, however many ids survived"
+        );
+    }
+
+    #[test]
+    fn a_listing_whose_entries_carry_no_readable_id_is_short_of_its_own_total() {
+        // **The case the first shape of this cross-check read CLEAN, which is a review finding.**
+        // Nothing here refuses a renamed field - there is no `deny_unknown_fields`, for
+        // `document::QueryAnswer`'s reason - so the service renaming `tableReference`, nesting it a
+        // level deeper, or moving the id under another key produces a document carrying three
+        // entries and no readable id. Counting ENTRIES answered `Accounted { reported: 3 }` over
+        // zero ids: the pre-flight one port up reporting every table in the bundle absent while the
+        // cross-check said the listing accounted for itself - the ambiguity the field is decoded to
+        // remove, restated as a clean verdict.
+        for body in [
+            r#"{"totalItems":3,"tables":[{"kind":"bigquery#table"},{"kind":"bigquery#table"},{"kind":"bigquery#table"}]}"#,
+            r#"{"totalItems":3,"tables":[
+                {"tableReference":{"reference":{"tableId":"dim_customer"}}},
+                {"tableReference":{"reference":{"tableId":"dim_region"}}},
+                {"tableReference":{"reference":{"tableId":"fct_orders"}}}
+            ]}"#,
+            r#"{"totalItems":3,"tables":[
+                {"tableReference":{"name":"dim_customer"}},
+                {"tableReference":{"name":"dim_region"}},
+                {"tableReference":{"name":"fct_orders"}}
+            ]}"#,
+        ] {
+            let held = read(&[body]);
+            assert_eq!(
+                held.total(),
+                ListingTotal::Short {
+                    reported: 3,
+                    identified: 0
+                },
+                "{} id(s) read out of three entries: {body}",
+                held.named().len()
+            );
+            assert!(held.named().is_empty(), "and the pre-flight is asked with nothing: {body}");
+        }
+        // **The control, and the loop above needs one:** `identified` hardwired to zero would pass
+        // every line of it. A document where only SOME entries lost their id is short by exactly
+        // those, so the number is a count rather than a flag.
+        assert_eq!(
+            read(&[r#"{"totalItems":2,"tables":[
+                {"kind":"bigquery#table"},
+                {"tableReference":{"tableId":"dim_customer"}}
+            ]}"#])
+            .total(),
+            ListingTotal::Short {
+                reported: 2,
+                identified: 1
+            }
         );
     }
 
@@ -643,7 +727,10 @@ mod tests {
         );
         assert_eq!(
             read(&[first, r#"{"totalItems":3,"tables":[]}"#]).total(),
-            ListingTotal::Short { reported: 3, carried: 2 },
+            ListingTotal::Short {
+                reported: 3,
+                identified: 2
+            },
             "a page that carried nothing is still a page that carried nothing"
         );
         // And the FIRST page decides, so a later page disagreeing with itself cannot change the

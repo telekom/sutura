@@ -558,26 +558,44 @@ bullets down:
   behaviour so the direction is a measured property rather than a hope. On its own it cannot be told
   from an empty dataset, which really does answer with no `tables` array. **`totalItems` is what
   tells the two apart, and it is now DECODED** - a non-zero total beside a document that carried no
-  entries is a shape change and not an empty dataset. What is worth reading about HOW, because each
-  of them is a way the obvious version would have been wrong:
+  readable table id is a shape change and not an empty dataset. What is worth reading about HOW,
+  because each of them is a way the obvious version would have been wrong:
 
     - **Read as raw JSON and turned into a `ListingTotal`, never as an `Option<u64>`.** An `Option`
       already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
       spelled some other way, and a failed decode here is `NotAListing` - which
-      `listing_was_refused` puts in the warning half, so the deployment would serve on past a
-      pre-flight that had silently stopped verifying anything. A field nothing yet decides on must not
-      be able to switch off the check it exists to sharpen. This service already spells the sibling
-      `totalRows` as a JSON string, so a count arriving quoted is its own habit rather than a
-      hypothetical, and a string is read too.
+      `listing_was_refused` puts in the warning half, so the absent-table check for that dataset is
+      lost whole: `Verdict::Unverified`, a `WARN` naming the source, and the deployment serves. Loud,
+      and serving anyway. **This bullet read *silently* and the mechanism does not support it** - a
+      review correction, and the accurate cost carries the decision on its own: a field nothing yet
+      decides on must not be able to switch off the check it exists to sharpen. This service already
+      spells the sibling `totalRows` as a JSON string, so a count arriving quoted is its own habit
+      rather than a hypothetical, and a string is read too.
     - **Four variants rather than a number, and the two that mean *nothing to compare* are separate.**
       *The service sent no total* and *the service sent something this crate could not read* are
       different findings; the second is itself evidence the document is being generated differently.
-    - **The comparison is against the entries the document CARRIED, never against the ids it named**,
-      and this is the wrong claim the cross-check would otherwise make. An id outside
-      `usable_table_id`'s accepted set is dropped from the listing, and `BigQuery` permits one - so a
-      dataset holding such a table names fewer ids than its own total claims while nothing whatever is
-      wrong. Comparing against the named set would report that ordinary dataset as short of its total:
-      an overstated finding replacing an unsettled question, which is the same defect one turn on.
+    - **The comparison is against the entries that carried a table id this crate could READ - neither
+      the ids the listing named nor the entries it merely counted**, and both halves of that are a
+      wrong claim avoided. An id outside `usable_table_id`'s accepted set is dropped from the named
+      set, and `BigQuery` permits one - so a dataset holding such a table names fewer ids than its own
+      total claims while nothing whatever is wrong, and comparing against the named set would report
+      that ordinary dataset as short of its total. **The entry count is the mistake the other way, and
+      it is a review finding on this change rather than a hypothetical:** a document whose
+      `tableReference` the service renamed or nested carries entries and no readable id, and counting
+      entries answered `Accounted { reported: 3 }` over zero ids - the pre-flight reporting every
+      table in the bundle absent while the cross-check read clean, over exactly the ambiguity the
+      field is decoded to remove. Reproduced before it was fixed, and
+      `a_listing_whose_entries_carry_no_readable_id_is_short_of_its_own_total` is what holds it: an
+      entry with no readable id is the shape signal, an id `usable_table_id` rejected is the
+      legitimate drop, and the two tests are a pair.
+    - **What the value still does not reach, stated where the claim is:** a service that re-spells the
+      COUNT as well as the entry leaves `Unreported` or `Unreadable`, which say *nothing to compare*
+      rather than *empty dataset*; a dataset every one of whose ids this crate drops is `Accounted`
+      beside no ids by design; and a `Short` whose identified count is non-zero does not separate a
+      shape change from a table created or deleted between the total and the array. The raw entry
+      count is not kept, so an identified count of zero merges *the array was empty* with *no entry
+      carried an id* - the same finding for the only caller there is, and a third number for a
+      decision that needs more.
     - **The DATASET's number, not the page's, and that is measured rather than assumed.** In the
       endpoint's own discovery document, read on 2026-09-04 at revision `20260811`,
       `TableList.totalItems` is `{"format": "int32", "type": "integer"}` - a bare JSON number -
@@ -612,15 +630,18 @@ bullets down:
 
   **And it has now RUN, green, in the `bigquery-acceptance` job on 2026-09-04**, which is what the
   earlier deferral was owed: a real `tables.list` answered `ListingTotal::Accounted`, so the service
-  populates the field and its number agreed with the entries the same document carried. The
-  cross-check has a real input, and *whether it does* is no longer the open question. **What that run
-  does not establish, counted by nobody:** it is ONE dataset at one moment, and a second
+  populates the field and its number agreed with the readable table ids the same document carried.
+  The cross-check has a real input, and *whether it does* is no longer the open question. **What that
+  run does not establish, counted by nobody:** it is ONE dataset at one moment, and a second
   deployment's service behaviour is not a property this run establishes; the leg
   deliberately does not require the total to be EXACT, because the corpus leg writes four tables to
   the same dataset and a moving number would be a leg failing for a reason outside the diff; and the
-  case the cross-check exists for - a document carrying no entries beside a non-zero total - has
-  never been seen live and cannot be provoked from here, so what holds its MEANING is the hermetic
-  suite over documents. It has never run on a developer machine either, for the reason the leg above
+  case the cross-check exists for - a document carrying no readable table id beside a non-zero total
+  - has never been seen live and cannot be provoked from here, so what holds its MEANING is the
+  hermetic suite over documents. **And it predates the counting correction above**, so what it
+  established is that the field arrives and is comparable at all - not which basis the comparison is
+  made on. Whether a real listing still answers a readable verdict now the count is readable ids
+  rather than entries is the same job's to answer, on the head that carries the correction. It has never run on a developer machine either, for the reason the leg above
   it has not: no dataset is named in this environment.
 - **A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
   wording.** Issue #120's own verification asked for a run asserting the boot refusal, and until

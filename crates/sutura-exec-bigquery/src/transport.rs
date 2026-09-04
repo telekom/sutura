@@ -204,6 +204,13 @@ pub struct DatasetAddress {
 /// changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
 /// absent*. [`ListingTotal`] is what the two can be told apart by.
 ///
+/// **And exactly that far, which is the limit next to the claim.** It reaches a shape change the
+/// same document still reports a readable count beside: a service that re-spelled `totalItems` as
+/// well leaves [`ListingTotal::Unreported`] or [`ListingTotal::Unreadable`], and those say *nothing
+/// to compare* rather than *empty dataset*. Nor does it reach a dataset every one of whose ids this
+/// crate drops - that is [`ListingTotal::Accounted`] beside no ids, deliberately, because it is an
+/// ordinary dataset no model in the bundle could have named anyway.
+///
 /// **Why it travels on the answer rather than being decided here, which is not the same as *it
 /// could not be*:** [`JobTransport::listing_was_refused`] is proof that this port can hold a
 /// decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
@@ -218,19 +225,23 @@ pub struct HeldTables {
     total: ListingTotal,
 }
 
-/// What a listing's own reported total said, against the entries the same document carried.
+/// What a listing's own reported total said, against the entries of the same document whose table
+/// id it could read.
 ///
 /// **Four variants rather than an `Option<u64>`, because each says something different about what a
 /// caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
 /// have merged with the answer. A reader has to name the case, for the reason
 /// `sutura_domain::source::AnchorIdentity` names `NoneDeclared` rather than answering `None`.
 ///
-/// **The comparison is against the entries the document CARRIED and never against the ids it
-/// named**, and the difference is a wrong claim avoided rather than a nicety: a listing entry whose
-/// table id is outside `usable_table_id`'s accepted set is DROPPED, so a dataset holding tables this
-/// crate cannot match legitimately names fewer ids than it carried entries - and `BigQuery` does
-/// permit an id this crate would drop. Comparing a total against the named set would report that
-/// ordinary dataset as short of its own total, which is a shape change nobody served.
+/// **The comparison is against the entries that carried a table id this crate could READ - neither
+/// the ids the listing NAMED nor the entries it merely counted**, and each half of that is a wrong
+/// claim avoided. An id outside `usable_table_id`'s accepted set is DROPPED from the named set, and
+/// `BigQuery` permits such an id, so comparing against the named set would report an ordinary
+/// dataset as short of its own total. The entry count is the mistake the other way, and it was this
+/// type's first shape: a document whose `tableReference` the service renamed or nested carries
+/// entries and no readable id, which read [`Self::Accounted`] over no ids at all - the pre-flight
+/// reporting every table absent while the cross-check read clean. An entry with no readable id is
+/// the shape signal; an id `usable_table_id` rejected is the legitimate drop, and it still counts.
 ///
 /// The same cross-check one document over is [`crate::BigQueryError::Incomplete`], which compares
 /// `delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
@@ -250,21 +261,28 @@ pub enum ListingTotal {
     /// itself a shape change worth being able to see. Nothing of the value is kept - a foreign
     /// scalar is not something this crate carries around to print.
     Unreadable,
-    /// It reported a total, and carried an entry for every table the total claims.
+    /// It reported a total, and carried a readable table id for every table the total claims.
     ///
-    /// *At least* every one: `reported` may be below what the document carried without anything
-    /// being wrong, because a total read off a dataset being written to is a moving number.
+    /// *At least* every one: `reported` may be below the number of ids the document carried without
+    /// anything being wrong, because a total read off a dataset being written to is a moving number.
     Accounted {
         /// The total the document reported.
         reported: u64,
     },
-    /// It reported MORE tables than it carried entries for.
+    /// It reported MORE tables than the same document carried readable table ids for.
     ///
-    /// **On a document carrying NO entries this is the shape change** - a dataset that answered with
-    /// tables the listing did not name - which is exactly what an empty `tables` array cannot be
-    /// told from an empty dataset without. On one carrying some it is weaker: a table created
-    /// between the total and the array, or a page contract this transport read differently than the
-    /// service meant it.
+    /// **On a document that carried no readable id at all this is the shape change** - a dataset
+    /// that answered with tables the listing did not name, or with entries this crate could read no
+    /// id out of - which is exactly what an empty `tables` array cannot be told from an empty
+    /// dataset without. Where `identified` is non-zero it is weaker: a table created between the
+    /// total and the array, or a page contract this transport read differently than the service
+    /// meant it.
+    ///
+    /// **What it does not separate, so a decision does not read it as more:** an `identified` of
+    /// zero merges *the array was empty* with *no entry carried a readable id*, because the raw
+    /// entry count is not kept. Both are the same finding for the caller that has one - no ids
+    /// beside a non-zero total - so nothing needs the third number today, and a decision that wants
+    /// to tell those two apart has to add it rather than read this one harder.
     ///
     /// **Nothing refuses on it yet**, and that is a decision rather than an omission -
     /// `docs/adr/0018` carries it, including why `Err` is not obviously the safe direction here, and
@@ -272,8 +290,8 @@ pub enum ListingTotal {
     Short {
         /// The total the document reported.
         reported: u64,
-        /// How many entries the same document actually carried.
-        carried: u64,
+        /// How many entries of the same document carried a table id this crate could read.
+        identified: u64,
     },
 }
 
@@ -301,7 +319,7 @@ impl HeldTables {
         &self.named
     }
 
-    /// What the listing's own reported total said about the entries it carried.
+    /// What the listing's own reported total said about the ids the same document carried.
     #[inline]
     #[must_use]
     pub const fn total(&self) -> ListingTotal {
