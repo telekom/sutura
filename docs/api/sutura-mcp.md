@@ -598,6 +598,29 @@ Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes n
 and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
 returns: it is the *pinned* bundle, the same one every answer is computed from.
 
+# Why the structured half reads the prose setting
+
+`prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
+`serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
+nothing in this half escapes anything. It is a decision about **who may put words in front of an
+agent**, and that is a property of the deployment rather than of one field on one surface. The
+text half of this very result honoured it while this half shipped every description beside it,
+which is `docs/adr/0022`'s amendment happening a second time one field lower down.
+
+#### Methods
+
+```rust
+pub fn of(pinned: &PinnedDefinitions, prose: CatalogProse) -> Self
+```
+
+The reader's view of a pinned bundle, under the prose setting this deployment was started
+with.
+
+**A named constructor rather than a `From`, and the argument is the reason.** A conversion
+reachable without the setting fails OPEN - it ships the prose of a deployment that asked for
+none, which is the defect this function exists to close, and it is how that defect arrived
+here. A second argument cannot be left out.
+
 #### Implements
 
 `Debug`, `Serialize`
