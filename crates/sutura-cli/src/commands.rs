@@ -365,23 +365,68 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
     })())
 }
 
-/// Starts the service over the data system that was opened, answers the question, and prints it.
+/// The service this binary composes, over one of the adapters it links.
 ///
-/// Generic in the adapter, so the two arms above share every line after them.
+/// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
+/// and the broker are the three collaborators every command here composes. Generic in the warehouse
+/// since the `bigquery` feature landed; the other two are this binary's own choice and never vary.
+pub(crate) type Composed<W> = LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker>;
+
+/// Starts the service over what a command opened, and refuses a bundle the engine cannot serve.
 ///
-/// **Through [`LocalService`] rather than `sutura_app::answer`, and that is the whole of this
-/// function's shape.** The invariants tree says every outcome is recorded before it is returned and
-/// names the service's constructor as what holds it - a constructor that takes a sink and has no
-/// form that omits one. This command used to call the application's answer function directly and
-/// drop the deadline with `into_outcome`, so the one shipped command a person runs on a terminal
-/// answered with no record while the row said otherwise. `crate::mcp` already composed it this way;
-/// this is the same composition behind a different driving port, and
-/// `cargo xtask check-boundaries` is what stops the direct call coming back.
+/// **The ONE place this binary builds a service, which is what makes the audit row true for both
+/// commands rather than for whichever one was written last.** [`LocalService::start`] takes an audit
+/// sink and has no form that omits one, and `Surface::answer` writes one record per outcome before
+/// its `Ok` - so a command that answers through here cannot answer without recording. `query` used
+/// to call `sutura_app::answer` itself and drop the deadline with `into_outcome`, which is issue
+/// #266's A1: the one shipped command a person runs on a terminal answered with no record while the
+/// invariants row named a mechanism it was outside of. `cargo xtask check-boundaries` is what stops
+/// the direct call coming back.
 ///
-/// The sink is [`TracingAuditSink`] and this binary installs no subscriber, so the record goes
-/// nowhere unless a composition installs one - the same honest default `crate::mcp` states, and the
-/// reason the row's limit says a written record is not a retained one. What changes is that the
-/// record exists before the rows are printed rather than not at all.
+/// `catalog` is handed over rather than a bundle rebuilt, because the constructor loads it again and
+/// re-runs every anchor - that is its contract - so the two loads cannot disagree about the version
+/// or the source name. [`crate::sources::refuse_unattached`] closes the one gap that remains: a
+/// model added to the catalog directory between a caller's own load and the load inside `start`
+/// would otherwise be served with no table registered behind it, failing its first question at query
+/// time. Skipped for a data system nothing was attached to, which is the narrowing
+/// `crate::sources::OpenedWith` documents - nothing to compare is not the same as nothing missing.
+///
+/// **The working-set number is `runtime.working_set_max_bytes` and not a `1 << 30` literal** - a
+/// review correction, and the same one `crate::sources` took. The answer path reads it only on the
+/// federated leg, which both commands refuse, so nothing observable changes today; what changes is
+/// that an operator who lowered that key is not quietly ignored by the one number this call passes.
+///
+/// The sink is [`TracingAuditSink`] and this binary installs no subscriber, so a record is written
+/// onto a dispatcher that discards it until a composition installs one. That is the honest default
+/// and it is the limit the invariants row states: a written record is not a retained one.
+pub(crate) fn started<W>(
+    catalog: &LocalCatalog,
+    opened: crate::sources::OpenedWith<W>,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<Composed<W>, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    let service = LocalService::start(
+        catalog,
+        opened.engines,
+        TracingAuditSink::new(),
+        opened.broker,
+        runtime.working_set().bytes().get() as u64,
+    )
+    .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
+    if let Some(attached) = opened.attached {
+        crate::sources::refuse_unattached(&crate::sources::served_tables(service.definitions()), &attached)?;
+    }
+    Ok(service)
+}
+
+/// Answers the question through the service and prints the outcome.
+///
+/// Generic in the adapter, so the two arms above share every line after them. The composition is
+/// [`started`], which both commands go through; what is left here is the driving port - a question
+/// read from a path on the command line and a table written to standard output.
 fn answered<W>(
     catalog: &LocalCatalog,
     question: &Query,
@@ -392,31 +437,7 @@ where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    // The governance is not an order this function has to remember. One call loads the catalog, runs
-    // the anchors against the engine it was handed and hands back a service only if every one
-    // reproduced its number. A corrupted anchor stops here rather than answering.
-    //
-    // **The working-set number is `runtime.working_set_max_bytes` and no longer a `1 << 30` literal**
-    // - a review correction, and the same one `sources::working_set` took. The answer path reads it
-    // only on the federated leg, which this command refuses, so nothing observable changes today;
-    // what changes is that an operator who lowered that key has not been quietly ignored by the one
-    // number this call passes. A literal here was the duplicate that drifts, one accessor from the
-    // value.
-    let service = LocalService::start(
-        catalog,
-        opened.engines,
-        TracingAuditSink::new(),
-        opened.broker,
-        runtime.working_set().bytes().get() as u64,
-    )
-    .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
-    // The gap the second load leaves, closed the way `crate::mcp` closes it: a model added to the
-    // catalog directory between the load above and the load inside `start` would otherwise be
-    // answered against a table nothing registered. Skipped for a data system nothing was attached
-    // to - nothing to compare is not the same as nothing missing.
-    if let Some(attached) = opened.attached {
-        crate::sources::refuse_unattached(&crate::sources::served_tables(service.definitions()), &attached)?;
-    }
+    let service = started(catalog, opened, runtime)?;
     // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller, and
     // the identity the data system is reached under is the process's own.
     //
