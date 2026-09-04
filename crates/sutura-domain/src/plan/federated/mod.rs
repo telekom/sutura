@@ -27,6 +27,7 @@
 //! slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
 //! have to re-count. The refusal names the aggregate.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use crate::federation::{Above, Federation};
@@ -760,29 +761,50 @@ fn leaf_values(federation: &Federation, leaf_rows: &[Vec<Value>], metric: &Metri
 /// non-null value contributes null; a cell that is not a number, a column that is not one kind of
 /// number, an overflow, or a non-finite total is a refusal, never a silent zero or null.
 ///
-/// **The column is read before the aggregate is chosen**, so each aggregate below sees one numeric
+/// **The column is read before the aggregate is applied**, so each reduction below sees one numeric
 /// type - see [`LeafColumn`], which is where that decision and its reason live.
 fn aggregate<'a>(
     aggregate: Aggregate,
     values: impl Iterator<Item = &'a Value>,
     metric: &MetricName,
 ) -> Result<Value, FederatedFailure> {
+    let reduction = Reduction::of(aggregate)?;
     let Some(column) = LeafColumn::parse(values, aggregate)? else {
         return Ok(Value::Null);
     };
-    match aggregate {
-        Aggregate::Sum => column.total(metric),
-        Aggregate::Min => Ok(column.extreme(Extreme::Least)),
-        Aggregate::Max => Ok(column.extreme(Extreme::Greatest)),
-        other => Err(FederatedFailure::UnsupportedAggregate { aggregate: other }),
+    match reduction {
+        Reduction::Total => column.total(metric),
+        Reduction::Least => Ok(column.extreme(Ordering::Less)),
+        Reduction::Greatest => Ok(column.extreme(Ordering::Greater)),
     }
 }
 
-/// Which end of a leaf column an aggregate asks for.
+/// What a leaf column is reduced to, named rather than left as the aggregate it came from.
+///
+/// Parsed **before** the column is read, because an aggregate the combiner does not re-aggregate
+/// with is a wiring defect rather than a property of the data: deciding it afterwards means a
+/// column read for nothing, and a diagnostic naming whatever shape that column happened to have
+/// instead of the defect.
 #[derive(Clone, Copy)]
-enum Extreme {
+enum Reduction {
+    /// [`Aggregate::Sum`], which a `Count` leaf also re-aggregates with.
+    Total,
+    /// [`Aggregate::Min`].
     Least,
+    /// [`Aggregate::Max`].
     Greatest,
+}
+
+impl Reduction {
+    /// The reduction an aggregate re-aggregates with, or the refusal that it does not.
+    const fn of(aggregate: Aggregate) -> Result<Self, FederatedFailure> {
+        match aggregate {
+            Aggregate::Sum => Ok(Self::Total),
+            Aggregate::Min => Ok(Self::Least),
+            Aggregate::Max => Ok(Self::Greatest),
+            other => Err(FederatedFailure::UnsupportedAggregate { aggregate: other }),
+        }
+    }
 }
 
 /// One leaf column's non-null cells, once their single numeric type is established.
@@ -818,10 +840,10 @@ impl LeafColumn {
                 Value::Null => {}
                 Value::Integer(cell) => integers.push(cell),
                 Value::Real(cell) => reals.push(cell),
-                ref other @ Value::Text(_) => {
+                Value::Text(_) => {
                     return Err(FederatedFailure::NonNumericLeaf {
                         aggregate,
-                        value: other.clone(),
+                        value: value.clone(),
                     });
                 }
             }
@@ -845,37 +867,28 @@ impl LeafColumn {
     )]
     fn total(&self, metric: &MetricName) -> Result<Value, FederatedFailure> {
         match *self {
-            Self::Integers(ref cells) => {
-                let mut total: i64 = 0;
-                for cell in cells {
-                    total = total.checked_add(*cell).ok_or(FederatedFailure::Overflow {
-                        aggregate: Aggregate::Sum,
-                    })?;
-                }
-                Ok(Value::Integer(total))
-            }
-            Self::Reals(ref cells) => {
-                let mut total: f64 = 0.0;
-                for cell in cells {
-                    total += cell.get();
-                }
-                Real::parse(total).map_or_else(
-                    |_not_finite| Err(FederatedFailure::NonFinite { metric: metric.clone() }),
-                    |real| Ok(Value::Real(real)),
-                )
-            }
+            Self::Integers(ref cells) => cells
+                .iter()
+                .try_fold(0_i64, |total, cell| total.checked_add(*cell))
+                .map(Value::Integer)
+                .ok_or(FederatedFailure::Overflow {
+                    aggregate: Aggregate::Sum,
+                }),
+            Self::Reals(ref cells) => Real::parse(cells.iter().fold(0.0_f64, |total, cell| total + cell.get()))
+                .map(Value::Real)
+                .map_err(|_not_finite| FederatedFailure::NonFinite { metric: metric.clone() }),
         }
     }
 
     /// The column's least or greatest cell, in the column's own type.
     ///
+    /// `wanted` is the ordering a cell must have against the incumbent to replace it: [`Ordering::Less`]
+    /// for a minimum, [`Ordering::Greater`] for a maximum. Both comparisons are exact - an `i64` against
+    /// an `i64`, and `total_cmp` over reals that [`Real`] has already established are finite.
+    ///
     /// `reduce` answers `None` only for an empty column, which [`parse`](LeafColumn::parse) answers
     /// `None` for instead - so the `Value::Null` below is unreachable rather than a case.
-    fn extreme(&self, extreme: Extreme) -> Value {
-        let wanted = match extreme {
-            Extreme::Least => std::cmp::Ordering::Less,
-            Extreme::Greatest => std::cmp::Ordering::Greater,
-        };
+    fn extreme(&self, wanted: Ordering) -> Value {
         match *self {
             Self::Integers(ref cells) => cells
                 .iter()
@@ -944,17 +957,22 @@ fn divide(
     Ok(Value::Real(real))
 }
 
-/// A numeric cell as `f64`, or `None` for a null.
+/// A numeric cell as `f64`, or `None` for a cell no ratio can be taken over.
 ///
-/// [`expect`](macro@expect)-bounded: casting a wide integer to `f64` can lose precision, which is
-/// accepted here because a ratio over leg totals is inherently floating-point and the divide tree
-/// only ever reads these as `f64`.
+/// [`expect`](macro@expect)-bounded: casting a wide integer to `f64` loses precision above `2^53`,
+/// which is accepted **here and only here** because a ratio over leg totals is inherently
+/// floating-point and [`divide`] is the one caller. It is not accepted for a total or a comparison -
+/// see [`FederatedFailure::MixedNumericLeaf`] for the widening this path refuses instead.
+///
+/// Every variant is named rather than left to a wildcard, so a fifth [`Value`] has to answer here.
+/// [`Value::Text`] is one of the two `None`s and is unreachable through [`apply_above`]: every value
+/// it reads came from [`aggregate`], which refuses a text cell as [`FederatedFailure::NonNumericLeaf`].
 #[expect(clippy::cast_precision_loss, reason = "a division reads leg totals as f64 by design")]
 const fn to_f64(value: &Value) -> Option<f64> {
     match value {
-        Value::Integer(v) => Some(*v as f64),
-        Value::Real(v) => Some(v.get()),
-        _ => None,
+        Value::Integer(cell) => Some(*cell as f64),
+        Value::Real(cell) => Some(cell.get()),
+        Value::Null | Value::Text(_) => None,
     }
 }
 
