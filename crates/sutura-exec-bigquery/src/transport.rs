@@ -196,12 +196,108 @@ pub struct DatasetAddress {
     dataset: DatasetId,
 }
 
-/// Every table one dataset holds, by the id it knows each under.
+/// Every table one dataset holds, by the id it knows each under - and what the listing said about
+/// how many there were supposed to be.
 ///
-/// A name rather than the type, because `Result<BTreeSet<String>, _>` is over the `type_complexity`
-/// threshold this workspace tightened - the same reason [`crate::BigQueryWarehouse`]'s `Mapped`
-/// exists - and because *table ids* is what the set means where `BTreeSet<String>` is not.
-pub type HeldTables = BTreeSet<String>;
+/// **A struct rather than the `BTreeSet<String>` alias it was, and the second field is the whole
+/// reason.** The set alone cannot tell an EMPTY dataset from a document whose shape the service
+/// changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
+/// absent*. [`ListingTotal`] is what the two can be told apart by, and it has to travel on this
+/// answer because the decision that would read it lives above the transport while the document that
+/// carries it is only visible below.
+///
+/// The set is still what a caller asks with - [`Self::holds`] is the only question the pre-flight
+/// puts to it - so nothing above here reads a count in order to conclude anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldTables {
+    named: BTreeSet<String>,
+    total: ListingTotal,
+}
+
+/// What a listing's own reported total said, against the entries the same document carried.
+///
+/// **Four variants rather than an `Option<u64>`, because each says something different about what a
+/// caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
+/// have merged with the answer. A reader has to name the case, which is the reason
+/// `sutura_domain::source::AnchorsRunAs` is an enum with a third variant rather than an `Option`.
+///
+/// **The comparison is against the entries the document CARRIED and never against the ids it
+/// named**, and the difference is a wrong claim avoided rather than a nicety: a listing entry whose
+/// table id is outside `usable_table_id`'s accepted set is DROPPED, so a dataset holding tables this
+/// crate cannot match legitimately names fewer ids than it carried entries - and `BigQuery` does
+/// permit an id this crate would drop. Comparing a total against the named set would report that
+/// ordinary dataset as short of its own total, which is a shape change nobody served.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListingTotal {
+    /// The document carried no total at all, so an empty listing and an empty dataset are one value.
+    ///
+    /// **Where every boot stood before the field was decoded**, and where one stands again the day
+    /// the service stops sending it - which is why this is a variant rather than a zero.
+    Unreported,
+    /// It carried a total this crate could not read as a count.
+    ///
+    /// Distinct from [`Self::Unreported`] on purpose: *the service said nothing* and *the service
+    /// said something this crate did not understand* are different findings, and the second is
+    /// itself a shape change worth being able to see. Nothing of the value is kept - a foreign
+    /// scalar is not something this crate carries around to print.
+    Unreadable,
+    /// It reported a total, and carried an entry for every table the total claims.
+    ///
+    /// *At least* every one: `reported` may be below what the document carried without anything
+    /// being wrong, because a total read off a dataset being written to is a moving number.
+    Accounted {
+        /// The total the document reported.
+        reported: u64,
+    },
+    /// It reported MORE tables than it carried entries for.
+    ///
+    /// **On a document carrying NO entries this is the shape change** - a dataset that answered with
+    /// tables the listing did not name - which is exactly what an empty `tables` array cannot be
+    /// told from an empty dataset without. On one carrying some it is weaker: a table created
+    /// between the total and the array, or a page contract this transport read differently than the
+    /// service meant it.
+    ///
+    /// **Nothing refuses on it yet**, and that is a decision rather than an omission -
+    /// `docs/adr/0018` carries it, including why `Err` is not obviously the safe direction here.
+    Short {
+        /// The total the document reported.
+        reported: u64,
+        /// How many entries the same document actually carried.
+        carried: u64,
+    },
+}
+
+impl HeldTables {
+    /// The ids a listing named, and what its own total said about them.
+    #[must_use]
+    pub const fn of(named: BTreeSet<String>, total: ListingTotal) -> Self {
+        Self { named, total }
+    }
+
+    /// Whether the dataset holds a table under exactly this id.
+    ///
+    /// Case-SENSITIVE, because `GoogleSQL` does not fold a table name - `BigQueryWarehouse::preflight`
+    /// carries the argument, and this is the call it makes.
+    #[inline]
+    #[must_use]
+    pub fn holds(&self, id: &str) -> bool {
+        self.named.contains(id)
+    }
+
+    /// Every id the listing named.
+    #[inline]
+    #[must_use]
+    pub const fn named(&self) -> &BTreeSet<String> {
+        &self.named
+    }
+
+    /// What the listing's own reported total said about the entries it carried.
+    #[inline]
+    #[must_use]
+    pub const fn total(&self) -> ListingTotal {
+        self.total
+    }
+}
 
 impl DatasetAddress {
     /// Addresses a dataset: the source's billing project, the dataset's own project, and its id.
@@ -538,6 +634,12 @@ pub trait JobTransport {
     /// claimed to hold everything asked for would be the lie the port above forbids. A transport that
     /// cannot list has to say so as an `Err`, which is the outcome the port keeps separate from *this
     /// table is absent* precisely so an operator is not sent to fix the wrong thing.
+    ///
+    /// **The answer also carries what the listing said about its own size**, as
+    /// [`HeldTables::total`], because the one thing an empty answer cannot say on its own is whether
+    /// the dataset is empty. An implementor whose source reports no such number answers
+    /// [`ListingTotal::Unreported`], which is the honest reading and the one every caller behaved as
+    /// if it had.
     ///
     /// **It takes a [`DatasetAddress`] rather than reading one off a [`JobRequest`]**, because there
     /// is no job: a bundle whose models name a second dataset is one call per dataset, and a request

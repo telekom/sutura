@@ -10,7 +10,9 @@
 //! `const`, the agent is the pinned one, redirects are refused, and the answer is read under a byte
 //! cap. What IS decided here is paging, and it is the interesting half - see [`list`].
 
-use crate::transport::{DatasetAddress, HeldTables};
+use std::collections::BTreeSet;
+
+use crate::transport::{DatasetAddress, HeldTables, ListingTotal};
 use crate::wire::credential::{AccessTokens, QuotaProject};
 use crate::wire::{BigQueryWire, CallDeadline, HOST, MAX_ANSWER_BYTES, QUOTA_PROJECT_HEADER, WireError, Wired, bounded};
 
@@ -41,6 +43,25 @@ struct Listing {
     tables: Vec<Listed>,
     #[serde(default)]
     next_page_token: Option<String>,
+    /// How many tables the service says the dataset holds, and it is read as raw JSON on purpose.
+    ///
+    /// **The one field here that must not be able to refuse a document, which is stronger than
+    /// tolerating its absence.** `Option<u64>` would already read a missing field as [`None`]; what
+    /// it would ALSO do is fail the whole decode on a value spelled some other way - and a failed
+    /// decode of this listing is a pre-flight that stops verifying, silently, in the warning half.
+    /// So a field nothing yet decides on could turn a working boot check off. This crate already
+    /// knows the service spells one count as a JSON number and another as a string:
+    /// `document::QueryAnswer::total_rows` is `Option<String>` because `totalRows` is a `uint64`.
+    ///
+    /// **Measured rather than assumed:** in the endpoint's own discovery document, read on
+    /// 2026-09-04 at revision `20260811`, `TableList.totalItems` is
+    /// `{"format": "int32", "type": "integer"}` - a bare JSON number - described as *"The total
+    /// number of tables in the dataset"*, against the neighbouring `etag`'s *"A hash of this page of
+    /// results"*. So it is the DATASET's number and not the page's, which is what makes comparing it
+    /// against a whole finished listing the right comparison. Nothing here has seen whether a real
+    /// answer populates it; [`reported_total`] is what a live run reports.
+    #[serde(default)]
+    total_items: Option<serde_json::Value>,
 }
 
 /// One entry in a listing.
@@ -132,6 +153,37 @@ fn usable_table_id(id: &str) -> bool {
 /// `BigQuery`'s own documented maximum table-id length, in characters.
 const MAX_TABLE_ID_BYTES: usize = 1024;
 
+/// What a finished listing's own `totalItems` says, against the entries the document carried.
+///
+/// **Infallible by construction, and that is the property rather than an implementation detail.**
+/// Every way the field can arrive that this crate cannot read as a count lands on
+/// [`ListingTotal::Unreadable`] - a float, a negative, an object, a number past `u64` - so the field
+/// can neither refuse a listing nor be mistaken for one of the two answers that mean something. The
+/// [`Listing::total_items`] documentation is where the *why* is argued.
+///
+/// **A string is accepted as well as a number**, which is not defensive clutter: this service spells
+/// `totalRows` as a JSON string in the sibling document, so a count arriving quoted is its own
+/// established habit rather than a hypothetical.
+///
+/// `carried` is the count of entries the whole finished listing carried - every page, before any id
+/// this crate cannot match was dropped. [`ListingTotal`] says why it may not be the named set.
+fn reported_total(field: Option<&serde_json::Value>, carried: usize) -> ListingTotal {
+    let reported = match field {
+        None | Some(serde_json::Value::Null) => return ListingTotal::Unreported,
+        Some(serde_json::Value::Number(number)) => number.as_u64(),
+        Some(serde_json::Value::String(text)) => text.parse::<u64>().ok(),
+        Some(_) => None,
+    };
+    // The loop below reads at most `MAX_PAGES * PAGE_SIZE` entries, so the fallback is unreachable -
+    // and it is the direction that cannot invent a shape change out of a conversion.
+    let carried = u64::try_from(carried).unwrap_or(u64::MAX);
+    match reported {
+        None => ListingTotal::Unreadable,
+        Some(reported) if reported > carried => ListingTotal::Short { reported, carried },
+        Some(reported) => ListingTotal::Accounted { reported },
+    }
+}
+
 /// Every table id one dataset holds, read one page at a time.
 ///
 /// **One absolute deadline for the whole listing and not one per page**, which is `submit`'s
@@ -153,9 +205,11 @@ where
     let call = CallDeadline::opened(wire.agent.bounds().deadline());
     let now = BigQueryWire::<C>::now()?;
     let bearer = wire.source_bearer(now, call)?;
-    let mut held = HeldTables::new();
+    let mut named = BTreeSet::new();
+    let mut carried: usize = 0;
+    let mut total: Option<serde_json::Value> = None;
     let mut token: Option<String> = None;
-    for _ in 0..MAX_PAGES {
+    for page_number in 0..MAX_PAGES {
         let left = call.remaining().ok_or(WireError::DeadlineSpent {
             budget_seconds: wire.agent.bounds().deadline().seconds,
         })?;
@@ -193,14 +247,25 @@ where
             return Err(crate::wire::document::refusal(status.as_u16(), &text));
         }
         let page: Listing = serde_json::from_str(&text).map_err(|cause| WireError::NotAListing { cause })?;
-        held.extend(
+        // **The FIRST page's total, and the choice matters in one direction only.** The service
+        // documents the number as the DATASET's rather than the page's, so every page should repeat
+        // it; where they disagree, the page that decides is the one whose emptiness is the whole
+        // ambiguity - a listing whose first page carries no entries carries no page token either, so
+        // it is also the only page there is.
+        if page_number == 0 {
+            total = page.total_items;
+        }
+        // Counted BEFORE the ids this crate cannot match are dropped, which is the comparison
+        // `ListingTotal` requires and the one a named-set count would get wrong.
+        carried += page.tables.len();
+        named.extend(
             page.tables
                 .into_iter()
                 .filter_map(|entry| entry.table_reference?.table_id)
                 .filter(|id| usable_table_id(id)),
         );
         match page.next_page_token {
-            None => return Ok(held),
+            None => return Ok(HeldTables::of(named, reported_total(total.as_ref(), carried))),
             Some(next) if usable_token(&next) => token = Some(next),
             Some(next) => {
                 return Err(WireError::UnusablePageToken {
