@@ -956,7 +956,6 @@ economise.
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
    | `check-shared-client` | `Cargo.lock` |
-   | `check-shipped-binaries` | `nix/shipped.nix` and every workflow and action under `.github/` |
    | `check-attribution` | `Cargo.lock`, the root manifest, `ATTRIBUTION.md` |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
@@ -974,6 +973,7 @@ economise.
    | --- | --- |
    | `check-guidance` | Citations replaced by the text-only check. **Stale phrases, version-against-pin, contradicted claims and counts are deferred to the `main` push** |
    | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
+   | `check-shipped-binaries` | Half deferred, and it is the half a page can break: the binary literals it reconciles are under `nix/` and `.github/`, but its second rule reads the documented `cargo build --features` out of `docs/**` - so a page that stops documenting that build, or documents a feature `nix/shipped.nix` does not probe, merges green and only the `main` push says so |
    | `check-crap` | Deferred, and the row easiest to get wrong: it reads `docs/crap.md` for the `cargo-crap` version `nix/crap.nix` pins, so a page edit that drops that version merges green |
    | `check-gate-classification` | Deferred, and it reads the two tables above - so a pull request can break this classification and only the `main` push says so |
    | `check-venues` | Deferred, and the deferred verdict is the map itself: `docs/where-identity-is-proven.md` is a `docs/*.md` page, so a pull request can leave a venue claiming a limit it does not state and only the `main` push says so. The half that reads `.github/workflows/ci.yml` is unreachable from such a diff |
