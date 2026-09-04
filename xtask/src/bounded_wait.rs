@@ -31,22 +31,24 @@
 //! 2. **a declared allowance** - one entry today, in [`ALLOWED`], each carrying what it runs and
 //!    why a bound would be wrong there.
 //!
-//! The first half is a discovery rather than a name, and that is deliberate: the waiter has already
-//! moved once inside that module, and a gate naming the file it lived in would have gone red for
-//! the move rather than for a defect. What the gate asks is *how many places in this tier wait*,
-//! and the answer it accepts is one.
+//! The first half is a discovery rather than a name, and that is deliberate: an open change moves
+//! the waiter out of the module root into a file of its own, and a gate naming the file it lives in
+//! today would go red for that move rather than for a defect. What the gate asks is *how many
+//! places in this tier wait*, and the answer it accepts is one.
 //!
 //! **It starts green.** Measured when it was written: in this tier the docker module is the only
 //! file that waits on a child process, beside the one allowance below. So the gate's whole job is
 //! to keep it that way, and the cheapest gate is the one most likely to earn its keep years from
 //! now.
 //!
-//! # Fails closed, in four directions
+//! # Fails closed, in five directions
 //!
 //! Each of these is a failure rather than a pass over silence, because a scan that finds nothing is
 //! how the property went unheld in the first place:
 //!
 //! * **No file in scope.** The tier renamed or moved out from under the gate.
+//! * **A file in scope it cannot read.** Not skipped: a file this gate did not read is a file it
+//!   did not judge, and skipping one is how a scan comes out clean over the violation.
 //! * **No waiter in the docker module.** Either the wait left the tier - in which case the gate
 //!   follows it or is deleted - or the scan stopped seeing it, which is the same thing to a reader.
 //! * **More than one waiter in the docker module.** The property IS one, and a second one is the
