@@ -443,12 +443,16 @@ fn a_sum_over_a_column_mixing_integers_and_reals_is_refused() {
         fact_row(Value::Real(Real::parse(1.5).expect("a finite real"))),
     ]);
 
-    assert!(matches!(
-        plan.combine(&fact, &one_lookup(), UNBOUNDED),
-        Err(FederatedFailure::MixedNumericLeaf {
-            aggregate: Aggregate::Sum
-        })
-    ));
+    // Asserted on the refusal's own sentence rather than on the variant naming it: `MixedNumericLeaf`
+    // is declared in the file `just causality` reverts, and naming it here costs the base tree its
+    // build - which takes the base verdict for every other test in this file with it.
+    let refusal = plan
+        .combine(&fact, &one_lookup(), UNBOUNDED)
+        .expect_err("a column mixing integers and reals has no exact total");
+    assert_eq!(
+        refusal.to_string(),
+        "a `Sum` re-aggregation met a leaf column mixing integer and real cells"
+    );
 }
 
 #[test]
@@ -465,12 +469,13 @@ fn a_minimum_over_a_column_mixing_integers_and_reals_is_refused() {
         ],
     );
 
-    assert!(matches!(
-        plan.combine(&fact, &one_lookup(), UNBOUNDED),
-        Err(FederatedFailure::MixedNumericLeaf {
-            aggregate: Aggregate::Min
-        })
-    ));
+    let refusal = plan
+        .combine(&fact, &one_lookup(), UNBOUNDED)
+        .expect_err("a column mixing integers and reals has no exact minimum");
+    assert_eq!(
+        refusal.to_string(),
+        "a `Min` re-aggregation met a leaf column mixing integer and real cells"
+    );
 }
 
 #[test]
@@ -521,19 +526,24 @@ fn a_non_numeric_cell_does_not_win_a_minimum_over_a_number() {
     // The two-cell shape of the same defect: a candidate that is a number could not be compared
     // against a best that is not, and an incomparable pair kept the incumbent - so the text won a
     // comparison it was never in.
+    //
+    // Both row orders, because only one of them is the defect: with the text second, the old
+    // comparison reached the `other` arm and refused anyway, so an order-dependent assertion would
+    // have been red against the base tree for the wrong reason.
     let plan = extreme_plan(Aggregate::Min, "min_mrr");
-    let fact = labelled_fact(
-        "min_mrr",
+    for cells in [
         vec![fact_row(Value::Text("1234.56".into())), fact_row(Value::Integer(1))],
-    );
-
-    assert!(matches!(
-        plan.combine(&fact, &one_lookup(), UNBOUNDED),
-        Err(FederatedFailure::NonNumericLeaf {
-            aggregate: Aggregate::Min,
-            ..
-        })
-    ));
+        vec![fact_row(Value::Integer(1)), fact_row(Value::Text("1234.56".into()))],
+    ] {
+        let fact = labelled_fact("min_mrr", cells);
+        assert!(matches!(
+            plan.combine(&fact, &one_lookup(), UNBOUNDED),
+            Err(FederatedFailure::NonNumericLeaf {
+                aggregate: Aggregate::Min,
+                ..
+            })
+        ));
+    }
 }
 
 #[test]
