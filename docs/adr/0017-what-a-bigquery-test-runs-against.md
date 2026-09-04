@@ -690,7 +690,6 @@ sign-on. The venue for that is a developer's own machine, one-off, and recorded.
 ### The decision: four venues, four claims
 
 | Venue | What runs there | What it is allowed to claim |
-
 | --- | --- | --- |
 | **CI, every run, every contributor** | **Fakes** at the port (the house rule - ports get fakes, not mocked HTTP) | Every outcome the port can produce, including each refusal |
 | **CI, in-repo runs only** | The acceptance leg, on a **service-account key** in an environment secret | `BigQuery` accepts what we generate, and the rows agree with the engine |
@@ -1146,6 +1145,7 @@ does fail closed, freely: a matrix target that is not a release target has no
 `feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a matrix
 cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
 reconciling this pair too. It is the same shape as the rule above and is a separate change.
+
 ## Seventh amendment, 2026-09-04: the acceptance leg is re-entrant, and two runs no longer race
 
 **Status of the amendment: accepted.** The third amendment's "NEW" bullet - *this leg WRITES, and two
