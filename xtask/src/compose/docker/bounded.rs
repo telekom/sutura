@@ -1,0 +1,511 @@
+//! How long one call may take, and the single bounded wait every call here goes through.
+//!
+//! **The distinction this module exists for is that one budget cannot serve every subcommand.**
+//! `docker compose` is reached through one function, and its subcommands differ by orders of
+//! magnitude: an `up` that pulls a stack of images legitimately runs for minutes, a `ps` is a status
+//! query that answers in well under a second. A single timeout is either too long to bound the query
+//! - the call a readiness loop repeats, and the one that hung `just dev-up` when nothing bounded it
+//! - or short enough to kill a legitimate pull halfway and leave containers behind.
+//!
+//! So the caller states the kind of call, the same way [`super::probed`] takes a budget, and
+//! everything that waits on a process does it in [`waited`] and nowhere else.
+//!
+//! **The limit, stated because it is the one a reader would assume away: nothing MAKES a future
+//! call come through here.** One wait loop is a shape, not a mechanism - a `.output()` written into
+//! the parent module would be unbounded again and no gate would see it. `clippy.toml`'s
+//! `disallowed-methods` is this repository's mechanism for exactly that shape and cannot be used
+//! here: an entry is workspace-wide, and `Command::output` / `Command::status` have upwards of
+//! thirty legitimate call sites in `xtask` driving `git` and `cargo`, which wait without a bound
+//! on purpose.
+
+use std::path::PathBuf;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
+use super::Missing;
+
+/// How often a child still running is checked for having finished.
+///
+/// Short enough that the ordinary case - a call that answers at once - is not measurably delayed
+/// by the polling, long enough that waiting does not become a spin.
+const WAIT_POLL_MILLIS: u64 = 25;
+
+/// The floor under every budget here. See [`budget_from_env`] for why it is not cosmetic.
+pub(super) const TIMEOUT_MIN_SECS: u64 = 1;
+/// Ten minutes: long enough that no real daemon needs more to ANSWER a question, short enough to
+/// stay a bound. The ceiling for a probe and for a status query alike, because both are questions.
+pub(super) const ANSWER_TIMEOUT_MAX_SECS: u64 = 600;
+/// Six hours. A pull that has not finished by then is a broken network rather than a slow one.
+const PROVISION_TIMEOUT_MAX_SECS: u64 = 21_600;
+
+/// What one kind of call is allowed: its default, the variable that changes it, and how far.
+///
+/// A value rather than three constants per kind, because the thing worth reading here is the
+/// CONTRAST - two allowances side by side, orders of magnitude apart - and six separately named
+/// constants hide it.
+struct Allowance {
+    /// The environment variable that overrides the default on a host where it is wrong.
+    variable: &'static str,
+    /// Seconds, where nothing overrides it.
+    default_secs: u64,
+    /// The ceiling an override is clamped to. A budget settable arbitrarily high is the unbounded
+    /// wait again, wearing a number.
+    max_secs: u64,
+}
+
+/// Which kind of compose subcommand this is - the distinction this module's header argues for.
+///
+/// Two kinds, because two is the smallest number that is not one. A third would need a caller that
+/// treated it differently from both of these, and there is none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Call {
+    /// A subcommand that only ASKS. It reads what the runtime already knows, so anything slower
+    /// than a few seconds means the daemon has stopped answering rather than that the work is big.
+    Query,
+    /// A subcommand that CHANGES something - pulls, creates, starts, destroys. Its duration is a
+    /// function of images, containers and this host's network, not of the daemon's responsiveness.
+    Provision,
+}
+
+/// The subcommands this tier issues that only ask a question.
+///
+/// Membership is [`Call::Query`] and nothing else is in it, so anything unrecognised takes the
+/// provisioning budget. That is the direction whose wrong answer is recoverable: a query
+/// misclassified as a provision is still bounded, only later than it should be, while a provision
+/// misclassified as a query is a pull killed halfway. Both are bounded, which is the property.
+const QUERIES: [&str; 3] = ["ps", "port", "ls"];
+
+impl Call {
+    /// Which kind a compose invocation's arguments describe.
+    ///
+    /// The subcommand is `extra`'s first element by construction: [`super::scoped_args`] puts every
+    /// global flag ahead of it, and `docker compose` refuses a subcommand that arrives after one -
+    /// so a misordered call fails at the runtime rather than being quietly misclassified here.
+    fn of(extra: &[&str]) -> Self {
+        match extra.first() {
+            Some(subcommand) if QUERIES.contains(subcommand) => Self::Query,
+            _ => Self::Provision,
+        }
+    }
+
+    /// What this kind gets, and what changes it.
+    const fn allowance(self) -> Allowance {
+        match self {
+            // Thirty seconds: far above what a healthy daemon needs to read its own state, so a
+            // loaded host is not reported as a wedged one, and low enough that a readiness loop
+            // noticing mid-provision costs seconds rather than the whole readiness deadline.
+            Self::Query => Allowance {
+                variable: "SUTURA_DOCKER_QUERY_TIMEOUT_SECS",
+                default_secs: 30,
+                max_secs: ANSWER_TIMEOUT_MAX_SECS,
+            },
+            // Thirty minutes, and generous on purpose, because this budget's wrong answer destroys
+            // work: a cold pull of the metadata platform's stack is nine images and hundreds of
+            // megabytes, and cutting it off leaves containers running that nothing then removes.
+            Self::Provision => Allowance {
+                variable: "SUTURA_DOCKER_PROVISION_TIMEOUT_SECS",
+                default_secs: 1800,
+                max_secs: PROVISION_TIMEOUT_MAX_SECS,
+            },
+        }
+    }
+
+    /// What a call of this kind is, in a sentence a person reads.
+    const fn what(self) -> &'static str {
+        match self {
+            Self::Query => "a docker status query",
+            Self::Provision => "a docker provisioning call",
+        }
+    }
+
+    /// What a reader does about one that never answered.
+    const fn remedy(self) -> &'static str {
+        match self {
+            // A status query that did not answer IS the wedged daemon, so the probe's own wording is
+            // the one to use: two remedies for one condition is how they drift apart.
+            Self::Query => Missing::WedgedDaemon.remedy(),
+            // A provisioning call is the case where silence is genuinely ambiguous - a wedged daemon
+            // and a slow pull look identical from here - so the remedy names both readings.
+            Self::Provision => {
+                "RESTART the docker daemon if it has stopped answering, or raise this budget if a \
+                 pull on this host is honestly slower than it"
+            }
+        }
+    }
+}
+
+/// How long ONE compose subcommand may take, carrying the kind of call that spent it.
+///
+/// The kind travels with the duration rather than being re-derived where the failure is REPORTED,
+/// because re-reading the environment there can print a number that was never spent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Budget {
+    /// The kind of call this budget was set for.
+    call: Call,
+    /// How long it may take on this host.
+    allowed: Duration,
+}
+
+impl Budget {
+    /// The budget a compose invocation's arguments call for, on this host.
+    pub(crate) fn of(extra: &[&str]) -> Self {
+        let call = Call::of(extra);
+        let allowance = call.allowance();
+        Self {
+            call,
+            allowed: budget_from_env(allowance.variable, allowance.default_secs, allowance.max_secs),
+        }
+    }
+}
+
+/// One budget, read from the environment and clamped.
+///
+/// Same shape as `SUTURA_DEV_READY_TIMEOUT_SECS` in the parent module, deliberately: an absent or
+/// unparseable value takes the default rather than refusing, because a timeout helper is the wrong
+/// place to fail a startup over a malformed number.
+///
+/// CLAMPED, and both ends are load-bearing. `0` would report every call unanswered on a healthy
+/// host, and a bound that fails closed on everything is not a bound - it is an outage that still
+/// prints a reason. The ceiling keeps a very large value from restoring the unbounded wait this
+/// exists to remove, and keeps the `probe_budget() * 3` the probe's own test computes from
+/// overflowing a `Duration`.
+pub(super) fn budget_from_env(variable: &str, default_secs: u64, max_secs: u64) -> Duration {
+    let asked = std::env::var(variable)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default_secs);
+    Duration::from_secs(asked.clamp(TIMEOUT_MIN_SECS, max_secs))
+}
+
+/// Wait for a spawned child, bounded. `Ok(None)` is the budget having expired.
+///
+/// **The only place in this module that waits on a process**, and that is the property worth having
+/// rather than tidiness: a second wait loop is a second chance to write an unbounded one, and this
+/// surface has now been through that defect twice.
+///
+/// A child that ran out of budget is killed AND reaped before this returns. One left unreaped would
+/// put a zombie behind every gate that runs, which is a second symptom to chase.
+///
+/// Two limits, and both callers rely on them:
+///
+/// 1. It kills the child it spawned, NOT that child's own descendants. `docker` runs CLI plugins as
+///    separate processes, and one can outlive the kill and stay blocked on the same socket. Nothing
+///    here waits on them, so it costs this function nothing - but a wedged daemon does leave them
+///    behind until it recovers, and somebody counting stray processes should know they are looking at
+///    that rather than at a leak in this loop.
+/// 2. It says nothing about what the child WROTE. A caller that needs the output has to arrange for
+///    it before spawning, and [`run`] is where the reason that arrangement is files rather than
+///    pipes is written down.
+pub(super) fn waited(child: &mut Child, budget: Duration) -> Result<Option<ExitStatus>, std::io::Error> {
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(Some(status)),
+            Err(cause) => return Err(cause),
+            Ok(None) => {}
+        }
+        if started.elapsed() >= budget {
+            drop(child.kill());
+            drop(child.wait());
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(WAIT_POLL_MILLIS));
+    }
+}
+
+/// What a compose invocation produced.
+pub(crate) struct Output {
+    /// Standard output, as text.
+    pub(crate) stdout: String,
+    /// Standard error, as text. Printed on failure; a runtime's diagnostic is the useful one.
+    pub(crate) stderr: String,
+    /// Did it exit zero?
+    pub(crate) ok: bool,
+}
+
+/// Why a compose invocation produced nothing to read.
+///
+/// Not the same thing as a subcommand that FAILED: a non-zero exit is an answer, and it arrives as
+/// [`Output::ok`] being false with the runtime's own diagnostic in [`Output::stderr`]. This is the
+/// absence of an answer, and the two variants are the two ways to get one.
+#[derive(Debug)]
+pub(crate) enum Failed {
+    /// It never ran to an answer: the capture could not be opened, the spawn failed, or the wait
+    /// itself broke. All three are "could not run docker", which is what a reader can act on.
+    Broken(std::io::Error),
+    /// It was still running when its budget expired, and has been killed. The budget carries how long
+    /// was spent and which kind of call spent it, so the message needs no second copy of either.
+    Silent(Budget),
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Broken(cause) => write!(f, "could not run docker: {cause}"),
+            Self::Silent(budget) => write!(
+                f,
+                "{} never answered within {}s ({}) - {}",
+                budget.call.what(),
+                budget.allowed.as_secs(),
+                budget.call.allowance().variable,
+                budget.call.remedy()
+            ),
+        }
+    }
+}
+
+/// Where a bounded call's output is collected, and the reason it is not a pipe.
+///
+/// **Files, because a pipe puts the hang back.** `Command::output()` reads the pipes and waits in one
+/// operation, which is exactly what could not be bounded; polling for the exit while the child writes
+/// into a pipe deadlocks the moment the pipe buffer fills, and draining it needs a reader thread per
+/// stream whose join is unbounded for the reason [`waited`] gives - `docker` spawns CLI plugins that
+/// inherit the write end, so one can outlive the kill, hold the pipe open, and leave the reader
+/// blocked forever. A file has no reader to block and no buffer to fill.
+///
+/// Removed on drop, so an early return does not leave two files per call behind.
+struct Captured {
+    /// Where the child's standard output goes.
+    stdout: PathBuf,
+    /// Where its standard error goes.
+    stderr: PathBuf,
+}
+
+/// The two handles a bounded call hands its child, or the reason they could not be opened.
+type Handles = Result<(Stdio, Stdio), std::io::Error>;
+
+impl Captured {
+    /// Two paths in the platform's temporary directory, named by process and by a counter so that
+    /// two calls in one run - and two runs at once - cannot collect into the same file.
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let at = std::env::temp_dir();
+        let unique = format!(
+            "sutura-compose-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        Self {
+            stdout: at.join(format!("{unique}.out")),
+            stderr: at.join(format!("{unique}.err")),
+        }
+    }
+
+    /// The two handles to hand the child. Fresh files: `create` truncates, so a name a crashed run
+    /// left behind cannot contribute its output to this one.
+    fn handles(&self) -> Handles {
+        Ok((
+            Stdio::from(std::fs::File::create(&self.stdout)?),
+            Stdio::from(std::fs::File::create(&self.stderr)?),
+        ))
+    }
+
+    /// What the child wrote.
+    ///
+    /// A stream that cannot be read back is empty rather than an error: the call's own exit is the
+    /// thing a caller acts on, and failing a provision because a temporary file went missing would
+    /// replace a diagnostic with a second failure.
+    fn read(&self, ok: bool) -> Output {
+        let text = |path: &PathBuf| {
+            std::fs::read(path)
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .unwrap_or_default()
+        };
+        Output {
+            stdout: text(&self.stdout),
+            stderr: text(&self.stderr),
+            ok,
+        }
+    }
+}
+
+impl Drop for Captured {
+    fn drop(&mut self) {
+        drop(std::fs::remove_file(&self.stdout));
+        drop(std::fs::remove_file(&self.stderr));
+    }
+}
+
+/// Run one command inside the budget its kind allows, and collect what it printed.
+pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Failed> {
+    let captured = Captured::new();
+    let (stdout, stderr) = captured.handles().map_err(Failed::Broken)?;
+    let spawned = command
+        // stdin null for the reason `super::probed` gives: nothing here reads input, and a child
+        // that inherited the terminal can eat a keystroke meant for the hook that ran it.
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn();
+    let mut child = spawned.map_err(Failed::Broken)?;
+    match waited(&mut child, budget.allowed) {
+        Ok(Some(status)) => Ok(captured.read(status.success())),
+        Ok(None) => Err(Failed::Silent(budget)),
+        Err(cause) => Err(Failed::Broken(cause)),
+    }
+}
+
+/// A command that never exits, built from SHELL BUILTINS ONLY.
+///
+/// Not `sleep 60`, and the reason is the bug the first version of this test had. These run inside
+/// a nix check sandbox whose `PATH` is the derivation's and not the host's, so where `sleep` is
+/// absent `/bin/sh -c 'sleep 60'` exits 127 in about a millisecond - and a test asserting only
+/// "did not answer" then passed without ever reaching the timeout it exists for. `:` is a special
+/// builtin that no `PATH` can take away, so this blocks on every host or not at all.
+///
+/// It spins rather than sleeps, which is fine at these budgets and buys something: the shell is
+/// the process that blocks, so the kill lands on it directly and leaves no descendant behind -
+/// which `sleep 60` did, once per run, for a minute.
+#[cfg(test)]
+pub(super) fn never_answers() -> Command {
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "while :; do :; done"]);
+    command
+}
+
+/// A command that answers at once with the given exit status.
+#[cfg(test)]
+pub(super) fn answers_with(code: u8) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", &format!("exit {code}")]);
+    command
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    use super::{Budget, Call, Failed, PROVISION_TIMEOUT_MAX_SECS, TIMEOUT_MIN_SECS, answers_with, never_answers, run};
+
+    /// A budget of a stated length, so a test spends milliseconds rather than the real allowance.
+    ///
+    /// Constructed field-wise on purpose: `Budget::of` reads the environment, and the smallest value
+    /// the clamp there permits is a whole second - which is a second per assertion, for no gain.
+    /// Mutating the environment is not the alternative: `set_var` is `unsafe`, and this workspace
+    /// FORBIDS `unsafe_code`.
+    const fn budget_of(call: Call, millis: u64) -> Budget {
+        Budget {
+            call,
+            allowed: Duration::from_millis(millis),
+        }
+    }
+
+    #[test]
+    fn a_status_query_and_a_provisioning_call_do_not_share_one_budget() {
+        // The decision the whole change is about. One budget over `compose` is either too long to
+        // bound the `ps` a readiness loop repeats - the call that hung `just dev-up` - or short
+        // enough to kill a legitimate pull halfway and leave containers behind.
+        let query = Budget::of(&["ps", "--all", "--format", "json"]);
+        let provision = Budget::of(&["up", "--detach", "--remove-orphans"]);
+        assert_eq!(query.call, Call::Query);
+        assert_eq!(provision.call, Call::Provision);
+        // Not merely different: an order of magnitude apart, which is the property that makes two
+        // classes worth having. A pair of budgets a few seconds apart would be one budget.
+        assert!(
+            query.allowed * 10 < provision.allowed,
+            "{query:?} and {provision:?} are not an order of magnitude apart"
+        );
+
+        // Every call site this tier has, classified.
+        assert_eq!(Budget::of(&["port", "postgres", "5432"]).call, Call::Query);
+        assert_eq!(Budget::of(&["ls", "--all", "--format", "json"]).call, Call::Query);
+        assert_eq!(Budget::of(&["down", "--volumes", "--remove-orphans"]).call, Call::Provision);
+
+        // And the fail-safe direction: unrecognised takes the PROVISIONING budget. A query given
+        // too long is bounded, only later than it should be; a pull given a query's budget is
+        // killed mid-pull, which is the unrecoverable half.
+        assert_eq!(Budget::of(&["pull"]).call, Call::Provision);
+        assert_eq!(Budget::of(&[]).call, Call::Provision);
+
+        // Both are bounds. Neither is zero, which would report a healthy daemon as silent, and
+        // neither is open-ended, which is the wait this module exists to remove.
+        for budget in [query, provision] {
+            assert!(budget.allowed >= Duration::from_secs(TIMEOUT_MIN_SECS), "{budget:?}");
+            assert!(
+                budget.allowed <= Duration::from_secs(PROVISION_TIMEOUT_MAX_SECS),
+                "{budget:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_compose_call_that_never_answers_is_bounded_and_reported_silent() {
+        // The defect this closes: `compose` waited with `Command::output()`, which has no timeout,
+        // so a daemon that wedged AFTER the pre-flight passed hung `just dev-up` forever.
+        let budget = budget_of(Call::Query, 250);
+        let started = Instant::now();
+        let outcome = run(&mut never_answers(), budget);
+        let waited = started.elapsed();
+
+        let Err(Failed::Silent(spent)) = outcome else {
+            panic!("a call that never answered must be Silent");
+        };
+        assert_eq!(spent.allowed, budget.allowed);
+        // THE ASSERTION THAT MAKES THIS NON-VACUOUS, and it is the one that was missing on the
+        // probe's first version: without it every fast failure passes - a missing interpreter, a
+        // missing `sleep`, a syntax error - because each returns in about a millisecond and is
+        // still not an answer. This says the budget was actually spent.
+        assert!(
+            waited >= budget.allowed,
+            "the budget was never consumed - waited only {waited:?}"
+        );
+        // And still bounded. Generous on purpose: what is asserted is BOUNDED, not fast.
+        assert!(
+            waited < Duration::from_secs(10),
+            "the call was not bounded: waited {waited:?}"
+        );
+
+        // The message a person gets has to name the budget that was spent and the variable that
+        // raises it, or the only remedy on offer is to run it again and wait as long.
+        let reported = Failed::Silent(spent).to_string();
+        assert!(reported.contains("SUTURA_DOCKER_QUERY_TIMEOUT_SECS"), "{reported}");
+        assert!(reported.contains("RESTART"), "{reported}");
+    }
+
+    #[test]
+    fn a_compose_call_that_answers_is_read_rather_than_timed_out() {
+        // The other direction, and the one that catches a budget so tight that a healthy daemon
+        // reads as wedged. A bound that fails closed on everything is not a bound.
+        let budget = budget_of(Call::Query, 30_000);
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "printf answered; printf complained >&2; exit 0"]);
+        let out = run(&mut command, budget).expect("a command that exits must produce output");
+        assert!(out.ok);
+        assert_eq!(out.stdout, "answered");
+        assert_eq!(out.stderr, "complained");
+
+        // A non-zero exit is an ANSWER, not a failure of this function: the runtime said something
+        // and its own diagnostic is the useful one. Conflating the two would turn every compose
+        // error into "could not run docker".
+        let failed = run(&mut answers_with(1), budget).expect("a non-zero exit is still an answer");
+        assert!(!failed.ok);
+    }
+
+    #[test]
+    fn output_past_a_pipe_buffer_is_captured_rather_than_deadlocking() {
+        // Why the capture is files and not pipes. Polling for the exit while the child writes into
+        // a pipe deadlocks as soon as the pipe buffer fills - the child blocks on the write, the
+        // poll never sees an exit, and the budget then reports a healthy command as silent. This is
+        // several times a typical 64 KiB buffer, written by a shell builtin so no `PATH` is needed.
+        let line = "0123456789012345678901234567890123456789";
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", &format!("i=0; while [ $i -lt 8000 ]; do echo {line}; i=$((i+1)); done")]);
+        let out = run(&mut command, budget_of(Call::Provision, 60_000)).expect("it exits");
+        assert!(out.ok, "{}", out.stderr);
+        assert_eq!(out.stdout.lines().count(), 8000);
+        assert!(out.stdout.len() > 300_000, "{} bytes", out.stdout.len());
+    }
+
+    #[test]
+    fn a_call_that_cannot_be_started_is_broken_rather_than_silent() {
+        // The two ways to get no answer are not the same answer. A binary that is not there
+        // refused; only silence is the wedged daemon, and only silence names a budget.
+        let mut command = Command::new("/nonexistent/sutura-not-a-binary");
+        let Err(Failed::Broken(cause)) = run(&mut command, budget_of(Call::Query, 30_000)) else {
+            panic!("a command that cannot be spawned must be Broken");
+        };
+        assert!(Failed::Broken(cause).to_string().contains("could not run docker"));
+    }
+}

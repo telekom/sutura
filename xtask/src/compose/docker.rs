@@ -14,8 +14,16 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+/// Budgets by kind of call, the one bounded wait, and the capture that makes bounding possible.
+/// Its own module because a per-subcommand budget is a separable concern from what the runtime is
+/// asked, and because this file is near its line budget.
+mod bounded;
+
+use bounded::{ANSWER_TIMEOUT_MAX_SECS, budget_from_env, run, waited};
+pub(crate) use bounded::{Budget, Failed, Output};
 
 /// The compose file, relative to the repository root. One file; per-worktree values come from the
 /// project name and from ephemeral publishing, never from a second file.
@@ -81,51 +89,23 @@ impl Missing {
 /// `just ship-check` and every pre-commit tier blocked indefinitely, all of them behind the single
 /// unit test that calls this function.
 ///
-/// **What this does NOT bound, stated because an earlier version of this note claimed otherwise.**
-/// Bounding [`presence`] closes the door a gate opens FIRST, not every door. Still unbounded, and
-/// each for a different reason:
-///
-/// | Where | Why it is still unbounded |
-/// | --- | --- |
-/// | [`compose`] (`command.output()`) | Every `up` / `ps` / `port` / `down` goes through it, and an `up` legitimately runs for minutes. One budget cannot serve a pull and a status query, so bounding it needs a per-subcommand budget - a design decision, not a line. |
-/// | [`projects`] | Same call, on the teardown path. |
-/// | `super::wait_until_healthy` | **The consequential one.** Its deadline is checked only AFTER `docker compose ps` returns, so a daemon that wedges *after* `presence` passed hangs `just dev-up` with `SUTURA_DEV_READY_TIMEOUT_SECS` never consulted. |
-///
-/// So the honest claim is narrow: a daemon already wedged when a gate starts is now reported, and one
-/// that wedges mid-run is not. The remaining half is `github.com/telekom/sutura#265` rather than a
-/// sentence asserting it away here.
+/// **What this does NOT bound.** Bounding [`presence`] closes the door a gate opens FIRST, and that
+/// is not the only door: a daemon that wedges *after* the pre-flight passed is a different failure,
+/// closed by [`Budget`] rather than by this constant, because one budget cannot serve every
+/// subcommand. What neither of them reaches is the descendant limit [`bounded::waited`] states.
 ///
 /// Ten seconds because the question is "is a daemon answering at all", not "is it quick": a busy
 /// daemon on a cold start answers in a second or two, and nothing here needs to tell slow from dead
 /// more finely than that. Three probes, so a fully wedged host costs 30s once instead of forever.
 const PROBE_TIMEOUT_SECS: u64 = 10;
 
-/// How often a probe still running is checked for having finished.
-///
-/// Short enough that the ordinary case - a probe that answers at once - is not measurably delayed
-/// by the polling, long enough that waiting does not become a spin.
-const PROBE_POLL_MILLIS: u64 = 25;
-
-/// The floor and ceiling on [`probe_budget`]. See the clamp there for why neither is cosmetic.
-const PROBE_TIMEOUT_MIN_SECS: u64 = 1;
-/// Ten minutes: long enough that no real daemon needs more, short enough to stay a bound.
-const PROBE_TIMEOUT_MAX_SECS: u64 = 600;
-
 /// The per-probe budget, overridable for a host where ten seconds is genuinely too few.
-///
-/// Same shape as `SUTURA_DEV_READY_TIMEOUT_SECS` in the parent module, deliberately: an absent or
-/// unparseable value takes the default rather than refusing, because a probe helper is the wrong
-/// place to fail a startup over a malformed number.
 fn probe_budget() -> Duration {
-    let asked = std::env::var("SUTURA_DOCKER_PROBE_TIMEOUT_SECS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(PROBE_TIMEOUT_SECS);
-    // CLAMPED, and both ends are load-bearing. `0` would report every part absent on a healthy host
-    // - a bound that fails closed on everything is not a bound, it is an outage that still prints a
-    // reason. The ceiling keeps a very large value from restoring the unbounded wait this exists to
-    // remove, and keeps `probe_budget() * 3` in [`tests`] from overflowing a `Duration`.
-    Duration::from_secs(asked.clamp(PROBE_TIMEOUT_MIN_SECS, PROBE_TIMEOUT_MAX_SECS))
+    budget_from_env(
+        "SUTURA_DOCKER_PROBE_TIMEOUT_SECS",
+        PROBE_TIMEOUT_SECS,
+        ANSWER_TIMEOUT_MAX_SECS,
+    )
 }
 
 /// Is there a usable container runtime, and if not, which part is absent?
@@ -181,43 +161,26 @@ enum Probe {
 /// instead of a caller that never returns. Answering the other way would be worse than the hang it
 /// replaces: it would report a runtime that cannot serve a container as present.
 ///
-/// Two limits, both relied on above:
-///
-/// 1. It kills the child it spawned, NOT that child's own descendants. `docker` runs CLI plugins as
-///    separate processes, and one can outlive the kill and stay blocked on the same socket. Nothing
-///    here waits on them, so it costs this function nothing - but a wedged daemon does leave them
-///    behind until it recovers, and somebody counting stray processes should know they are looking at
-///    that rather than at a leak in this loop.
-/// 2. A spawn that FAILS is [`Probe::Refused`], not [`Probe::Silent`]. That is the right way round -
-///    a binary that is not there refused - but it means `Silent` is specifically *started and did not
-///    answer*, which is what makes it safe for [`Missing::may_be_skipped`] to key on.
+/// The limit this one adds to [`bounded::waited`]'s: a spawn that FAILS is [`Probe::Refused`], not
+/// [`Probe::Silent`]. That is the right way round - a binary that is not there refused - but it
+/// means `Silent` is specifically *started and did not answer*, which is what makes it safe for
+/// [`Missing::may_be_skipped`] to key on.
 fn probed(command: &mut Command, budget: Duration) -> Probe {
     let spawned = command
         // stdin included: a probe inheriting a terminal can consume a keystroke meant for the hook
         // that ran it, and nothing here reads input.
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn();
     let Ok(mut child) = spawned else { return Probe::Refused };
 
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Probe::Answered,
-            // A non-zero exit and a wait that errors are the same answer: it will not report success,
-            // and neither is the silence that vetoes a skip.
-            Ok(Some(_)) | Err(_) => return Probe::Refused,
-            Ok(None) => {}
-        }
-        if started.elapsed() >= budget {
-            // Reaped as well as killed. A probe that timed out and was left unreaped would put a
-            // zombie behind every gate that runs, which is a second symptom to chase.
-            drop(child.kill());
-            drop(child.wait());
-            return Probe::Silent;
-        }
-        std::thread::sleep(Duration::from_millis(PROBE_POLL_MILLIS));
+    match waited(&mut child, budget) {
+        Ok(Some(status)) if status.success() => Probe::Answered,
+        // A non-zero exit and a wait that errors are the same answer: it will not report success,
+        // and neither is the silence that vetoes a skip.
+        Ok(Some(_)) | Err(_) => Probe::Refused,
+        Ok(None) => Probe::Silent,
     }
 }
 
@@ -255,18 +218,8 @@ pub(crate) fn environment(project: &str) -> Vec<(&'static str, String)> {
     vec![("COMPOSE_PROJECT_NAME", String::from(project))]
 }
 
-/// What a compose invocation produced.
-pub(crate) struct Output {
-    /// Standard output, as text.
-    pub(crate) stdout: String,
-    /// Standard error, as text. Printed on failure; a runtime's diagnostic is the useful one.
-    pub(crate) stderr: String,
-    /// Did it exit zero?
-    pub(crate) ok: bool,
-}
-
-/// Run one compose subcommand, scoped to this worktree.
-pub(crate) fn compose(root: &Path, project: &str, profiles: &[&str], extra: &[&str]) -> Result<Output, std::io::Error> {
+/// Run one compose subcommand, scoped to this worktree, inside the budget its class allows.
+pub(crate) fn compose(root: &Path, project: &str, profiles: &[&str], extra: &[&str]) -> Result<Output, Failed> {
     let mut command = Command::new("docker");
     command.current_dir(root);
     command.args(scoped_args(root, project, profiles));
@@ -274,12 +227,7 @@ pub(crate) fn compose(root: &Path, project: &str, profiles: &[&str], extra: &[&s
     for (name, value) in environment(project) {
         command.env(name, value);
     }
-    let out = command.output()?;
-    Ok(Output {
-        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-        ok: out.status.success(),
-    })
+    run(&mut command, Budget::of(extra))
 }
 
 /// The published address to record, out of what `docker compose port` printed.
@@ -418,25 +366,27 @@ pub(crate) fn parse_projects(text: &str) -> BTreeSet<String> {
 /// teardown must still be able to remove THIS worktree's project when the listing is unavailable -
 /// what the listing buys is the ability to report what was spared, not the authority to destroy.
 pub(crate) fn projects(root: &Path) -> BTreeSet<String> {
-    Command::new("docker")
-        .current_dir(root)
-        .args(["compose", "ls", "--all", "--format", "json"])
-        .output()
+    let mut command = Command::new("docker");
+    command.current_dir(root);
+    command.args(["compose", "ls", "--all", "--format", "json"]);
+    // Its own command line, because `compose ls` takes none of [`scoped_args`]' flags - scoping
+    // the listing to one project is the opposite of what teardown reads it for - but the budget is
+    // derived from the subcommand exactly as every other call's is.
+    run(&mut command, Budget::of(&["ls"]))
         .ok()
-        .filter(|out| out.status.success())
-        .map(|out| parse_projects(&String::from_utf8_lossy(&out.stdout)))
+        .filter(|out| out.ok)
+        .map(|out| parse_projects(&out.stdout))
         .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::process::Command;
     use std::time::{Duration, Instant};
 
+    use super::bounded::{ANSWER_TIMEOUT_MAX_SECS, TIMEOUT_MIN_SECS, answers_with, never_answers};
     use super::{
-        Missing, PROBE_TIMEOUT_MAX_SECS, PROBE_TIMEOUT_MIN_SECS, Probe, Readiness, Reported, parse_projects, parse_ps, presence,
-        probe_budget, probed, readiness, scoped_args,
+        Missing, Probe, Readiness, Reported, parse_projects, parse_ps, presence, probe_budget, probed, readiness, scoped_args,
     };
 
     fn row(service: &str, state: &str, health: &str) -> Reported {
@@ -597,30 +547,6 @@ mod tests {
         }
     }
 
-    /// A command that never exits, built from SHELL BUILTINS ONLY.
-    ///
-    /// Not `sleep 60`, and the reason is the bug the first version of this test had. These run inside
-    /// a nix check sandbox whose `PATH` is the derivation's and not the host's, so where `sleep` is
-    /// absent `/bin/sh -c 'sleep 60'` exits 127 in about a millisecond - and a test asserting only
-    /// "did not answer" then passed without ever reaching the timeout it exists for. `:` is a special
-    /// builtin that no `PATH` can take away, so this blocks on every host or not at all.
-    ///
-    /// It spins rather than sleeps, which is fine at these budgets and buys something: the shell is
-    /// the process that blocks, so the kill lands on it directly and leaves no descendant behind -
-    /// which `sleep 60` did, once per run, for a minute.
-    fn never_answers() -> Command {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", "while :; do :; done"]);
-        command
-    }
-
-    /// A command that answers at once with the given exit status.
-    fn answers_with(code: u8) -> Command {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", &format!("exit {code}")]);
-        command
-    }
-
     #[test]
     fn a_probe_that_never_answers_is_bounded_and_reported_silent() {
         // The wedged daemon, which is the whole reason a budget exists. Before it, this shape did not
@@ -674,9 +600,9 @@ mod tests {
     fn the_probe_budget_is_clamped_at_both_ends() {
         // Read through the public path so the clamp cannot be bypassed by a caller.
         let budget = probe_budget();
-        assert!(budget >= Duration::from_secs(PROBE_TIMEOUT_MIN_SECS), "{budget:?}");
-        assert!(budget <= Duration::from_secs(PROBE_TIMEOUT_MAX_SECS), "{budget:?}");
+        assert!(budget >= Duration::from_secs(TIMEOUT_MIN_SECS), "{budget:?}");
+        assert!(budget <= Duration::from_secs(ANSWER_TIMEOUT_MAX_SECS), "{budget:?}");
         // The multiplication the ceiling assertion above performs must not overflow at the extreme.
-        let _ceiling: Duration = Duration::from_secs(PROBE_TIMEOUT_MAX_SECS) * 3;
+        let _ceiling: Duration = Duration::from_secs(ANSWER_TIMEOUT_MAX_SECS) * 3;
     }
 }

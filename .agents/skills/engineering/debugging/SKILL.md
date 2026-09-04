@@ -35,12 +35,19 @@ external timeout killed them, twice, 50 minutes apart.
 | --- | --- |
 | `just test` / `just causality` / `just ship-check` and every pre-commit tier block, no output | `timeout 20 docker info; echo $?` - **124 means wedged**, and `SKIP=rust-tests` will not help because the hang is not in the hook's own step |
 | stray processes accumulate | the probe kills its child, not the child's descendants; `docker` CLI plugins outlive it until the daemon recovers |
-| a gate hangs only AFTER provisioning starts | `wait_until_healthy` checks its deadline only after `docker compose ps` returns, so `SUTURA_DEV_READY_TIMEOUT_SECS` is never consulted |
+| a gate hangs only AFTER provisioning starts | it should not any more - the readiness loop's `ps` carries the query budget, so this is a bug rather than the known shape |
 
-`presence()` is bounded now (`SUTURA_DOCKER_PROBE_TIMEOUT_SECS`, default 10s per probe, three
-probes, clamped 1..600). A daemon already wedged when a gate starts is reported; one that wedges
-mid-run is not. **If a gate hangs for minutes with no output, kill it and say so** - a hang is
-evidence, not a slow machine.
+Every wait on a docker child is bounded now, and the budgets are per KIND of call because one
+number cannot serve both: `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` (10s, the pre-flight),
+`SUTURA_DOCKER_QUERY_TIMEOUT_SECS` (30s, a `ps` / `port` / `ls`) and
+`SUTURA_DOCKER_PROVISION_TIMEOUT_SECS` (1800s, an `up` / `down`, generous because killing a pull
+halfway leaves containers behind). **What is still not bounded is the descendants**: the kill
+reaches `docker`, not the CLI plugins it spawned, so a wedged daemon leaves those until it recovers.
+And a timed-out `up` deliberately does NOT tear down - `just dev-down` is named in the failure
+instead, for the reasons `xtask/src/compose.rs`'s `abandoned` records.
+
+**If a gate hangs for minutes with no output, kill it and say so** - a hang is evidence, not a slow
+machine.
 
 ## 2. Get the real error
 

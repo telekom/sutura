@@ -40,6 +40,7 @@
 //! artifacts instead.
 
 mod docker;
+mod health;
 mod lock;
 mod teardown;
 
@@ -57,23 +58,6 @@ use sutura_dev::scope::{SERVICES, Scope};
 
 use crate::Verdict;
 use crate::repo;
-
-/// How long to wait for every service to report healthy, unless overridden.
-///
-/// **This is a DEADLINE and not a sleep, which is what makes a generous value cheap.** The gate
-/// returns the moment every expected service reports healthy, so raising this costs nothing on a
-/// tier that comes up and only changes how long a BROKEN one takes to say so. It was 180, which was
-/// the whole budget for one alpine container; the `DataHub` stack spends more than that before GMS
-/// is asked its first question - three stores to become healthy, then a migration job that creates
-/// the topics, the schema and the indices and has to EXIT, then a JVM with a 45-second start period.
-/// A budget that expired mid-migration would report the platform as never ready when it was still
-/// arriving, which is the failure mode a reader trusts least.
-const READY_TIMEOUT_SECS: u64 = 900;
-
-/// How often to ask. Not a readiness mechanism: the GATE is the health report, and this is only how
-/// often it is read. A fixed sleep instead of a gate is what produces a connection refused inside a
-/// test, attributed to whatever the test happened to be doing.
-const POLL_INTERVAL_MILLIS: u64 = 500;
 
 /// What a service reported as its published address, per service name.
 type Published = Vec<(&'static str, String)>;
@@ -252,12 +236,17 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
         Err(cause) => {
-            eprintln!("xtask dev-up: could not run docker: {cause}");
+            eprintln!("xtask dev-up: {cause}");
+            if matches!(cause, docker::Failed::Silent(_)) {
+                for line in abandoned(&scope.project()) {
+                    eprintln!("  {line}");
+                }
+            }
             return Verdict::Fail;
         }
     }
 
-    if let Err(verdict) = wait_until_healthy(&root, &scope, &active, &expected) {
+    if let Err(verdict) = health::wait_until_healthy(&root, &scope, &active, &expected) {
         return verdict;
     }
 
@@ -281,64 +270,6 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
     Verdict::Pass
 }
 
-/// Poll the health report until every expected service is ready, or the deadline passes.
-///
-/// A health GATE and not a sleep. The distinction is what happens when it is wrong: a sleep that was
-/// too short surfaces as a connection refused inside somebody's test; this says which service never
-/// became healthy and stops.
-fn wait_until_healthy(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&str]) -> Result<(), Verdict> {
-    let budget = std::time::Duration::from_secs(
-        std::env::var("SUTURA_DEV_READY_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(READY_TIMEOUT_SECS),
-    );
-    let started = std::time::Instant::now();
-    // What the last poll was still waiting for. Carried out of the match so a timeout says which
-    // service never arrived rather than only that one did not - and declared without a value,
-    // because the only path that reads it is the one the `Waiting` arm assigns on.
-    let mut last: Vec<String>;
-
-    loop {
-        let out = docker::compose(root, &scope.project(), profiles, &["ps", "--all", "--format", "json"]);
-        let reported = match out {
-            Ok(out) if out.ok => docker::parse_ps(&out.stdout),
-            Ok(out) => {
-                eprintln!("xtask dev-up: `docker compose ps` failed");
-                eprint!("{}", out.stderr);
-                return Err(Verdict::Fail);
-            }
-            Err(cause) => {
-                eprintln!("xtask dev-up: could not run docker: {cause}");
-                return Err(Verdict::Fail);
-            }
-        };
-
-        match docker::readiness(&reported, expected) {
-            docker::Readiness::Ready => return Ok(()),
-            docker::Readiness::Failed(why) => {
-                eprintln!("xtask dev-up: a service will not become ready:");
-                for line in &why {
-                    eprintln!("  {line}");
-                }
-                eprintln!("  `docker compose --project-name {} logs` has the detail.", scope.project());
-                return Err(Verdict::Fail);
-            }
-            docker::Readiness::Waiting(why) => last = why,
-        }
-
-        if started.elapsed() >= budget {
-            eprintln!("xtask dev-up: {} service(s) never became ready:", last.len());
-            for line in &last {
-                eprintln!("  {line}");
-            }
-            eprintln!("  waited {}s (SUTURA_DEV_READY_TIMEOUT_SECS)", budget.as_secs());
-            return Err(Verdict::Fail);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MILLIS));
-    }
-}
-
 /// Ask docker which host port each service actually landed on.
 ///
 /// This is the allocation being read back. Nothing here chooses a port; if the read-back fails, the
@@ -353,7 +284,7 @@ fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&s
         let out = match docker::compose(root, &scope.project(), profiles, &["port", service.name(), &container_port]) {
             Ok(out) => out,
             Err(cause) => {
-                eprintln!("xtask dev-up: could not run docker: {cause}");
+                eprintln!("xtask dev-up: {cause}");
                 return Err(Verdict::Fail);
             }
         };
@@ -369,6 +300,31 @@ fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&s
         bound.push((service.name(), String::from(published)));
     }
     Ok(bound)
+}
+
+/// What a provisioning call that never answered leaves behind, and who removes it.
+///
+/// **The decision, as a value rather than three `eprintln!`s.** A timed-out `docker compose up` has
+/// a consequence a timed-out query does not: killing the child does not stop the containers the
+/// child already started, so something has to be said about them. Three options, and the tool
+/// deliberately does NOT tear down:
+///
+/// | Option | Why not |
+/// | --- | --- |
+/// | Tear down, then report | `down --volumes` destroys named volumes, and a timeout is not proof the tier is wrong. `up` is idempotent, so this may be the second `dev-up` over a tier that was ALREADY running and healthy - and then one slow call destroys a working tier. That shape is measured defect #2 in `nix/with-tier.sh`: an unconditional teardown on exit took down a server somebody else had started. |
+/// | Retry, then tear down | If the cause is a wedged daemon the teardown goes through the same socket and cannot succeed either, so it turns one bounded failure into two. |
+/// | Report, and name the task that removes them | What this does. |
+///
+/// **The limit, next to the claim: `dev-up` can exit non-zero with containers running.** That is
+/// deliberate, and what makes it safe is not this report - it is that the discovery file is
+/// published only after readiness, so nothing a harness reads can point at a half-provisioned tier.
+/// Fail-closed lives there, not here.
+fn abandoned(project: &str) -> [String; 3] {
+    [
+        format!("containers this `up` had already started are NOT removed: {project}"),
+        String::from("a timeout is not proof they are wrong - `docker compose up` is idempotent, so a retry reuses the pull"),
+        String::from("`just dev-down` removes this worktree's project, its network and its named volumes"),
+    ]
 }
 
 /// `dev-down`: remove this worktree's project, and nothing else. `--dry-run` says what it would do.
@@ -440,7 +396,7 @@ pub(crate) fn run_down(args: &[String]) -> Verdict {
                 return Verdict::Fail;
             }
             Err(cause) => {
-                eprintln!("xtask dev-down: could not run docker: {cause}");
+                eprintln!("xtask dev-down: {cause}");
                 return Verdict::Fail;
             }
         }
@@ -554,6 +510,29 @@ mod tests {
             absent("dev-up", crate::compose::docker::Missing::Cli, Requirement::Required),
             Verdict::Fail,
             "a CI run that skipped this would report green having tested nothing"
+        );
+    }
+
+    #[test]
+    fn a_timed_out_provision_reports_what_it_left_running_and_removes_nothing() {
+        // The decision, read off the value rather than off a comment. Killing `docker compose up`
+        // does not stop the containers it already started, and this tool deliberately does not tear
+        // them down: `up` is idempotent, so a timeout is not proof the tier is wrong, and the run
+        // may be a second `dev-up` over a tier that was already healthy. What has to hold is that
+        // the reader is TOLD the containers survived, and told where the removal lives - a report
+        // that read as if it had cleaned up would be worse than no report.
+        let report = super::abandoned("sutura-dev-aaaa1111");
+        assert!(
+            report.iter().any(|line| line.contains("sutura-dev-aaaa1111")),
+            "the report must name the project whose containers survived: {report:?}"
+        );
+        assert!(
+            report.iter().any(|line| line.contains("NOT removed")),
+            "the report must not read as if the containers were cleaned up: {report:?}"
+        );
+        assert!(
+            report.iter().any(|line| line.contains("just dev-down")),
+            "the report must name the task that removes them: {report:?}"
         );
     }
 
