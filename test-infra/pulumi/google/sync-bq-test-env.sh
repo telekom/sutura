@@ -70,6 +70,16 @@ VARS = {
     "SUTURA_BQ_WORKLOAD_AUDIENCE": "workload_audience",
     "SUTURA_BQ_PRINCIPAL_A_EMAIL": "principal_a_email",
     "SUTURA_BQ_PRINCIPAL_B_EMAIL": "principal_b_email",
+    # The five the two-principal cell has to be pointed at: the policied dataset and table (which
+    # are NOT the two the acceptance legs run against), the column the two row access policies
+    # filter on, and the grouping value each policy grants. Vars rather than secrets: none of them
+    # is credential material, and the cell's own workflow step masks the two resource names before
+    # anything in the job can print them.
+    "SUTURA_BQ_RLS_DATASET": "dataset",
+    "SUTURA_BQ_RLS_TABLE": "table",
+    "SUTURA_BQ_GROUP_COLUMN": "group_column",
+    "SUTURA_BQ_PRINCIPAL_A_ROWS": "principal_a_rows",
+    "SUTURA_BQ_PRINCIPAL_B_ROWS": "principal_b_rows",
 }
 need(*VARS.values())
 for gh_name, out in VARS.items():

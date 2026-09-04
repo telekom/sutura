@@ -25,6 +25,7 @@ never commit them. Per the repository's caller-facing rule, real project/pool
 names never belong in these files.
 """
 
+import hashlib
 import json
 
 import pulumi
@@ -172,6 +173,33 @@ gcp.bigquery.RowAccessPolicy(
      opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
 )
 
+# The ROWS, beside the policies that select them, and that placement is a decision rather than
+# convenience. A predicate and the rows it grants are two halves of one grant: the two-principal
+# acceptance cell asserts that each principal reads exactly its own, so a grant whose rows were
+# written by a test file and whose predicate was written here would be two things to keep in step.
+#
+# It is a DML `INSERT` and never `CREATE OR REPLACE TABLE`: replacing a table DROPS its row access
+# policies, so the loader the corpus leg uses would disarm the grant the cell asserts on. That is
+# also why the cell does not seed - it has no path to an `INSERT`, deliberately.
+#
+# One row per principal is the smallest fixture the cell can distinguish: it asserts on the DISTINCT
+# grouping values each principal reads, so the rows are additive and a second run of this job (a
+# changed value re-creates it under a new id) leaves the assertion true rather than doubling a sum.
+# The dates sit inside the ten-year window the plan asks about.
+_seed_statement = (
+    f"INSERT INTO `{dataset_id}.{table_id}` (day, amount, {group_column}) "
+    f"VALUES (DATE '2026-01-01', 1, '{principal_a_rows}'), (DATE '2026-01-02', 2, '{principal_b_rows}')"
+)
+gcp.bigquery.Job(
+    "seed-rows",
+    # Immutable and unique per project, so it carries a digest of the statement: change a grouping
+    # value and pulumi runs a new job rather than reporting the old one as still current.
+    job_id=sutura_name(cfg, "seed-" + hashlib.sha256(_seed_statement.encode()).hexdigest()[:8]),
+    location=region,
+    query=gcp.bigquery.JobQueryArgs(query=_seed_statement, use_legacy_sql=False),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, *API_BOOTSTRAP]),
+)
+
 # To RUN a query the principals need `bigquery.jobUser` (submit jobs) and `bigquery.dataViewer`
 # (read the table at all); the two row access policies above then narrow each to its own rows.
 # Without these a job submitted as principal A/B is refused before the RLS filter is ever reached,
@@ -313,6 +341,14 @@ pulumi.export("principal_a_key", key_a.private_key)
 pulumi.export("principal_b_key", key_b.private_key)
 pulumi.export("dataset", dataset.dataset_id)
 pulumi.export("table", table.table_id)
+# The three values the two-principal cell compares an answer against: the column the policies
+# filter on, and the grouping value each policy grants. Exported because the cell asserts against
+# the POLICY's own predicate rather than against a number, so it has to be told what that predicate
+# says - and a value written into the repository instead would be a second answer to the same
+# question. They are grant data, not resource identifiers.
+pulumi.export("group_column", group_column)
+pulumi.export("principal_a_rows", principal_a_rows)
+pulumi.export("principal_b_rows", principal_b_rows)
 pulumi.export("workload_audience", audience)
 pulumi.export("ci_email", ci_sa.email)
 pulumi.export("ci_key", ci_key.private_key)

@@ -1145,3 +1145,82 @@ does fail closed, freely: a matrix target that is not a release target has no
 `feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a matrix
 cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
 reconciling this pair too. It is the same shape as the rule above and is a separate change.
+
+## Seventh amendment, 2026-09-04: the two-principal cell exists, and what it is *not*
+
+**Status of the amendment: accepted; the cell is written and has not been run.** The sixth amendment
+said the cell's two prerequisites were provisioned and that "what is still required is the cell
+itself". This is that cell - issue #123 - and this amendment records three decisions taken while
+writing it, one measurement that closed a question the wrong way, and the two things a human still
+has to do.
+
+### What the cell is, and the one sentence that keeps it honest
+
+`crates/sutura-exec-bigquery/tests/two_principals.rs`, reached by `just bigquery-two-principals` and
+by `nix run .#bigquery-two-principals`. One `QueryPlan` value, borrowed twice, so **the statement is
+the same statement and not two that resemble each other** - and each leg presents a bearer minted
+from that principal's own service-account key through this crate's own `Credential`, which is issue
+#123's second bullet answered by reusing the credential path a deployment runs rather than by
+hand-rolling a token exchange.
+
+**It is leg 2's SOURCE half and not leg 2.** The two principals are service accounts whose private
+keys the leg holds, so nothing was exchanged and nobody asked. What a green run would establish is
+that a real data system applies the row grant of the principal whose bearer this adapter *presented*
+rather than the identity the transport holds; what it says about a caller is nothing.
+`docs/where-identity-is-proven.md` carries that as a venue of its own with five exclusions, and it
+deliberately does **not** move the *two subjects read two different row sets* row up to it: two
+principals is not two subjects, and eliding those is the overstatement that page exists to prevent.
+
+### Three decisions, and the reason each went the way it did
+
+**It has its own task and its own nix app rather than being a third leg inside
+`just bigquery-acceptance`.** It needs five values and two key documents the other two legs do not,
+and one task demanding all of them would make the legs a developer holding one credential *can* run
+unreachable. Both apps filter on the test BINARY and not on a test list, so the property the
+acceptance app's comment states survives: a test added to either target is reached without a count
+anywhere being edited.
+
+**It does not seed the table, though issue #123 asked it to.** `BigQueryWarehouse::load_fixture`
+renders `CREATE OR REPLACE TABLE`, and replacing a table drops its row access policies - so the one
+loader this crate has would disarm the grant the cell asserts on, and the run after it would compare
+two identical row sets. There is no arbitrary-SQL entry point to reach for instead, deliberately.
+So the rows belong to whoever owns the policies: the predicate and the rows it selects are two halves
+of one grant, and splitting them across the stack and a test file is how they drift. The stack seeds
+one row per principal beside the two `RowAccessPolicy` resources, and the cell's non-emptiness
+assertion is what refuses to read an unseeded table as a pass.
+
+**The control leg accepts two outcomes and prints which it got.** What the endpoint answers a
+principal no policy grants decides how strong that control is, and it is unmeasured: documented
+behaviour is no rows, the observable alternative is a refusal, and both are *not reading either
+principal's rows*. The first green run narrows it to one sentence; until then the test says so at the
+assertion rather than guessing.
+
+### The measurement that closed a question the wrong way
+
+The three behaviours the cell rests on were probed from a developer machine against the acceptance
+project, with the credential that machine holds. Creating a table, `INSERT`ing into it and reading it
+back all work. **Creating a row access policy does not:** the acceptance credential is refused
+`bigquery.rowAccessPolicies.create` - `Access Denied ... Permission bigquery.rowAccessPolicies.create
+denied on table` - so a policy cannot be created, replaced or inspected from a developer machine at
+all. Two consequences, and both are limits rather than defects:
+
+- **whether `INSERT` works on a table that HAS row access policies was not measured**, because no
+  policy could be created to try it against. The seeding decision above makes it the stack's problem
+  rather than this leg's, which is the direction that does not depend on the answer;
+- **the policied dataset is not listable from a developer machine either**, so the cell's own
+  configuration cannot be discovered locally and no local run of it is possible. That is why the
+  venue page says the claim is not answered yet rather than that the run failed.
+
+### What is left for a human, and neither is code
+
+1. **The `bq-test` environment has to carry five more values** - the policied dataset and table, the
+   grouping column, and the grouping value each policy grants. `sync-bq-test-env.sh` exports them
+   from the stack now, so `just infra-set` is the mechanism; it needs the pulumi state, which lives
+   with whoever ran `just infra-up`.
+2. **The CI job has to run the leg.** That is a separate change on top of this one, for a reason
+   worth stating: wiring a job to five variables that do not exist yet turns the
+   `bigquery-acceptance` job red on every push until somebody sets them, and a job that is red for a
+   configuration reason is a job people learn to ignore. The order is the environment first, the job
+   second. `.github/workflows/ci.yml` is also at the 1000-line cap that
+   [#285](https://github.com/telekom/sutura/issues/285) is about, so that change carries the cap
+   decision too rather than smuggling it in beside a test.

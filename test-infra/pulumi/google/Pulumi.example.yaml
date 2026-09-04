@@ -16,6 +16,12 @@ config:
   sutura-google-test-infra:ci_dataset: "sutura_dev"
   sutura-google-test-infra:ci_table: "acceptance"
   sutura-google-test-infra:group_column: "segment"
+  # The grouping value each principal's row access policy grants, and the rows the stack seeds. The
+  # two-principal acceptance cell compares an answer against these, so they are exported to the
+  # GitHub environment rather than written into the repository - and they must DIFFER, which the
+  # cell refuses a fixture over rather than discovering as an equal pair of row sets.
+  sutura-google-test-infra:principal_a_rows: "a"
+  sutura-google-test-infra:principal_b_rows: "b"
   sutura-google-test-infra:workload_pool_id: "sutura"
   sutura-google-test-infra:workload_provider_id: "oidc"
   # An OIDC issuer whose JWKS Google STS can fetch, minting the JWT subject tokens
