@@ -32,12 +32,23 @@ pub(super) const PRINTS: &[&str] = &["echo", "printf", "printenv", "cat "];
 /// introducing the NEXT job - which this file writes at two spaces - ends the block rather than
 /// joining it.
 pub(super) fn job<'a>(text: &'a str, name: &str) -> Option<Vec<&'a str>> {
-    let header = format!("  {name}:");
+    keyed_block(text, "  ", name)
+}
+
+/// The lines under `name:` written at `indent`, up to the next line no deeper than that key.
+///
+/// One reader for two scopes, because the second one is what [`configures_tracing`] was missing:
+/// column zero is the WORKFLOW's own mapping, where `defaults:` and `env:` hold keys that decide
+/// how this job's shells start. A block is a block at either indentation, so the depth is an
+/// argument rather than a second function that can disagree with this one.
+pub(super) fn keyed_block<'a>(text: &'a str, indent: &str, name: &str) -> Option<Vec<&'a str>> {
+    let header = format!("{indent}{name}:");
+    let deeper = format!("{indent}  ");
     let mut lines = text.lines().skip_while(|line| *line != header);
     lines.next()?;
     Some(
         lines
-            .take_while(|line| line.trim().is_empty() || line.starts_with("    "))
+            .take_while(|line| line.trim().is_empty() || line.starts_with(&deeper))
             .collect(),
     )
 }
@@ -138,34 +149,59 @@ pub(super) fn env_name_shaped(word: &str) -> bool {
     !word.is_empty() && word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
+/// A path that IS a channel rather than a place: the log, a terminal, a discard.
+///
+/// Trees and not files, because one destination has many spellings - `/dev/stderr`, `/dev/fd/2`
+/// and `/proc/self/fd/2` are the log three ways, and `>&2` is a fourth.
+const CHANNELS: &[&str] = &["/dev/", "/proc/"];
+
 /// Does this line send its output to a FILE rather than to the log?
 ///
-/// `>&1` and `>&2` ARE the log, so they are not an exemption - which is the distinction between
-/// the line that stores the key and every line that would reveal it.
+/// **STORAGE is the recognised side, and the inversion IS the fix.** The exemption used to be a
+/// negation - not `&`, not `/dev/null` - so every other device path read as storage:
+/// `echo "$SUTURA_BQ_KEY" > /dev/stderr` is the destination `>&2` is pinned as, spelled as a path,
+/// and it turned the whole print check off for that line. [`prints`] gates [`emits_file`], so one
+/// `>` silenced both log channels and `cat "$RUNNER_TEMP/<file>" > /dev/stdout` passed too. A
+/// target this cannot recognise now reads as the LOG, which is the only direction that cannot
+/// report compliance over a leak.
 ///
 /// **`/dev/null` is not an exemption either, and that was a real hole**: the test is per LINE, so
 /// `printenv "$KEY" 2>/dev/null` had a redirect whose target was a path and was therefore read as
 /// storing the key, while stdout went to a public log. This job already writes `2>/dev/null` on
 /// another line, so the shape is live rather than hypothetical.
 ///
-/// **Split on the OPERATOR and not on the character**, which is what the empty-segment filter is:
+/// **Split on the OPERATOR and not on the character**, which is what the empty target is:
 /// `2>>/dev/null` is one append operator, and splitting the character made its second `>` a
-/// redirect whose target is the empty string - matching neither exemption, so the `/dev/null` hole
+/// redirect to the empty string - which matched neither exemption, so the `/dev/null` hole
 /// re-opened in the append spelling of exactly the line that closed it.
 pub(super) fn redirects_to_file(line: &str) -> bool {
-    line.split('>').skip(1).filter(|rest| !rest.is_empty()).any(|rest| {
-        let target = rest.trim_start();
-        !target.starts_with('&') && !target.starts_with("/dev/null")
+    line.split('>').skip(1).any(|rest| {
+        let target = rest.trim_start().trim_start_matches(['"', '\'']);
+        !target.is_empty() && !target.starts_with('&') && !CHANNELS.iter().any(|tree| target.starts_with(tree))
     })
+}
+
+/// Is this body line a shell comment, and therefore a CLAIM rather than a command?
+///
+/// One predicate for a distinction three readers had made separately or not at all. [`shell`] keeps
+/// a comment inside a body deliberately - a `${{ }}` written in one is still an expression in the
+/// file, and that is the one check a comment must still reach - but every other reader is deciding
+/// what the job DOES, and there a comment answers both ways at once: `# written as >
+/// "$RUNNER_TEMP/<file>" by the step above` satisfied *the credential is written* with no write in
+/// the job, while `# never echo "$SUTURA_BQ_KEY"` was read as the key on a printing line and failed
+/// a CORRECT job. The second direction is the one that gets a gate deleted.
+pub(super) fn is_comment(line: &str) -> bool {
+    line.trim_start().starts_with('#')
 }
 
 /// Does this line put something in the log?
 ///
 /// A print verb with nowhere else for the output to go. Its own predicate because it is a property
 /// of the LINE: it was evaluated once per configured name, including for the names it can never
-/// fire for.
+/// fire for. A comment puts nothing anywhere, and the skip is here rather than at the call site
+/// because [`emits_file`] is asked only of the lines this admits.
 pub(super) fn prints(line: &str) -> bool {
-    PRINTS.iter().any(|verb| line.contains(verb)) && !redirects_to_file(line)
+    !is_comment(line) && PRINTS.iter().any(|verb| line.contains(verb)) && !redirects_to_file(line)
 }
 
 /// Is this shell word a flag that turns tracing on?
@@ -180,6 +216,29 @@ fn trace_flag(word: &str) -> bool {
             .is_some_and(|set| !set.starts_with('-') && set.contains('x'))
 }
 
+/// What a compound command writes in front of the command it guards.
+const KEYWORDS: &[&str] = &["then ", "do ", "else ", "elif "];
+
+/// The command in one segment, past the punctuation and keywords a compound puts before it.
+///
+/// `if [ -n "$x" ]; then set -x; fi` and `(set -x)` are commands whose SEGMENT does not begin with
+/// the command, so a `strip_prefix("set ")` over the segment read both as clean - the same
+/// positional read as everything else in this file, one level down.
+fn command(segment: &str) -> &str {
+    let mut rest = segment.trim_start();
+    loop {
+        let trimmed = rest.trim_start_matches(['(', '{', '!', ' ']);
+        let stripped = KEYWORDS
+            .iter()
+            .find_map(|keyword| trimmed.strip_prefix(keyword))
+            .map_or(trimmed, str::trim_start);
+        if stripped.len() == rest.len() {
+            return rest;
+        }
+        rest = stripped;
+    }
+}
+
 /// Does this line turn shell tracing on? `set -x`, `set -eux` and `set -o xtrace` all do.
 ///
 /// Refused for the whole job rather than only where the key is in scope, because the job's own
@@ -189,31 +248,51 @@ fn trace_flag(word: &str) -> bool {
 /// `line.trim().strip_prefix("set ")`: a one-line body puts the whole command on the `run:` key,
 /// so the line begins `run: set -eux`, and an operator puts it after something else, as in
 /// `cd "$RUNNER_TEMP" && set -x`.
+///
+/// **And a command is not the start of its segment**, which is [`command`]: a `then`, a `do` or a
+/// parenthesis in front of it hid a trace behind one keyword. `export SHELLOPTS=xtrace` is the key
+/// [`configures_tracing`] reads as YAML, spelled as a command, and was read by neither.
 pub(super) fn traces(line: &str) -> bool {
+    if is_comment(line) {
+        return false;
+    }
     let body = step_key(line);
     let commands = body.strip_prefix("run:").unwrap_or(body);
-    commands.split([';', '&', '|']).any(|command| {
-        command
-            .trim_start()
+    commands.split([';', '&', '|']).map(command).any(|invocation| {
+        invocation
             .strip_prefix("set ")
             .is_some_and(|flags| flags.split_whitespace().any(trace_flag))
+            || invocation
+                .strip_prefix("export ")
+                .unwrap_or(invocation)
+                .strip_prefix("SHELLOPTS=")
+                .is_some_and(shellopts_traces)
     })
+}
+
+/// Does this `SHELLOPTS` value turn tracing on? One value, two spellings - `env:` and `export`.
+fn shellopts_traces(options: &str) -> bool {
+    options.contains("xtrace")
 }
 
 /// Does this line turn tracing on for a shell body that has not been written yet?
 ///
 /// Two keys, and **neither is ever a body line**, so [`traces`] over the shell could see neither:
-/// `shell: bash -x {0}` replaces the interpreter for a step (or, under the job's `defaults:`, for
-/// every step), and `SHELLOPTS: xtrace` in an `env:` block is honoured by bash on startup. The
-/// module documented tracing as refused *for the whole job* while holding it for a body line
-/// beginning `set `.
+/// `shell: bash -x {0}` replaces the interpreter for a step (or, under a `defaults:`, for every
+/// step), and `SHELLOPTS: xtrace` in an `env:` block is honoured by bash on startup. The module
+/// documented tracing as refused *for the whole job* while holding it for a body line beginning
+/// `set `.
+///
+/// **Both keys are equally legal one scope up**, which is why the caller reads this over the
+/// workflow's own `defaults:` and `env:` as well as over the job: written at column zero they turn
+/// tracing on for this job and sit outside [`job`]'s lines entirely, so a job-scoped read claimed a
+/// property the same file could contradict two lines higher.
 pub(super) fn configures_tracing(line: &str) -> bool {
     let key = step_key(line);
     if let Some(interpreter) = key.strip_prefix("shell:") {
         return interpreter.split_whitespace().any(trace_flag);
     }
-    key.strip_prefix("SHELLOPTS:")
-        .is_some_and(|options| options.contains("xtrace"))
+    key.strip_prefix("SHELLOPTS:").is_some_and(shellopts_traces)
 }
 
 /// Does this condition state the fork rule, and does nothing beside it answer for a fork?
@@ -289,20 +368,41 @@ pub(super) fn under_runner_temp(path: &str) -> Option<&str> {
     rest.strip_prefix('/')
 }
 
-/// Does a print verb on this line take the credential FILE as its argument?
+/// Does a print verb on this line take the credential FILE as an argument?
 ///
 /// The file holds the same secret the environment does, so `cat "$RUNNER_TEMP/<file>"` is the whole
 /// key in a public log - and the print check read a secret's NAME, which that line never spells.
 ///
-/// **The verb's argument rather than the line**, because this job legitimately prints the file's
-/// SIZE: `echo "… $(wc -c < "$RUNNER_TEMP/<file>") bytes"` names the path on a printing line and
-/// reveals a byte count. A check keyed on the line fails correct configuration, which is the
-/// direction that gets a gate deleted.
+/// **An ARGUMENT LIST, not the first token after the verb**, which is what the draft read and what
+/// one flag defeated: `cat -v <file>`, `cat -- <file>` and `printf '%s' <file>` all answered no. The
+/// case that has to keep answering no is not *argument one* either - this job legitimately prints
+/// the file's SIZE, `$(wc -c < <file>)`, which names the path INSIDE a command substitution. So the
+/// question is whether the name appears outside one.
 pub(super) fn emits_file(line: &str, file: &str) -> bool {
     PRINTS.iter().any(|verb| {
         line.split(verb)
             .skip(1)
-            .any(|argument| argument.split_whitespace().next().is_some_and(|first| first.contains(file)))
+            .any(|arguments| named_outside_substitution(arguments, file))
+    })
+}
+
+/// Does `file` appear in `text` outside every `$( … )`?
+///
+/// **Subtracted from the ARGUMENTS after a verb rather than from the line**, and that is what keeps
+/// `echo "$(cat <file>)"` caught: the substitution hides the name from `echo`'s arguments, and the
+/// `cat` inside it is a verb of its own whose arguments name the file outside any substitution of
+/// theirs. An unterminated `$(` reads as text, so a line this cannot parse reports rather than
+/// passes - the same direction [`redirects_to_file`] takes for a target it does not recognise.
+fn named_outside_substitution(text: &str, file: &str) -> bool {
+    text.split("$(").enumerate().any(|(nth, part)| {
+        // Everything past the substitution's close, or - for the first part - everything before
+        // the substitution opened.
+        let outside = if nth == 0 {
+            part
+        } else {
+            part.split_once(')').map_or(part, |(_, after)| after)
+        };
+        outside.contains(file)
     })
 }
 

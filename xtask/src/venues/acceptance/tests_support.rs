@@ -15,6 +15,22 @@ pub(super) fn condition() -> String {
     format!("if: github.event_name == 'push' || {}", super::FORK_RULE)
 }
 
+/// The one line that stores the key, which most perturbations here add a line beside.
+const WRITE: &str = "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n";
+
+/// The job with `added` on the line after the write.
+///
+/// **The write STAYS**, so nothing else in the job is disturbed and only the check under test can
+/// produce a failure - which is what makes an exact `found.len()` an assertion rather than a hope.
+pub(super) fn beside_the_write(added: &str) -> String {
+    CI.replace(WRITE, &format!("{WRITE}          {added}\n"))
+}
+
+/// The job with the write itself replaced by `instead`, at the same indentation.
+pub(super) fn instead_of_the_write(instead: &str) -> String {
+    CI.replace(WRITE, &format!("          {instead}\n"))
+}
+
 /// A step written with no `name:`, which is the form the shell scan could not see.
 pub(super) fn with_nameless_step(body: &str) -> String {
     CI.replace(

@@ -77,6 +77,35 @@
 //!   clean. [`shape::emits_file`] reads the verb's ARGUMENT, because this job legitimately prints
 //!   that file's size.
 //!
+//! # And four more one round later, three of them that same read one layer in
+//!
+//! The review that found the six above found four it had not closed, and the pattern held: a
+//! position or a `contains` standing in for a shape. The fourth is the same defect pointing the
+//! other way - a gate that fails a correct job.
+//!
+//! * **a redirect to a device path IS the log, and the exemption was a negation.** Only `&` and
+//!   `/dev/null` were exempt, so every other device path read as storage:
+//!   `echo "$SUTURA_BQ_KEY" > /dev/stderr` is the destination `>&2` is pinned as, spelled as a
+//!   path. And [`prints`] gates [`emits_file`], so one `>` silenced both log channels - a `cat` of
+//!   the key file to `/dev/stdout` passed too. Storage is the recognised side now, and an
+//!   unrecognised target reads as the log: [`shape::redirects_to_file`];
+//! * **an ARGUMENT LIST, not the token after the verb.** `cat -v <the key file>`, `cat -- <it>` and
+//!   `printf '%s' <it>` all answered no - one flag defeated the property. What must keep answering
+//!   no is not *argument one* either but *inside `$( )`*, which is where this job names the file to
+//!   print its size. See [`shape::emits_file`];
+//! * **both tracing keys are legal one scope up.** A workflow-level `defaults:` with
+//!   `shell: bash -x {0}`, or an `env:` with `SHELLOPTS: xtrace`, turns tracing on for this job
+//!   from outside the lines [`job`] returns - so a property claimed *for the whole job* was
+//!   defeated by writing the same key two lines higher. [`WORKFLOW_SCOPE`] is read beside the
+//!   block; and a command no longer has to BEGIN its segment, because `then set -x` and `(set -x)`
+//!   are commands too. See [`shape::traces`];
+//! * **a comment is a claim, and it answered in both directions.** [`shape::shell`] keeps comments
+//!   deliberately, so the interpolation check can read one - and the three readers deciding what
+//!   the job DOES read them too. `# written as > "$RUNNER_TEMP/<file>" by the step above` satisfied
+//!   *the credential is written* with no write in the job, while `# never echo "$SUTURA_BQ_KEY"`
+//!   was reported as the key on a printing line and failed a CORRECT job. [`shape::is_comment`] is
+//!   one predicate, read in all four places.
+//!
 //! # What this does not reach
 //!
 //! The file the group points at for limits had none of its own. Every row is a property of the
@@ -92,7 +121,10 @@
 //! | A guard whose `exit` is in the NEXT step | The job's shell is one flat line list, so [`GUARD_WINDOW`] can cross a step boundary. Strictly stronger than the whole-job search it replaced, not airtight |
 //! | Whether the name a guard mentions is the name it TESTS | `guarded` is a bag of environment-shaped words off any guard line, so a name merely appearing near one counts as tested |
 //! | A lower-case environment name | [`env_name_shaped`] requires upper case, so `bq_key: ${{ secrets.x }}` is read by neither the emptiness check nor the print check |
-//! | `::add-mask::` | The job's own comments call masking the mechanism that keeps a project, dataset and table out of a public log. Nothing here holds it |
+//! | A file that lives under a device tree | [`shape::CHANNELS`] is a prefix, so `> /dev/shm/key` reads as the LOG and is reported. Over-permissive is the direction that reports compliance over a leak, so this one is deliberate |
+//! | A backquoted substitution | [`shape::emits_file`] subtracts `$( )` and not `` ` ` ``, so a byte count taken the old way is reported. Same direction, same reason |
+//! | The credential's PATH on a printing line | `echo "placed at $RUNNER_TEMP/<file>"` names the file outside a substitution and is reported, though only the path reaches the log. The vocabulary cannot tell a verb that reads the file from one that prints its name |
+//! | `::add-mask::` | The job's own comments call masking the mechanism that keeps a project, dataset and table out of a public log. Nothing here holds it - and the cheap form would be a `contains` over the job, which is the exact shape every entry in the lists above was found to be. It needs the guard-to-value reasoning [`unset_configuration_fails`] has, per masked name |
 //! | An `environment:` written as a mapping | The exclusivity count compares the key's inline value, so `environment:` with `name:` below it is read as declared and not counted |
 //! | Whether `environment: bq-test` withholds anything | That is a repository setting no file in this tree states. The key is necessary and is not sufficient |
 
@@ -112,8 +144,8 @@ mod shape;
 mod tests_support;
 
 use shape::{
-    FORK_RULE, Source, configured, configures_tracing, downgrades_failure, emits_file, env_name_shaped, exits_non_zero, job,
-    prints, shell, states_fork_rule, step_key, traces, under_runner_temp, waits_for,
+    FORK_RULE, Source, configured, configures_tracing, downgrades_failure, emits_file, env_name_shaped, exits_non_zero,
+    is_comment, job, keyed_block, prints, shell, states_fork_rule, step_key, traces, under_runner_temp, waits_for,
 };
 
 /// The workflow that holds the acceptance venue's limit.
@@ -136,6 +168,14 @@ const FEDERATION: &[&str] = &[
     "workload_identity_provider",
     "sts.googleapis.com",
 ];
+
+/// The workflow's own mappings that decide how this job's shells start.
+///
+/// `defaults:` -> `run:` -> `shell: bash -x {0}` and `env:` -> `SHELLOPTS: xtrace` are the two
+/// tracing keys written at column zero, where they apply to every job including this one and sit
+/// outside the lines [`job`] returns. Read here because the alternative was a limits row: a
+/// property claimed *for the whole job* that one scope up could contradict.
+const WORKFLOW_SCOPE: &[&str] = &["defaults", "env"];
 
 /// How far after a guard a non-zero `exit` may sit.
 ///
@@ -174,6 +214,7 @@ pub(super) fn problems(text: &str) -> Vec<String> {
     problems.extend(credential_placement(&bodies, credential));
     problems.extend(unset_configuration_fails(&bodies, &config));
     problems.extend(what_reaches_the_log(
+        text,
         &block,
         &bodies,
         &config,
@@ -292,8 +333,10 @@ fn credential_placement(bodies: &[&str], credential: Option<&str>) -> Vec<String
         .into_iter()
         // Per line, because neither form can span one - which is what the joined copy of every
         // body was for. The WHOLE path below `$RUNNER_TEMP` and not its basename: one answer, or
-        // the message below is describing two.
-        .filter(|(_, form)| !bodies.iter().any(|line| line.contains(form)))
+        // the message below is describing two. And a COMMAND rather than a comment: a body line
+        // `# written as > "$RUNNER_TEMP/<file>" by the step above` satisfied both forms with
+        // neither the write nor the removal anywhere in the job.
+        .filter(|(_, form)| !bodies.iter().any(|line| !is_comment(line) && line.contains(form)))
         .map(|(what, form)| {
             format!(
                 "{WORKFLOW}: the `{JOB}` job never has the credential {what} as `{form}` - the \
@@ -314,11 +357,11 @@ fn unset_configuration_fails(bodies: &[&str], config: &BTreeMap<&str, Source>) -
     let mut problems = Vec::new();
     let mut guarded = BTreeSet::new();
     for (at, line) in bodies.iter().enumerate() {
-        // A comment inside a body is prose. `shell` keeps it deliberately - an expression in one
-        // would still be an expression in the file - so the guard shapes below read it too, and
-        // `for ` plus ` in ` in an English sentence made a CORRECT job red for want of an `exit`
-        // after a comment. That direction is how a gate gets deleted.
-        if line.trim().starts_with('#') {
+        // A comment inside a body is prose - `shape::is_comment`, the same predicate the print
+        // check and the credential forms read, because this was the only one of the three that
+        // held the distinction. `for ` plus ` in ` in an English sentence made a CORRECT job red
+        // for want of an `exit` after a comment, and that direction is how a gate gets deleted.
+        if is_comment(line) {
             continue;
         }
         // Two shapes, and both are guards: a `-z` emptiness test, and a `for name in A B` that
@@ -369,6 +412,7 @@ fn unset_configuration_fails(bodies: &[&str], config: &BTreeMap<&str, Source>) -
 /// interpolation puts the value in the file, a print verb puts it on a line, and tracing puts
 /// every argument of every command there without any of them being written down.
 fn what_reaches_the_log(
+    text: &str,
     block: &[&str],
     bodies: &[&str],
     config: &BTreeMap<&str, Source>,
@@ -412,12 +456,20 @@ fn what_reaches_the_log(
         }
     }
     // The body first, so the message quotes the command where there is one; the two keys second,
-    // because neither can appear in a body at all.
-    if let Some(line) = bodies
+    // because neither can appear in a body at all - and over the WORKFLOW's own scope as well as
+    // the job's, because a key written at column zero decides how this job's shells start while
+    // sitting outside the lines `job` returns.
+    let workflow_scope: Vec<&str> = WORKFLOW_SCOPE
         .iter()
-        .find(|line| traces(line))
-        .or_else(|| block.iter().find(|line| configures_tracing(line)))
-    {
+        .filter_map(|name| keyed_block(text, "", name))
+        .flatten()
+        .collect();
+    if let Some(line) = bodies.iter().find(|line| traces(line)).or_else(|| {
+        block
+            .iter()
+            .chain(workflow_scope.iter())
+            .find(|line| configures_tracing(line))
+    }) {
         problems.push(format!(
             "{WORKFLOW}: the `{JOB}` job turns shell tracing on - `{}`. Every command in that body \
              then reaches the log with its arguments, which is the channel this job's own comments \
@@ -472,7 +524,9 @@ fn one_credential_mechanism(block: &[&str], config: &BTreeMap<&str, Source>) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::tests_support::{CI, KEY_ENV, condition, with_google_exchange, with_id_token, with_nameless_step};
+    use super::tests_support::{
+        CI, KEY_ENV, beside_the_write, condition, instead_of_the_write, with_google_exchange, with_id_token, with_nameless_step,
+    };
     use super::{FORK_RULE, JOB, WORKFLOW, problems};
 
     #[test]
@@ -561,11 +615,7 @@ mod tests {
         // produce the failure. `printenv` with a redirect is how the key is stored, so the verb
         // alone cannot decide it - and `>&2` is the log rather than a file.
         for added in ["printenv SUTURA_BQ_KEY", "echo \"$SUTURA_BQ_KEY\" >&2"] {
-            let leaked = CI.replace(
-                "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n",
-                &format!("          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n          {added}\n"),
-            );
-            let found = problems(&leaked);
+            let found = problems(&beside_the_write(added));
             assert_eq!(found.len(), 1, "{added}: {found:?}");
             assert!(found[0].contains("on a line that prints"), "{added}: {found:?}");
             assert!(found[0].contains(added), "{added}: {found:?}");
@@ -577,13 +627,72 @@ mod tests {
         // `2>/dev/null` redirects to a PATH, so a per-line test read the whole line as storing the
         // key while stdout went to a public log. The real job already writes `2>/dev/null` on
         // another line, so this is a live shape and not a hypothetical.
-        let leaked = CI.replace(
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n",
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n          printenv SUTURA_BQ_KEY 2>/dev/null\n",
-        );
-        let found = problems(&leaked);
+        let found = problems(&beside_the_write("printenv SUTURA_BQ_KEY 2>/dev/null"));
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("on a line that prints"), "{found:?}");
+    }
+
+    #[test]
+    fn a_device_path_is_the_log_written_as_a_target_rather_than_storage() {
+        // `> /dev/stderr` is the destination `>&2` is pinned as, spelled as a path. The exemption
+        // was a NEGATION - not `&`, not `/dev/null` - so every other device path read as storage
+        // and one `>` turned the whole print check off for the line.
+        for added in [
+            "echo \"$SUTURA_BQ_KEY\" > /dev/stderr",
+            "echo \"$SUTURA_BQ_KEY\" > /dev/stdout",
+            "echo \"$SUTURA_BQ_KEY\" >> /dev/fd/2",
+        ] {
+            let found = problems(&beside_the_write(added));
+            assert_eq!(found.len(), 1, "{added}: {found:?}");
+            assert!(found[0].contains("on a line that prints"), "{added}: {found:?}");
+        }
+        // The second channel the same `>` closed: `prints` gates the credential-file check, so a
+        // device path exempted the line from a `cat` of the key as well as from its name.
+        let found = problems(&beside_the_write("cat \"$RUNNER_TEMP/bq-key.json\" > /dev/stdout"));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("hands the credential file"), "{found:?}");
+    }
+
+    #[test]
+    fn the_credential_file_reaches_a_print_verb_past_a_flag_and_out_of_a_substitution() {
+        // The draft read the FIRST token after the verb, so one flag defeated the property. The
+        // `$( )` case is the last of these: the substitution hides the name from `echo`, and the
+        // `cat` inside it is a verb of its own whose arguments name the file outside any of theirs.
+        for added in [
+            "cat -v \"$RUNNER_TEMP/bq-key.json\"",
+            "cat -- \"$RUNNER_TEMP/bq-key.json\"",
+            "printf '%s' \"$RUNNER_TEMP/bq-key.json\"",
+            "echo \"$(cat \"$RUNNER_TEMP/bq-key.json\")\"",
+        ] {
+            let found = problems(&beside_the_write(added));
+            assert_eq!(found.len(), 1, "{added}: {found:?}");
+            assert!(found[0].contains("hands the credential file"), "{added}: {found:?}");
+        }
+        // The case the predicate exists to let through is the size this job prints, and it is
+        // asserted by `the_credential_file_handed_to_a_print_verb_is_the_key_in_a_public_log`.
+    }
+
+    #[test]
+    fn a_comment_neither_satisfies_a_property_nor_fails_a_correct_job() {
+        // `shell` keeps a comment so the interpolation check can read it, and the three readers
+        // deciding what the job DOES then read a CLAIM as a command - in both directions.
+        let claimed = instead_of_the_write("# written as > \"$RUNNER_TEMP/bq-key.json\" by the step above").replace(
+            "        run: rm -f \"$RUNNER_TEMP/bq-key.json\"\n",
+            "        run: |\n          # and removed with rm -f \"$RUNNER_TEMP/bq-key.json\"\n",
+        );
+        let found = problems(&claimed);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|p| p.contains("are one path or they are two answers"))
+                .count(),
+            2,
+            "{found:?}"
+        );
+        // The direction that gets a gate deleted: a comment WARNING against the print was read as
+        // the print, so the gate failed a job doing exactly what the comment says.
+        let annotated = beside_the_write("# never echo \"$SUTURA_BQ_KEY\" - a workflow log here is public");
+        assert_eq!(problems(&annotated), Vec::<String>::new());
     }
 
     #[test]
@@ -773,23 +882,43 @@ mod tests {
     }
 
     #[test]
+    fn tracing_one_scope_up_or_behind_a_keyword_is_still_tracing_for_this_job() {
+        // Both keys are legal at the WORKFLOW level, where they decide how this job's shells start
+        // and sit outside the lines `job` returns - so the property claimed for the whole job was
+        // defeated by writing the same key two lines higher. The last three are one altitude down:
+        // a command is not the start of its segment, and `SHELLOPTS` has a command spelling too.
+        for traced in [
+            format!("defaults:\n  run:\n    shell: bash -x {{0}}\n{CI}"),
+            format!("env:\n  SHELLOPTS: xtrace\n{CI}"),
+            with_nameless_step("if [ -n \"$RUNNER_TEMP\" ]; then set -x; fi"),
+            with_nameless_step("(set -x)"),
+            with_nameless_step("export SHELLOPTS=xtrace"),
+        ] {
+            let found = problems(&traced);
+            assert!(
+                found.iter().any(|p| p.contains("turns shell tracing on")),
+                "{traced}: {found:?}"
+            );
+        }
+        // The workflow-level `env:` this repository's own file writes names neither key, which is
+        // what stops the widened scan from failing a correct workflow.
+        assert_eq!(
+            problems(&format!("env:\n  BINARIES: sutura sutura-serve\n{CI}")),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
     fn the_credential_file_handed_to_a_print_verb_is_the_key_in_a_public_log() {
         // The print check read the secret's NAME, which a `cat` of the file it was written to
         // never spells - so the one line that puts the whole key in a public log was clean.
-        let leaked = CI.replace(
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n",
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n          cat \"$RUNNER_TEMP/bq-key.json\"\n",
-        );
-        let found = problems(&leaked);
+        let found = problems(&beside_the_write("cat \"$RUNNER_TEMP/bq-key.json\""));
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("hands the credential file to a print verb"), "{found:?}");
 
         // The twin, because the real job PRINTS THE SIZE: the verb's argument decides it, not the
         // presence of the path on the line, and a check that read the line fails this job.
-        let sized = CI.replace(
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n",
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n          echo \"placed, $(wc -c < \"$RUNNER_TEMP/bq-key.json\") bytes\"\n",
-        );
+        let sized = beside_the_write("echo \"placed, $(wc -c < \"$RUNNER_TEMP/bq-key.json\") bytes\"");
         assert_eq!(problems(&sized), Vec::<String>::new());
     }
 
@@ -798,11 +927,7 @@ mod tests {
         // `"x 2>>/dev/null".split('>')` yields an EMPTY middle segment, which starts with neither
         // `&` nor `/dev/null` and so read as a file - re-opening the hole the single-arrow form
         // closed.
-        let leaked = CI.replace(
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n",
-            "          printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-key.json\"\n          printenv SUTURA_BQ_KEY 2>>/dev/null\n",
-        );
-        let found = problems(&leaked);
+        let found = problems(&beside_the_write("printenv SUTURA_BQ_KEY 2>>/dev/null"));
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("on a line that prints"), "{found:?}");
 
