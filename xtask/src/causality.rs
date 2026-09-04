@@ -112,7 +112,7 @@ pub(crate) enum Plan {
 /// would otherwise be a changed test whose key names a package `--workspace` never builds -
 /// nextest refuses an unknown `package(=..)` outright, so the gate would redden a correct change.
 /// `changes::is_non_member` already answers that question for the compile-check gate.
-fn is_rust(path: &str) -> bool {
+fn is_compiled_rust(path: &str) -> bool {
     !crate::changes::is_non_member(path)
         && std::path::Path::new(path)
             .extension()
@@ -128,7 +128,7 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
     let mut impl_only = Vec::new();
 
     for file in files {
-        if !is_rust(&file.path) {
+        if !is_compiled_rust(&file.path) {
             continue;
         }
         if adds_test(&file.added) {
