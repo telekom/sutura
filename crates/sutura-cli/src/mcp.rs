@@ -19,32 +19,22 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use sutura_app::prompt::CatalogProse;
-use sutura_app::surface::{LocalService, Surface as _};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::pinned::SemanticCatalog as _;
-use sutura_runtime::TracingAuditSink;
 
-use crate::commands::{arg, catalog_prose, catalog_reader, render, report};
-use crate::sources::{Opened, OpenedWith, configured, open_engine, refuse_unattached, served_tables};
+use crate::commands::{Composed, arg, catalog_prose, catalog_reader, render, report, started};
+use crate::sources::{Opened, OpenedWith, configured, open_engine};
 // The `BigQuery` arm's half of the same question, and reached only from that arm - so the import is
 // gated for the reason `sources::bigquery`'s are: `dead_code` is `deny` here, and this crate's
 // default build links no BigQuery adapter.
 #[cfg(feature = "bigquery")]
 use crate::sources::refuse_absent_tables;
 
-/// The service this command serves, over one of the adapters this binary links.
-///
-/// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
-/// and the broker are the three collaborators every command in this binary composes. Generic in the
-/// warehouse since the `bigquery` feature landed; the other two are this binary's own choice and
-/// never vary.
-type McpSurface<W> = LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker>;
-
 /// What serving the surface amounts to: the service, and how catalog descriptions are treated.
 ///
-/// Named because even with `McpSurface` aliased, `(McpSurface<W>, CatalogProse)` stays over
+/// Named because even with [`Composed`] aliased, `(Composed<W>, CatalogProse)` stays over
 /// `clippy::type_complexity` once the alias is expanded.
-type Served<W> = (McpSurface<W>, CatalogProse);
+type Served<W> = (Composed<W>, CatalogProse);
 
 /// `mcp <catalog-dir> [data-dir]`: serve the agent surface over standard input and output.
 ///
@@ -141,43 +131,36 @@ where
 
 /// The agent surface this command serves: the `query` composition behind the driving port.
 ///
-/// The same answer path `query` exercises, wrapped in the service an agent client speaks to. The
-/// one difference worth stating is the audit sink: [`LocalService::start`] requires one (a service
-/// with no sink does not exist), and `TracingAuditSink` is it. A locally launched process installs
-/// no subscriber, so those records go nowhere for the whole session - a different weight than
-/// `query`, where one person's own terminal loses nothing, but the same honest default: nothing
-/// claims a record was kept when none was. The sink is only the writer, so any composition that
-/// does install a subscriber must send it to standard error - on this transport standard output is
-/// the protocol channel, which is why the startup notice is an `eprintln!`.
+/// **Literally the same composition, not a parallel one.** [`started`] is the single place this
+/// binary builds a service - the constructor that takes an audit sink and re-runs every anchor, plus
+/// the unattached-table check that closes the gap its second catalog load leaves. That used to be
+/// the one difference between the two commands: `query` called the answer function directly and
+/// wrote no record at all, which is issue #266's A1, and it now goes through here too.
+///
+/// A locally launched process installs no subscriber either way, so those records go nowhere for the
+/// whole session - the honest default rather than a claim that a record was kept when none was, and
+/// the limit the invariants row states. The sink is only the writer, so any composition that does
+/// install a subscriber must send it to standard error: on this transport standard output is the
+/// protocol channel, which is why the startup notice is an `eprintln!`.
+///
+/// What is left here is the transport's own decision, and there is one - how catalog descriptions
+/// are treated. **It takes the whole `Settings` rather than the two values it needs**, so that
+/// decision is READ here and not handed in; `#266`'s `H1` is what a caller-supplied setting costs.
 fn mcp_service<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, settings: &sutura_config::Settings) -> Result<Served<W>, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let working_set = settings.runtime().working_set().bytes().get() as u64;
-    // `LocalService::start` loads the catalog again and re-runs every anchor - that is its contract,
-    // the constructor that returns a service only if the bundle is fit to serve. `catalog` is handed
-    // over rather than the `pinned` rebuilt, so the two loads cannot disagree about the version or
-    // the source name - and `refuse_unattached` closes the one gap that remains: a model added to the
-    // catalog directory between `load()` above and the load inside `start` would otherwise be served
-    // with no table registered behind it, failing its first question at query time. The same check
-    // `sutura-serve` runs at boot, so a served surface refuses to start in the same cases.
-    let service = LocalService::start(catalog, opened.engines, TracingAuditSink::new(), opened.broker, working_set)
-        .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
-    // Skipped for a data system nothing was attached to, which is the narrowing `Opened::attached`
-    // documents: the check compares the tables the served bundle names against the tables the engine
-    // HOLDS, and it holds them because the attach step put them there. Nothing to compare is not the
-    // same as nothing missing.
-    if let Some(attached) = opened.attached {
-        refuse_unattached(&served_tables(service.definitions()), &attached)?;
-    }
     // **Read here rather than taken as an argument**, and that is the whole of `#266`'s `H1` at this
     // layer: this line was the constant `CatalogProse::Quoted` under a comment calling it *the
     // default treatment*, which it was not - it was the only one. A caller-supplied setting would
     // move the defect one frame up and leave the same line uncovered, because a test can pass the
     // value it wants to see. The conversion is `crate::commands::catalog_prose`, shared with
     // `sutura prompt`, because two roots resolving one decision separately is how this survived.
-    Ok((service, catalog_prose(settings.prompt().catalog_prose())))
+    Ok((
+        started(catalog, opened, settings.runtime())?,
+        catalog_prose(settings.prompt().catalog_prose()),
+    ))
 }
 
 #[cfg(test)]

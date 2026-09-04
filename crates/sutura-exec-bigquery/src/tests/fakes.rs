@@ -29,7 +29,7 @@ use sutura_domain::warehouse::{ParamValue, Value};
 
 use crate::BigQueryWarehouse;
 use crate::transport::{
-    Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobRequest, JobRows, JobTransport, ProjectId,
+    Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobRequest, JobRows, JobTransport, ListingTotal, ProjectId,
 };
 
 // ------------------------------------------------------------------------------ the fake ----
@@ -64,7 +64,7 @@ pub(super) struct Recording {
     ///
     /// A map rather than one set, because the pre-flight's whole claim is that it makes ONE call PER
     /// DATASET: a single set could not tell a bundle read with two calls from one read with one.
-    holding: BTreeMap<String, BTreeSet<String>>,
+    holding: BTreeMap<String, HeldTables>,
     /// Which addresses were listed, in order, so a test can count the calls rather than trust them.
     ///
     /// **`billed_to:project/dataset` and not the `project/dataset` [`Self::holding`] is keyed on,
@@ -91,9 +91,22 @@ impl Recording {
     ///
     /// Keyed by `project/dataset`, because that is WHERE a table lives - the project a read is billed
     /// to cannot change which tables a dataset holds, and a key that carried it would say it could.
-    pub(super) fn holding(mut self, pair: &str, tables: &[&str]) -> Self {
-        self.holding
-            .insert(String::from(pair), tables.iter().map(|table| String::from(*table)).collect());
+    /// Reports NO total, which is the honest answer for a fake that is not about that axis - the
+    /// same direction `listing_was_refused` defaults in, and the one every caller behaved as if it
+    /// had before the field was decoded at all. [`Self::holding_with_total`] is for a test that IS
+    /// about it.
+    pub(super) fn holding(self, pair: &str, tables: &[&str]) -> Self {
+        self.holding_with_total(pair, tables, ListingTotal::Unreported)
+    }
+
+    /// The same, told what the listing said about its own size.
+    ///
+    /// The verdict is stated rather than computed here on purpose: `wire::tables::reported_total` is
+    /// the one place that derives one from a document, and a fake deriving its own would be a second
+    /// copy of the rule under test.
+    pub(super) fn holding_with_total(mut self, pair: &str, tables: &[&str], total: ListingTotal) -> Self {
+        let named: BTreeSet<String> = tables.iter().map(|table| String::from(*table)).collect();
+        self.holding.insert(String::from(pair), HeldTables::of(named, total));
         self
     }
 
@@ -151,7 +164,14 @@ impl JobTransport for Recording {
         // pays is not a fact about which tables a dataset holds, and it is the one this fake was
         // blind to. See `Self::listed`.
         self.listed.borrow_mut().push(format!("{}:{pair}", at.billed_to().as_str()));
-        Ok(self.holding.get(&pair).cloned().unwrap_or_default())
+        // An undeclared pair is an empty dataset that reported nothing - the ambiguity the real
+        // decoder now reports rather than hides. `HeldTables` has no `Default` for that reason: what
+        // an absence means here is the question, so it is stated at the site.
+        Ok(self
+            .holding
+            .get(&pair)
+            .cloned()
+            .unwrap_or_else(|| HeldTables::of(BTreeSet::new(), ListingTotal::Unreported)))
     }
 
     /// Recorded like the other two, which is what lets a test assert what a fixture load PUT ON THE

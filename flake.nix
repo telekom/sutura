@@ -374,12 +374,16 @@
         #   * `<binary>-<triple>`, plus `-performance` and `-ci` siblings - the cross matrix
         #   * `oci`, `oci-serve`, and `-performance` siblings  - local Linux images
         #   * `oci-<triple>`, `oci-serve-<triple>`            - one image per shipped artifact
+        #   * `<binary>-<feature>-<triple>-ci`                - the feature-on link probes
+        #   * `feature-probes-<triple>`                       - which of those exist, as a file
         #
         # `sutura-serve` and its images are what closed #111: before them every published
         # artefact was the command-line tool, so nothing a release published could answer a
-        # question over HTTP. `docs/serving.md` is where the deployment shape lives.
+        # question over HTTP. `docs/serving.md` is where the deployment shape lives. The probes
+        # and their manifests are the entries here that are NOT shipped artifacts - see
+        # `probeFeatures`.
         packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
-          // shipped.localImages // {
+          // shipped.localImages // shipped.featurePackages // shipped.probeManifests // {
           default = shipped.nativeBinaries.sutura;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.

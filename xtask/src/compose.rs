@@ -40,6 +40,7 @@
 //! artifacts instead.
 
 mod docker;
+mod health;
 mod lock;
 mod teardown;
 
@@ -48,7 +49,7 @@ mod teardown;
 #[cfg(test)]
 mod file;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sutura_dev::discovery::{self, Endpoints};
 use sutura_dev::provisioned;
@@ -57,23 +58,6 @@ use sutura_dev::scope::{SERVICES, Scope};
 
 use crate::Verdict;
 use crate::repo;
-
-/// How long to wait for every service to report healthy, unless overridden.
-///
-/// **This is a DEADLINE and not a sleep, which is what makes a generous value cheap.** The gate
-/// returns the moment every expected service reports healthy, so raising this costs nothing on a
-/// tier that comes up and only changes how long a BROKEN one takes to say so. It was 180, which was
-/// the whole budget for one alpine container; the `DataHub` stack spends more than that before GMS
-/// is asked its first question - three stores to become healthy, then a migration job that creates
-/// the topics, the schema and the indices and has to EXIT, then a JVM with a 45-second start period.
-/// A budget that expired mid-migration would report the platform as never ready when it was still
-/// arriving, which is the failure mode a reader trusts least.
-const READY_TIMEOUT_SECS: u64 = 900;
-
-/// How often to ask. Not a readiness mechanism: the GATE is the health report, and this is only how
-/// often it is read. A fixed sleep instead of a gate is what produces a connection refused inside a
-/// test, attributed to whatever the test happened to be doing.
-const POLL_INTERVAL_MILLIS: u64 = 500;
 
 /// What a service reported as its published address, per service name.
 type Published = Vec<(&'static str, String)>;
@@ -244,33 +228,9 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
     } else {
         println!("  profiles  {}", active.join(", "));
     }
-    match docker::compose(&root, &scope.project(), &active, &["up", "--detach", "--remove-orphans"]) {
-        Ok(out) if out.ok => {}
-        Ok(out) => {
-            eprintln!("xtask dev-up: `docker compose up` failed");
-            eprint!("{}", out.stderr);
-            return Verdict::Fail;
-        }
-        Err(cause) => {
-            eprintln!("xtask dev-up: could not run docker: {cause}");
-            return Verdict::Fail;
-        }
-    }
-
-    if let Err(verdict) = wait_until_healthy(&root, &scope, &active, &expected) {
-        return verdict;
-    }
-
-    let bound = match read_back_ports(&root, &scope, &active, &expected) {
-        Ok(bound) => bound,
-        Err(verdict) => return verdict,
-    };
-    let path = match discovery::publish(&scope, &bound) {
+    let path = match with_endpoints_forgotten("dev-up", &scope, || provision(&root, &scope, &active, &expected)) {
         Ok(path) => path,
-        Err(problem) => {
-            eprintln!("xtask dev-up: {problem}");
-            return Verdict::Fail;
-        }
+        Err(verdict) => return verdict,
     };
 
     println!("xtask dev-up: ok - {} service(s) healthy", expected.len());
@@ -281,62 +241,87 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
     Verdict::Pass
 }
 
-/// Poll the health report until every expected service is ready, or the deadline passes.
+/// Change the tier with this worktree's discovery file removed FIRST.
 ///
-/// A health GATE and not a sleep. The distinction is what happens when it is wrong: a sleep that was
-/// too short surfaces as a connection refused inside somebody's test; this says which service never
-/// became healthy and stops.
-fn wait_until_healthy(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&str]) -> Result<(), Verdict> {
-    let budget = std::time::Duration::from_secs(
-        std::env::var("SUTURA_DEV_READY_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(READY_TIMEOUT_SECS),
-    );
-    let started = std::time::Instant::now();
-    // What the last poll was still waiting for. Carried out of the match so a timeout says which
-    // service never arrived rather than only that one did not - and declared without a value,
-    // because the only path that reads it is the one the `Waiting` arm assigns on.
-    let mut last: Vec<String>;
-
-    loop {
-        let out = docker::compose(root, &scope.project(), profiles, &["ps", "--all", "--format", "json"]);
-        let reported = match out {
-            Ok(out) if out.ok => docker::parse_ps(&out.stdout),
-            Ok(out) => {
-                eprintln!("xtask dev-up: `docker compose ps` failed");
-                eprint!("{}", out.stderr);
-                return Err(Verdict::Fail);
-            }
-            Err(cause) => {
-                eprintln!("xtask dev-up: could not run docker: {cause}");
-                return Err(Verdict::Fail);
-            }
-        };
-
-        match docker::readiness(&reported, expected) {
-            docker::Readiness::Ready => return Ok(()),
-            docker::Readiness::Failed(why) => {
-                eprintln!("xtask dev-up: a service will not become ready:");
-                for line in &why {
-                    eprintln!("  {line}");
-                }
-                eprintln!("  `docker compose --project-name {} logs` has the detail.", scope.project());
-                return Err(Verdict::Fail);
-            }
-            docker::Readiness::Waiting(why) => last = why,
-        }
-
-        if started.elapsed() >= budget {
-            eprintln!("xtask dev-up: {} service(s) never became ready:", last.len());
-            for line in &last {
-                eprintln!("  {line}");
-            }
-            eprintln!("  waited {}s (SUTURA_DEV_READY_TIMEOUT_SECS)", budget.as_secs());
-            return Err(Verdict::Fail);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MILLIS));
+/// **The order is what makes it hold, and it holds for everything inside the closure.** From the
+/// moment provisioning or teardown starts, an endpoint file written by an earlier run is a claim
+/// nothing has checked - host ports are ephemeral by design, so a recreated container does not come
+/// back on the one it names, and `sutura_dev::provisioned` has no revalidation and no fallback,
+/// deliberately. Removing it first means every failure path between here and `discovery::publish`
+/// is covered by construction; a `forget` remembered at each early return is covered until somebody
+/// adds the next one, which is exactly what happened - `run_up` had none at all, and `run_down`'s
+/// killed-`down` arm returned above the one it had.
+///
+/// The direction that survives is a missing file over running containers: a harness gets
+/// `NotProvisioned`, an error somebody reads, rather than a connection to whatever holds that port
+/// now - `discovery::forget`'s own "wrong answer instead of an error".
+///
+/// **NOT a mechanism.** Nothing makes a third tier-changing path come through here and every test
+/// would still pass; it is one placement per task, the distinction `docker::bounded`'s header draws
+/// about its own wait loop. The generalisable form is one layer down, where `Budget::of` already
+/// reads *this is a provisioning call* off the argv.
+///
+/// **A second limit: the file is the granularity, not one service.** `publish` writes the whole
+/// document, so a failed `dev-up` also drops a *different* provisioner's entry -
+/// `nix/postgres-tier.nix`'s, which republishes on `start` - exactly as a successful one did.
+fn with_endpoints_forgotten<T>(
+    task: &str,
+    scope: &Scope,
+    change_the_tier: impl FnOnce() -> Result<T, Verdict>,
+) -> Result<T, Verdict> {
+    if let Err(problem) = discovery::forget(scope) {
+        eprintln!("xtask {task}: {problem}");
+        return Err(Verdict::Fail);
     }
+    change_the_tier()
+}
+
+/// Issue one compose subcommand that CHANGES the tier, and report the two ways it can fail.
+///
+/// One function because `dev-up` and `dev-down` reported it in copies differing only in the task
+/// name - and one of those copies is `report_abandoned`, the guard whose own doc says a guard
+/// written twice is one the third caller forgets. The subcommand in the message comes off the
+/// arguments that are run, so it cannot name a call other than the one that failed.
+fn changed(task: &str, root: &Path, project: &str, profiles: &[&str], args: &[&str]) -> Result<(), Verdict> {
+    match docker::compose(root, project, profiles, args) {
+        Ok(out) if out.ok => Ok(()),
+        Ok(out) => {
+            eprintln!(
+                "xtask {task}: `docker compose {}` failed",
+                args.first().copied().unwrap_or_default()
+            );
+            eprint!("{}", out.stderr);
+            Err(Verdict::Fail)
+        }
+        Err(cause) => {
+            eprintln!("xtask {task}: {cause}");
+            report_abandoned(&cause, project);
+            Err(Verdict::Fail)
+        }
+    }
+}
+
+/// Bring the tier up, wait for it, and record what it bound. The path written, on success.
+fn provision(root: &Path, scope: &Scope, active: &[&str], expected: &[&str]) -> Result<PathBuf, Verdict> {
+    let project = scope.project();
+    changed("dev-up", root, &project, active, &["up", "--detach", "--remove-orphans"])?;
+    health::wait_until_healthy(root, scope, active, expected)?;
+    let bound = read_back_ports(root, scope, active, expected)?;
+    discovery::publish(scope, &bound).map_err(|problem| {
+        eprintln!("xtask dev-up: {problem}");
+        Verdict::Fail
+    })
+}
+
+/// Remove one project's containers, network and named volumes.
+///
+/// Takes the target and not the plan: whether there IS one is `teardown::plan`'s decision, and
+/// re-deciding it here would put a success-having-removed-nothing arm inside the function whose
+/// job is to destroy.
+fn remove(root: &Path, target: &str, profiles: &[&str]) -> Result<(), Verdict> {
+    changed("dev-down", root, target, profiles, &teardown::down_args())?;
+    println!("  removed  {target}");
+    Ok(())
 }
 
 /// Ask docker which host port each service actually landed on.
@@ -348,12 +333,13 @@ fn wait_until_healthy(root: &Path, scope: &Scope, profiles: &[&str], expected: &
 /// that was correctly absent.
 fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&str]) -> Result<Published, Verdict> {
     let mut bound = Vec::new();
+    let project = scope.project();
     for service in SERVICES.iter().filter(|s| expected.contains(&s.name())) {
         let container_port = service.container_port().to_string();
-        let out = match docker::compose(root, &scope.project(), profiles, &["port", service.name(), &container_port]) {
+        let out = match docker::compose(root, &project, profiles, &["port", service.name(), &container_port]) {
             Ok(out) => out,
             Err(cause) => {
-                eprintln!("xtask dev-up: could not run docker: {cause}");
+                eprintln!("xtask dev-up: {cause}");
                 return Err(Verdict::Fail);
             }
         };
@@ -369,6 +355,46 @@ fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&s
         bound.push((service.name(), String::from(published)));
     }
     Ok(bound)
+}
+
+/// Print what a killed provisioning call left behind, if it left anything.
+///
+/// Whether it did is [`docker::Failed::left_running`]'s answer, not a test at each call site: both
+/// `dev-up` and `dev-down` issue a provisioning call, and a guard written twice is a guard the third
+/// caller forgets.
+fn report_abandoned(cause: &docker::Failed, project: &str) {
+    if !cause.left_running() {
+        return;
+    }
+    for line in abandoned(project) {
+        eprintln!("  {line}");
+    }
+}
+
+/// What a provisioning call that never answered leaves behind, and who removes it.
+///
+/// **The decision, as a value rather than three `eprintln!`s.** Killing the child does not stop the
+/// containers it had already started, so something has to be said about them. Three options, and the
+/// tool deliberately does NOT tear down:
+///
+/// | Option | Why not |
+/// | --- | --- |
+/// | Tear down, then report | `down --volumes` destroys named volumes, and a timeout is not proof the tier is wrong. `up` is idempotent, so this may be the second `dev-up` over a tier that was ALREADY running and healthy - and then one slow call destroys a working tier. That shape is measured defect #2 in `nix/with-tier.sh`: an unconditional teardown on exit took down a server somebody else had started. |
+/// | Retry, then tear down | If the cause is a wedged daemon the teardown goes through the same socket and cannot succeed either, so it turns one bounded failure into two. |
+/// | Report, and name the task that removes them | What this does. |
+///
+/// **The limit, next to the claim: `dev-up` can exit non-zero with containers running.** That is
+/// deliberate, and what makes it safe is not this report - it is that no discovery file survives
+/// the failure. Publishing only after readiness was never enough alone, and that is worth
+/// recording: the gap was a file from an EARLIER run, which this one never touched.
+/// [`with_endpoints_forgotten`] is the half that closes it, and fail-closed lives in the two
+/// together rather than here.
+fn abandoned(project: &str) -> [String; 3] {
+    [
+        format!("containers are NOT removed: killing docker does not stop what it had started - {project}"),
+        String::from("a timeout is not proof they are wrong - these subcommands are idempotent, so a retry reuses the pull"),
+        String::from(teardown::REMOVES_THIS_WORKTREE),
+    ]
 }
 
 /// `dev-down`: remove this worktree's project, and nothing else. `--dry-run` says what it would do.
@@ -425,32 +451,19 @@ pub(crate) fn run_down(args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
     let confirmed = teardown::plan(&again.project(), &docker::projects(&root));
-    if !teardown::still_eligible(&plan, &again.project()) || confirmed.target != plan.target {
+    if !teardown::still_eligible(&plan, &again.project()) || confirmed.target() != plan.target() {
         eprintln!("xtask dev-down: the plan changed between deciding and removing - nothing removed");
         teardown::describe(&confirmed);
         return Verdict::Fail;
     }
 
-    if let Some(target) = plan.target.as_deref() {
-        match docker::compose(&root, target, &every_profile, &teardown::down_args()) {
-            Ok(out) if out.ok => println!("  removed  {target}"),
-            Ok(out) => {
-                eprintln!("xtask dev-down: `docker compose down` failed");
-                eprint!("{}", out.stderr);
-                return Verdict::Fail;
-            }
-            Err(cause) => {
-                eprintln!("xtask dev-down: could not run docker: {cause}");
-                return Verdict::Fail;
-            }
-        }
-    }
-
-    // A stale discovery file is the one way discovery could hand back a wrong answer instead of an
-    // error, so it goes with the containers rather than after them.
-    if let Err(problem) = discovery::forget(&scope) {
-        eprintln!("xtask dev-down: {problem}");
-        return Verdict::Fail;
+    // BEFORE the containers, not after: a `down` that was killed, or exited non-zero, returned
+    // above the `forget` that stood here and left a readable file over a tier in an unknown state.
+    let removal = with_endpoints_forgotten("dev-down", &scope, || {
+        plan.target().map_or(Ok(()), |target| remove(&root, target, &every_profile))
+    });
+    if let Err(verdict) = removal {
+        return verdict;
     }
     println!("xtask dev-down: ok");
     drop(held);
@@ -555,6 +568,60 @@ mod tests {
             Verdict::Fail,
             "a CI run that skipped this would report green having tested nothing"
         );
+    }
+
+    #[test]
+    fn a_timed_out_provision_reports_what_it_left_running_and_removes_nothing() {
+        // The decision `abandoned`'s doc argues, read off the value rather than off the comment.
+        // Three properties, and the first two are what a report that had quietly cleaned up would
+        // fail: it names the project whose containers survived, it does not read as if they were
+        // removed, and it names the task that removes them.
+        let report = super::abandoned("sutura-dev-aaaa1111");
+        assert!(
+            report.iter().any(|line| line.contains("sutura-dev-aaaa1111")),
+            "the report must name the project whose containers survived: {report:?}"
+        );
+        assert!(
+            report.iter().any(|line| line.contains("NOT removed")),
+            "the report must not read as if the containers were cleaned up: {report:?}"
+        );
+        assert!(
+            report.iter().any(|line| line.contains("just dev-down")),
+            "the report must name the task that removes them: {report:?}"
+        );
+    }
+
+    #[test]
+    fn a_failing_provision_leaves_no_discovery_file_behind() {
+        // The claim `abandoned`'s doc rests on - "nothing a harness reads can point at a
+        // half-provisioned tier" - was not true: `run_up` never forgot, so a file an earlier
+        // successful run published outlived every failure path, naming an ephemeral port the
+        // recreated container no longer owns. `run_down`'s killed-`down` arm returned above its
+        // `forget` for the same effect.
+        //
+        // Asserted on the ORDER and not on the call: the closure sees the file already gone, which
+        // is the property a `forget` bolted onto each early return does not have.
+        let root = std::env::temp_dir().join(format!("sutura-forget-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("temp dirs are creatable");
+        let scope = sutura_dev::scope::Scope::from_root(&root).expect("a real directory is a scope");
+        let published = sutura_dev::discovery::publish(&scope, &[("clickhouse", String::from("127.0.0.1:60660"))])
+            .expect("the temp worktree is writable");
+        assert!(published.is_file(), "the fixture did not publish anything to forget");
+
+        let mut seen_by_the_tier_change = None;
+        let outcome: Result<(), Verdict> = super::with_endpoints_forgotten("dev-up", &scope, || {
+            seen_by_the_tier_change = Some(published.exists());
+            Err(Verdict::Fail)
+        });
+
+        assert_eq!(outcome, Err(Verdict::Fail), "the failure has to propagate unchanged");
+        assert_eq!(
+            seen_by_the_tier_change,
+            Some(false),
+            "the file was still readable while the tier was being changed"
+        );
+        assert!(!published.exists(), "a failed provision left {} behind", published.display());
+        drop(std::fs::remove_dir_all(&root));
     }
 
     #[test]

@@ -236,9 +236,11 @@ with no access token configured stops this command too, and says so. That is one
 settings rather than two, and the refusal names the two variables that get you back to answering from
 the directory on the command line.
 
-`kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries do
-not, because the outbound TLS stack it links compiles C and assembly for four release triples. Build
-one, and the same command submits the plan to a dataset:
+`kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries
+deliberately do not link an outbound TLS stack, which `checks.shipped-features` reads out of each
+released binary rather than out of a manifest. (It is not a build-time saving: `docs/adr/0017`
+measured the feature at twelve compiled units, under 2% of a cross job.) Build one, and the same
+command submits the plan to a dataset:
 
 ```bash
 cargo build --release -p sutura-cli --features bigquery

@@ -37,6 +37,25 @@
 //!   and is wrong, in either direction.
 //! * **The FEATURES each binary ships with.** That is `checks.shipped-features`, which reads them
 //!   out of the built artifact rather than out of any text.
+//! * **A `probeFeatures` entry no page documents.** A probe nobody asked for costs a job and
+//!   breaks no claim, so it is not a failure. The direction that matters is the other one.
+//! * **A documented `cargo run --features ...`.** Deliberately out of scope: it builds for the
+//!   host and executes, and the risk a probe exists for is the CROSS link. `docs/serving.md`
+//!   documents one, and demanding a probe for it would fail a correct tree.
+//!
+//! # The second rule: a documented feature build is a probe, or it is unproven
+//!
+//! `nix/shipped.nix`'s `probeFeatures` decides which feature-on builds the four `cross` jobs LINK,
+//! and `docs/adr/0017` claims on that basis that *the documented feature-on source build is linked
+//! on every pull request*. The coupling that claim rests on was prose: a page tells a reader to run
+//! `cargo build --release -p sutura-cli --features bigquery`, and nothing said that `bigquery` had
+//! to appear in `probeFeatures`.
+//!
+//! **The step's own refusal cannot cover it, and that is why this rule is here.** `ci.yml` refuses
+//! an EMPTY probe manifest, which is equivalent to *the probe is gone* only because one binary
+//! declares no probe features. Declare one for `sutura-serve` and delete `"bigquery"` from
+//! `sutura-cli`'s, and the manifest is still non-empty: the job goes green, and the claim reverts
+//! to *assumed* with no signal at all. Found in review of this rule's own absence.
 
 use std::collections::BTreeMap;
 
@@ -49,12 +68,16 @@ const SOURCE: &str = "nix/shipped.nix";
 /// The key a workflow spells the set under, and the key an action's input carries it as.
 const KEYS: [&str; 2] = ["BINARIES", "binaries"];
 
-/// Every `bin = "..."` inside `nix/shipped.nix`'s `binaries = [ ... ]`, in declaration order.
+/// Every `bin` inside `nix/shipped.nix`'s `binaries = [ ... ]`, in declaration order.
+///
+/// **A VIEW OF [`records`] rather than a second scan of the same list**, for the reason
+/// `nix/shipped.nix` itself derives `featurePackages` and `probeManifests` from one `probes` list:
+/// two parsers of one declaration are two answers nobody can reconcile. The reading rules and
+/// what forced them are on `records`; these two are worth keeping beside the name.
 ///
 /// SCOPED TO THAT LIST rather than grepping the file: `bin` is also a parameter name in `ociFor`'s
 /// signature and a field read as `b.bin` in four places, and a whole-file scan would answer for
-/// lines that declare nothing. The list runs from `binaries = [` to the first `];` at the same
-/// indent, which is what `nixpkgs-fmt` guarantees about the file it formats.
+/// lines that declare nothing.
 ///
 /// FOUND ANYWHERE ON THE LINE, not only at its start, and that is a correction its own tests
 /// forced. The first version matched a trimmed line beginning `bin = `, which is the shape
@@ -64,22 +87,11 @@ const KEYS: [&str; 2] = ["BINARIES", "binaries"];
 /// `workflows::declared_block` records twice, in the same words: a parser that silently sees half
 /// a file is worse than no parser.
 fn declared(text: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut indent: Option<usize> = None;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        let Some(open) = indent else {
-            if trimmed.starts_with("binaries = [") {
-                indent = Some(line.len().saturating_sub(line.trim_start().len()));
-            }
-            continue;
-        };
-        if trimmed == "];" && line.len().saturating_sub(line.trim_start().len()) == open {
-            break;
-        }
-        names.extend(bins_in(line).map(String::from));
-    }
-    names
+    records(text)
+        .into_iter()
+        .map(|r| r.bin)
+        .filter(|bin| !bin.is_empty())
+        .collect()
 }
 
 /// Every `bin = "..."` value on one line, left to right.
@@ -106,6 +118,211 @@ fn bins_in(line: &str) -> impl Iterator<Item = &str> {
             }
         }
     })
+}
+
+/// One record of `nix/shipped.nix`'s `binaries` list: the executable, its cargo package, and the
+/// features a SOURCE build of it is probed with.
+///
+/// `bin` alone is what the literal rule needs. `package` is what a documented `cargo build -p ...`
+/// names, so the second rule cannot be written without it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Record {
+    /// The installed executable's name.
+    bin: String,
+    /// The cargo package it is built from.
+    package: String,
+    /// `probeFeatures`: which feature-on source builds the `cross` jobs link.
+    probe_features: Vec<String>,
+}
+
+/// Every record in `binaries = [ ... ]`, in declaration order.
+///
+/// Records are split at `{`, which is what makes the one-line shape
+/// `{ bin = "sutura"; package = "sutura-cli"; }` one record rather than none - the same shape that
+/// forced [`bins_in`] to exist. A field absent from a record yields an empty value and the caller
+/// decides whether that is a failure: `probeFeatures` missing is an EVALUATION error in nix, since
+/// there is no `or [ ]` default, so a binary cannot silently opt out of being probed and this gate
+/// does not duplicate that.
+///
+/// A `probeFeatures` list is read across lines as well as on one, because `nixpkgs-fmt` breaks a
+/// long list and a parser that saw only the one-line shape would report a correct tree as missing
+/// a probe. That is the direction this whole gate exists to prevent, one level down.
+fn records(text: &str) -> Vec<Record> {
+    let mut out: Vec<Record> = Vec::new();
+    let mut indent: Option<usize> = None;
+    let mut collecting = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let depth = line.len().saturating_sub(line.trim_start().len());
+        let Some(open) = indent else {
+            if trimmed.starts_with("binaries = [") {
+                indent = Some(depth);
+            }
+            continue;
+        };
+        if trimmed == "];" && depth == open {
+            break;
+        }
+        if trimmed.starts_with('{') {
+            out.push(Record {
+                bin: String::new(),
+                package: String::new(),
+                probe_features: Vec::new(),
+            });
+            collecting = false;
+        }
+        let Some(record) = out.last_mut() else {
+            continue;
+        };
+        if let Some(bin) = bins_in(line).next() {
+            record.bin = String::from(bin);
+        }
+        if let Some(package) = quoted_after(line, "package = \"") {
+            record.package = String::from(package);
+        }
+        if let Some((_, rest)) = line.split_once("probeFeatures = [") {
+            record.probe_features = quoted_items(rest);
+            collecting = !rest.contains(']');
+        } else if collecting {
+            record.probe_features.extend(quoted_items(line));
+            collecting = !line.contains(']');
+        }
+    }
+    out
+}
+
+/// The quoted value following `key` on this line, or nothing.
+///
+/// The character before the key must not be part of a name, for [`bins_in`]'s reason: a field
+/// called `hostPackage` is not `package`.
+fn quoted_after<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let at = line.find(key)?;
+    let boundary = line
+        .get(..at)
+        .and_then(|s| s.chars().next_back())
+        .is_none_or(|c| !c.is_alphanumeric() && c != '_' && c != '-');
+    if !boundary {
+        return None;
+    }
+    let tail = line.get(at.saturating_add(key.len())..)?;
+    let end = tail.find('"')?;
+    tail.get(..end)
+}
+
+/// Every `"..."` in a fragment, left to right. An unterminated quote ends the scan rather than
+/// swallowing the rest of the line.
+fn quoted_items(fragment: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = fragment;
+    while let Some(at) = rest.find('"') {
+        let Some(tail) = rest.get(at.saturating_add(1)..) else {
+            break;
+        };
+        let Some(end) = tail.find('"') else {
+            break;
+        };
+        if let Some(item) = tail.get(..end) {
+            out.push(String::from(item));
+        }
+        rest = tail.get(end.saturating_add(1)..).unwrap_or_default();
+    }
+    out
+}
+
+/// A `cargo build` line in published prose that names a package AND a feature list.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct DocumentedBuild {
+    /// Repo-relative page, for the message.
+    page: String,
+    /// One-based line, so a failure names something a reader can open.
+    line: usize,
+    /// The `-p` / `--package` value.
+    package: String,
+    /// The `--features` value, split on commas.
+    features: Vec<String>,
+}
+
+/// Every documented feature build in one page.
+///
+/// **`cargo build` and not `cargo run`**, for the reason the module header gives. Both the spaced
+/// and the `=` form of each flag are read, because a page may legitimately write either and a gate
+/// that sees one shape silently passes the other.
+///
+/// **INSIDE A FENCED BLOCK ONLY, and that boundary was forced by running the rule.** The first
+/// version read any line, and the gate's own report went from one reconciled build to two the
+/// moment `docs/adr/0017` gained a sentence *quoting* the command this rule reconciles. The two
+/// are different things: a fenced block is an instruction a reader follows, an inline citation is
+/// a MENTION - and a decision record legitimately quotes a command that is no longer current,
+/// which would then fail a correct tree. A gate that does that gets disabled, so the fence is the
+/// boundary. **It was only visible because the report NAMES the rows** - a count would have read
+/// `2` and looked like more coverage.
+///
+/// What it gives up: a page instructing inline rather than in a block is not read. The fail-closed
+/// check in [`run`] is what stops that being silent - with no such block anywhere, the gate refuses
+/// rather than reconciling nothing.
+fn documented_builds(page: &str, text: &str) -> Vec<DocumentedBuild> {
+    let mut out = Vec::new();
+    let mut fenced = false;
+    for (index, line) in text.lines().enumerate() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if !fenced || !line.contains("cargo build") {
+            continue;
+        }
+        let (Some(package), Some(features)) = (flag_value(line, "-p", "--package"), flag_value(line, "", "--features")) else {
+            continue;
+        };
+        out.push(DocumentedBuild {
+            page: String::from(page),
+            line: index.saturating_add(1),
+            package,
+            features: features
+                .split(',')
+                .map(str::trim)
+                .filter(|f| !f.is_empty())
+                .map(String::from)
+                .collect(),
+        });
+    }
+    out
+}
+
+/// The value of `short` or `long` on this line, in either the spaced or the `=` form.
+///
+/// An empty `short` means the flag has no short form. The value stops at whitespace and at the
+/// punctuation prose wraps a command in - a backtick, a quote, a line-continuation backslash - so
+/// an inline citation yields the same value a fenced block does.
+fn flag_value(line: &str, short: &str, long: &str) -> Option<String> {
+    for flag in [long, short] {
+        if flag.is_empty() {
+            continue;
+        }
+        for sep in [' ', '='] {
+            let needle = format!("{flag}{sep}");
+            let Some(at) = line.find(&needle) else {
+                continue;
+            };
+            // A boundary before the flag, so `--no-features` is not read as `--features`.
+            let boundary = line
+                .get(..at)
+                .and_then(|s| s.chars().next_back())
+                .is_none_or(char::is_whitespace);
+            if !boundary {
+                continue;
+            }
+            let tail = line.get(at.saturating_add(needle.len())..)?.trim_start();
+            let value: String = tail
+                .chars()
+                .take_while(|c| !c.is_whitespace() && !matches!(c, '\\' | '`' | '"' | '\''))
+                .collect();
+            if !value.is_empty() && !value.starts_with('-') {
+                return Some(value);
+            }
+        }
+    }
+    None
 }
 
 /// A set of names spelled out in one file, with the line it was spelled on.
@@ -231,6 +448,71 @@ fn yaml_files(root: &std::path::Path) -> BTreeMap<String, String> {
     files
 }
 
+/// Every documented feature build in `docs/**`, page by page.
+fn documented_pages(root: &std::path::Path) -> Vec<DocumentedBuild> {
+    let mut pages = Vec::new();
+    repo::collect_files(root, &root.join("docs"), &["md"], &mut pages);
+    pages.sort();
+    let mut found = Vec::new();
+    for page in pages {
+        if let Ok(text) = std::fs::read_to_string(root.join(&page)) {
+            found.extend(documented_builds(&page, &text));
+        }
+    }
+    found
+}
+
+/// What reconciling `probeFeatures` against the documented builds found.
+///
+/// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
+/// is right to, for `workflows::Scan`'s reason one file over: two `Vec<String>` side by side say
+/// nothing about which one is the failure and which one is the evidence that anything was checked.
+struct Reconciliation {
+    /// Documented feature builds no probe covers. Each row names a page, a line and a feature.
+    problems: Vec<String>,
+    /// One row per documented build that named a shipped package, so the report can SAY what it
+    /// reconciled. Empty is a failure and not a pass - see [`run`].
+    probed: Vec<String>,
+}
+
+/// The second rule: a documented `cargo build --features` of a SHIPPED package is probed.
+///
+/// Returns the failures, and one row per documented build that named a shipped package - the
+/// second is what keeps the first from running over an empty set, the failure mode a
+/// text-scanning check is most prone to, and it is rows rather than a count so a reader can see
+/// WHICH builds were reconciled instead of trusting a number.
+fn unprobed(records: &[Record], documented: &[DocumentedBuild]) -> Reconciliation {
+    let mut problems = Vec::new();
+    let mut probed = Vec::new();
+    for build in documented {
+        let Some(record) = records.iter().find(|r| r.package == build.package) else {
+            // A page documenting a feature build of something this repository does not ship has
+            // no `probeFeatures` field to disagree with. Not this gate's business.
+            continue;
+        };
+        // NAMED rather than counted. A number nobody can attribute is the shape `sutura/gates`
+        // warns about: this one read 2 when one page documents one build, and only printing the
+        // rows said where the second came from.
+        probed.push(format!(
+            "{}:{} {} [{}]",
+            build.page,
+            build.line,
+            build.package,
+            build.features.join(",")
+        ));
+        for feature in &build.features {
+            if !record.probe_features.iter().any(|p| p == feature) {
+                problems.push(format!(
+                    "{}:{} documents `cargo build -p {} --features {feature}`, and {SOURCE} does \
+                     not list `{feature}` in {}'s probeFeatures - so no `cross` job links it",
+                    build.page, build.line, build.package, record.bin
+                ));
+            }
+        }
+    }
+    Reconciliation { problems, probed }
+}
+
 /// `cargo xtask check-shipped-binaries` - every release-path literal equals `nix/shipped.nix`.
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
@@ -273,6 +555,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
+    let documented = documented_pages(&root);
+    let reconciliation = unprobed(&records(&source), &documented);
+
     if !mismatches.is_empty() {
         eprintln!(
             "xtask check-shipped-binaries: FAILED - {} literal(s) disagree with {SOURCE}",
@@ -293,17 +578,211 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
+    // FAIL CLOSED, and this is the half `ci.yml`'s empty-manifest refusal cannot cover. If no
+    // page documents a feature build of a shipped package, `probeFeatures` is reconciled against
+    // nothing and `docs/adr/0017`'s claim that *the documented feature-on source build is linked*
+    // has no referent left. A page reworded out of existence is a verdict, not a pass.
+    if reconciliation.probed.is_empty() {
+        eprintln!("xtask check-shipped-binaries: FAILED - no page under docs/ documents a `cargo build`");
+        eprintln!("  with both a shipped package and `--features`, so {SOURCE}'s probeFeatures is");
+        eprintln!("  compared to nothing. docs/adr/0017 claims the documented feature-on build is");
+        eprintln!("  linked on every pull request; either a page states that build, or the claim goes.");
+        return Verdict::Fail;
+    }
+
+    if !reconciliation.problems.is_empty() {
+        eprintln!(
+            "xtask check-shipped-binaries: FAILED - {} documented feature build(s) are linked by nothing",
+            reconciliation.problems.len()
+        );
+        for problem in &reconciliation.problems {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("  `ci.yml`'s probe step refuses an EMPTY manifest, which is not this: with one");
+        eprintln!("  binary still declaring a probe the manifest is non-empty, the four `cross` jobs");
+        eprintln!("  are green, and the build a reader is told to run is linked by nothing.");
+        return Verdict::Fail;
+    }
+
     println!(
         "xtask check-shipped-binaries: ok - {} literal(s) agree with {SOURCE} ({})",
         checked,
         expected.join(" ")
     );
+    for row in &reconciliation.probed {
+        println!("  probed: {row}");
+    }
     Verdict::Pass
 }
 
 #[cfg(test)]
 mod tests {
     use super::{declared, spelled};
+
+    #[test]
+    fn a_record_carries_its_package_and_its_probe_features() {
+        // `bin` alone cannot answer the second rule: a page documents `cargo build -p <package>`.
+        let nix = concat!(
+            "  binaries = [\n",
+            "    {\n",
+            "      bin = \"sutura\";\n",
+            "      package = \"sutura-cli\";\n",
+            "      probeFeatures = [ \"bigquery\" ];\n",
+            "    }\n",
+            "    { bin = \"sutura-serve\"; package = \"sutura-serve\"; probeFeatures = [ ]; }\n",
+            "  ];\n",
+        );
+        let records = super::records(nix);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].package, "sutura-cli");
+        assert_eq!(records[0].probe_features, vec![String::from("bigquery")]);
+        assert_eq!(records[1].package, "sutura-serve");
+        assert!(records[1].probe_features.is_empty());
+    }
+
+    #[test]
+    fn a_probe_feature_list_broken_across_lines_is_still_the_list() {
+        // `nixpkgs-fmt` breaks a long list, and a parser that read only the one-line shape would
+        // report a correct tree as having no probe - the exact direction this gate exists to stop,
+        // one level down from where it stops it.
+        let nix = concat!(
+            "  binaries = [\n",
+            "    {\n",
+            "      bin = \"sutura\";\n",
+            "      package = \"sutura-cli\";\n",
+            "      probeFeatures = [\n",
+            "        \"bigquery\"\n",
+            "        \"postgres\"\n",
+            "      ];\n",
+            "    }\n",
+            "  ];\n",
+        );
+        assert_eq!(
+            super::records(nix)[0].probe_features,
+            vec![String::from("bigquery"), String::from("postgres")]
+        );
+    }
+
+    #[test]
+    fn a_documented_feature_build_is_read_in_every_shape_a_page_writes_it() {
+        let page = concat!(
+            // A MENTION, outside any block, and it must NOT be read - a record quoting a command
+            // is not a page instructing a reader to run it. This line is why the fence boundary
+            // exists: `docs/adr/0017` gained exactly this sentence, and the gate's report went
+            // from one reconciled build to two.
+            "the page says `cargo build -p sutura-cli --features bigquery`, so it must be probed\n",
+            "```bash\n",
+            "cargo build --release -p sutura-cli --features bigquery\n",
+            "cargo build --package sutura-cli --features=bigquery,postgres\n",
+            // Neither of these is a documented feature BUILD, even inside the block: the first has
+            // no feature list, the second is a `cargo run`, which builds for the host and is not
+            // what a cross probe answers for.
+            "cargo build --release -p sutura-cli\n",
+            "cargo run -p sutura-serve --features tls\n",
+            "```\n",
+            "and outside the block again: cargo build -p sutura-cli --features nonsense\n",
+        );
+        let found = super::documented_builds("docs/p.md", page);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0].package, "sutura-cli");
+        assert_eq!(found[0].line, 3);
+        assert_eq!(found[0].features, vec![String::from("bigquery")]);
+        assert_eq!(found[1].features, vec![String::from("bigquery"), String::from("postgres")]);
+    }
+
+    #[test]
+    fn a_documented_feature_the_probe_set_omits_is_linked_by_nothing() {
+        // The scenario `ci.yml`'s empty-manifest refusal CANNOT catch: a second binary keeps the
+        // manifest non-empty, so the job stays green while the documented build is probed by
+        // nothing. RED before this rule existed, because nothing compared the two.
+        let nix = concat!(
+            "  binaries = [\n",
+            "    { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ ]; }\n",
+            "    { bin = \"sutura-serve\"; package = \"sutura-serve\"; probeFeatures = [ \"tls\" ]; }\n",
+            "  ];\n",
+        );
+        let documented = super::documented_builds(
+            "docs/getting-started.md",
+            "```bash\ncargo build --release -p sutura-cli --features bigquery\n```\n",
+        );
+        let found = super::unprobed(&super::records(nix), &documented);
+        assert_eq!(found.probed.len(), 1, "{:?}", found.probed);
+        assert_eq!(found.problems.len(), 1);
+        // Line 2, not 1: the fence opener is line 1. The number is asserted because a message
+        // naming a page and not a line is a message nobody can act on.
+        assert!(
+            found.problems[0].contains("docs/getting-started.md:2"),
+            "{:?}",
+            found.problems
+        );
+        assert!(found.problems[0].contains("bigquery"));
+        assert!(found.problems[0].contains("sutura"));
+    }
+
+    #[test]
+    fn a_documented_build_of_something_we_do_not_ship_is_not_this_gates_business() {
+        // No `probeFeatures` field exists to disagree with, and `reconciled` must not count it -
+        // or the fail-closed test below would pass on a tree where nothing was reconciled.
+        let nix = "  binaries = [\n    { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ ]; }\n  ];\n";
+        let documented = super::documented_builds(
+            "docs/p.md",
+            "```bash\ncargo build -p some-other-crate --features whatever\n```\n",
+        );
+        let found = super::unprobed(&super::records(nix), &documented);
+        assert!(found.problems.is_empty());
+        assert!(found.probed.is_empty(), "{:?}", found.probed);
+    }
+
+    #[test]
+    fn a_probe_no_page_documents_is_not_a_failure() {
+        // Deliberate: a probe nobody asked for costs a job and breaks no claim. The direction
+        // this gate holds is the other one.
+        let nix = "  binaries = [\n    { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ \"bigquery\" \"postgres\" ]; }\n  ];\n";
+        let documented = super::documented_builds("docs/p.md", "```bash\ncargo build -p sutura-cli --features bigquery\n```\n");
+        let found = super::unprobed(&super::records(nix), &documented);
+        assert!(found.problems.is_empty());
+        assert_eq!(found.probed.len(), 1, "{:?}", found.probed);
+    }
+
+    #[test]
+    fn the_repositorys_own_documented_feature_build_is_probed() {
+        // The rule over the REAL tree, so the reconciliation is not only exercised on fixtures.
+        //
+        // **POSITIVE assertions and not `problems.is_empty()`, because that shape is green for the
+        // wrong reason and it was measured being so.** With the feature comparison disabled -
+        // `if false && !record.probe_features…` - `just test` reported this test PASS and only
+        // `a_documented_feature_the_probe_set_omits_is_linked_by_nothing` went red. An assertion
+        // that nothing is wrong cannot distinguish a clean tree from a check that does nothing, so
+        // what is asserted here is which pair was reconciled, by name.
+        let root = crate::repo::root().expect("could not locate the repo");
+        let source = std::fs::read_to_string(root.join(super::SOURCE)).expect("could not read nix/shipped.nix");
+        let documented = super::documented_pages(&root);
+        let records = super::records(&source);
+
+        let build = documented
+            .iter()
+            .find(|b| b.package == "sutura-cli")
+            .expect("no page under docs/ documents a `cargo build -p sutura-cli --features ...`");
+        assert!(build.features.contains(&String::from("bigquery")), "{build:?}");
+        let record = records
+            .iter()
+            .find(|r| r.package == "sutura-cli")
+            .expect("nix/shipped.nix declares no sutura-cli record");
+        assert!(
+            record.probe_features.contains(&String::from("bigquery")),
+            "{:?}",
+            record.probe_features
+        );
+
+        // And the gate's own verdict on the tree, which is what a reader of a green run assumes.
+        let found = super::unprobed(&records, &documented);
+        assert!(
+            !found.probed.is_empty(),
+            "nothing was reconciled, so the rule ran over an empty set"
+        );
+        assert!(found.problems.is_empty(), "{:?}", found.problems);
+    }
 
     #[test]
     fn the_binaries_list_is_read_in_declaration_order() {
