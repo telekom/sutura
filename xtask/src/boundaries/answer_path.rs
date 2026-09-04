@@ -46,7 +46,7 @@
 //! * It cannot see a caller that reaches the answer path some other way - an adapter's own
 //!   `Warehouse::execute`, say. It holds the one door the application opens.
 
-use super::ports::{Caller, callers_of_the_application, is_rust};
+use super::ports::{callers_of_the_application, is_rust};
 use crate::causality::regions;
 use crate::repo;
 
@@ -86,7 +86,7 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     let mut paths = 0_usize;
 
     for rel in &files {
-        let Some(caller) = caller_of(&callers, rel) else {
+        let Some(caller) = callers.iter().find(|caller| rel.starts_with(caller.src.as_str())) else {
             continue;
         };
         if !is_rust(rel) {
@@ -97,12 +97,12 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
         };
         scanned = scanned.saturating_add(1);
         let tests = regions::scope(rel, &read);
-        for (line, reaches) in application_paths(&crate::serde_parse::scan::code_lines(&text).join("\n")) {
+        for path in application_paths(&crate::serde_parse::scan::code_lines(&text).join("\n")) {
             paths = paths.saturating_add(1);
-            if reaches && !tests.covers(line) {
+            if path.names_the_answer && !tests.covers(path.line) {
                 problems.push(format!(
-                    "{rel}:{line}: `{}` names `{APPLICATION_PATH}::{ANSWER}` in its own source",
-                    caller.name
+                    "{rel}:{}: `{}` names `{APPLICATION_PATH}::{ANSWER}` in its own source",
+                    path.line, caller.name
                 ));
             }
         }
@@ -121,20 +121,27 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     })
 }
 
-/// Which caller's `src/` this file is in, if any.
-fn caller_of<'callers>(callers: &'callers [Caller], rel: &str) -> Option<&'callers Caller> {
-    callers.iter().find(|caller| rel.starts_with(caller.src.as_str()))
+/// One path rooted at [`APPLICATION_PATH`]: where it is, and whether it reaches the answer function.
+///
+/// Both halves are wanted at the call site and both are counted - the second decides a violation,
+/// and the first is what makes a reported line one a reader can open. A named pair rather than a
+/// tuple, so neither is read as the other.
+#[derive(Debug, PartialEq, Eq)]
+struct ApplicationPath {
+    /// 1-based line in the file the code came from.
+    line: usize,
+    /// Do this path's segments include [`ANSWER`]?
+    names_the_answer: bool,
 }
 
-/// Every path rooted at [`APPLICATION_PATH`] in `code`: its 1-based line, and whether its segments
-/// name [`ANSWER`].
+/// Every path rooted at [`APPLICATION_PATH`] in `code`.
 ///
 /// Whole-token matched at the root, so `not_sutura_app::answer` is not one of ours. From there it
 /// walks the characters a path or a `use` tree is made of and stops at the first that is neither -
 /// a `(`, a `;`, a `<`, an operator - so `sutura_app::Warehouses::of(x.answer())` ends at the
 /// parenthesis and is not a match. `use sutura_app::{answer, Warehouses}` and
 /// `use sutura_app::answer as ask` both are.
-fn application_paths(code: &str) -> Vec<(usize, bool)> {
+fn application_paths(code: &str) -> Vec<ApplicationPath> {
     let mut found = Vec::new();
     for (at, _) in code.match_indices(APPLICATION_PATH) {
         let Some(before) = code.get(..at) else {
@@ -150,7 +157,10 @@ fn application_paths(code: &str) -> Vec<(usize, bool)> {
         if rest.chars().next().is_some_and(is_ident) {
             continue;
         }
-        found.push((before.matches('\n').count().saturating_add(1), names_the_answer(rest)));
+        found.push(ApplicationPath {
+            line: before.matches('\n').count().saturating_add(1),
+            names_the_answer: names_the_answer(rest),
+        });
     }
     found
 }
@@ -191,8 +201,8 @@ pub(super) fn explain() {
     eprintln!("row named a mechanism it was outside of.");
     eprintln!();
     eprintln!("So compose the service instead: `LocalService::start(catalog, engines, sink, broker,");
-    eprintln!("working_set)` and then `Surface::answer`. `crates/sutura-cli/src/mcp.rs` and");
-    eprintln!("`crates/sutura-cli/src/commands.rs` are both that shape.");
+    eprintln!("working_set)` and then `Surface::answer`. `crates/sutura-cli/src/commands.rs`'s");
+    eprintln!("`started` is that shape, and both of that binary's commands go through it.");
     eprintln!();
     eprintln!("A unit test is exempt - `#[cfg(test)]` is skipped, and so is everything under");
     eprintln!("`tests/`, which is where the typed `ServiceError` is asserted from.");
@@ -200,12 +210,17 @@ pub(super) fn explain() {
 
 #[cfg(test)]
 mod tests {
-    use super::{application_paths, names_the_answer};
+    use super::{ApplicationPath, application_paths, names_the_answer};
+
+    /// A path at `line`, and whether it reached the answer function.
+    fn at(line: usize, names_the_answer: bool) -> ApplicationPath {
+        ApplicationPath { line, names_the_answer }
+    }
 
     #[test]
     fn a_direct_call_to_the_answer_path_is_found_with_its_line() {
         let code = "fn a() {\n    let x = sutura_app::answer(&v, &q);\n}\n";
-        assert_eq!(application_paths(code), vec![(2, true)]);
+        assert_eq!(application_paths(code), vec![at(2, true)]);
     }
 
     #[test]
@@ -219,7 +234,7 @@ mod tests {
                     let a: sutura_app::Answered = todo!();\n";
         assert_eq!(
             application_paths(code),
-            vec![(1, false), (2, false), (3, false), (5, false)],
+            vec![at(1, false), at(2, false), at(3, false), at(5, false)],
             "only a path rooted at the application counts, and none of these names `answer`"
         );
     }
