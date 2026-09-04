@@ -57,6 +57,24 @@ pub(crate) fn recipe_names(root: &std::path::Path) -> Option<BTreeSet<String>> {
     Some(recipes(&text).into_iter().map(|recipe| recipe.name).collect())
 }
 
+/// The body lines of one recipe, or `None` when the justfile or the recipe is not there.
+///
+/// [`recipe_names`] answers whether a recipe exists; this answers what it RUNS, which is what a
+/// gate needs when the thing it has to hold is its own WIRING into a lane -
+/// `default_feature_tests`' `both_lanes_still_invoke_this_gate` is the one caller. `#[cfg(test)]`
+/// for exactly that reason: a gate reading the justfile at RUN time to find out whether it is
+/// wired would be a strange gate, so the question is asked once, in a test. It lives here rather
+/// than in the caller because this is the only parser in the workspace that knows a recipe's
+/// shape, and a second copy of it is the transcription this module's header objects to.
+#[cfg(test)]
+pub(crate) fn recipe_body(root: &std::path::Path, name: &str) -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
+    recipes(&text)
+        .into_iter()
+        .find(|recipe| recipe.name == name)
+        .map(|recipe| recipe.body)
+}
+
 /// cargo subcommands that VERIFY first-party code, and therefore make a scope claim.
 ///
 /// `cargo build` and `cargo run` are deliberately absent: `just setup` builds `xtask` and

@@ -1,0 +1,282 @@
+//! Every package that SHIPS *runs* its tests at the feature set it ships with.
+//!
+//! **A whole category of test was compiled by a gate and executed by none, which is the worst of
+//! the two states a `#[test]` can be in.** `check-default-features` next door compiles the shipped
+//! lane and stops at metadata - `cargo check --all-targets` and `cargo clippy --all-targets` both
+//! do - while every venue in this repository that RUNS a test passes `--all-features`: `just test`,
+//! `just serve-e2e`, `just mcp-e2e`, `just declared-source` and the `nextest` nix check alike. So a
+//! `#[cfg(not(feature = "..."))]` test was compiled by the first set and excluded by the second. It
+//! reads as coverage in a diff and holds nothing: a refusal that stopped refusing - the wrong
+//! message, the wrong remedy, no refusal at all - would have been caught by no venue at all.
+//!
+//! **MEASURED rather than reasoned about**, by listing both feature sets and differencing them
+//! (2026-09-04, `cargo nextest list --workspace` against `cargo nextest list --workspace
+//! --all-features`, this workspace):
+//!
+//! | Tests at the default set | Tests at `--all-features` | Only at the default set | Only at `--all-features` |
+//! | --- | --- | --- | --- |
+//! | 1718 | 1813 | 2 | 97 |
+//!
+//! The two in the third column are `sutura-serve`'s
+//! `a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter` and `sutura-cli`'s
+//! `a_kind_this_build_did_not_link_is_refused_by_name_and_says_what_to_build`, and they were the
+//! whole population: every other `#[cfg(not(feature = ...))]` item in the tree is production code,
+//! which `check-default-features` does compile. The fourth column is the mirror image and the reason
+//! the split is not an accident - 97 tests exist only with a feature ON, and every venue reaches
+//! those. The counts are what make this a CATEGORY rather than a pair: a third such test would have
+//! joined the dead zone in silence.
+//!
+//! **Same package list, same declaration, one owner.** The packages are `nix/shipped.nix`'s
+//! `binaries` block, read by [`shipped_packages`], which is the parser `check-default-features`
+//! already uses - so a binary added there is covered here without anybody remembering, and a rename
+//! fails rather than silently dropping out. FAIL CLOSED on parsing none, for that gate's reason: a
+//! parser that silently sees half a file is worse than no parser.
+//!
+//! **ONE INVOCATION PER PACKAGE, and that is the shipped configuration rather than a style.**
+//! `nix/shipped.nix` builds each binary with `--package <p>` alone, so features unify across that
+//! package's graph and no other. A single `nextest run` naming both packages resolves them together,
+//! which can enable a feature neither ships with - a different configuration, checked instead of the
+//! one that is published.
+//!
+//! **AN EMPTY RUN IS RED.** `--no-tests fail` is passed rather than left to nextest's default,
+//! because a lane that selects nothing and reports success is the defect this gate exists to end.
+//! The consequence to read before adding a binary: a shipped package with no test that runs at its
+//! default features fails this gate, and that is the direction wanted here - such a package is
+//! exactly the hole that was invisible before.
+//!
+//! **The profile is DERIVED from the target directory, not passed as a flag.** CI reaches this
+//! through a flake app that unpacks the dependency closure `checks.nextest` built minutes earlier in
+//! the same job; cargo keys artifacts per profile, so compiling there at anything but the profile
+//! those artifacts were built at reuses none of them - it rebuilds the whole closure, passes, and
+//! nobody attributes the minutes to it. A flag would be one more thing to get wrong in a place where
+//! being wrong is silent, and `check-warm-start` has already had to correct exactly that seam on the
+//! nix side. So [`profile_for`] reads the stamp `cargoWarmStart` leaves behind - the mechanism, not
+//! the directory's name - and `just gates` stays on the developer's default profile with no argument
+//! at all.
+//!
+//! **What it does NOT reach.** The shipped packages only: a feature-off test in a crate that does
+//! not ship is compiled by the `--all-features` gates and run by nothing here either. It runs on the
+//! HOST triple, so the four `cross` builds stay the authority on a musl link. And it says nothing
+//! about a feature no shipped binary enables - `--all-features` is what reaches those.
+
+use std::path::Path;
+
+use crate::Verdict;
+use crate::default_features::shipped_packages;
+use crate::repo;
+
+/// The declaration the package list is read out of.
+const SOURCE: &str = "nix/shipped.nix";
+
+/// The file the warm start stamps its target directory with.
+///
+/// The signal is the STAMP and not the directory's NAME, which is the distinction
+/// `check-warm-start`'s header draws about its own two readers: a name can be renamed while a gate
+/// matching it keeps passing, whereas this file exists if and only if the unpack happened.
+const STAMP: &str = ".sutura-warm-start";
+
+/// The profile the warmed artifacts were built at, and the only value worth compiling at in that
+/// directory. `flake.nix`'s `ciArgs` is its owner; the test below holds this copy against it.
+const WARM_PROFILE: &str = "ci";
+
+/// The cargo profile to compile at, from the target directory alone.
+///
+/// `None` is cargo's default and the developer's answer: `just gates` runs in an ordinary `target/`,
+/// where a second profile would be a second dependency build bought for a verdict that does not
+/// depend on the profile. Inside the warmed directory the answer is the profile the artifacts in it
+/// carry, because anything else silently reuses none of them.
+fn profile_for(target_dir: Option<&Path>) -> Option<&'static str> {
+    if target_dir.is_some_and(|dir| dir.join(STAMP).is_file()) {
+        return Some(WARM_PROFILE);
+    }
+    None
+}
+
+/// The words this gate hands cargo, for one package, at one profile.
+///
+/// `--cargo-profile` and never `--profile`: nextest reads the second as ITS OWN configuration
+/// profile, so a run that passed it would build at cargo's default, reuse nothing that was warmed,
+/// and still report a verdict. `check-warm-start` holds the same distinction for the flake apps and
+/// its own test records it as a real failure rather than a hypothetical one.
+fn invocation<'a>(package: &'a str, profile: Option<&'a str>) -> Vec<&'a str> {
+    let mut words: Vec<&str> = vec!["nextest", "run", "--no-tests", "fail"];
+    if let Some(name) = profile {
+        words.extend(["--cargo-profile", name]);
+    }
+    words.extend(["--package", package]);
+    words
+}
+
+/// `cargo xtask check-default-feature-tests` - the shipped feature set's tests actually run.
+pub(crate) fn run(args: &[String]) -> Verdict {
+    if !args.is_empty() {
+        eprintln!("usage: check-default-feature-tests - it takes no arguments");
+        eprintln!("  The cargo profile is derived from the target directory rather than passed in.");
+        return Verdict::Usage;
+    }
+    let Some(root) = repo::root() else {
+        eprintln!("xtask check-default-feature-tests: could not determine the repo root");
+        return Verdict::Fail;
+    };
+    let path = root.join(SOURCE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("xtask check-default-feature-tests: could not read {}: {error}", path.display());
+            return Verdict::Fail;
+        }
+    };
+    let packages = shipped_packages(&text);
+    if packages.is_empty() {
+        eprintln!("xtask check-default-feature-tests: FAILED - parsed no package out of {SOURCE}");
+        eprintln!("  A list this gate reads as empty runs nothing and passes, which is the failure");
+        eprintln!("  it exists to end. `binaries = [` and `package = \"...\";` are the two shapes it");
+        eprintln!("  looks for.");
+        return Verdict::Fail;
+    }
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR");
+    let profile = profile_for(target_dir.as_deref().map(Path::new));
+    println!(
+        "xtask check-default-feature-tests: {} shipped package(s) from {SOURCE}: {}",
+        packages.len(),
+        packages.join(", ")
+    );
+    println!("  cargo's DEFAULT feature set - the one `nix/shipped.nix` publishes and no venue that runs a test uses.");
+    if let Some(name) = profile {
+        println!("  profile `{name}` - the warmed artifacts were built at it, so this reuses them.");
+    }
+    let mut failed: Vec<&str> = Vec::new();
+    for package in &packages {
+        println!("\n=== nextest {package} ===");
+        let mut command = std::process::Command::new("cargo");
+        command.current_dir(&root).args(invocation(package, profile));
+        match command.status() {
+            Ok(status) if status.success() => {}
+            Ok(_) => failed.push(package.as_str()),
+            Err(error) => {
+                eprintln!("xtask check-default-feature-tests: could not run cargo: {error}");
+                return Verdict::Fail;
+            }
+        }
+    }
+    if failed.is_empty() {
+        println!(
+            "\nxtask check-default-feature-tests: ok - {} package(s) pass their tests at their default features",
+            packages.len()
+        );
+        return Verdict::Pass;
+    }
+    eprintln!(
+        "\nxtask check-default-feature-tests: FAILED - {}: {}",
+        failed.len(),
+        failed.join(", ")
+    );
+    eprintln!("  Every other venue that runs a test passes --all-features, so a `cfg(not(feature = ...))`");
+    eprintln!("  test is invisible to all of them. What ships is what this ran.");
+    Verdict::Fail
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{STAMP, WARM_PROFILE, invocation, profile_for};
+
+    /// The nix module that writes [`STAMP`].
+    const WARMER: &str = "nix/cargo-env.nix";
+
+    /// The flake output CI reaches this gate through.
+    const APP: &str = "default-feature-tests";
+
+    /// The name `main.rs` registers this gate under.
+    const TASK: &str = "check-default-feature-tests";
+
+    /// A directory that looks like the one the warm start filled.
+    fn stamped() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sutura-default-feature-tests-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a writable temp directory");
+        std::fs::write(dir.join(STAMP), "/nix/store/whatever-artifacts").expect("a writable stamp");
+        dir
+    }
+
+    #[test]
+    fn the_profile_is_nextests_cargo_profile_and_never_its_own() {
+        // `cargo nextest run --profile ci` selects NEXTEST's configuration profile. It builds at
+        // cargo's default, reuses none of the warmed artifacts, and reports a verdict anyway - so
+        // the only symptom is a CI step quietly paying for a whole dependency build.
+        let words = invocation("sutura-serve", Some("ci"));
+        assert!(
+            words.windows(2).any(|pair| pair == ["--cargo-profile", "ci"]),
+            "the profile must be cargo's: {words:?}"
+        );
+        assert!(
+            !words.iter().any(|word| *word == "--profile"),
+            "`--profile` is nextest's own configuration profile: {words:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_selection_is_red_rather_than_green() {
+        // The defect this whole gate exists to end, one level up: a lane that selects no test and
+        // reports success. nextest is told so explicitly rather than left on its own default.
+        let words = invocation("sutura-cli", None);
+        assert!(
+            words.windows(2).any(|pair| pair == ["--no-tests", "fail"]),
+            "an empty run must exit non-zero: {words:?}"
+        );
+    }
+
+    #[test]
+    fn the_profile_is_derived_from_the_stamp_and_not_from_a_flag() {
+        assert_eq!(profile_for(None), None, "no target directory is the developer's default profile");
+        let root = crate::repo::root().expect("the repo root");
+        assert_eq!(
+            profile_for(Some(&root)),
+            None,
+            "a directory the warm start never filled holds no ci artifacts to reuse"
+        );
+        let warmed = stamped();
+        assert_eq!(profile_for(Some(&warmed)), Some(WARM_PROFILE));
+        std::fs::remove_dir_all(&warmed).expect("the temp directory is removable");
+    }
+
+    #[test]
+    fn the_two_literals_the_profile_is_derived_from_still_belong_to_their_owners() {
+        // A derived value is a control only while its owner still spells it. A rename on either
+        // side leaves this gate compiling at the wrong profile - which costs a whole dependency
+        // build and fails nothing at all, so it is red here instead.
+        let root = crate::repo::root().expect("the repo root");
+        let warmer = std::fs::read_to_string(root.join(WARMER)).expect("the warm-start module");
+        assert!(warmer.contains(STAMP), "{WARMER} no longer writes {STAMP}");
+        let flake = std::fs::read_to_string(root.join("flake.nix")).expect("flake.nix");
+        let declared = format!("CARGO_PROFILE = \"{WARM_PROFILE}\"");
+        assert!(
+            flake.contains(declared.as_str()),
+            "flake.nix no longer builds the warmed artifacts at profile {WARM_PROFILE}"
+        );
+    }
+
+    #[test]
+    fn both_lanes_still_invoke_this_gate() {
+        // "A test pass belongs in the same place or it is a second thing to keep wired" -
+        // `github.com/telekom/sutura#264`'s own words about this gate. Two lanes, so two readers:
+        // the developer's `just gates` and the required CI job. `check-workflows` holds the other
+        // direction, that the app this names is declared.
+        let root = crate::repo::root().expect("the repo root");
+        assert!(
+            crate::TASKS.iter().any(|task| task.name == TASK),
+            "{TASK} is not a registered task"
+        );
+        let body = crate::tasks::recipe_body(&root, "gates").expect("a `gates` recipe in the justfile");
+        assert!(
+            body.iter().any(|line| line.contains(TASK)),
+            "`just gates` no longer runs {TASK}"
+        );
+        let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("ci.yml");
+        let reference = format!("nix run .#{APP}");
+        assert!(
+            workflow.contains(reference.as_str()),
+            "ci.yml no longer runs `{reference}`, so the CI half of this lane is gone"
+        );
+    }
+}

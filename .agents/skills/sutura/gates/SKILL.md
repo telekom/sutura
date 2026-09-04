@@ -222,6 +222,20 @@ therefore does not see.
   classification rather than the sweep's size:** a count goes green the moment a new gate is added,
   including one added without being classified, so it holds a number while the sentence the number
   serves rots.
+- **A gate that COMPILES a test runs nothing, and that hid a whole test CATEGORY.**
+  `check-default-features` covers the shipped lane with `cargo check --all-targets` and
+  `cargo clippy --all-targets`, both of which stop at metadata, while every venue that RUNS a test -
+  `just test`, `just serve-e2e`, `just mcp-e2e`, `just declared-source`, the `nextest` nix check -
+  passes `--all-features`. So a `#[cfg(not(feature = ..))]` test was compiled by the first and
+  excluded by the second: it read as coverage in a diff and held nothing, and a refusal that stopped
+  refusing would have been caught nowhere. **Measured by differencing the two test lists**
+  (2026-09-04, `cargo nextest list --workspace` against the same with `--all-features`): 1718 and
+  1813 tests, 2 in the first and not the second, 97 the other way round.
+  `check-default-feature-tests` runs that lane now,
+  in `just gates` and in CI, one invocation per shipped package, and `--no-tests fail` makes an empty
+  selection red instead of green. **The transferable half: a lane that only compiles is not a lane
+  that covers, and the difference of the two lists is what says whether the hole is a pair or a
+  category.**
 
 ## The causality gate, and how it can lie
 

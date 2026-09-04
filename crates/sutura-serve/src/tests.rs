@@ -452,6 +452,11 @@ fn a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
     // different files: change the `kind:`, or build with `--features bigquery`. Under
     // `--all-features` this test is not compiled and its twin below is; that split is the honest
     // consequence of a behaviour that differs by build, and one test cannot assert both.
+    //
+    // **WHICH VENUE RUNS THIS ONE:** `just gates` and the `The shipped feature set runs its tests`
+    // step in `ci.yml`, both through `cargo xtask check-default-feature-tests`. Not `just test` and
+    // not the `nextest` nix check - they pass `--all-features`, so this cfg is false there. It was
+    // compiled by a gate and executed by nothing at all until that task existed.
     let error = refusal(
         opened_bigquery(&bigquery_entry("warehouse", "shared-service-user", "")),
         "a build with no BigQuery adapter must not start against a bigquery source",

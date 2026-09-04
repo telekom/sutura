@@ -41,6 +41,11 @@
 //! `--all-features` gates are what reach those - and this says nothing about a package that does not
 //! ship. Nor does it link: `cargo check` and `cargo clippy` both stop at metadata, which is what
 //! keeps it affordable and is also why the `cross` builds stay the authority on a musl link.
+//!
+//! **And it RUNS nothing, which for a whole category of test meant nobody did.** Stopping at
+//! metadata compiles a `#[cfg(not(feature = "..."))]` test and never executes it, while every venue
+//! that does run a test passes `--all-features`, where that cfg is false. `check-default-feature-tests`
+//! is this lane's other half and its module header carries the measurement.
 
 use crate::Verdict;
 use crate::repo;
@@ -55,7 +60,11 @@ const SOURCE: &str = "nix/shipped.nix";
 /// key appears elsewhere in that file, and `{ bin = "sutura"; package = "sutura-cli"; }` is one legal
 /// record on one line. Duplicates are dropped, keeping first appearance, so two binaries out of one
 /// package are one compile rather than two.
-fn shipped_packages(text: &str) -> Vec<String> {
+///
+/// `pub(crate)` for exactly one other reader: `check-default-feature-tests` runs the same packages'
+/// tests at the same feature set, and a second parser over one declaration is how two gates come to
+/// disagree about which packages ship.
+pub(crate) fn shipped_packages(text: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     let mut indent: Option<usize> = None;
     for line in text.lines() {

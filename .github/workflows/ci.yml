@@ -590,6 +590,27 @@ jobs:
           fi
           nix run .#causality -- --since "$BASE"
 
+      # THE SHIPPED FEATURE SET'S TESTS, and it is the only step in this file that RUNS a test at
+      # cargo's DEFAULT features. `Tests` above passes `--all-features`, as does every other venue
+      # in the repository that executes a test, while `nix/shipped.nix` publishes the default set -
+      # so a `#[cfg(not(feature = ..))]` test was COMPILED by a gate and executed by nothing at
+      # all. Two of them were in that state when this landed, and both are refusals a release's own
+      # configuration depends on.
+      #
+      # An app rather than a check for `The attribution document is current`'s reason: it shells
+      # out to cargo, which needs a resolvable registry and a writable target directory that the
+      # nix sandbox has not got.
+      #
+      # AFTER `Tests`, which is not cosmetic - it reuses the dependency closure that step built, at
+      # the same `ci` profile, instead of compiling the graph again.
+      #
+      # WHAT IT STILL DOES NOT COVER: the shipped packages on the host triple only, so the four
+      # `cross` jobs below stay the authority on a musl link, and a feature no shipped binary
+      # enables is reached by the `--all-features` venues alone.
+      - name: The shipped feature set runs its tests
+        if: steps.classify.outputs.rust == 'true'
+        run: nix run .#default-feature-tests
+
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
   #
