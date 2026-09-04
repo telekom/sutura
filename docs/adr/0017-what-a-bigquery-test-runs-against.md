@@ -1050,24 +1050,55 @@ that produced the asymmetry - so one reproduction answers both questions. That a
 whole argument for the step existing: before it, every one of those four jobs was green on a tree
 where the documented source build did not compile.
 
-**The limits of this measurement, next to it.** The probe links and never RUNS, so nothing here says
-the feature works - only that it builds. Binary size is unmeasured: no step prints it, so the
-artefact-closure argument above is still qualitative. `sutura-serve`'s `tls` and `bigquery` are
-deliberately unprobed, so none of this is evidence about the server. The planted-error red was
-reproduced on `aarch64-apple-darwin`, the one triple that host builds natively - **the musl link
-that is the actual risk has only ever been exercised green**, and CI is the only venue that can
-redden it, because a musl dependency closure is not cached on a developer's machine. And the cost
-of *having* the probe is real even though the cost of the feature is not: **69-85s on each of four
-`cross` jobs**, per pull request, across runs 33808343712 and 33838360913. That is the price of the
-answer
-rather than the price of the feature.
+**The limits of this measurement, next to it.**
 
-**One coupling this lane rests on and does not hold.** `ci.yml`'s `cross` matrix spells the four
-triples as literals, as `release.yml`'s does, and `cargo xtask check-shipped-binaries` reconciles
-the shipped BINARIES between those files and `nix/shipped.nix` - not the TARGETS. So a triple added
-to `crossTargets` and to `release.yml` but not to `ci.yml` would ship having been linked by
-nothing, with the feature or without it, and the only thing saying otherwise is a comment above the
-matrix. The reverse direction does fail closed, freely: a matrix target that is not a release target
-has no `feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a
-matrix cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
-reconciling this pair too; it is not this branch's to add and it is not held today.
+- **The PROFILE is not the documented one, and this is the limit that narrows the claim most.**
+  `docs/getting-started.md` says `cargo build --release`; the probe builds `ci`. `[profile.release]`
+  is `lto = "thin"`, `codegen-units = 16`, `panic = "abort"`; `[profile.ci]` inherits `dev` -
+  `lto = "off"`, `codegen-units = 256`, unwind. Thin LTO and an abort personality across `ring`'s C
+  and assembly are a **different link**. So what is proven is *the feature's closure cross-compiles
+  and links for each published triple*, not *the reader's exact command links*. Adding a
+  release-profile probe would double the step's cost for a codegen difference nobody has priced; the
+  concession is in the step's printed notice instead, where a reader of a green run will see it.
+- **The probe links and never RUNS**, so nothing here says the feature works - only that it builds.
+  `just bigquery-acceptance` is the leg that answers the other question.
+- **Binary size is unmeasured**: no step prints it, so the artefact-closure argument above is still
+  qualitative.
+- **`sutura-serve`'s `tls` and `bigquery` are deliberately unprobed**, so none of this is evidence
+  about the server.
+- **The planted-error RED was reproduced on `aarch64-apple-darwin` only**, the one triple that host
+  builds natively. The musl link has been exercised green on every pull request and never red, and
+  CI is the only venue that can redden it, because a musl dependency closure is not cached on a
+  developer's machine.
+- **The cost of HAVING the probe is real even though the cost of the feature is not:** 69-85s on
+  each of four `cross` jobs, per pull request, across runs 33808343712 and 33838360913. That is the
+  price of the answer rather than the price of the feature.
+- **The `file` readout asserts the CPU and not the libc.** `nix/assert-linked.sh` matches `file`'s
+  answer against the triple's CPU and refuses a path that is not executable - which is what the
+  bare `file` here did not do, since it exits zero on a missing path. What it does not assert is
+  `statically linked` versus `dynamically linked`, because those strings vary with linker, target
+  and `file` version in ways nobody here has measured. A musl target linked dynamically would pass.
+
+**Two couplings this lane rests on. One is held now, and it was not when the lane landed.**
+
+**WHICH FEATURES ARE PROBED - held, by `cargo xtask check-shipped-binaries`.** `ci.yml`'s refusal
+is *the manifest has at least one row*, and that was read as *a probe cannot silently disappear*.
+It is not the same claim: zero rows means *the CLI probe is gone* only because the other binary
+declares none, which is a property of today's data rather than of the construction. Declare a probe
+for `sutura-serve` and delete `"bigquery"` from `sutura-cli`'s, and the manifest is still non-empty
+- the four `cross` jobs go green and this record's claim reverts to *assumed* with no signal at all.
+The coupling that closes it is the one nothing checked: a page tells a reader to run
+`cargo build --release -p sutura-cli --features bigquery`, and `probeFeatures` had to contain that
+feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
+fails, and so does a tree where no page documents such a build at all, because a reconciliation
+against nothing passes everything.
+
+**WHICH TRIPLES ARE PROBED - still not held.** `ci.yml`'s `cross` matrix spells the four triples as
+literals, as `release.yml`'s does, and `check-shipped-binaries` reconciles the shipped BINARIES
+between those files and `nix/shipped.nix` - not the TARGETS. So a triple added to `crossTargets` and
+to `release.yml` but not to `ci.yml` would ship having been linked by nothing, with the feature or
+without it, and the only thing saying otherwise is a comment above the matrix. The reverse direction
+does fail closed, freely: a matrix target that is not a release target has no
+`feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a matrix
+cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
+reconciling this pair too. It is the same shape as the rule above and is a separate change.
