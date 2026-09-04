@@ -374,7 +374,10 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
 const NON_MEMBER_PATHS: &[&str] = &["vendor/"];
 
 /// Is this path outside every workspace member?
-fn is_non_member(path: &str) -> bool {
+///
+/// `pub(crate)` for `causality`, which needs the same answer for a different reason: a file cargo
+/// never compiles carries no test any run can reach.
+pub(crate) fn is_non_member(path: &str) -> bool {
     NON_MEMBER_PATHS.iter().any(|prefix| path.starts_with(prefix))
 }
 

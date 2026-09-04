@@ -249,6 +249,16 @@ fn declares_test_module(text: &str, name: &str) -> bool {
 
 /// Is this line the declaration `mod <name>;`, whatever its visibility?
 fn is_module_declaration(line: &str, name: &str) -> bool {
+    module_name(line) == Some(name)
+}
+
+/// The name in `mod NAME;`, if this line declares an out-of-line module.
+///
+/// One parser rather than one per caller: `super::scoped` reads the same shape to follow a
+/// `#[path]` declaration, and the spellings this tree accepts - a `#[cfg(test)]` in front, any
+/// visibility, whitespace around the `;` - are exactly the thing that would drift between two
+/// copies.
+pub(super) fn module_name(line: &str) -> Option<&str> {
     let mut rest = line.trim();
     if let Some(after) = rest.strip_prefix("#[cfg(test)]") {
         rest = after.trim_start();
@@ -259,10 +269,7 @@ fn is_module_declaration(line: &str, name: &str) -> bool {
             break;
         }
     }
-    let Some(after) = rest.strip_prefix("mod ") else {
-        return false;
-    };
-    after.trim().strip_suffix(';').map(str::trim) == Some(name)
+    Some(rest.strip_prefix("mod ")?.trim().strip_suffix(';')?.trim())
 }
 
 /// Where a line break left the scanner. Every one of these can span lines in Rust.

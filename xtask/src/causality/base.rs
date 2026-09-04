@@ -72,9 +72,9 @@ pub(crate) fn classify_base(text: &str, succeeded: bool, scoped: &[AddedTest]) -
         // Red, and about nothing this can name: do not claim a proof, and do not blame the build.
         return BaseOutcome::Unattributed;
     }
-    let under_test: Vec<String> = failed.iter().filter(|one| is_scoped(one, scoped)).cloned().collect();
+    let (under_test, outside) = failed.into_iter().partition::<Vec<String>, _>(|one| is_scoped(one, scoped));
     if under_test.is_empty() {
-        BaseOutcome::RedOutsideTheDiff { failed }
+        BaseOutcome::RedOutsideTheDiff { failed: outside }
     } else {
         BaseOutcome::RedByAssertion { failed: under_test }
     }
@@ -136,6 +136,11 @@ fn collect(text: &str, read: ReadFailure) -> Vec<String> {
 ///        FAIL [   0.255s] (1/4) pa tests::plain_fail
 ///     TIMEOUT [   1.005s] (4/4) pa tests::hangs
 /// ```
+///
+/// The two this tree cannot provoke on demand - `FAIL + LEAK` and `LEAK-FAIL`, one for a failing
+/// test that also leaked and one for a leak the profile fails on - are read off the pinned
+/// binary's own string table rather than guessed, alongside `ABORT` and `XFAIL`. `XFAIL` is
+/// deliberately absent: an expected failure that failed is a PASS.
 const FAILING_STATUSES: &[&str] = &["FAIL", "FAIL + LEAK", "TIMEOUT", "ABORT", "LEAK-FAIL"];
 
 /// Is this status one that a test did not pass under?
@@ -190,12 +195,11 @@ fn cargo_test_failure(trimmed: &str) -> Option<String> {
 /// [`AddedTest::claims`] holds the comparison itself, next to the filter it mirrors - one place
 /// for the key, because two spellings of it is how the filter and the check came to disagree.
 fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
-    let words: Vec<&str> = failure.split_whitespace().collect();
-    let (binary_id, path) = match *words.as_slice() {
-        [.., id, path] => (Some(id), path),
-        [path] => (None, path),
-        [] => return false,
+    let mut words = failure.split_whitespace().rev();
+    let Some(path) = words.next() else {
+        return false;
     };
+    let binary_id = words.next();
     scoped.iter().any(|one| one.claims(binary_id, path))
 }
 
@@ -265,6 +269,15 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
                 println!("This is the SECOND attempt: every changed file is at base here, so the");
                 println!("build failure is in the changed tests themselves - they reference");
                 println!("something this branch introduced. State the evidence in the handoff.");
+            } else if missing_module_file(output) {
+                println!("A `mod` here points at a file the base tree does not have, which is the");
+                println!("HARNESS MOVE shape and the EXPECTED answer to it: a file with no");
+                println!("`#[test]` is revertible, the file declaring it is held for adding tests,");
+                println!("so the declaration outlives its target. Nothing is wrong with the change.");
+                println!("What it costs is the proof, so a MUTATION takes its place: break what");
+                println!("each new test claims, one at a time, and paste the test that reddens.");
+                println!("Scope that to a whole test binary, never a name pattern - a filter that");
+                println!("omits the guarding test reports green and proves nothing.");
             } else {
                 println!("Usually it means the change is not separable at file level: the test and");
                 println!("what it needs arrived together. State the evidence in the handoff.");
@@ -272,6 +285,18 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
             Verdict::Pass
         }
     }
+}
+
+/// Did the base tree fail because a module's FILE is not there?
+///
+/// `error[E0583]` is the HARNESS-MOVE shape, and it is the EXPECTED outcome of following this
+/// gate's own advice rather than a mistake: when a test file hits the line cap the harness moves
+/// out, a file with no `#[test]` is revertible while the file declaring `mod <harness>;` is held
+/// for adding tests, so the base tree has a declaration whose target is gone. Seen on #119 and
+/// again on #283. Telling that author "the change is not separable at file level" sends them to
+/// the wrong fix, which is why the message forks here rather than reading the same for both.
+fn missing_module_file(text: &str) -> bool {
+    text.contains("[E0583]") || text.contains("file not found for module")
 }
 
 /// The last `n` lines, so a failure shows the assertion rather than the whole compile log.
@@ -283,8 +308,8 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseOutcome, classify_base, names_no_tests, tail};
-    use crate::causality::fixtures::{changed, tree};
+    use super::{BaseOutcome, classify_base, missing_module_file, names_no_tests, tail};
+    use crate::causality::fixtures::{changed, manifest, tree};
     use crate::causality::scoped::{AddedTest, Scan};
 
     /// The tests under test, as if one file in `package` had added each of `names`.
@@ -304,8 +329,7 @@ mod tests {
             .or_else(|| file.split_once("/tests/"))
             .expect("a package directory")
             .0;
-        let manifest = format!("[package]\nname = \"{package}\"\n");
-        let read = tree(&[(file, &text), (&format!("{dir}/Cargo.toml"), &manifest)]);
+        let read = tree(&[(file, &text), (&format!("{dir}/Cargo.toml"), &manifest(package))]);
         match Scan::of(&[changed(file, 1, &borrowed)], &[String::from(file)], &read) {
             Scan::Runnable(found) => found.tests().to_vec(),
             other => panic!("expected runnable tests, got {other:?}"),
@@ -593,6 +617,24 @@ mod tests {
             BaseOutcome::RedByAssertion { ref failed } => assert_eq!(failed.len(), 1, "{failed:?}"),
             other => panic!("expected RedByAssertion, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_declaration_outliving_its_file_is_the_harness_move_rather_than_an_author_error() {
+        // Measured twice in this repository - #119 and #283 - and it is what following the
+        // line-cap advice produces: the harness file added no `#[test]` so it is reverted, the
+        // test file declaring `mod <harness>;` is held, and the base tree cannot build. Still
+        // `DidNotCompile`, because it genuinely did not - but the operator is told the shape
+        // rather than "the change is not separable at file level", which is a different fix.
+        let text = concat!(
+            "error[E0583]: file not found for module `naming`\n",
+            " --> crates/sutura-exec-bigquery/tests/corpus.rs:31:1\n",
+            "error: could not compile `sutura-exec-bigquery` (test \"corpus\")\n",
+        );
+        assert!(missing_module_file(text));
+        assert!(!missing_module_file("error[E0432]: unresolved import `crate::thing`"));
+        let under_test = scoped("sutura-exec-bigquery", "crates/sutura-exec-bigquery/tests/corpus.rs", &["t"]);
+        assert_eq!(classify_base(text, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
     #[test]

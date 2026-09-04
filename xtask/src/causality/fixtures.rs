@@ -25,6 +25,14 @@ pub(crate) fn added_from(first: usize, texts: &[&str]) -> Vec<AddedLine> {
         .collect()
 }
 
+/// A manifest declaring one package, as the post-image reader hands it back.
+///
+/// Three test modules were spelling this three ways, and only the shape `changes::package_name`
+/// parses matters - so a fourth spelling drifting is the thing this removes.
+pub(crate) fn manifest(name: &str) -> String {
+    format!("[package]\nname = \"{name}\"\nversion.workspace = true\n")
+}
+
 /// A changed file whose added lines run consecutively from `first`.
 pub(crate) fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
     ChangedFile {

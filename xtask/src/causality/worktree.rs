@@ -3,14 +3,26 @@
 //! Split out of `causality.rs` for the file-length gate, and the seam is real: everything here is
 //! `git` and the filesystem, and nothing here decides anything about a test. Two things it carries
 //! that a reader would not guess: "revert to base" means two different operations depending on
-//! whether the file existed at base ([`base_has`]), and a subprocess has to have the CALLER's git
-//! environment stripped or it operates on another repository.
+//! whether the file existed at base ([`base_has`]), and every subprocess has to have the CALLER's
+//! git environment stripped or it operates on another repository - which is why [`git`] is the only
+//! way this module spawns one.
 
 use std::path::Path;
 use std::process::Command;
 
-/// Changed files split by whether they exist at the base commit.
-type Partitioned<'a> = (Vec<&'a String>, Vec<&'a String>);
+/// A `git` invocation in `dir`, with the caller's git environment stripped.
+///
+/// A CONSTRUCTOR rather than a rule at four call sites, and it is not tidiness: two of the four
+/// had lost the stripping. A gate that shells out to git is often invoked BY git - from a hook, or
+/// from a command that set up its own index - and `GIT_DIR`/`GIT_INDEX_FILE` outlive the process
+/// that set them, so an unstripped subprocess reads another repository. `repo::strip_git_env` holds
+/// the list; this holds that nothing here can forget to apply it.
+fn git(dir: &Path) -> Command {
+    let mut command = Command::new("git");
+    crate::repo::strip_git_env(&mut command);
+    command.current_dir(dir);
+    command
+}
 
 /// Does `path` exist at `base`?
 ///
@@ -19,10 +31,7 @@ type Partitioned<'a> = (Vec<&'a String>, Vec<&'a String>);
 /// is not there - and `git checkout base -- <new file>` fails with "did not match any file(s)
 /// known to git", which is how this gate first broke in CI.
 pub(super) fn base_has(root: &Path, base: &str, path: &str) -> bool {
-    let mut command = Command::new("git");
-    strip_git_env_for(&mut command);
-    command
-        .current_dir(root)
+    git(root)
         .arg("cat-file")
         .arg("-e")
         .arg(format!("{base}:{path}"))
@@ -32,18 +41,9 @@ pub(super) fn base_has(root: &Path, base: &str, path: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// Git env vars that would point a subprocess at another repository.
-///
-/// The list moved to `repo` when a second gate needed it. This stays as the name the call sites
-/// here already read by, and as the one place that would have to change if they diverged.
-fn strip_git_env_for(command: &mut Command) {
-    crate::repo::strip_git_env(command);
-}
-
 /// Set up a detached worktree at HEAD under the given path.
 pub(super) fn add_worktree(root: &Path, dir: &Path) -> Result<(), String> {
-    let out = Command::new("git")
-        .current_dir(root)
+    let out = git(root)
         .args(["worktree", "add", "--detach", "--quiet"])
         .arg(dir)
         .arg("HEAD")
@@ -59,11 +59,7 @@ pub(super) fn add_worktree(root: &Path, dir: &Path) -> Result<(), String> {
 /// Best-effort teardown. A leftover worktree is noise, not a correctness problem, so a
 /// failure here is reported and does not change the gate's verdict.
 pub(super) fn remove_worktree(root: &Path, dir: &Path) {
-    let outcome = Command::new("git")
-        .current_dir(root)
-        .args(["worktree", "remove", "--force"])
-        .arg(dir)
-        .output();
+    let outcome = git(root).args(["worktree", "remove", "--force"]).arg(dir).output();
     if let Err(e) = outcome {
         eprintln!("xtask test-causality: could not remove the worktree: {e}");
     }
@@ -90,16 +86,15 @@ impl BaseState<'_> {
 /// "Revert to base" means two different things depending on the answer, and getting it wrong is
 /// how this gate first broke in CI - see [`base_has`].
 pub(super) fn base_state<'a>(root: &Path, base: &str, files: &'a [String]) -> BaseState<'a> {
-    let (restore, remove): Partitioned<'a> = files.iter().partition(|f| base_has(root, base, f));
+    let (restore, remove) = files.iter().partition(|f| base_has(root, base, f));
     BaseState { restore, remove }
 }
 
 /// Check out the base version of the files that had one, and delete the ones this branch added.
 pub(super) fn apply(wt: &Path, base: &str, state: &BaseState<'_>) -> Result<(), String> {
     if !state.restore.is_empty() {
-        let mut checkout = Command::new("git");
-        strip_git_env_for(&mut checkout);
-        checkout.current_dir(wt).args(["checkout", base, "--"]);
+        let mut checkout = git(wt);
+        checkout.args(["checkout", base, "--"]);
         for f in &state.restore {
             checkout.arg(f);
         }

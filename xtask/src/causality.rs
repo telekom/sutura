@@ -40,13 +40,11 @@
 //! and any assertion failure anywhere counted as red-by-assertion, so one unrelated failing cell
 //! early in the run answered "red on base" while the tests under test never ran at all.
 //!
-//! IT ALL RESTS ON THE KEY. The filter and the comparison are two ENFORCERS of one key, not two
-//! independent keys: the comparison catches a filter that stopped filtering, and cannot catch a
-//! key too weak to identify a test. Keyed on the bare function name it was exactly that - 23 of
-//! this tree's 1782 test names are duplicated, so a collided failure passed both halves and a
-//! vacuous test got *ok - red on base, green on head* off a pre-existing one elsewhere. The key
-//! is the binary or package, the module path the file contributes, and the name; [`scoped`]
-//! carries the measurement and the collisions it still does not separate.
+//! IT ALL RESTS ON THE KEY, and keyed on the bare function name it was too weak to identify a
+//! test at all - so a collided failure passed both halves and a vacuous test got *ok - red on
+//! base, green on head* off a pre-existing one elsewhere. [`scoped`] owns the key, the
+//! measurement behind it, and the collisions it still does not separate; [`base`] owns why a
+//! second check on ONE key is not a second mechanism.
 //!
 //! THE OLD ANSWER WAS NOT EVEN STABLE, which is the part that made it hard to see. Whether an
 //! unrelated cell failed BEFORE the tests under test - and so, under fail-fast, whether the wide
@@ -106,12 +104,19 @@ pub(crate) enum Plan {
     NotSeparable { files: Vec<String> },
 }
 
-/// Is this a Rust source path? Case-insensitive, since a case-sensitive extension test is
-/// wrong on a case-insensitive filesystem.
+/// Is this a Rust source path THIS workspace compiles?
+///
+/// Case-insensitive on the extension, since a case-sensitive test is wrong on a case-insensitive
+/// filesystem. And not a path outside every workspace member: `vendor/mimalloc_rust` is
+/// `exclude`d in the root manifest and carries its own `#[test]`s, so a vendor bump touching one
+/// would otherwise be a changed test whose key names a package `--workspace` never builds -
+/// nextest refuses an unknown `package(=..)` outright, so the gate would redden a correct change.
+/// `changes::is_non_member` already answers that question for the compile-check gate.
 fn is_rust(path: &str) -> bool {
-    std::path::Path::new(path)
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
+    !crate::changes::is_non_member(path)
+        && std::path::Path::new(path)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
 }
 
 /// Split changed Rust files into "added tests" and "changed implementation only".
@@ -423,7 +428,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
         return Verdict::Fail;
     }
 
-    let verdict = reconstruct_and_run(&wt, base, &first, &held, &shared_target, scoped);
+    let verdict = reconstruct_and_run(&wt, base, &first, &held, &shared_target, scoped, &only);
     remove_worktree(root, &wt);
     verdict
 }
@@ -449,14 +454,14 @@ fn reconstruct_and_run(
     held: &BaseState<'_>,
     target: &Path,
     scoped: &Scoped,
+    only: &str,
 ) -> Verdict {
     if let Err(e) = apply(wt, base, first) {
         eprintln!("xtask test-causality: {e}");
         return Verdict::Fail;
     }
 
-    let only = scoped.filterset();
-    let (base_ok, base_out) = cargo_test(wt, target, &only, Tree::Reconstructed);
+    let (base_ok, base_out) = cargo_test(wt, target, only, Tree::Reconstructed);
     let outcome = classify_base(&base_out, base_ok, scoped.tests());
 
     if retry_with_held_back(&outcome, held) {
@@ -473,7 +478,7 @@ fn reconstruct_and_run(
             eprintln!("xtask test-causality: {e}");
             return Verdict::Fail;
         }
-        let (retry_ok, retry_out) = cargo_test(wt, target, &only, Tree::Reconstructed);
+        let (retry_ok, retry_out) = cargo_test(wt, target, only, Tree::Reconstructed);
         return report_base(&classify_base(&retry_out, retry_ok, scoped.tests()), &retry_out, true);
     }
 
@@ -545,7 +550,7 @@ mod tests {
     use std::path::Path;
 
     use super::base::BaseOutcome;
-    use super::fixtures::{changed, tree};
+    use super::fixtures::{changed, manifest, tree};
     use super::scoped::{Scan, Scoped};
     use super::{BaseState, Plan, Tree, nextest, plan, retry_with_held_back};
 
@@ -728,6 +733,21 @@ mod tests {
     }
 
     #[test]
+    fn a_vendored_test_is_not_a_changed_test_this_gate_can_measure() {
+        // `vendor/mimalloc_rust` is `exclude`d from the root manifest and carries its own
+        // `#[test]`s, so `--workspace` never builds it. Counted as a changed test, its package
+        // reaches the filterset - and nextest REFUSES an unknown `package(=..)` rather than
+        // matching nothing, so a vendor bump touching a `#[test]` line would redden a correct
+        // change. `changes::is_non_member` is the same rule the compile-check gate uses.
+        let files = vec![changed(
+            "vendor/mimalloc_rust/src/lib.rs",
+            1,
+            &["    #[test]", "    fn allocates() {}"],
+        )];
+        assert_eq!(plan(&files, &tree(&[])), Plan::NotRequired);
+    }
+
+    #[test]
     fn a_file_carrying_its_own_tests_is_held_back_not_forgotten() {
         // The shape that used to end as INCONCLUSIVE in CI: one file holding an implementation
         // change AND its tests, one impl-only file to revert, and one dedicated test target to
@@ -800,7 +820,7 @@ mod tests {
         let files = vec![changed("crates/x/tests/t.rs", 1, &["#[test]", "fn the_added_one() {}"])];
         let read = tree(&[
             ("crates/x/tests/t.rs", "#[test]\nfn the_added_one() {}\n"),
-            ("crates/x/Cargo.toml", "[package]\nname = \"x\"\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
         ]);
         match Scan::of(&files, &[String::from("crates/x/tests/t.rs")], &read) {
             Scan::Runnable(scoped) => scoped,

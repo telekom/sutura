@@ -1,25 +1,19 @@
 //! Which tests the diff added, and the nextest filter that runs exactly those.
 //!
-//! WHY THE RUN IS SCOPED AT ALL. The base run was `--workspace` unfiltered, so its verdict was a
-//! property of the WHOLE suite rather than of the tests the diff added. With nextest's fail-fast,
-//! one unrelated failing cell early in the run is enough to answer "red on base" - and the tests
-//! actually under test never run. Measured on a real branch: the base run died on two cells after
-//! 86 of 1810 tests, and the gate answered *red on base, green on head*, which reads as *this
-//! change is causal* about tests nothing had executed. Scoping is the half that stops the
-//! unrelated failure from happening; `super::base` is the half that stops one being read as
-//! evidence if it happens anyway.
+//! WHY THE RUN IS SCOPED AT ALL. An unfiltered `--workspace` base run makes the verdict a property
+//! of the WHOLE suite rather than of the tests the diff added; `super::base` carries the run that
+//! measured what that cost. Scoping is the half that stops an unrelated failure from happening at
+//! all, and that module is the half that stops one being read as evidence if it happens anyway.
 //!
 //! A BARE FUNCTION NAME IS NOT A KEY IN THIS TREE, and believing it was is the defect this module
 //! last carried. Measured on nextest 0.9.143 over a synthetic workspace: `test(/(?:^|::)sums/)`
 //! matched six tests in three packages, including a MODULE called `sums` in a package the diff
-//! never touched. In this workspace 23 of 1782 test-function names are duplicated -
-//! `deserialization_goes_through_the_constructor` occurs four times in `sutura-domain` alone. So a
-//! test is keyed by three things, all of which its FILE settles: the binary or package it compiles
-//! into, the module path the file contributes, and the function name. `package(=..) & test(/../)`
-//! is the filter that follows, and [`AddedTest::claims`] is the same key applied to a failure the
-//! run reported.
+//! never touched. So a test is keyed by three things, all of which its FILE settles: the binary or
+//! package it compiles into, the module path the file contributes, and the function name.
+//! `package(=..) & test(/../)` is the filter that follows, and [`AddedTest::claims`] is the same
+//! key applied to a failure the run reported.
 //!
-//! WHAT THE KEY STILL DOES NOT SEPARATE, measured rather than guessed. Every one of the 1849
+//! WHAT THE KEY STILL DOES NOT SEPARATE, measured rather than guessed. Every one of the 1850
 //! tests `just test` lists satisfies the key derived from its own declaring file - so the
 //! derivation never produces a filter that matches nothing. Separation is the other direction and
 //! is only partial: of 41 duplicated names, 16 are told apart and **25 are not**, and every one of
@@ -110,7 +104,7 @@ impl Ident {
 /// `multi_player` are both real names here. It is NOT a superset of `Ident` in intent, so the two
 /// stay separate types rather than one lenient one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CargoName(String);
+struct CargoName(String);
 
 impl CargoName {
     /// The name, if `raw` is one cargo could have accepted.
@@ -189,13 +183,9 @@ impl Module {
         let stem = inner.strip_suffix(".rs")?;
         // `a/b/mod.rs` IS module `a::b`, declared one level up.
         let stem = stem.strip_suffix("/mod").unwrap_or(stem);
-        let segments: Option<Vec<Ident>> = stem.split('/').map(Ident::parse).collect();
-        let joined = segments?
-            .iter()
-            .map(|segment| String::from(segment.as_str()))
-            .collect::<Vec<String>>()
-            .join("::");
-        Some(Self(joined))
+        stem.split('/')
+            .all(|segment| Ident::parse(segment).is_some())
+            .then(|| Self(stem.replace('/', "::")))
     }
 
     /// The module one segment names.
@@ -213,11 +203,11 @@ impl Module {
     }
 
     /// `path` with this module's prefix removed, or `None` when it does not begin with it.
+    ///
+    /// Through [`Module::prefix`] so the separator rule is stated once: an empty prefix strips
+    /// nothing, which is what `strip_prefix("")` already answers.
     fn strip<'a>(&self, path: &'a str) -> Option<&'a str> {
-        if self.0.is_empty() {
-            return Some(path);
-        }
-        path.strip_prefix(self.0.as_str())?.strip_prefix("::")
+        path.strip_prefix(self.prefix().as_str())
     }
 }
 
@@ -415,6 +405,10 @@ fn included_by(package: &CargoName, dir: &str, inner: &str, read: &PostImage<'_>
 }
 
 /// The module name `text` gives the file at `inner` through a `#[path]` declaration.
+///
+/// The attribute is matched as the line rustfmt writes it, spaces included. Any other spelling
+/// finds nothing and the caller falls back to the package - generous, and the direction that
+/// cannot turn into a false green.
 fn declared_at(text: &str, inner: &str) -> Option<Ident> {
     let attribute = format!("#[path = \"{inner}\"]");
     let lines: Vec<&str> = text.lines().collect();
@@ -424,13 +418,8 @@ fn declared_at(text: &str, inner: &str) -> Option<Ident> {
         .skip(at + 1)
         .map(|line| line.trim())
         .find(|trimmed| !sits_between(trimmed))
-        .and_then(module_name)
-}
-
-/// The name in `mod NAME;`, if this line declares an out-of-line module.
-fn module_name(line: &str) -> Option<Ident> {
-    let declared = line.split_whitespace().skip_while(|word| *word != "mod").nth(1)?;
-    Ident::parse(declared.strip_suffix(';')?)
+        .and_then(crate::causality::regions::module_name)
+        .and_then(Ident::parse)
 }
 
 /// `rel` under `dir`, where an empty `dir` is the repo root.
@@ -553,13 +542,8 @@ fn function_name(line: &str) -> Option<Ident> {
 mod tests {
     use super::{AddedTest, CargoName, Ident, Scan, adds_test, place};
     use crate::causality::diff::ChangedFile;
-    use crate::causality::fixtures::{changed, tree};
+    use crate::causality::fixtures::{changed, manifest, tree};
     use crate::causality::regions::{AddedLine, PostImage};
-
-    /// A manifest declaring one package, as the post-image reader will hand it back.
-    fn manifest(name: &str) -> String {
-        format!("[package]\nname = \"{name}\"\nversion.workspace = true\n")
-    }
 
     /// The names `Scan::of` found runnable, as plain strings.
     fn runnable(files: &[ChangedFile], provable: &[&str], read: &PostImage<'_>) -> Option<Vec<String>> {
@@ -663,9 +647,8 @@ mod tests {
     fn the_filterset_qualifies_a_name_by_the_package_and_the_module_it_sits_in() {
         // THE DEFECT. A bare `test(/(?:^|::)sums(?:::|$)/)` matched six tests in three packages
         // on nextest 0.9.143 - including a MODULE called `sums` in another package - so a
-        // name-collided failure was accepted as this test's red. This tree has 23 duplicated
-        // test-function names, four of one name in `sutura-domain` alone. The package and the
-        // file's module path are both in the term, and both come from the file's own path.
+        // name-collided failure was accepted as this test's red. The package and the file's module
+        // path are both in the term, and both come from the file's own path.
         let files = vec![changed(
             "crates/sutura-domain/src/model/qualified/tests.rs",
             1,
@@ -808,8 +791,8 @@ mod tests {
     fn an_ignored_test_leaves_the_scope_rather_than_emptying_the_run() {
         // Measured on nextest 0.9.143: a filterset naming only `#[ignore]`d tests matches
         // nothing and exits 4 with `error: no tests to run`, which the gate read as a failure.
-        // This tree has 23 ignored tests. `#[ignore]` is legal on either side of `#[test]`, so
-        // both orders are dropped, and the runnable neighbour is still proven.
+        // `#[ignore]` is legal on either side of `#[test]`, so both orders are dropped, and the
+        // runnable neighbour is still proven.
         let file = concat!(
             "#[test]\n",                      // 1
             "#[ignore = \"needs a tier\"]\n", // 2
@@ -918,9 +901,10 @@ mod tests {
 
     #[test]
     fn a_sibling_module_in_the_same_package_is_not_this_test() {
-        // `deserialization_goes_through_the_constructor` occurs four times in `sutura-domain`,
-        // all in the lib's own binary - so the binary id cannot separate them and the module
-        // path is what does. A test added in `src/calendar.rs` is not the one in `src/model.rs`.
+        // `deserialization_goes_through_the_constructor` occurs in four of `sutura-domain`'s
+        // modules, all in the lib's own binary - so the binary id cannot separate them and the
+        // module path is what does. A test added in `src/calendar.rs` is not the one in
+        // `src/model.rs`.
         let files = vec![changed(
             "crates/sutura-domain/src/calendar.rs",
             1,
