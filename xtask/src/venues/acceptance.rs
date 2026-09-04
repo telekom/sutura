@@ -104,7 +104,8 @@
 //!   the job DOES read them too. `# written as > "$RUNNER_TEMP/<file>" by the step above` satisfied
 //!   *the credential is written* with no write in the job, while `# never echo "$SUTURA_BQ_KEY"`
 //!   was reported as the key on a printing line and failed a CORRECT job. [`shape::is_comment`] is
-//!   one predicate, read in all four places.
+//!   read ONCE, where [`problems`] separates the commands from the shell's every line - four
+//!   readers each remembering to skip a comment is the shape this list is about.
 //!
 //! # What this does not reach
 //!
@@ -202,6 +203,12 @@ pub(super) fn problems(text: &str) -> Vec<String> {
             "{WORKFLOW}: the `{JOB}` job has no shell - the scan is broken, not the job"
         )];
     }
+    // What the job DOES, as against every line of its shell. A comment is a CLAIM: [`shell`] keeps
+    // one deliberately, because a `${{ }}` written in a comment is still an expression in the
+    // file, and the interpolation check below is its only reader. Subtracted ONCE here rather than
+    // skipped inside each reader that decides what the job does, so a reader added later cannot
+    // forget - `# written as > "$RUNNER_TEMP/<file>"` was satisfying the write with no write.
+    let commands: Vec<&str> = bodies.iter().copied().filter(|line| !is_comment(line)).collect();
     // Once, and read by three of the four below: two derivations of one fact can disagree, and
     // this one was computed separately for the emptiness check and for the credential check.
     let config = configured(&block);
@@ -209,16 +216,20 @@ pub(super) fn problems(text: &str) -> Vec<String> {
         .iter()
         .find_map(|line| line.trim().strip_prefix("GOOGLE_APPLICATION_CREDENTIALS: "))
         .map(str::trim);
+    // Same rule, for the path: one parse, or the placement check's message and the file the log
+    // check looks for are two answers to where the credential is.
+    let credential_file = credential.and_then(under_runner_temp);
 
     let mut problems = who_may_run(text, &block);
-    problems.extend(credential_placement(&bodies, credential));
-    problems.extend(unset_configuration_fails(&bodies, &config));
+    problems.extend(credential_placement(&commands, credential, credential_file));
+    problems.extend(unset_configuration_fails(&commands, &config));
     problems.extend(what_reaches_the_log(
         text,
         &block,
         &bodies,
+        &commands,
         &config,
-        credential.and_then(under_runner_temp),
+        credential_file,
     ));
     problems.extend(one_credential_mechanism(&block, &config));
     problems
@@ -314,8 +325,8 @@ fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
 }
 
 /// Where the credential is written, and that the leg reads that same file.
-fn credential_placement(bodies: &[&str], credential: Option<&str>) -> Vec<String> {
-    match (credential, credential.and_then(under_runner_temp)) {
+fn credential_placement(commands: &[&str], credential: Option<&str>, file: Option<&str>) -> Vec<String> {
+    match (credential, file) {
         (None, _) => vec![format!(
             "{WORKFLOW}: the `{JOB}` job points no `GOOGLE_APPLICATION_CREDENTIALS` at anything - \
              the leg would then read whatever credential the runner happens to have"
@@ -333,10 +344,8 @@ fn credential_placement(bodies: &[&str], credential: Option<&str>) -> Vec<String
         .into_iter()
         // Per line, because neither form can span one - which is what the joined copy of every
         // body was for. The WHOLE path below `$RUNNER_TEMP` and not its basename: one answer, or
-        // the message below is describing two. And a COMMAND rather than a comment: a body line
-        // `# written as > "$RUNNER_TEMP/<file>" by the step above` satisfied both forms with
-        // neither the write nor the removal anywhere in the job.
-        .filter(|(_, form)| !bodies.iter().any(|line| !is_comment(line) && line.contains(form)))
+        // the message below is describing two.
+        .filter(|(_, form)| !commands.iter().any(|line| line.contains(form)))
         .map(|(what, form)| {
             format!(
                 "{WORKFLOW}: the `{JOB}` job never has the credential {what} as `{form}` - the \
@@ -353,17 +362,10 @@ fn credential_placement(bodies: &[&str], credential: Option<&str>) -> Vec<String
 /// *Unset configuration FAILS rather than skips* is the property telekom/sutura#81 states most
 /// exactly, and it is two questions: does a guard mention the name, and does that guard reach an
 /// exit. `exit 1` ANYWHERE in the job satisfied the second for a while.
-fn unset_configuration_fails(bodies: &[&str], config: &BTreeMap<&str, Source>) -> Vec<String> {
+fn unset_configuration_fails(commands: &[&str], config: &BTreeMap<&str, Source>) -> Vec<String> {
     let mut problems = Vec::new();
     let mut guarded = BTreeSet::new();
-    for (at, line) in bodies.iter().enumerate() {
-        // A comment inside a body is prose - `shape::is_comment`, the same predicate the print
-        // check and the credential forms read, because this was the only one of the three that
-        // held the distinction. `for ` plus ` in ` in an English sentence made a CORRECT job red
-        // for want of an `exit` after a comment, and that direction is how a gate gets deleted.
-        if is_comment(line) {
-            continue;
-        }
+    for (at, line) in commands.iter().enumerate() {
         // Two shapes, and both are guards: a `-z` emptiness test, and a `for name in A B` that
         // tests each of several in turn.
         if !(line.contains("-z ") || (line.contains("for ") && line.contains(" in "))) {
@@ -378,7 +380,7 @@ fn unset_configuration_fails(bodies: &[&str], config: &BTreeMap<&str, Source>) -
             line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
                 .filter(|word| env_name_shaped(word)),
         );
-        if !bodies
+        if !commands
             .iter()
             .skip(at.saturating_add(1))
             .take(GUARD_WINDOW)
@@ -411,10 +413,15 @@ fn unset_configuration_fails(bodies: &[&str], config: &BTreeMap<&str, Source>) -
 /// Three channels, and the third is the one that reaches the other two's blind spots: an
 /// interpolation puts the value in the file, a print verb puts it on a line, and tracing puts
 /// every argument of every command there without any of them being written down.
+///
+/// The first channel reads every body line and the other two read only the commands, which is what
+/// [`shape::is_comment`] is for: an expression in a comment is still in the file, a print in one is
+/// not a print.
 fn what_reaches_the_log(
     text: &str,
     block: &[&str],
     bodies: &[&str],
+    commands: &[&str],
     config: &BTreeMap<&str, Source>,
     credential_file: Option<&str>,
 ) -> Vec<String> {
@@ -430,7 +437,7 @@ fn what_reaches_the_log(
     // Per LINE and not per name, because whether a line prints is a property of the line: the
     // predicate was inside the loop above, asked once per configured value and asked at all for a
     // `vars.` entry, which this branch can never fire for.
-    for line in bodies.iter().filter(|line| prints(line)) {
+    for line in commands.iter().filter(|line| prints(line)) {
         for name in config
             .iter()
             .filter(|(_, source)| **source == Source::Secret)
@@ -455,19 +462,16 @@ fn what_reaches_the_log(
             ));
         }
     }
-    // The body first, so the message quotes the command where there is one; the two keys second,
-    // because neither can appear in a body at all - and over the WORKFLOW's own scope as well as
-    // the job's, because a key written at column zero decides how this job's shells start while
-    // sitting outside the lines `job` returns.
-    let workflow_scope: Vec<&str> = WORKFLOW_SCOPE
-        .iter()
-        .filter_map(|name| keyed_block(text, "", name))
-        .flatten()
-        .collect();
-    if let Some(line) = bodies.iter().find(|line| traces(line)).or_else(|| {
+    // The command first, so the message quotes it where there is one; the two keys second, because
+    // neither can appear in a body at all - and over the WORKFLOW's own scope as well as the
+    // job's, because a key written at column zero decides how this job's shells start while
+    // sitting outside the lines `job` returns. Lazily, so a body that already traces spends
+    // neither scan.
+    if let Some(line) = commands.iter().copied().find(|line| traces(line)).or_else(|| {
         block
             .iter()
-            .chain(workflow_scope.iter())
+            .copied()
+            .chain(WORKFLOW_SCOPE.iter().filter_map(|name| keyed_block(text, "", name)).flatten())
             .find(|line| configures_tracing(line))
     }) {
         problems.push(format!(

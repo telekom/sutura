@@ -191,25 +191,26 @@ pub(super) fn redirects_to_file(line: &str) -> bool {
 
 /// Is this body line a shell comment, and therefore a CLAIM rather than a command?
 ///
-/// One predicate for a distinction three readers had made separately or not at all. [`shell`] keeps
-/// a comment inside a body deliberately - a `${{ }}` written in one is still an expression in the
-/// file, and that is the one check a comment must still reach - but every other reader is deciding
-/// what the job DOES, and there a comment answers both ways at once: `# written as >
-/// "$RUNNER_TEMP/<file>" by the step above` satisfied *the credential is written* with no write in
-/// the job, while `# never echo "$SUTURA_BQ_KEY"` was read as the key on a printing line and failed
-/// a CORRECT job. The second direction is the one that gets a gate deleted.
+/// One predicate for a distinction three readers had made separately or not at all, and it is read
+/// ONCE - where [`super::problems`] separates the commands from every line of the shell - because
+/// four readers each remembering to skip a comment is the shape this whole module is about.
+/// [`shell`] keeps comments deliberately, since a `${{ }}` written in one is still an expression in
+/// the file and the interpolation check is its reader; every other reader decides what the job
+/// DOES, and there a comment answered both ways at once. `# written as > "$RUNNER_TEMP/<file>" by
+/// the step above` satisfied *the credential is written* with no write in the job, and
+/// `# never echo "$SUTURA_BQ_KEY"` was read as the key on a printing line and failed a CORRECT job
+/// - which is the direction that gets a gate deleted.
 pub(super) fn is_comment(line: &str) -> bool {
     line.trim_start().starts_with('#')
 }
 
-/// Does this line put something in the log?
+/// Does this command put something in the log?
 ///
 /// A print verb with nowhere else for the output to go. Its own predicate because it is a property
 /// of the LINE: it was evaluated once per configured name, including for the names it can never
-/// fire for. A comment puts nothing anywhere, and the skip is here rather than at the call site
-/// because [`emits_file`] is asked only of the lines this admits.
+/// fire for. Asked of a command rather than of any body line - see [`is_comment`].
 pub(super) fn prints(line: &str) -> bool {
-    !is_comment(line) && PRINTS.iter().any(|verb| line.contains(verb)) && !redirects_to_file(line)
+    PRINTS.iter().any(|verb| line.contains(verb)) && !redirects_to_file(line)
 }
 
 /// Is this shell word a flag that turns tracing on?
@@ -240,7 +241,7 @@ fn command(segment: &str) -> &str {
             .iter()
             .find_map(|keyword| trimmed.strip_prefix(keyword))
             .map_or(trimmed, str::trim_start);
-        if stripped.len() == rest.len() {
+        if stripped == rest {
             return rest;
         }
         rest = stripped;
@@ -261,9 +262,6 @@ fn command(segment: &str) -> &str {
 /// parenthesis in front of it hid a trace behind one keyword. `export SHELLOPTS=xtrace` is the key
 /// [`configures_tracing`] reads as YAML, spelled as a command, and was read by neither.
 pub(super) fn traces(line: &str) -> bool {
-    if is_comment(line) {
-        return false;
-    }
     let body = step_key(line);
     let commands = body.strip_prefix("run:").unwrap_or(body);
     commands.split([';', '&', '|']).map(command).any(|invocation| {
@@ -377,7 +375,7 @@ pub(super) fn cannot_be_a_fork(disjunct: &str) -> bool {
     let Some((subject, event)) = disjunct.split_once("==") else {
         return false;
     };
-    let event = event.trim().trim_matches(['\'', '"']);
+    let event = unquoted(event);
     subject.trim() == "github.event_name" && !event.is_empty() && !FORK_EVENTS.contains(&event)
 }
 
@@ -423,16 +421,12 @@ pub(super) fn emits_file(line: &str, file: &str) -> bool {
 /// theirs. An unterminated `$(` reads as text, so a line this cannot parse reports rather than
 /// passes - the same direction [`redirects_to_file`] takes for a target it does not recognise.
 fn named_outside_substitution(text: &str, file: &str) -> bool {
-    text.split("$(").enumerate().any(|(nth, part)| {
-        // Everything past the substitution's close, or - for the first part - everything before
-        // the substitution opened.
-        let outside = if nth == 0 {
-            part
-        } else {
-            part.split_once(')').map_or(part, |(_, after)| after)
-        };
-        outside.contains(file)
-    })
+    // The head is everything before the first substitution opened; every part after it is read
+    // from its own substitution's close, and an UNTERMINATED one is read whole rather than
+    // skipped, so a line this cannot parse reports.
+    let mut parts = text.split("$(");
+    parts.next().is_some_and(|head| head.contains(file))
+        || parts.any(|part| part.split_once(')').map_or(part, |(_, after)| after).contains(file))
 }
 
 /// Does this line let a failure through? `continue-on-error:` with anything but `false`.
