@@ -32,10 +32,11 @@ pub(crate) fn job<'a>(text: &'a str, name: &str) -> Option<Vec<&'a str>> {
 
 /// The lines under `name:` written at `indent`, up to the next line no deeper than that key.
 ///
-/// One reader for two scopes, because the second one is what `venues::acceptance`'s tracing check
-/// was missing: column zero is the WORKFLOW's own mapping, where `defaults:` and `env:` hold keys
-/// that decide how a job's shells start. A block is a block at either indentation, so the depth is
-/// an argument rather than a second function that can disagree with this one.
+/// One reader for two scopes, because the second one is what `venues::acceptance`'s
+/// `configures_tracing` was missing: column zero is the WORKFLOW's own mapping, where `defaults:`
+/// and `env:` hold keys that decide how a job's shells start. A block is a block at either
+/// indentation, so the depth is an argument rather than a second function that can disagree with
+/// this one.
 pub(crate) fn keyed_block<'a>(text: &'a str, indent: &str, name: &str) -> Option<Vec<&'a str>> {
     let header = format!("{indent}{name}:");
     let deeper = format!("{indent}  ");

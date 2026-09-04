@@ -29,13 +29,13 @@ const FORK_EVENTS: &[&str] = &["pull_request", "pull_request_target"];
 /// prints the key instead of storing it, and a check that knew only `echo` read that as clean.
 pub(super) const PRINTS: &[&str] = &["echo", "printf", "printenv", "cat "];
 
-/// Two lines-of-a-block readers, from the module that owns them.
+/// The two block readers, from the module that owns them.
 ///
 /// `crate::workflows::step` reads a STEP's own lines for `check-default-feature-tests`, which it
-/// cannot do without first narrowing the file to one job - so the indentation contract below was
-/// about to exist twice, and a second copy is how one of them stops matching the file after a
-/// reindent. Re-exported rather than moved-and-rewired so that this gate's call sites and every
-/// `[`job`]` in `super` still name one thing.
+/// cannot do without first narrowing the file to one job - so the indentation contract these two
+/// carry was about to exist twice, and a second copy is how one of them stops matching the file
+/// after a reindent. Re-exported rather than moved and rewired, so this gate's call sites and the
+/// `job` doc links in [`super`] still name one thing.
 pub(super) use crate::workflows::step::{job, keyed_block};
 
 /// One key of a step, whether it is written on the `-` line or below it.
