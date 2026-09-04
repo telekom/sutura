@@ -1004,9 +1004,10 @@ of the thing it claimed to measure. Corrected to say which number it is and wher
 **And it is corrected in prose rather than held, which is the part worth writing down.**
 `check-guidance` DOES read `.github/**` - its file scope is `md`, `nix`, `yml`, `yaml`, `toml` and
 `sh` - so this sentence was reachable by the one gate in the repository that fails a false claim,
-and nothing had registered it. Registering it now is 15 lines more than
-`xtask/src/guidance/claims.rs` has: 985 of an unexemptable 1000-line cap, and the split that makes
-room is in flight on another branch. So the correction is held by REVIEW until that lands, and the
+and nothing had registered it. Registering it now is about 15 lines more than
+`xtask/src/guidance/claims.rs` has: `wc -l` says 985 on 2026-09-04 against `cargo xtask max-lines`'
+unexemptable 1000, and the split that makes room is in flight on another branch. So the correction
+is held by REVIEW until that lands, and the
 general lesson is the one the remedy scan already taught from the other side - ask what reads a
 mechanism's own prose, and expect the answer to be nothing until somebody has registered it.
 

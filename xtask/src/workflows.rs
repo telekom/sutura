@@ -180,9 +180,13 @@ fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
             .chars()
             .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
             .collect();
+        if output.is_empty() || output.starts_with(PROBE_MANIFEST) {
+            continue;
+        }
+        // Anything not a `checks.` output is a release PACKAGE; a `checks.` one is ordinary
+        // CI's to build, except the two the release path owns.
         let release_check = output.ends_with(".one-binary") || output.ends_with(".shipped-features");
-        let permitted = output.starts_with(PROBE_MANIFEST);
-        if !output.is_empty() && !permitted && (!output.starts_with("checks.") || release_check) {
+        if !output.starts_with("checks.") || release_check {
             found.push((index.saturating_add(1), output));
         }
     }

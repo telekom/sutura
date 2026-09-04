@@ -78,18 +78,15 @@ let
   #     and so would a published CLI - measured on 2026-09-02 by compiling
   #     `sutura-cli --all-targets` both ways: the default set touches neither `ring` nor `ureq`, and
   #     `--features bigquery` compiles `ring` from C and assembly.
-  #   * **THAT FIRST BULLET IS THE ONE THE MEASUREMENT BELOW FALSIFIED, and it is left standing
-  #     rather than rewritten because the correction is the useful part.** The cost is NOT the four
-  #     cross builds. `craneLib.buildDepsOnly` is called on `args` - deliberately unscoped, so the
-  #     checks share one dependency derivation - and `cargoExtraArgs` is set on the final attrset
-  #     instead, which means the deps derivation resolves the WHOLE workspace at cargo's default
-  #     set. `sutura-exec-bigquery` is a workspace member that takes `ureq` non-optionally, so
-  #     `ring`, `rustls`, `rustls-webpki`, `rustls-pki-types`, `webpki-roots`, `ureq` and
-  #     `ureq-proto` are compiled inside `sutura-deps-<triple>` on all four triples WITH THE
-  #     FEATURE OFF. The `bigquery` feature gates the edge from `sutura-cli` to that crate, not the
-  #     closure's arrival. Verified in the four `cross` logs of the run cited below. So the musl C
-  #     and assembly this record priced is paid on every pull request either way, and default-off
-  #     buys nothing in build time - what it buys is the second bullet and what the artefact links.
+  #   * **THAT FIRST BULLET IS FALSE ON COST, and it is left standing because the correction is
+  #     the useful part.** `craneLib.buildDepsOnly` is called on `args` - deliberately unscoped, so
+  #     the checks share one dependency derivation - with `cargoExtraArgs` set on the final attrset
+  #     instead, so that derivation resolves the WHOLE workspace at cargo's default set.
+  #     `sutura-exec-bigquery` takes `ureq` non-optionally, so `ring`, `rustls` and the rest of
+  #     that closure compile inside `sutura-deps-<triple>` on all four triples WITH THE FEATURE
+  #     OFF - read out of the `cross` logs, not predicted. The feature gates the edge from
+  #     `sutura-cli`, not the closure's arrival on the builder, so the musl C and assembly is paid
+  #     on every pull request either way.
   #   * The failure is loud rather than silent, which is what makes the choice defensible instead
   #     of merely cheap. `security.tls_termination: in-process` on a build without `tls` is a
   #     startup refusal naming the feature, and so is a `kind: bigquery` source on a build without
@@ -111,49 +108,18 @@ let
   # evidence was a native `cargo check` - which stops at metadata and so says nothing about the
   # link that a musl target is the whole risk of. An entry here is a build, not a promise.
   #
-  # **AND HERE IS WHAT THE FEATURE COSTS, stated as COMPILED UNITS rather than as seconds.** The
-  # probe and the shipped `-ci` build for one triple share a dependency derivation and differ by
-  # an appended `--features bigquery` - verified by diffing the two derivations, where the cargo
-  # line, the disabled check command and the output path are the only three keys that differ. So
-  # the unit counts out of their build logs are an exact A/B, and unlike a wall clock they do not
-  # drift with what else the runner was doing:
+  # **AND DEFAULT-OFF SURVIVES ON A DIFFERENT REASON THAN THE ONE ABOVE, because running the
+  # probe priced it.** `--features bigquery` costs **12 compiled units** on every one of the four
+  # published triples - the adapter and its outbound TLS closure, nothing else - and under 2% of a
+  # `cross` job, because they finish inside the slack ahead of `datafusion` on the critical path.
+  # So default-off buys nothing in BUILD time. What it buys is the artefact: no published binary
+  # of either executable links an outbound TLS stack, and `checks.shipped-features` asserts that
+  # out of each binary's own embedded dependency list rather than out of this file. Keep the
+  # decision and cite the artefact for it.
   #
-  #   | where                          | OFF | ON  |
-  #   | ------------------------------ | --- | --- |
-  #   | x86_64-unknown-linux-gnu, CI   | 100 | 112 |
-  #   | aarch64-apple-darwin, laptop   | 105 | 117 |
-  #
-  # **+12 units either way, none dropped, and every one of them named:** `ring`, `untrusted`,
-  # `rustls`, `rustls-pki-types`, `rustls-webpki`, `webpki-roots`, `ureq`, `ureq-proto`,
-  # `httparse`, `getrandom 0.2`, `utf8-zero`, `sutura-exec-bigquery`. That IS the feature: the
-  # adapter and the outbound TLS closure, and nothing else.
-  #
-  # **The seconds, from the four `cross` jobs of runs 33781193001 and 33792642655**, are +0.5 /
-  # -0.1 / +1.2 / +1.3s and +0.4 / -0.3 / +1.3 / +0.9s over a ~70-85s crate derivation - so -0.4%
-  # to +1.7% across two runs, which is noise. Cite the RANGE, never a cell, and prefer the unit
-  # counts above to either.
-  #
-  # **WHY THE DELTA IS THAT SMALL, corrected against what this comment first said.** It is NOT
-  # that the closure is reused from the deps derivation. The deps derivation does compile `ring`
-  # and `ureq` with the feature off - that is the bullet above, and it is why the musl C and
-  # assembly is paid on every pull request either way - but the crate derivation does not get to
-  # reuse those units: the deps build resolves the whole workspace at cargo's feature UNION while
-  # the probe asks for one package, so the v2 resolver gives a narrower set, a different
-  # `-C metadata`, and a recompile. `sutura> Compiling ring v0.17.14` in the probe's own log is
-  # that recompile. The reason it is nearly free is SLACK: those 12 units start in the first
-  # seconds of the build and finish long before `datafusion`, which is on the critical path
-  # ahead of `sutura-exec-datafusion` and the crate itself. Same structural cause
-  # `github.com/telekom/sutura#223` measured for the warm-start gate, reached from the other side.
-  #
-  # **SO: DEFAULT-OFF WAS NOT NECESSARY FOR BUILD COST.** Twelve units inside another crate's
-  # slack is not what a feature gate is for. What default-off IS necessary for is the artefact: no
-  # published binary of either shipped executable links an outbound TLS stack, which
-  # `checks.shipped-features` asserts out of the binary's own embedded dependency list. Keep the
-  # decision, drop the build-cost reason for it. **What this measurement does NOT cover:** the
-  # probe links and never runs; it says nothing about the artefact's SIZE, which nothing prints;
-  # the slack it hides in is a property of THIS dependency graph, so a shorter critical path would
-  # expose the 12 units as time; and `sutura-serve`'s `tls` and `bigquery` remain unprobed, so
-  # none of it is evidence about the server.
+  # `docs/adr/0017` carries the numbers, the derivation A/B they rest on, and what the measurement
+  # does NOT cover. One record: a transcript of it here would be a second thing to keep true, and
+  # a copy is what rots first.
   binaries = [
     {
       bin = "sutura";
@@ -404,19 +370,17 @@ let
   # was built with - and `ci.yml` reads the three fields rather than deriving any of them.
   #
   # **A FILE RATHER THAN A PATTERN IN THE WORKFLOW, and the reason is a dead gate this branch
-  # shipped and then measured.** The step used to RECONSTRUCT the set - every `-<triple>-ci`
-  # package minus the shipped ones - which made the naming rule above a coupling nothing could
-  # check. Measured 2026-09-03 by reordering `<bin>-<feature>-<triple>` to `<bin>-<triple>-<feature>`
-  # here: the reconstruction went empty while `probeFeatures` still declared `bigquery`, and the
-  # step then printed *no binary declares a probeFeatures entry* and exited ZERO. The measurement
-  # this file claims on every pull request would have stopped happening behind a green run and a
-  # reassuring sentence.
+  # shipped and then measured.** The step used to RECONSTRUCT the set from the package names above
+  # - every `-<triple>-ci` attribute minus the shipped ones - so the naming rule was a coupling
+  # nothing could check, and reordering the name emptied the set while `probeFeatures` still
+  # declared `bigquery`: green run, reassuring sentence, exit ZERO. `docs/adr/0017` has the
+  # reproduction.
   #
-  # Three properties close it. A flake that stops producing a manifest fails `nix build` instead
-  # of yielding nothing; an empty manifest then means what it says, so the step can refuse rather
-  # than guess why it found none; and the two fields a printed sentence quotes come from HERE, so
-  # renaming a package cannot make that sentence wrong. `file` cannot carry any of this - it exits
-  # zero on a path that is not there, measured on this repo's own runner shell.
+  # Three properties close it, and each is why this is a derivation and not a convention. A flake
+  # that stops producing a manifest fails `nix build` instead of yielding nothing; an empty
+  # manifest then means what it says, so the step can refuse rather than guess; and the two fields
+  # a printed sentence quotes come from HERE, so renaming a package cannot make that sentence
+  # wrong. `file` carries none of it - it exits zero on a path that is not there, measured.
   probeManifests = builtins.listToAttrs (map
     (t: {
       name = "feature-probes-${t}";
