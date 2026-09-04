@@ -638,10 +638,15 @@ bullets down:
   the same dataset and a moving number would be a leg failing for a reason outside the diff; and the
   case the cross-check exists for - a document carrying no readable table id beside a non-zero total
   - has never been seen live and cannot be provoked from here, so what holds its MEANING is the
-  hermetic suite over documents. **And it predates the counting correction above**, so what it
-  established is that the field arrives and is comparable at all - not which basis the comparison is
-  made on. Whether a real listing still answers a readable verdict now the count is readable ids
-  rather than entries is the same job's to answer, on the head that carries the correction. It has never run on a developer machine either, for the reason the leg above
+  hermetic suite over documents. **The 2026-09-04 run predated the counting correction above**, so
+  what it established is that the field arrives and is comparable at all - not which basis the
+  comparison is made on, because `Accounted` over an entry count says nothing about readable ids.
+  **The job has now answered that too, green on the head carrying the correction**: a real
+  `tables.list` still answers `ListingTotal::Accounted`, and the total it reported equalled the
+  usable ids the same document carried - so on that dataset every entry carried an id this crate can
+  read, and the corrected count did not turn an ordinary listing into a shape change. One dataset at
+  one moment, again, and the case the cross-check exists for is still not among the things a live run
+  here has seen. It has never run on a developer machine either, for the reason the leg above
   it has not: no dataset is named in this environment.
 - **A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
   wording.** Issue #120's own verification asked for a run asserting the boot refusal, and until
