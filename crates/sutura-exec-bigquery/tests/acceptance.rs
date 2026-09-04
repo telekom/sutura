@@ -831,18 +831,20 @@ mod tests {
         // document. So the total is observable only where the transport answers, which is also where
         // the decision that reads it will have to live.
         //
-        // **What the extra leg costs, stated rather than rounded to nothing:** one more
-        // `tables.list` - a metadata read, billed for nothing - plus a second credential file read
-        // and **a second token exchange**, because `Credential::bearer` caches nothing and mints per
-        // call. It is a second leg rather than a fold into the one above because that one holds a
-        // `Warehouse` and this question is a rung below it, and because two independently named legs
-        // is what lets a reader see which claim a red run broke.
-        // **A THIRD composition, and `tests/support/mod.rs` states that having one is the point** -
-        // agent, credential, transport and warehouse assembled once so both legs are evidence for
-        // the same composition rather than for two that resemble each other. This leg cannot reuse
-        // it: `BigQueryWarehouse` exposes no transport accessor, and a `wire(connection)` helper in
+        // **What it costs, stated rather than rounded to nothing:** one more `tables.list` - a
+        // metadata read, billed for nothing - plus a second credential file read and **a second
+        // token exchange**, because `Credential::bearer` caches nothing and mints per call. A leg of
+        // its own rather than a fold into the one above, because that one holds a `Warehouse` and
+        // this question is a rung below it, and because two independently named legs is what lets a
+        // reader see which claim a red run broke.
+        //
+        // **The cost that is not wall clock: this is a THIRD composition, where
+        // `tests/support/mod.rs` states that having one is the point** - agent, credential,
+        // transport and warehouse assembled once so both legs are evidence for the same composition
+        // rather than for two that resemble each other. It cannot reuse `opened`:
+        // `BigQueryWarehouse` exposes no transport accessor, and a `wire(connection)` helper in
         // `support` would be an item `corpus.rs` never calls, which `dead_code = "deny"` fails. So
-        // the exception is real and its cost is stated: a change to HOW the wire is composed leaves
+        // the exception is real, and so is its price - a change to HOW the wire is composed leaves
         // this leg green against the shape it hard-codes. Only `bounds()` is shared, which is the
         // one that spends money.
         let fixture = Fixture::required();
