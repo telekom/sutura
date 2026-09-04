@@ -26,7 +26,27 @@ snippet is broken, not that the rule holds.
 | Every `RefusalReason` variant is provoked, or excused with a date | `check-refusal-coverage` | **A file naming EVERY variant is a census and is evidence for none** - five exist. And a NAME is not a provocation: a variant mentioned in a test that does not trigger it counts, because deciding otherwise needs to know what a test asserts |
 | A caller cannot state its own identity | Nothing in `identity::principal` implements `Deserialize`; the verified path needs a `VerifiedCaller` whose one constructor is `pub(crate)` | The reviewer's question is "can a request PRODUCE this type", not "can it reach this parameter" |
 | A granted scope gates the operation | `Capability`'s three exhaustive matches; `RouteNotGoverned` refuses a router with an ungoverned route | **Never which rows an answer contains.** And nothing narrows the agent surface: a pipe has no header a token could arrive in, so `serve_stdio` passes every capability |
-| Every outcome is recorded before it is returned | `AuditSink` returns nothing a caller can branch on; `LocalService::start` requires a sink | **Recording is not a control** - it reaches a caller after the rows did. sutura retains nothing. A `SurfaceFailure` is not an outcome, so an `Err` writes no record |
+| Every outcome is recorded before it is returned | `AuditSink` returns nothing a caller can branch on; `LocalService::start` requires a sink and `Surface::answer` writes the record before its `Ok`; a sixth half of `check-boundaries` refuses a **caller of the driving port** that names `sutura_app::answer` in its own `src/` | **Recording is not a control** - it reaches a caller after the rows did, and sutura retains nothing. A `SurfaceFailure` is not an outcome, so an `Err` writes no record. Six more limits below this table |
+
+### What the audit row does not reach
+
+**The constructor was the whole mechanism, and `sutura query` was outside it** - it called the answer
+function directly and wrote nothing, on the shipped binary, while the row named that constructor.
+That is why the second mechanism exists, and each of these is a limit on one of the two.
+
+| Limit | Why it is there |
+| --- | --- |
+| `answer` stays `pub`, so what holds the second half is a TEXT SCAN over callers' `src/` rather than the compiler | The golden suites assert `ServiceError`'s VARIANTS from separate crates, and the driving port erases those into `SurfaceFailure` by design - narrowing the door would take the typed-error assertions out of the conformance suite |
+| A crate that is not a caller of the driving port is outside the scan, and so is `#[cfg(test)]` inside one | The rule is about what a published binary does, and test code is not in one |
+| The scan reads a PATH rooted at `sutura_app`, and **two of the three ways past that are closed** | Renaming the crate (`use sutura_app as app;`, `use sutura_app::{self as app};`) is REFUSED rather than chased, the way `check-boot-order` refuses a rename of its own tracked name; `use sutura_app::*` is refused by `clippy::wildcard_imports` under `-D warnings`. What is left: a re-export of `answer` through a third crate, and a dependency renamed in a manifest - neither in this tree, and no scan of `src/` could see either |
+| **A record is written and not kept** | Neither CLI command installs a tracing subscriber, so `query` and `mcp` both write onto a dispatcher that discards. Only `sutura-serve` installs one |
+| **A catalog read is not an outcome**, so `DescribeCatalog` writes no record on any transport | Argued at `sutura_mcp::server::describe`: a listing of what a deployment measures is business information with no row of data in it. Recording it needs a third `RecordedOutcome` variant and a request context on `Surface::definitions` - an architecture decision |
+| **`sutura compile` prints a refusal with no record**, and the row does not reach it | It builds no `ToolOutcome`, mints no credential and opens no data system - it renders a plan. Named here rather than left to be found |
+
+**Measured:** with the function renamed and a bypass written to the new name, the gate's own liveness
+check - which counted paths rooted at the CRATE - printed `ok` over 94 paths and exited zero. It now
+requires the door to still be defined where it reads it, and the green line cites that location.
+
 
 ## The plan and the statement
 
