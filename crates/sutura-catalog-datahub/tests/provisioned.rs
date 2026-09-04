@@ -223,6 +223,12 @@ mod tests {
         format!("urn:li:metric:(urn:li:dataPlatform:bigquery,orders,{id})")
     }
 
+    /// The urn of the deployment's property. Derived from [`DEPLOYMENT_PROPERTY`] in one place, so
+    /// the name the definition registers and the name a value is written under cannot disagree.
+    fn property_urn() -> String {
+        format!("urn:li:structuredProperty:{DEPLOYMENT_PROPERTY}")
+    }
+
     /// A metric entity carrying `values` under the deployment's property, upserted synchronously.
     fn write_property(agent: &ureq::Agent, endpoint: &str, id: &str, values: &serde_json::Value) -> (u16, String) {
         let body = serde_json::json!([{
@@ -232,10 +238,7 @@ mod tests {
                 "name": id,
                 "expression": { "dialects": [{ "dialect": "ANSI_SQL", "expression": "SUM(amount_cents)" }] },
             } },
-            "structuredProperties": { "value": { "properties": [{
-                "propertyUrn": format!("urn:li:structuredProperty:{DEPLOYMENT_PROPERTY}"),
-                "values": values,
-            }] } },
+            "structuredProperties": { "value": { "properties": [{ "propertyUrn": property_urn(), "values": values }] } },
         }]);
         send(
             agent,
@@ -292,13 +295,26 @@ mod tests {
 
     /// A reader over a snapshot the caller composed, so `DataHubCatalog::load` can be driven over a
     /// snapshot whose metric half came off the wire and whose structural half did not.
-    #[derive(Debug, Clone)]
+    ///
+    /// `src/tests.rs`'s `Stub` is the same shape and unreachable from here: an integration test is a
+    /// separate crate and cannot see a `#[cfg(test)]` item.
+    #[derive(Debug)]
     struct Composed(Snapshot);
 
     impl AspectReader for Composed {
         fn read(&self) -> Result<Snapshot, DataHubError> {
             Ok(self.0.clone())
         }
+    }
+
+    /// The source alias the corpus's one platform answers to. `fixture::over_fixture_source` makes
+    /// the same mapping; this cell composes its own snapshot, so it makes it here.
+    fn source_name() -> SourceName {
+        SourceName::parse("local").expect("a test source name is a name")
+    }
+
+    fn version() -> DefinitionVersion {
+        DefinitionVersion::parse("test").expect("a test version is a version")
     }
 
     /// The deployment-defined document, written into a real `DataHub`, served back, and decoded by
@@ -354,7 +370,7 @@ mod tests {
         // The deployment's half: register the property, under the deployment's own name. Upserted,
         // so a re-run over a tier that already has it is the same request rather than a conflict.
         let definition = serde_json::json!([{
-            "urn": format!("urn:li:structuredProperty:{DEPLOYMENT_PROPERTY}"),
+            "urn": property_urn(),
             "propertyDefinition": { "value": {
                 "qualifiedName": DEPLOYMENT_PROPERTY,
                 "displayName": DEPLOYMENT_PROPERTY,
@@ -380,16 +396,16 @@ mod tests {
             .iter()
             .find(|metric| metric.sutura().is_some())
             .expect("the corpus carries one certified metric");
-        let document = certified
+        let property = certified
             .sutura()
-            .expect("the certified metric is the one with the property")
-            .string_value();
+            .expect("the metric just found is the one carrying the property");
+        let urn = metric_urn(certified.name());
 
         let (status, body) = write_property(
             &agent,
             &endpoint,
             certified.name(),
-            &serde_json::json!([{ "string": document }]),
+            &serde_json::json!([{ "string": property.string_value() }]),
         );
         assert_eq!(status, 200, "the platform accepts the corpus document as the scalar: {body}");
 
@@ -398,10 +414,7 @@ mod tests {
         // trust immediately - and what makes the paged read below a different claim.
         let (status, body) = send(
             &agent,
-            &format!(
-                "http://{endpoint}/openapi/v3/entity/metric/{}?aspects=structuredProperties&aspects=metricInfo",
-                metric_urn(certified.name())
-            ),
+            &format!("http://{endpoint}/openapi/v3/entity/metric/{urn}?aspects=structuredProperties&aspects=metricInfo"),
             None,
         );
         assert_eq!(
@@ -412,9 +425,9 @@ mod tests {
 
         // The harvest. The decoded aspect is compared against the RECORDED one, so this asserts the
         // round trip, the mapping and the fixture's fidelity to the platform in one comparison.
+        let harvested = harvest(&served);
         assert_eq!(
-            &harvest(&served),
-            certified,
+            &harvested, certified,
             "the aspect decoded from what DataHub served is the aspect the recorded corpus carries"
         );
 
@@ -423,7 +436,7 @@ mod tests {
         let snapshot = Snapshot::new(
             recorded.datasets().to_vec(),
             recorded.relationships().to_vec(),
-            vec![harvest(&served)],
+            vec![harvested],
         );
         let mut sources = BTreeMap::new();
         drop(sources.insert(String::from("bigquery"), source_name()));
@@ -435,11 +448,7 @@ mod tests {
             .definitions()
             .metric(&name)
             .expect("the harvested metric is certified rather than a promotion candidate");
-        let content = certified
-            .sutura()
-            .expect("the certified metric is the one with the property")
-            .assemble()
-            .expect("the recorded document decodes");
+        let content = property.assemble().expect("the recorded document decodes");
         assert_eq!(
             metric.measure(),
             content.measure(),
@@ -462,16 +471,14 @@ mod tests {
                 None,
             );
             assert_eq!(status, 200, "the metric surface answers a paged read: {body}");
-            let served: serde_json::Value = serde_json::from_str(&body).expect("the answer is json");
-            let found = served["entities"]
+            let page: serde_json::Value = serde_json::from_str(&body).expect("the answer is json");
+            // Matched on the whole urn rather than on a suffix: the page can hold every metric a
+            // previous run wrote, and a suffix is how one of those becomes the one being asserted on.
+            let found = page["entities"]
                 .as_array()
                 .expect("a page is an array of entities")
                 .iter()
-                .find(|entity| {
-                    entity["urn"]
-                        .as_str()
-                        .is_some_and(|urn| urn.ends_with(&format!(",{})", certified.name())))
-                })
+                .find(|entity| entity["urn"].as_str() == Some(urn.as_str()))
                 .cloned();
             if let Some(entity) = found {
                 break entity;
@@ -506,11 +513,11 @@ mod tests {
         );
         let maximum = stated_maximum(&body);
         assert!(
-            document.len() * 10 < maximum,
+            property.string_value().len() * 10 < maximum,
             "the corpus document ({} bytes) has an order of magnitude of headroom under the platform's \
              stated maximum ({maximum} bytes) - if this fails, a metric's document has grown into the \
              index limit and the transport needs revisiting, not the test",
-            document.len()
+            property.string_value().len()
         );
 
         // The two constraints `docs/adr/0016` reads off the property's TYPE, asked of the platform.
@@ -529,15 +536,5 @@ mod tests {
             body.contains("should be a string"),
             "the refusal names the declared value type: {body}"
         );
-    }
-
-    /// The source alias the corpus's one platform answers to. `fixture::over_fixture_source` makes
-    /// the same mapping; this cell composes its own snapshot, so it makes it here.
-    fn source_name() -> SourceName {
-        SourceName::parse("local").expect("a test source name is a name")
-    }
-
-    fn version() -> DefinitionVersion {
-        DefinitionVersion::parse("test").expect("a test version is a version")
     }
 }

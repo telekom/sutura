@@ -139,6 +139,25 @@ const FORBIDDEN: &[Forbidden] = &[
         only: &[],
         except: &[],
     },
+    Forbidden {
+        // Here rather than in the `CLAIMS` table for two reasons. `xtask/src/guidance/claims.rs`
+        // is at 985 of an unexemptable 1000 lines, and - the one that decides it - a
+        // `Contradicted` entry retires itself when its evidence goes, which is right for a claim
+        // resting on a CODE fact. This one rests on `docs/adr/0016` decision 7, a DECISION, and
+        // reversing a decision is the case where the entry gets deleted rather than retired.
+        needle: "property named `sutura`",
+        instead: "one string-valued structured property under a name of the DEPLOYMENT's choosing; \
+                  `sutura` is the field `document::MetricAspect` carries the scalar under on the \
+                  adapter's own canonical shape, not a urn this repository dictates",
+        why: "`docs/adr/0016`'s addendum decided the name is the deployment's, and the same change \
+              wrote the opposite into five other places - a record, the plan, an example README \
+              and two crate doc comments. That is exactly the one-cause-many-files shape this \
+              module exists for. Rust source is out of scope for the filter in `run`, and it does \
+              not have to be in it: a doc comment reaches `docs/api/**` through `just api`, which \
+              `check-api-docs` forces, so the generated page is where a comment gets caught",
+        only: &[],
+        except: &[],
+    },
 ];
 
 /// A version that must agree wherever it is written.
