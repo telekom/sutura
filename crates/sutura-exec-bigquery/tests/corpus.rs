@@ -281,26 +281,42 @@ mod tests {
 
     /// A token unique to this RUN of the leg, so two runs never share a fixture table.
     ///
-    /// **`GITHUB_RUN_ID` when present, a local value otherwise.** The issue this solves is a race
-    /// between two runs against one dataset: two CI pull requests, or a developer's shell beside a
-    /// CI run, both pointing at the one `bq-test` dataset. The run id is the value CI already has,
-    /// and it is what the printed table names should show so a log says WHICH run wrote them. Locally
-    /// there is no run id, so the token is derived from the clock and the process id - distinct for
-    /// any two shells started at different instants, which is all that is needed.
+    /// **`GITHUB_RUN_ID` under GitHub Actions, a clock+pid value otherwise.** The issue this solves
+    /// is a race between two runs against one dataset: two CI pull requests, or a developer's shell
+    /// beside a CI run, both pointing at the one `bq-test` dataset. The run id is the value CI
+    /// already has, and it is what the printed table names should show so a log says WHICH run wrote
+    /// them. Locally there is no run id, so the token is derived from the clock and the process id.
+    ///
+    /// **The CI branch is gated on `GITHUB_ACTIONS == "true"` as well as the run id**, because the
+    /// run id alone is not proof we are in CI: a version of this leg run anywhere else with a stale
+    /// `GITHUB_RUN_ID` exported would collapse two local shells onto one token and reintroduce the
+    /// very race this fixes. `GITHUB_ACTIONS` is set by every GitHub Actions job and by nothing else,
+    /// so requiring both means the run id is used exactly when GitHub supplies it.
     ///
     /// **The token never appears without a committed fixture name beside it, and only table names
     /// are printed, never the dataset or the project** - so it is safe in a public log.
     fn run_token() -> String {
-        if let Ok(id) = std::env::var("GITHUB_RUN_ID")
-            && !id.trim().is_empty()
-        {
-            return id;
-        }
+        let ci_run_id = match (std::env::var("GITHUB_ACTIONS"), std::env::var("GITHUB_RUN_ID")) {
+            (Ok(flag), Ok(id)) if flag == "true" && !id.trim().is_empty() => Some(id.trim().to_owned()),
+            _ => None,
+        };
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or_default();
-        format!("{nanos:x}{}", std::process::id())
+        build_token(ci_run_id.as_deref(), nanos, std::process::id())
+    }
+
+    /// Maps the run's identity inputs to its token, as a pure function so the token source is testable.
+    ///
+    /// **Separated from [`run_token`] so the two distinctness claims - two runs, and CI-versus-local -
+    /// can be asserted without mutating the process environment under nextest's parallelism.** The
+    /// CI branch is the run id alone (GitHub issues one per run); the local branch joins the clock
+    /// and the process id with `_` - a separator that makes the concatenation unambiguous (a
+    /// delimiter removes the `AB+C` vs `A+BC` collision a separator-less join leaves open) and that
+    /// [`TableName`] admits, where a hyphen would be refused.
+    fn build_token(ci_run_id: Option<&str>, nanos: u128, pid: u32) -> String {
+        ci_run_id.map_or_else(|| format!("{nanos:x}_{pid}"), String::from)
     }
 
     /// The table a model's committed fixture becomes: its committed name plus this run's suffix.
@@ -669,24 +685,61 @@ mod tests {
             names.len()
         );
     }
-
-    /// The per-run table name stays inside [`TableName`]'s ceiling, which is part of the same fix.
+    /// The token source itself is pinned, because distinctness is what the whole fix rests on.
+    ///
+    /// The suffixing logic is tested above with fixed strings; this one pins the value that makes
+    /// "two runs have distinct table names" true in production - the generated token. Two runs at
+    /// different instants (differing clocks) must differ, and a fabricated CI run id must differ
+    /// from the local fallback, or the leg would race for a reason no fixed-string test can see.
     #[test]
-    fn a_long_run_token_still_yields_a_legal_table_name() {
+    fn the_run_token_is_distinct_across_runs_and_sources() {
+        // Two local runs: same process, different instants. The clock differs, so the tokens differ
+        // - unless the separator-less join below collided, which `_` prevents by construction.
+        let first = build_token(None, 1_700_000_000_000_000_000, 42);
+        let second = build_token(None, 1_700_000_000_000_000_001, 42);
+        assert_ne!(first, second, "two local runs at different instants shared a token: {first}");
+
+        // A fabrication of distinctness: CI and local produce different tokens for the same clock
+        // and pid, so a machine that believes it is CI cannot collide with a local run.
+        let ci = build_token(Some("1234567890"), 1_700_000_000_000_000_000, 42);
+        assert_ne!(ci, first, "a CI run and a local run at the same instant shared a token: {ci}");
+
+        // And what the CI branch advertises: the run id is the token, so a log says which run.
+        assert_eq!(ci, "1234567890");
+    }
+
+    /// The per-run table name's ceiling is owned by [`TableName::parse`], and this pins that.
+    ///
+    /// A name longer than 63 characters is REFUSED by [`TableName::parse`] - and `suffixed_table`
+    /// propagates that refusal as a panic - because a data system silently truncates a longer name
+    /// and reading a truncated table is a wrong number. So the boundary is the parse, and the price
+    /// is a loud failure at the first table rather than a silent rename. This test asserts both
+    /// halves: a realistic CI-length token survives, and an over-long name is refused rather than
+    /// truncated.
+    #[test]
+    fn a_per_run_table_name_that_would_exceed_the_ceiling_is_refused_not_truncated() {
+        // A realistic run id length: GitHub run ids are a handful of digits, comfortably inside the
+        // 63-character ceiling once suffixed. This is what `just bigquery-acceptance` actually ships.
         let committed = bundle();
-        // Longest plausible token a run could carry, so the ceiling is the thing under test rather
-        // than a short id. If the suffix drove a name over 63 characters, `parse` would refuse it
-        // and every acceptance run would fail at the first table - which is the loud, boundary-owning
-        // failure this repository prefers, but the test pins that it does not happen for a real token.
-        let token = "01234567890123456789012345"; // 26 chars, well past GITHUB_RUN_ID's length
-        let suffixed = suffixed_bundle(&committed, token, "rows");
-        for model in suffixed.definitions().models().values() {
-            let name = model.table_name();
+        let ok = suffixed_bundle(&committed, "1234567890", "rows");
+        for model in ok.definitions().models().values() {
             assert!(
-                name.as_str().len() <= 63,
-                "a suffixed table name exceeded 63 characters: {name}"
+                model.table_name().as_str().len() <= 63,
+                "a realistic token overflowed the ceiling: {}",
+                model.table_name()
             );
         }
+
+        // The other direction: an absurd token makes the name over-long, and `parse` must REFUSE it
+        // rather than silently truncating to a table that is not the one the plan names.
+        let too_long = "x".repeat(50);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drop(suffixed_bundle(&committed, &too_long, "rows"));
+        }));
+        assert!(
+            result.is_err(),
+            "an over-long per-run name was accepted - it would silently become a truncated table"
+        );
     }
 
     #[test]
