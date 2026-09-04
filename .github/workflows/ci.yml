@@ -774,19 +774,34 @@ jobs:
       # `printenv` rather than `echo "$VAR"` and never `${{ }}` in a shell body: a multi-line JSON key
       # is exactly the shape that defeats naive log masking, so nothing here interpolates it, echoes it
       # or passes it as an argument. `umask 077` before the write, so it is never briefly readable.
-      - name: Place the credential outside the checkout
+      #
+      # **Three keys and not one since the two-principal cell**, and they are placed in one step for
+      # the reason the paragraph above gives three times over: one `umask`, one write shape, one
+      # place a reviewer reads to see what reaches this runner. The two principals' keys are what
+      # makes `nix run .#bigquery-two-principals` a leg about identity rather than about SQL - each
+      # is a DIFFERENT identity at the dataset, which is the whole content of that cell.
+      - name: Place the credentials outside the checkout
         env:
           SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+          SUTURA_BQ_PRINCIPAL_A: ${{ secrets.svc_suturua_bq_principal_a }}
+          SUTURA_BQ_PRINCIPAL_B: ${{ secrets.svc_suturua_bq_principal_b }}
         run: |
           set -eu
           if [ -z "${SUTURA_BQ_KEY:-}" ]; then
             echo "the bq-test environment holds no svc_suturua_bq_ci secret" >&2
             exit 1
           fi
+          if [ -z "${SUTURA_BQ_PRINCIPAL_A:-}" ] || [ -z "${SUTURA_BQ_PRINCIPAL_B:-}" ]; then
+            echo "the bq-test environment holds no svc_suturua_bq_principal_a/_b secret" >&2
+            exit 1
+          fi
           umask 077
           printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+          printenv SUTURA_BQ_PRINCIPAL_A > "$RUNNER_TEMP/bq-principal-a.json"
+          printenv SUTURA_BQ_PRINCIPAL_B > "$RUNNER_TEMP/bq-principal-b.json"
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
           echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
+          echo "two principal credentials placed beside it, outside the checkout"
 
       # **Mask the three resource names before anything can print them, and this step exists because
       # of a channel the rest of the job would otherwise open.**
@@ -811,18 +826,20 @@ jobs:
           K: ${{ runner.temp }}/bq-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
           SUTURA_BQ_TABLE: ${{ vars.SUTURA_BQ_TABLE }}
+          SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
+          SUTURA_BQ_RLS_TABLE: ${{ vars.SUTURA_BQ_RLS_TABLE }}
         run: |
           set -eu
           python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
             2>/dev/null || { echo "the key names no project_id" >&2; exit 1; }
-          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE; do
+          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE SUTURA_BQ_RLS_DATASET SUTURA_BQ_RLS_TABLE; do
             if [ -z "$(printenv "$name" || true)" ]; then
               echo "the bq-test environment defines no $name - it names a resource this leg has to be pointed at" >&2
               exit 1
             fi
             printf '::add-mask::%s\n' "$(printenv "$name")"
           done
-          echo "three resource names masked for the rest of this job"
+          echo "five resource names masked for the rest of this job"
         # `K` separately, so the credential path is an environment value rather than an interpolation.
         # Same rule the rest of this file follows: no `${{ }}` reaches a shell body.
 
@@ -843,13 +860,51 @@ jobs:
           set -eu
           nix run .#bigquery-acceptance -- --no-capture
 
+      # **The two-principal cell** - `docs/adr/0017`'s seventh amendment and issue #123. Its own step
+      # and its own app, because it needs five values and two key documents the acceptance legs do
+      # not; one app demanding all of them would make the legs a developer holding one credential CAN
+      # run unreachable.
+      #
+      # **The two resource names above are masked and the three GRANT values here are deliberately
+      # not**, which is a decision rather than an omission. `::add-mask::` redacts a value from every
+      # subsequent line of the job, and a grouping value is short DATA rather than a resource
+      # identifier - masking a one-character value would redact that character from every line a
+      # maintainer reads to see what failed, which is a worse trade than the one the step above makes.
+      # They are still tested for emptiness, because unset configuration has to FAIL rather than skip.
+      #
+      # **What a green run here does NOT mean** is the first thing `tests/two_principals.rs` says: the
+      # two principals are service accounts whose keys this job places, so the cell is leg 2's SOURCE
+      # half and not leg 2. `docs/where-identity-is-proven.md` is the map, and its new venue carries
+      # five exclusions.
+      - name: Two-principal leg
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
+          SUTURA_BQ_RLS_TABLE: ${{ vars.SUTURA_BQ_RLS_TABLE }}
+          SUTURA_BQ_GROUP_COLUMN: ${{ vars.SUTURA_BQ_GROUP_COLUMN }}
+          SUTURA_BQ_PRINCIPAL_A_ROWS: ${{ vars.SUTURA_BQ_PRINCIPAL_A_ROWS }}
+          SUTURA_BQ_PRINCIPAL_B_ROWS: ${{ vars.SUTURA_BQ_PRINCIPAL_B_ROWS }}
+          SUTURA_BQ_PRINCIPAL_A_KEY: ${{ runner.temp }}/bq-principal-a.json
+          SUTURA_BQ_PRINCIPAL_B_KEY: ${{ runner.temp }}/bq-principal-b.json
+        run: |
+          set -eu
+          for name in SUTURA_BQ_GROUP_COLUMN SUTURA_BQ_PRINCIPAL_A_ROWS SUTURA_BQ_PRINCIPAL_B_ROWS; do
+            if [ -z "$(printenv "$name" || true)" ]; then
+              echo "the bq-test environment does not describe the grant this cell asserts on: no $name" >&2
+              exit 1
+            fi
+          done
+          nix run .#bigquery-two-principals -- --no-capture
+
       # Always, so a cancelled or failed run does not leave a key on a runner that some other job on
-      # the same machine could read.
-      - name: Remove the credential
+      # the same machine could read. All three, and the CI key's own form is unchanged because
+      # `cargo xtask check-venues` reads the path the leg is pointed at out of this line.
+      - name: Remove the credentials
         if: always()
         run: |
           set -eu
           rm -f "$RUNNER_TEMP/bq-key.json"
+          rm -f "$RUNNER_TEMP/bq-principal-a.json" "$RUNNER_TEMP/bq-principal-b.json"
 
   cross:
     needs: [ci]

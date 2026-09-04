@@ -70,9 +70,23 @@ vendor/**
 
 [warn]
 
-# Empty on purpose: every hand-written file in this repo is under the limit. An entry here
-# is a promise to split a file, not a way to silence the gate - and it keeps printing until
-# somebody keeps that promise.
+# An entry here is a promise to split a file, not a way to silence the gate - and it keeps
+# printing until somebody keeps that promise.
+
+# The CI workflow, past the limit as of the two-principal acceptance step. **The split is already
+# agreed, with a named seam and an owner: telekom/sutura#285**, which is why this is a `[warn]`
+# entry and not a trim. That issue's own argument is the reason: trimming is borrowed time, two of
+# the three files it lists had already been trimmed or split once by whoever hit the wall, and both
+# were back at the cap - so a third round buys a few lines and loses the argument for where the seam
+# belongs. #285 also records that two gates have opinions about the shape (`check-workflows` holds
+# the flake-to-workflow correspondence and `just lint-ci` lints what ships), which is exactly why
+# the split should not happen inside a change about a test.
+#
+# What this does NOT do is stop holding the file: `check-venues` reads the acceptance job's own
+# lines for the fork rule, the credential placement, the emptiness guards and what may reach a
+# public log, and `check-workflows` reads every reference in it. The line count is the only property
+# this defers.
+.github/workflows/ci.yml
 
 # Scratch a browser tool writes into the working tree: verbatim dumps of visited pages, thousands
 # of lines each, regenerated on every run and gitignored. Generated output by any reading, and the
