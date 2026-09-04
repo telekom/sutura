@@ -622,6 +622,14 @@ driving port is not owned by one of its callers.
 #### Methods
 
 ```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The operator's own spelling, so a surface carrying the prose can say which way the setting
+points and *this deployment ships none* is not *this catalog has none*. Equal to
+`sutura_config::CatalogProse::as_str` and held equal by a test in the composition root.
+
+```rust
 pub const fn is_quoted(self) -> bool
 ```
 

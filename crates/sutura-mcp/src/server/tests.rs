@@ -238,32 +238,67 @@ async fn the_catalog_tool_lists_the_metrics_this_deployment_measures() {
     drop(client.cancel().await);
 }
 
-/// `prompt.catalog_prose: omitted` is honoured by the TOOL, end to end - not only by the prompt.
+/// `prompt.catalog_prose: omitted` is honoured by the TOOL, end to end - on BOTH halves of the reply.
 ///
-/// The catalog tool answers with a text block a plain client renders, so an operator who does not
-/// trust their catalog authors must be able to drop the prose from this surface too, the same way
-/// they drop it from the prompt. With the setting omitted the metric and dimension descriptions are
-/// absent from the text block and a notice says so; with the default they are quoted in.
+/// The catalog tool answers with a text block a plain client renders and structured content a
+/// program reads, so an operator who does not trust their catalog authors must be able to drop the
+/// prose from this surface the way they drop it from the prompt - from all of it. With the setting
+/// omitted the metric and dimension descriptions are absent from both halves and a notice says so;
+/// with the default they arrive in both.
+///
+/// **The structured half is why this test exists in this shape.** Its first version read
+/// `content.first()` and nothing else, so it passed while `structured_content` beside it carried
+/// every description a deployment had asked to withhold - `#266`'s `H1`, and the same shape
+/// `docs/adr/0022`'s amendment describes: a test that reads a different field from the one carrying
+/// the leak looks like coverage and is none. Asserted through the SDK's own client, because the
+/// defect was the WIRING and a test over the wire type alone passes with a handler that still
+/// builds its content without the setting.
 #[tokio::test]
 async fn catalog_prose_omitted_omits_it_from_the_tool_answers() {
     let omitted = permitting(certified_service(), Permitted::every_capability(), CatalogProse::Omitted).await;
     let result = omitted.call_tool(describe()).await.expect("the catalog tool answers");
+    let structured = result
+        .structured_content
+        .as_ref()
+        .expect("the catalog carries structured content");
+    // The descriptions exist in the bundle, and reach neither half of the reply.
+    let flat = structured.to_string();
+    assert!(!flat.contains("Revenue, in minor units."), "{flat}");
+    assert!(!flat.contains("Sales region."), "{flat}");
+    assert!(!flat.contains("description"), "{flat}");
+    // The omission is a fact the client reads, not one it infers from a missing field.
+    assert_eq!(structured["catalog_prose"], "omitted", "{flat}");
+    // And what a caller needs in order to ask a valid question is untouched.
+    assert_eq!(structured["metrics"][0]["name"], "revenue", "{flat}");
+    assert_eq!(
+        structured["metrics"][0]["dimensions"][0]["allowed_values"][0], "north",
+        "{flat}"
+    );
     let text = result
         .content
         .first()
         .and_then(rmcp::model::ContentBlock::as_text)
         .map(|block| block.text.clone())
         .expect("the catalog carries a text block");
-    // The descriptions exist in the bundle, and are deliberately absent here.
     assert!(!text.contains("Revenue, in minor units."), "{text}");
     assert!(!text.contains("Sales region."), "{text}");
     // The omission is stated, not silent.
     assert!(text.contains("NOT included"), "{text}");
     drop(omitted.cancel().await);
 
-    // And the default still quotes them in, so the two settings provably differ on one surface.
+    // And the default carries them in both halves, so the two settings provably differ and the
+    // omission is a control rather than an outage.
     let quoted = permitting(certified_service(), Permitted::every_capability(), CatalogProse::Quoted).await;
     let result = quoted.call_tool(describe()).await.expect("the catalog tool answers");
+    let structured = result
+        .structured_content
+        .as_ref()
+        .expect("the catalog carries structured content");
+    assert_eq!(
+        structured["metrics"][0]["description"], "Revenue, in minor units.",
+        "{structured}"
+    );
+    assert_eq!(structured["catalog_prose"], "quoted", "{structured}");
     let text = result
         .content
         .first()

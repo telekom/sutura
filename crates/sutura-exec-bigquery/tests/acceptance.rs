@@ -157,7 +157,8 @@ mod tests {
     use sutura_app::preflight::{Verdict, ask};
     use sutura_catalog_local::LocalCatalog;
     use sutura_exec_bigquery::BigQueryError;
-    use sutura_exec_bigquery::wire::WireError;
+    use sutura_exec_bigquery::transport::{DatasetAddress, JobTransport as _, ListingTotal};
+    use sutura_exec_bigquery::wire::{BigQueryWire, WireAgent, WireError};
 
     use crate::support::{Connection, Wired, bounds, named, opened, presented};
 
@@ -814,5 +815,80 @@ mod tests {
             .next()
             .expect("a vector of one has a first element")
             .into_verdict()
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried() {
+        // **The measurement `docs/adr/0018` deferred to a run that could not make it**, which is
+        // issue #263: the record said a `totalItems` cross-check would tell an empty dataset from a
+        // document whose shape the service changed, and deferred the question to the listing leg
+        // above - which asserts on `TablesPresent` while the decoder read no such field, so no value
+        // reached an assertion, a panic message or a log line in either direction.
+        //
+        // **Below the domain port on purpose, and that is a finding rather than a shortcut.**
+        // `TablesPresent` carries no count and should not: the number is a fact about one service's
+        // document. So the total is observable only where the transport answers, which is also where
+        // the decision that reads it will have to live.
+        //
+        // **What it costs, stated rather than rounded to nothing:** one more `tables.list` - a
+        // metadata read, billed for nothing - plus a second credential file read and **a second
+        // token exchange**, because `Credential::bearer` caches nothing and mints per call. A leg of
+        // its own rather than a fold into the one above, because that one holds a `Warehouse` and
+        // this question is a rung below it, and because two independently named legs is what lets a
+        // reader see which claim a red run broke.
+        //
+        // **The cost that is not wall clock: this is a THIRD composition, where
+        // `tests/support/mod.rs` states that having one is the point** - agent, credential,
+        // transport and warehouse assembled once so both legs are evidence for the same composition
+        // rather than for two that resemble each other. It cannot reuse `opened`:
+        // `BigQueryWarehouse` exposes no transport accessor, and a `wire(connection)` helper in
+        // `support` would be an item `corpus.rs` never calls, which `dead_code = "deny"` fails. So
+        // the exception is real, and so is its price - a change to HOW the wire is composed leaves
+        // this leg green against the shape it hard-codes. Only `bounds()` is shared, which is the
+        // one that spends money.
+        let fixture = Fixture::required();
+        // The same project in both roles, which mirrors `BigQueryWarehouse::addressed`'s unqualified
+        // branch - the rule that carried a live quota-project bug, so it is named rather than
+        // re-derived: `billed_to` differs from `project` only where a path names another project.
+        let at = DatasetAddress::of(
+            fixture.connection.billing_project.clone(),
+            fixture.connection.billing_project,
+            fixture.connection.dataset,
+        );
+        let wire = BigQueryWire::new(WireAgent::pinned(bounds()), fixture.connection.credentials);
+        let held = wire
+            .list_tables(&at)
+            .expect("the dataset answered the listing - a refusal here is a grant, not a missing table");
+
+        // Printed so the run's own output IS the measurement rather than a claim about it - a fixed
+        // word from a closed match plus two counts, never a resource name. What a green run says is
+        // that this service populates the field at all, which nothing here had seen until the
+        // `bigquery-acceptance` job answered `Accounted` on 2026-09-04.
+        println!(
+            "bigquery-acceptance: tables.list answered {:?} over {} usable table id(s)",
+            held.total(),
+            held.named().len()
+        );
+
+        // The control, and it is what stops the assertion below being satisfied by a listing that
+        // named nothing: a total reported beside no readable id is the shape change itself.
+        assert!(
+            held.holds(fixture.table.as_str()),
+            "the listing named the fixture table, so this is a real listing of a real dataset"
+        );
+        // **The claim this leg exists to settle**, and it is red rather than silent if the service
+        // does not populate the field: a cross-check whose input is never sent has no teeth, and a
+        // log line nobody reads is how that would go unnoticed for a release.
+        assert!(
+            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable),
+            "the service reported no total this crate could read, so the cross-check has no input: {:?}",
+            held.total()
+        );
+        // **Not asserted: that the total is EXACT.** A dataset being written to while it is listed
+        // moves the number, and this dataset is written to by the corpus leg beside this one - so
+        // requiring `Accounted` would be a leg that fails for a reason outside the diff. What is
+        // required is that the two are comparable at all; `wire::tables`' own suite holds what each
+        // verdict means, against documents rather than against a race.
     }
 }

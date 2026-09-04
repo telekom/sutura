@@ -81,6 +81,10 @@ fn lookup_leg() -> LegPlan {
 }
 
 fn plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> FederatedPlan {
+    try_plan_for(measure_name, measure, include_unmatched).expect("a test plan is a valid two-leg plan")
+}
+
+fn try_plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> Result<FederatedPlan, FederatedPlanError> {
     let name = metric(measure_name);
     let federation = Federation::of(measure);
     FederatedPlan::new(
@@ -98,7 +102,6 @@ fn plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> F
             AnswerKey::lookup(String::from("region")),
         ],
     )
-    .expect("a test plan is a valid two-leg plan")
 }
 
 fn sum_plan(include_unmatched: bool) -> FederatedPlan {
@@ -140,6 +143,49 @@ fn fact(rows: Vec<Vec<Value>>) -> RowSet {
         rows,
     )
     .expect("a test fact result is well formed")
+}
+
+/// The same shape as [`fact`], with the single measure column under `label` rather than `revenue`.
+///
+/// A single-leaf plan projects its leaf under the metric's own name - `labels` says so - so a
+/// minimum or a maximum needs its own label where the sum tests reuse `revenue`.
+fn labelled_fact(label: &str, rows: Vec<Vec<Value>>) -> RowSet {
+    RowSet::new(
+        vec![
+            String::from("product_family"),
+            String::from("customer_key"),
+            String::from(TIME_BUCKET_LABEL),
+            String::from(label),
+        ],
+        rows,
+    )
+    .expect("a labelled fact result is well formed")
+}
+
+/// One fact row carrying `measure`, in the single group [`one_lookup`] maps `c1` into.
+fn fact_row(measure: Value) -> Vec<Value> {
+    vec![
+        Value::Text("A".into()),
+        Value::Text("c1".into()),
+        Value::Text("2026-06".into()),
+        measure,
+    ]
+}
+
+/// The one lookup row the re-aggregation tests join against, so every fact row shares one group.
+fn one_lookup() -> RowSet {
+    lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]])
+}
+
+/// `2^53`: every integer below it is exactly representable as an `f64`.
+const TWO_POW_53: i64 = 1 << 53;
+/// `2^53 + 1`, the first integer an `f64` cannot hold: it rounds to [`TWO_POW_53`], so a comparison
+/// taken on the widened values reads the two as equal.
+const TWO_POW_53_PLUS_ONE: i64 = TWO_POW_53 + 1;
+
+/// A plan whose measure is a re-aggregating minimum or maximum over one column.
+fn extreme_plan(aggregate: Aggregate, measure_name: &str) -> FederatedPlan {
+    plan_for(measure_name, &Measure::Simple(term(aggregate, "mrr_cents")), true)
 }
 
 fn lookup(rows: Vec<Vec<Value>>) -> RowSet {
@@ -386,6 +432,162 @@ fn a_non_numeric_leaf_is_refused_not_counted_as_zero() {
             ..
         })
     ));
+}
+
+#[test]
+fn a_sum_over_a_column_mixing_integers_and_reals_is_refused() {
+    // `RowSet::new` checks a row's width and nothing about its cells, so one leaf column holding an
+    // `Integer` beside a `Real` is representable. Neither subtotal may be dropped and neither may be
+    // widened onto the other, so the column is refused: this group answered `1.5` for a column
+    // totalling `101.5`, under the metric's own certified name.
+    let plan = sum_plan(true);
+    let fact = fact(vec![
+        fact_row(Value::Integer(100)),
+        fact_row(Value::Real(Real::parse(1.5).expect("a finite real"))),
+    ]);
+
+    // Asserted on the refusal's own sentence rather than on the variant naming it: `MixedNumericLeaf`
+    // is declared in the file `just causality` reverts, and naming it here costs the base tree its
+    // build - which takes the base verdict for every other test in this file with it.
+    let refusal = plan
+        .combine(&fact, &one_lookup(), UNBOUNDED)
+        .expect_err("a column mixing integers and reals has no exact total");
+    assert_eq!(
+        refusal.to_string(),
+        "a `Sum` re-aggregation met a leaf column mixing integer and real cells"
+    );
+}
+
+#[test]
+fn a_minimum_over_a_column_mixing_integers_and_reals_is_refused() {
+    // The refusal is a property of the column, not of the sum: a minimum over the same column
+    // compares an `i64` against an `f64`, which above `2^53` reads two distinguishable cells as
+    // equal. One type per column is what makes the comparison exact rather than checked.
+    let plan = extreme_plan(Aggregate::Min, "min_mrr");
+    let fact = labelled_fact(
+        "min_mrr",
+        vec![
+            fact_row(Value::Integer(100)),
+            fact_row(Value::Real(Real::parse(1.5).expect("a finite real"))),
+        ],
+    );
+
+    let refusal = plan
+        .combine(&fact, &one_lookup(), UNBOUNDED)
+        .expect_err("a column mixing integers and reals has no exact minimum");
+    assert_eq!(
+        refusal.to_string(),
+        "a `Min` re-aggregation met a leaf column mixing integer and real cells"
+    );
+}
+
+#[test]
+fn a_maximum_over_wide_integers_answers_the_larger_cell() {
+    // Two integers one apart, which a data system tells apart and an `f64` does not. Taken as `f64`
+    // the comparison reads them as equal and keeps whichever arrived first - here the smaller - so
+    // the maximum of the column was not the larger of its cells.
+    let plan = extreme_plan(Aggregate::Max, "max_mrr");
+    let fact = labelled_fact(
+        "max_mrr",
+        vec![
+            fact_row(Value::Integer(TWO_POW_53)),
+            fact_row(Value::Integer(TWO_POW_53_PLUS_ONE)),
+        ],
+    );
+
+    let combined = plan.combine(&fact, &one_lookup(), UNBOUNDED).expect("a maximum combines");
+    assert_eq!(
+        combined.rows(),
+        &[vec![
+            Value::Text("A".into()),
+            Value::Text("north".into()),
+            Value::Text("2026-06".into()),
+            Value::Integer(TWO_POW_53_PLUS_ONE),
+        ]]
+    );
+}
+
+#[test]
+fn a_lone_non_numeric_cell_is_refused_by_a_minimum() {
+    // The cell the sum above refuses, in a group of one. A minimum accepted its first cell as its
+    // own best without ever reading it as a number, so a `DECIMAL` money column - which the
+    // `DuckDB` adapter returns as `Text` to keep it exact - came back as the metric's value.
+    let plan = extreme_plan(Aggregate::Min, "min_mrr");
+    let fact = labelled_fact("min_mrr", vec![fact_row(Value::Text("1234.56".into()))]);
+
+    assert!(matches!(
+        plan.combine(&fact, &one_lookup(), UNBOUNDED),
+        Err(FederatedFailure::NonNumericLeaf {
+            aggregate: Aggregate::Min,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_non_numeric_cell_does_not_win_a_minimum_over_a_number() {
+    // The two-cell shape of the same defect: a candidate that is a number could not be compared
+    // against a best that is not, and an incomparable pair kept the incumbent - so the text won a
+    // comparison it was never in.
+    //
+    // Both row orders, because only one of them is the defect: with the text second, the old
+    // comparison reached the `other` arm and refused anyway, so an order-dependent assertion would
+    // have been red against the base tree for the wrong reason.
+    let plan = extreme_plan(Aggregate::Min, "min_mrr");
+    for cells in [
+        vec![fact_row(Value::Text("1234.56".into())), fact_row(Value::Integer(1))],
+        vec![fact_row(Value::Integer(1)), fact_row(Value::Text("1234.56".into()))],
+    ] {
+        let fact = labelled_fact("min_mrr", cells);
+        assert!(matches!(
+            plan.combine(&fact, &one_lookup(), UNBOUNDED),
+            Err(FederatedFailure::NonNumericLeaf {
+                aggregate: Aggregate::Min,
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
+fn a_leaf_column_of_nulls_answers_null_and_never_names_a_refusal() {
+    // Which reduction re-aggregates a leaf is settled by the plan, not by the group's cells - two
+    // halves of one property, of which only the second changed here.
+    //
+    // A group with no non-null cell is an answer: nothing was contributed, which is a null and not
+    // a zero, and it is not the column's job to decide whether the aggregate above it exists.
+    let all_null = sum_plan(true)
+        .combine(
+            &fact(vec![fact_row(Value::Null), fact_row(Value::Null)]),
+            &one_lookup(),
+            UNBOUNDED,
+        )
+        .expect("a group of nulls is an answer");
+    assert_eq!(
+        all_null.rows(),
+        &[vec![
+            Value::Text("A".into()),
+            Value::Text("north".into()),
+            Value::Text("2026-06".into()),
+            Value::Null,
+        ]]
+    );
+
+    // And a leaf the combine has no re-aggregating function for is refused before a plan exists.
+    // `Federation::of` is total, so `count_distinct` classifies as a leaf carrying grouping keys
+    // whose combine is a `CountDistinct` nothing above the legs can apply. Deciding that while
+    // reducing made the diagnosis depend on the data: the same plan refused a group holding a value
+    // and answered `Null` for a group of nulls, under the metric's own certified name.
+    let refused = try_plan_for(
+        "distinct_customers",
+        &Measure::Simple(term(Aggregate::CountDistinct, "customer_key")),
+        true,
+    )
+    .expect_err("a leaf with no re-aggregating function is not a plan");
+    assert_eq!(
+        refused.to_string(),
+        "a carried leaf re-aggregates with `count_distinct`, which the combine cannot apply"
+    );
 }
 
 #[test]
