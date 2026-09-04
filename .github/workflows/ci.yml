@@ -936,21 +936,24 @@ jobs:
       # **A SEPARATE STEP AND NOT A WIDER LOOP**, so a reader can tell which question went red:
       # the step above is *does what we publish link*, this one is *does the documented source
       # build link*. A failure here does not mean the shipped artefact is broken - it means the
-      # feature-off decision in `nix/shipped.nix` was necessary, the outcome that record priced
-      # and never ran. What it costs is one crate derivation: `buildDepsOnly` is called on the same
-      # argument set as the default build, so the probe SHARES that dependency derivation - the
-      # two `sutura-*` derivations differ only by an appended `--features`.
+      # documented source build does not link on a triple this project publishes, which is the
+      # one thing a native `cargo check` cannot report, because it stops at metadata.
+      #
+      # **IT COSTS ONE WHOLE CRATE DERIVATION, WHICH IS NOT WHAT THE FEATURE COSTS.**
+      # `buildDepsOnly` runs on the same argument set as the default build, so the probe shares
+      # that DEPENDENCY derivation - but a one-package build resolves a narrower feature set than
+      # the workspace union that derivation compiled, so the closure recompiles inside it. The
+      # seconds printed below are therefore the probe and not a delta; `docs/adr/0017` measures
+      # the feature as compiled units instead, and `nix/shipped.nix` carries the same correction.
       #
       # **THE SET IS READ AND NOT RECONSTRUCTED**, which is a correction this step needed rather
-      # than a preference. It used to filter `nix eval`'s attribute names for `-<target>-ci`,
-      # subtract `BINARIES`, and split what was left to recover the executable and the feature -
-      # so `nix/shipped.nix`'s naming rule was a coupling nothing could check. Reordering
-      # `<bin>-<feature>-<triple>` there emptied the filter while `probeFeatures` still declared
-      # `bigquery`, and this step printed *no binary declares a probeFeatures entry* and exited
-      # ZERO. `feature-probes-<target>` is a fixed attribute name whose rows carry the package,
-      # the executable and the feature, so nothing here derives anything: a flake that stops
-      # producing probes fails `nix build`, an empty manifest is a REFUSAL rather than a notice,
-      # and the sentence printed below quotes fields instead of guessing at a name.
+      # than a preference: it used to recover the set by filtering and splitting the flake's
+      # attribute NAMES, so a rename emptied it silently and this step then exited ZERO having
+      # measured nothing. `feature-probes-<target>` is a fixed attribute whose rows carry the
+      # package, the executable and the feature - so a flake that stops producing probes fails
+      # `nix build`, an empty manifest is the REFUSAL below rather than a notice, and the printed
+      # sentence quotes fields instead of guessing at a name. `nix/shipped.nix` has the
+      # measurement that forced it.
       - name: Link check, feature on
         env:
           TARGET: ${{ matrix.target }}
@@ -966,7 +969,7 @@ jobs:
             nix build ".#${probe}" -L -o "result-probe-${probe}"
             # The arch, not just the exit code - the same reason the step above does it.
             file "result-probe-${probe}/bin/${exe}"
-            echo "::notice::${TARGET}: ${exe} with --features ${feature} linked in $(( $(date +%s) - started ))s. That is the price of the feature ON, which is what nix/shipped.nix's feature-off decision is measured against."
+            echo "::notice::${TARGET}: ${exe} with --features ${feature} linked in $(( $(date +%s) - started ))s - the whole probe, not the feature's delta. docs/adr/0017 has the delta, measured as compiled units; the feature-off decision in nix/shipped.nix rests on what a published artefact links rather than on either number."
           done < "$manifest"
 
       # DOES EVERY SHIPPED BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release
