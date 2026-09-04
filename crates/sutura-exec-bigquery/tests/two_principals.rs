@@ -75,6 +75,13 @@
 //! should fail.
 //!
 //! **The job is bounded before it is sent**, through the same `support::bounds` both other legs use.
+//!
+//! **This leg introduces no name of its own, which is worth saying because the corpus leg's do not
+//! have room for one.** Since telekom/sutura#119 the corpus fixture tables carry a per-run suffix
+//! and the widest case measured leaves three characters inside `TableName`'s ceiling - so a fourth
+//! fixture name there is a parse refusal. Nothing here is affected: this cell CREATES no table. It
+//! reads one the stack owns, by the name the environment gives, and every other value it uses is
+//! read rather than composed.
 
 // `required-features = ["wire"]` is declared on the target in `Cargo.toml`, for the reason
 // `tests/acceptance.rs` states: cargo skips the target rather than compiling an empty binary.

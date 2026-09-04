@@ -204,7 +204,13 @@ gcp.bigquery.Job(
     "seed-rows",
     # Immutable and unique per project, so it carries a digest of the statement: change a grouping
     # value and pulumi runs a new job rather than reporting the old one as still current.
-    job_id=sutura_name(cfg, "seed-" + hashlib.sha256(_seed_statement.encode()).hexdigest()[:8]),
+    #
+    # **NOT through `sutura_name`, and the reason is a length.** That helper trims to 30 characters
+    # because a service-account `account_id` is 6..30 - and trimming a JOB id would cut the digest,
+    # so two different statements under a long stack name would collide on one id and pulumi would
+    # report the old job as still current. A BigQuery job id has room for both, so it is built here
+    # rather than borrowed from the identity helper.
+    job_id=f"{pulumi.get_stack()}-seed-{hashlib.sha256(_seed_statement.encode()).hexdigest()[:16]}",
     location=region,
     query=gcp.bigquery.JobQueryArgs(query=_seed_statement, use_legacy_sql=False),
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, *API_BOOTSTRAP]),
