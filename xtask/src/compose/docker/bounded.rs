@@ -187,12 +187,73 @@ impl Budget {
 /// prints a reason. The ceiling keeps a very large value from restoring the unbounded wait this
 /// exists to remove, and keeps the `probe_budget() * 3` the probe's own test computes from
 /// overflowing a `Duration`.
+///
+/// A value that was SET and cannot be used as written is said out loud, which is the whole reason
+/// [`Override`] is a value: defaulting silently is right for a timeout helper, and leaves a
+/// mistyped knob looking like it worked.
 pub(in crate::compose) fn budget_from_env(variable: &str, default_secs: u64, max_secs: u64) -> Duration {
-    let asked = std::env::var(variable)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(default_secs);
-    Duration::from_secs(asked.clamp(TIMEOUT_MIN_SECS, max_secs))
+    let resolved = Override::of(std::env::var(variable).ok().as_deref(), default_secs, max_secs);
+    if let Override::Unusable { asked, used } = resolved {
+        match asked {
+            Some(asked) => eprintln!("xtask compose: {variable}={asked} is outside 1..={max_secs} - using {used}s"),
+            None => eprintln!("xtask compose: {variable} is not a whole number of seconds - using {used}s"),
+        }
+    }
+    Duration::from_secs(resolved.seconds())
+}
+
+/// What an override resolved to, and whether the value given was usable as written.
+///
+/// **Pure, so the clamp is asserted rather than reasoned about.** Every budget in this tier comes
+/// through [`budget_from_env`], including the readiness deadline - which is where the missing floor
+/// that degraded the gate to a single poll came from - and a clamp nothing tests is a clamp that
+/// can be lost in an edit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Override {
+    /// Nothing was set, so the default stands.
+    Default(u64),
+    /// A value was set and is used exactly as written.
+    Honoured(u64),
+    /// A value was set and cannot be used as written: not a number, or outside the clamp.
+    Unusable {
+        /// What was asked for, where it parsed at all.
+        asked: Option<u64>,
+        /// What is used instead.
+        used: u64,
+    },
+}
+
+impl Override {
+    /// Resolve one override against its default and ceiling.
+    fn of(value: Option<&str>, default_secs: u64, max_secs: u64) -> Self {
+        let clamp = |secs: u64| secs.clamp(TIMEOUT_MIN_SECS, max_secs);
+        let Some(value) = value else {
+            return Self::Default(clamp(default_secs));
+        };
+        let Ok(asked) = value.parse::<u64>() else {
+            return Self::Unusable {
+                asked: None,
+                used: clamp(default_secs),
+            };
+        };
+        let used = clamp(asked);
+        if used == asked {
+            Self::Honoured(used)
+        } else {
+            Self::Unusable {
+                asked: Some(asked),
+                used,
+            }
+        }
+    }
+
+    /// The budget in seconds, whichever way it was reached.
+    const fn seconds(self) -> u64 {
+        match self {
+            Self::Default(secs) | Self::Honoured(secs) => secs,
+            Self::Unusable { used, .. } => used,
+        }
+    }
 }
 
 /// Wait for a spawned child, bounded. `Ok(None)` is the budget having expired.
@@ -201,8 +262,11 @@ pub(in crate::compose) fn budget_from_env(variable: &str, default_secs: u64, max
 /// rather than tidiness: a second wait loop is a second chance to write an unbounded one, and this
 /// surface has now been through that defect twice.
 ///
-/// A child that ran out of budget is killed AND reaped before this returns. One left unreaped would
-/// put a zombie behind every gate that runs, which is a second symptom to chase.
+/// A child this function will not report a status for is killed AND reaped before it returns, and
+/// that is **both** non-answering paths: the budget expiring, and the wait itself failing. One left
+/// unreaped would put a zombie behind every gate that runs, and one left un-killed is the unbounded
+/// wait again with nobody waiting on it - the case that reaches the second arm, an `ECHILD` from a
+/// `SIGCHLD` disposition this process did not choose, is exactly the one where nothing else will.
 ///
 /// Two limits, and both callers rely on them:
 ///
@@ -219,16 +283,33 @@ pub(super) fn waited(child: &mut Child, budget: Duration) -> Result<Option<ExitS
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return Ok(Some(status)),
-            Err(cause) => return Err(cause),
+            Err(cause) => {
+                abandon(child);
+                return Err(cause);
+            }
             Ok(None) => {}
         }
         if started.elapsed() >= budget {
-            drop(child.kill());
-            drop(child.wait());
+            abandon(child);
             return Ok(None);
         }
         std::thread::sleep(Duration::from_millis(WAIT_POLL_MILLIS));
     }
+}
+
+/// Stop caring about a child, without leaving it running or unreaped.
+///
+/// One function so the two non-answering arms of [`waited`] cannot drift into doing different
+/// things, which they did: the wait-error arm returned with the `docker` process still running and
+/// nothing left to reap it.
+///
+/// The reap is itself an unbounded `wait`, and that is deliberate rather than overlooked: the
+/// process has just been sent `SIGKILL`, so it is already gone or about to be, and a bound here
+/// would be a bound on the kernel. The descendant limit [`waited`] states is unchanged - the kill
+/// reaches `docker`, not the CLI plugins it spawned.
+fn abandon(child: &mut Child) {
+    drop(child.kill());
+    drop(child.wait());
 }
 
 /// What a compose invocation produced.
@@ -248,16 +329,31 @@ pub(crate) struct Output {
 /// absence of an answer, and the two variants are the two ways to get one.
 #[derive(Debug)]
 pub(crate) enum Failed {
-    /// It never ran to an answer.
+    /// **Nothing was started.** A capture that could not be opened, or a spawn that failed.
     ///
-    /// `doing` says which half broke, because the two send a reader to different places: a spawn or
-    /// a wait that failed is about docker, and a capture that could not be opened is about this
-    /// host's temporary directory. One variant with the right words rather than two variants, since
-    /// no caller acts on them differently.
+    /// `doing` says which half broke, because the two send a reader to different places: a spawn
+    /// that failed is about docker, and a capture that could not be opened is about this host's
+    /// temporary directory.
     Broken {
         /// What could not be done, in the words the message uses.
         doing: &'static str,
         /// Why not.
+        cause: std::io::Error,
+    },
+    /// **It was started and this process lost track of it**: the wait itself failed, so whether it
+    /// finished is unknown. Killed and reaped on the way out, exactly as a timeout is.
+    ///
+    /// Separate from [`Self::Broken`] because [`Self::left_running`] answers differently on the
+    /// two, and getting that wrong is the expensive direction: a provisioning call that was
+    /// SPAWNED may have started containers, and reporting it as having started nothing sends the
+    /// reader past a tier that is half up. The budget travels with it so the answer comes off the
+    /// kind of call, the same way a timeout's does.
+    Lost {
+        /// The budget the lost call was running under, and therefore its kind.
+        budget: Budget,
+        /// Why the wait failed. `ECHILD` is the case this exists for: something else reaped the
+        /// child - a `SIG_IGN` disposition for `SIGCHLD`, or a reaper in the process - and
+        /// `waitpid` then answers at once with no status to report.
         cause: std::io::Error,
     },
     /// It was still running when its budget expired, and has been killed. The budget carries how long
@@ -272,9 +368,14 @@ impl Failed {
     /// the `docker` process does not stop what it had already started, and only a PROVISIONING call
     /// starts anything. A caller that remembered to ask for itself is a caller the next one forgets
     /// to copy - `dev-down` issues a provisioning call too - so the value answers instead.
+    ///
+    /// **The limit, and it is narrower than the name suggests: this answers for the CALL, not for
+    /// the run.** A timed-out `ps` started nothing, so this says `false` - but a readiness `ps`
+    /// runs after `up --detach` has already returned, and that run's containers are up. The caller
+    /// that knows a provision preceded it says so itself; see `super::super::health`.
     pub(crate) const fn left_running(&self) -> bool {
         match *self {
-            Self::Silent(ref budget) => matches!(budget.call, Call::Provision),
+            Self::Silent(ref budget) | Self::Lost { ref budget, .. } => matches!(budget.call, Call::Provision),
             Self::Broken { .. } => false,
         }
     }
@@ -284,6 +385,11 @@ impl std::fmt::Display for Failed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Broken { doing, cause } => write!(f, "could not {doing}: {cause}"),
+            Self::Lost { budget, cause } => write!(
+                f,
+                "could not wait for {}: {cause} - it was started, so whether it finished is unknown",
+                budget.call.what()
+            ),
             Self::Silent(budget) => write!(
                 f,
                 "{} never answered within {}s ({}) - {}",
@@ -301,7 +407,7 @@ impl std::error::Error for Failed {
     /// that flattened the `io::Error` into a string would be the end of the chain.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Broken { cause, .. } => Some(cause),
+            Self::Broken { cause, .. } | Self::Lost { cause, .. } => Some(cause),
             Self::Silent(_) => None,
         }
     }
@@ -328,14 +434,23 @@ struct Captured {
 type Handles = Result<(Stdio, Stdio), std::io::Error>;
 
 impl Captured {
-    /// Two paths in the platform's temporary directory, named by process and by a counter so that
+    /// Two paths in the platform's temporary directory, named by process, clock and counter so that
     /// two calls in one run - and two runs at once - cannot collect into the same file.
+    ///
+    /// The clock is in the name because the process id alone is not unique over time: a run killed
+    /// before [`Drop`] leaves its files behind, and `create_new` in [`Self::handles`] would then
+    /// FAIL a later call that reused the id rather than silently truncate. Unpredictable is not
+    /// claimed - the guarantee is [`Self::handles`]'s, not this name's.
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let at = std::env::temp_dir();
+        let since_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
         let unique = format!(
-            "sutura-compose-{}-{}",
+            "sutura-compose-{}-{}-{}",
             std::process::id(),
+            since_epoch.as_nanos(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         );
         Self {
@@ -344,13 +459,21 @@ impl Captured {
         }
     }
 
-    /// The two handles to hand the child. Fresh files: `create` truncates, so a name a crashed run
-    /// left behind cannot contribute its output to this one.
+    /// The two handles to hand the child.
+    ///
+    /// **`create_new`, so an existing name is refused rather than written through.** The platform's
+    /// temporary directory is world-writable and the name is derivable, so `File::create` - which
+    /// truncates, and follows a symlink to do it - lets any local user pre-create one of these as a
+    /// link and have the target overwritten as the invoking user. On a `port` call it is worse than
+    /// destructive: the attacker chooses the bytes [`super::first_published`] reads back, and those
+    /// land in the discovery file a harness connects to. `O_CREAT | O_EXCL` fails on an existing
+    /// path, symlink included, so that call fails closed as [`Failed::Broken`] instead.
+    ///
+    /// A sticky bit on the directory does not help: it stops deleting somebody else's file, not
+    /// creating a new name.
     fn handles(&self) -> Handles {
-        Ok((
-            Stdio::from(std::fs::File::create(&self.stdout)?),
-            Stdio::from(std::fs::File::create(&self.stderr)?),
-        ))
+        let fresh = |path: &PathBuf| std::fs::File::options().write(true).create_new(true).open(path);
+        Ok((Stdio::from(fresh(&self.stdout)?), Stdio::from(fresh(&self.stderr)?)))
     }
 
     /// What the child wrote, as (stdout, stderr).
@@ -388,7 +511,18 @@ pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Faile
         .stderr(stderr)
         .spawn();
     let mut child = spawned.map_err(broken("run docker"))?;
-    match waited(&mut child, budget.allowed) {
+    answered(waited(&mut child, budget.allowed), budget, &captured)
+}
+
+/// What a bounded wait's outcome means, given the budget it was spent under.
+///
+/// **Its own function because the wait-ERROR arm cannot be produced on demand.** `try_wait` fails
+/// when `waitpid` answers `ECHILD`, which needs a `SIGCHLD` disposition of `SIG_IGN` in this
+/// process - `unsafe` to arrange, and this workspace forbids `unsafe_code`. Taking the wait's
+/// result as a value makes the DECISION assertable without arranging the condition, which is what
+/// stopped a spawned call from being reported as one that started nothing.
+fn answered(waited: Result<Option<ExitStatus>, std::io::Error>, budget: Budget, captured: &Captured) -> Result<Output, Failed> {
+    match waited {
         Ok(Some(status)) => {
             let (stdout, stderr) = captured.read();
             Ok(Output {
@@ -398,7 +532,9 @@ pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Faile
             })
         }
         Ok(None) => Err(Failed::Silent(budget)),
-        Err(cause) => Err(broken("wait for docker")(cause)),
+        // NOT `Broken`: the child was spawned, so a provisioning call may have started containers,
+        // and the budget is what lets `left_running` say so.
+        Err(cause) => Err(Failed::Lost { budget, cause }),
     }
 }
 
@@ -459,9 +595,15 @@ mod tests {
         assert_eq!(provision.call, Call::Provision);
         // Not merely different: an order of magnitude apart, which is the property that makes two
         // classes worth having. A pair of budgets a few seconds apart would be one budget.
+        //
+        // Over the DEFAULTS, which are pure, and not over `Budget::of`, which reads the
+        // environment. Asserted there this went red on a configuration the change itself invites -
+        // `SUTURA_DOCKER_PROVISION_TIMEOUT_SECS=300` makes 30s x 10 exactly 300s - and a check
+        // that a supported setting turns red is a check on its way to being deleted.
+        let (query_default, provision_default) = (Call::Query.allowance().default_secs, Call::Provision.allowance().default_secs);
         assert!(
-            query.allowed * 10 < provision.allowed,
-            "{query:?} and {provision:?} are not an order of magnitude apart"
+            query_default * 10 < provision_default,
+            "{query_default}s and {provision_default}s are not an order of magnitude apart"
         );
 
         // Every call site this tier has, classified.
@@ -578,5 +720,80 @@ mod tests {
         // A status query starts nothing, so a timed-out `ps` leaves nothing behind and must not
         // print a teardown remedy - that would send a reader to remove a tier that is coming up.
         assert!(!Failed::Silent(Budget::of(&["ps", "--all"])).left_running());
+    }
+
+    #[test]
+    fn a_call_whose_wait_failed_is_lost_rather_than_never_started() {
+        // The state `Broken` used to absorb, and the one where absorbing it costs containers: the
+        // child WAS spawned and then `try_wait` failed, so what a provisioning call had started is
+        // unaccounted for. Reported as having started nothing, a `dev-up` here prints no
+        // `just dev-down` and the reader walks away from a tier that is half up.
+        //
+        // Asserted through `answered`, which is the function `run` uses, so this is the wiring and
+        // not a hand-built value: the arm cannot be reached on demand, because `try_wait` fails on
+        // `ECHILD` and arranging that needs `unsafe`, which this workspace forbids.
+        let echild = || std::io::Error::from(std::io::ErrorKind::NotFound);
+        let captured = super::Captured::new();
+
+        let Err(lost @ Failed::Lost { .. }) = super::answered(Err(echild()), Budget::of(&["up", "--detach"]), &captured) else {
+            panic!("a wait that failed on a spawned child must be Lost, not Broken");
+        };
+        assert!(
+            lost.left_running(),
+            "a provisioning call that was started must not report that it started nothing"
+        );
+        // It says the outcome is UNKNOWN. "could not wait for docker" alone reads as a tool
+        // failure, and sends the reader at the daemon rather than at their containers.
+        let reported = lost.to_string();
+        assert!(reported.contains("unknown"), "{reported}");
+        assert!(
+            std::error::Error::source(&lost).is_some(),
+            "the cause chain is the diagnostic"
+        );
+
+        // And a lost STATUS query still started nothing, so the two kinds stay distinguishable.
+        let Err(query) = super::answered(Err(echild()), Budget::of(&["ps", "--all"]), &captured) else {
+            panic!("Lost");
+        };
+        assert!(!query.left_running());
+    }
+
+    #[test]
+    fn an_override_that_cannot_be_used_as_written_is_not_silently_the_default() {
+        // The clamp, as a value rather than as a Duration nothing can see into - which is where the
+        // readiness deadline's MISSING FLOOR came from: `SUTURA_DEV_READY_TIMEOUT_SECS=0` degraded
+        // the gate to a single poll, and nothing anywhere asserted that it could not.
+        let ceiling = 600;
+        let of = |value: Option<&str>| super::Override::of(value, 30, ceiling);
+
+        assert_eq!(of(None), super::Override::Default(30), "nothing set means the default");
+        assert_eq!(of(Some("45")), super::Override::Honoured(45));
+
+        // Both ends of the clamp, and both are load-bearing. `0` would report every call on a
+        // healthy host as unanswered, and a value past the ceiling restores the unbounded wait.
+        assert_eq!(
+            of(Some("0")),
+            super::Override::Unusable {
+                asked: Some(0),
+                used: TIMEOUT_MIN_SECS
+            }
+        );
+        assert_eq!(
+            of(Some("5000")),
+            super::Override::Unusable {
+                asked: Some(5000),
+                used: ceiling
+            }
+        );
+        // Not a number at all. `asked` is `None`, which is what makes the two messages different:
+        // one says a value was out of range, the other that it was not a number.
+        assert_eq!(of(Some("abc")), super::Override::Unusable { asked: None, used: 30 });
+
+        // Whichever way it was reached, a budget comes out - the helper never refuses a startup
+        // over a malformed number, which is the direction a timeout helper has to take.
+        for value in [None, Some("45"), Some("0"), Some("5000"), Some("abc"), Some("")] {
+            let seconds = of(value).seconds();
+            assert!((TIMEOUT_MIN_SECS..=ceiling).contains(&seconds), "{value:?} -> {seconds}");
+        }
     }
 }
