@@ -266,17 +266,12 @@ mod tests {
     /// The two-principal leg's own environment: the two subjects' tokens and the provider to exchange
     /// them against, or `None` when none of it is set.
     ///
-    /// **`None` means SKIP, and that is a deliberate narrowing of these legs' fail-on-missing.** The
-    /// legs here run in a job that always has their environment (`GOOGLE_APPLICATION_CREDENTIALS` +
-    /// `SUTURA_BQ_DATASET`/`TABLE`), so an absent value there is a misconfiguration. This leg's
-    /// environment belongs to the workload-identity infra (`#106`/`#122`/`#123`) which does not land
-    /// with this change, so before it exists a hard failure would red a LIVE acceptance job for a
-    /// feature nobody configured. Hence: all four absent -> skip; all four present -> run; anything
-    /// partial -> panic naming the state, because a half-configured exchange is a misconfiguration
-    /// and must not silently pass.
-    ///
-    /// No value is returned raw into an assertion; each is a string that heads into a request away
-    /// from this repository.
+    /// **`None` means SKIP, and that is a deliberate narrowing of these legs' fail-on-missing.** Those
+    /// legs run in a job that always has their environment, so an absent value there is a
+    /// misconfiguration; this leg's environment belongs to the workload-identity infra (`#106`/`#122`/
+    /// `#123`) not landed with this change, so before it exists a hard failure would red a LIVE
+    /// acceptance job. Hence: all four absent -> skip; all four present -> run; anything partial ->
+    /// panic, because a half-configured exchange must not silently pass.
     fn subjects_env() -> Option<SubjectsEnvironment> {
         let read = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
         let subject_a = read("SUTURA_BQ_SUBJECT_A_TOKEN");
@@ -875,35 +870,25 @@ mod tests {
     #[test]
     #[ignore = "needs a real BigQuery project with a Workload Identity Federation provider and two granted principals, named in the developer's own environment"]
     fn two_subjects_with_different_grants_read_two_different_row_sets() {
-        // **The acceptance criterion issue 87 exists to make provable, and AGENTS.md used to say it
-        // "still does not exist and still cannot".** A deployment can name the subject in every audit
-        // record and still read every row as one identity; this leg is the thing that separates an
-        // answer whose `ExecutedAs` records a genuinely impersonated leg from one recording the
-        // deployment's own identity.
-        //
-        // The shape: TWO principals with deliberately different row-level grants (one row visible to
-        // A and not to B), each asking the SAME plan through the composed composition this repository
-        // SHIPS - the exchanging broker and the adapter over the wire to a real STS and dataset. The
-        // dataset's row access policy is what makes the two answers differ; the exchange is what makes
-        // each answer run as its asker rather than as the process.
-        //
-        // **It needs the workload-identity infra the repository does not land with this change**
-        // (`#106`/`#122`/`#123`: the pool, the provider, the two principals and the row policy), so it
-        // is `#[ignore]`d and guarded by [`subjects_env`]: it SKIPS while that infrastructure is not
-        // configured (none of its variables set), and FAILS on a partial configuration, which is a
-        // misconfiguration rather than an absent feature. No identifier, token or provider name is
-        // written here; each is read from the runner's own environment.
+        // **The acceptance criterion issue 87 exists to make provable.** Two principals with
+        // deliberately different row-level grants (one row visible to A and not to B) each asking the
+        // same plan through the composition this repository SHIPS - the exchanging broker and the
+        // adapter over the wire to a real STS and dataset. The dataset's row policy is what makes the
+        // two answers differ; the exchange is what makes each answer run as its asker rather than as
+        // the process. It needs the workload-identity infra not landed here (`#106`/`#122`/`#123`:
+        // the pool, provider, the two principals and the row policy), so it is `#[ignore]`d and
+        // guarded by [`subjects_env`]: SKIP while that infra is absent, FAIL on a partial
+        // configuration. No identifier, token or provider name is written here.
         let Some(env_vars) = subjects_env() else {
-            // Reaching this line is `just bigquery-acceptance` against a project with no WIF provider
-            // declared - the state before the infra in `#106`/`#122`/`#123` lands. Skipping is the
-            // honest answer for a job that has no principal to ask with, and it is narrower than the
-            // other legs' fail-on-missing because THIS leg's environment is a separate deployment from
-            // the one those legs need.
-            eprintln!("SKIPPED - two-subjects leg: no SUTURA_BQ_* workload-identity variables set, so there is no provider to exchange against");
+            // No WIF provider configured yet - the state before the `#106`/`#122`/`#123` infra lands.
+            // Skipping is honest for a job with no principal to ask with; the other legs fail on a
+            // missing value only because their environment always exists.
+            eprintln!(
+                "SKIPPED - two-subjects leg: no SUTURA_BQ_* workload-identity variables set, so there is no provider to exchange against"
+            );
             return;
         };
-        // The two principals' own tokens and the provider, taken out of the guarded value so the rest
-        // of this leg reads them as plain values.
+        // The two principals' tokens and the provider, out of the guarded value.
         let SubjectsEnvironment {
             subject_a,
             subject_b,
@@ -983,8 +968,14 @@ mod tests {
 
         let from_a = rows_for(&subject_a, "principal-a@example.com");
         let from_b = rows_for(&subject_b, "principal-b@example.com");
-        assert!(!from_a.is_empty(), "principal A's grant must see at least one row, or the fixture is wrong");
-        assert!(!from_b.is_empty(), "principal B's grant must see at least one row, or the fixture is wrong");
+        assert!(
+            !from_a.is_empty(),
+            "principal A's grant must see at least one row, or the fixture is wrong"
+        );
+        assert!(
+            !from_b.is_empty(),
+            "principal B's grant must see at least one row, or the fixture is wrong"
+        );
         // The claim this leg exists to make: two grants, two row sets. If a service answered both as
         // the deployment's own identity - reading every row as one identity - these would be equal.
         assert_ne!(
