@@ -243,12 +243,28 @@ fn stamped(text: &str) -> Result<(), String> {
         format!("{WARMER} exports no `{EXPORT}..\"`, so this gate cannot tell which directory the stamp belongs in")
     })?;
     let under = format!("{exported}/{STAMP}");
-    if live_lines(text).any(|line| line.contains(under.as_str())) {
+    if live_lines(text).any(|line| writes_to(line, under.as_str())) {
         return Ok(());
     }
     Err(format!(
         "{WARMER} writes no `{under}`: the stamp is not in the directory it exports, so `check-default-feature-tests` would compile at the wrong profile and reuse none of the warmed artifacts"
     ))
+}
+
+/// Does this line REDIRECT into `target`, rather than merely mention it?
+///
+/// Found by mutation, and it is the whole difference between this gate and the `contains` it
+/// replaced: commenting the write out left `if [ "$(cat "$warmTarget/.sutura-warm-start" ...` on
+/// the line above, which mentions the path, satisfies any scan for it, and READS a stamp nothing
+/// writes any more. So the redirect's own target is what is compared.
+///
+/// The limit, and it is the safe direction: only a `>`/`>>` redirect counts, so a write through
+/// `install` or `tee` would fail this gate rather than pass it. `venues::acceptance` asks the
+/// neighbouring question - is a redirect's target a file at all - and cannot answer this one.
+fn writes_to(line: &str, target: &str) -> bool {
+    line.split('>')
+        .skip(1)
+        .any(|rest| rest.trim_start().trim_start_matches('"').starts_with(target))
 }
 
 /// The warmed artifacts are BUILT at [`WARM_PROFILE`], which is what makes deriving it sound.
@@ -442,11 +458,19 @@ mod tests {
         let live = format!("{NIX}{STAMP_WRITE}");
         assert_eq!(super::stamped(&live), Ok(()));
         // COMMENTED OUT is the shape a text scan misses, and the one that actually happens: a step
-        // gets parked and the line stays in the file. `contains` over the raw text passes here.
-        let parked = live
-            .replace("      printf", "#      printf")
-            .replace("[ \"$(cat", "# [ \"$(cat");
+        // gets parked and the line stays in the file. `contains` over the raw text passes here -
+        // and so did the first version of this reader, because the `if [ "$(cat ...` line above
+        // MENTIONS the stamp while writing nothing. See [`super::writes_to`].
+        // Commented AT THE START OF THE LINE, which is the rule `live_lines` states: this
+        // fixture first put the `#` mid-line, where it is a shell comment to a reader and not to
+        // a line scan, and the test passed for the wrong reason until that was fixed.
+        let parked = live.replace("      printf", "      # printf");
         assert!(super::stamped(&parked).is_err(), "a commented-out write is not a write");
+        // And the same line with the `#` MID-line, which is a shell comment to a reader and not to
+        // a line scan. `live_lines` says a line STARTS with one, so this stays live and the
+        // redirect is still a redirect - stated because the fixture above got it wrong first.
+        let mid = live.replace("printf '%s'", "true # printf '%s'");
+        assert_eq!(super::stamped(&mid), Ok(()));
         // And the stamp moved OUT of the exported directory, which is the other way this gate's
         // reader goes green while `check-default-feature-tests` derives the wrong profile.
         let elsewhere = live.replace("$warmTarget/.sutura-warm-start", "$warmRoot/.sutura-warm-start");
