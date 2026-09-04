@@ -72,22 +72,14 @@
 use std::path::Path;
 
 use crate::Verdict;
-use crate::default_features::shipped_packages;
-use crate::repo;
-
-/// The declaration the package list is read out of.
-const SOURCE: &str = "nix/shipped.nix";
-
-/// The file the warm start stamps its target directory with.
-///
-/// The signal is the STAMP and not the directory's NAME, which is the distinction
-/// `check-warm-start`'s header draws about its own two readers: a name can be renamed while a gate
-/// matching it keeps passing, whereas this file exists if and only if the unpack happened.
-const STAMP: &str = ".sutura-warm-start";
-
-/// The profile the warmed artifacts were built at, and the only value worth compiling at in that
-/// directory. `flake.nix`'s `ciArgs` is its owner; the test below holds this copy against it.
-const WARM_PROFILE: &str = "ci";
+use crate::default_features::{SOURCE, Shipped, shipped_or_fail};
+// Both from their owner. `warm_start` is the module that already FAILS THE BUILD when a
+// `${cargoWarmStart}` consumer in `flake.nix` compiles at the wrong profile, so a second spelling of
+// either literal here would be a copy that can go stale while that gate stays green. The signal is
+// the STAMP and not the directory's NAME, which is the distinction `check-warm-start`'s header draws
+// about its own readers: a name can be renamed while a gate matching it keeps passing, whereas the
+// stamp exists if and only if the unpack happened.
+use crate::warm_start::{STAMP, WARM_PROFILE};
 
 /// The cargo profile to compile at, from the target directory alone.
 ///
@@ -124,29 +116,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         eprintln!("  The cargo profile is derived from the target directory rather than passed in.");
         return Verdict::Usage;
     }
-    let Some(root) = repo::root() else {
-        eprintln!("xtask check-default-feature-tests: could not determine the repo root");
-        return Verdict::Fail;
+    // The declaration, the parser and the fail-closed-on-empty rule all come from the gate that owns
+    // them, so an empty list cannot mean one thing here and another there.
+    let Shipped { root, packages } = match shipped_or_fail("check-default-feature-tests") {
+        Ok(read) => read,
+        Err(verdict) => return verdict,
     };
-    let path = root.join(SOURCE);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) => {
-            eprintln!(
-                "xtask check-default-feature-tests: could not read {}: {error}",
-                path.display()
-            );
-            return Verdict::Fail;
-        }
-    };
-    let packages = shipped_packages(&text);
-    if packages.is_empty() {
-        eprintln!("xtask check-default-feature-tests: FAILED - parsed no package out of {SOURCE}");
-        eprintln!("  A list this gate reads as empty runs nothing and passes, which is the failure");
-        eprintln!("  it exists to end. `binaries = [` and `package = \"...\";` are the two shapes it");
-        eprintln!("  looks for.");
-        return Verdict::Fail;
-    }
     let target_dir = std::env::var_os("CARGO_TARGET_DIR");
     let profile = profile_for(target_dir.as_deref().map(Path::new));
     println!(

@@ -31,7 +31,19 @@ use crate::Verdict;
 use crate::repo;
 
 /// The nix module that unpacks the inherited artifacts into the directory.
-const WARMER: &str = "nix/cargo-env.nix";
+pub(crate) const WARMER: &str = "nix/cargo-env.nix";
+
+/// The stamp `cargoWarmStart` writes beside the unpacked artifacts, naming the closure it unpacked.
+pub(crate) const STAMP: &str = ".sutura-warm-start";
+
+/// The profile the warm artifacts were built at.
+///
+/// Here rather than beside each reader because this module is already the OWNER of that fact:
+/// [`profiled_consumers`] fails the build when any `${cargoWarmStart}` consumer in `flake.nix` does
+/// not pass it, including the `--cargo-profile`-versus-`--profile` distinction. A third Rust spelling
+/// of `"ci"` next to a gate that already enforces it is a copy that can go stale while the gate
+/// stays green.
+pub(crate) const WARM_PROFILE: &str = "ci";
 
 /// The gate that builds into it.
 const CONSUMER: &str = "xtask/src/causality.rs";
