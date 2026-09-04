@@ -502,7 +502,13 @@ mod tests {
     /// it, and neither crate can see the other - which is what keeps a driving port from being owned
     /// by a caller. So the claim *a surface echoing the setting echoes the operator's own word* has
     /// its mechanism here, in the one member that depends on both, rather than in a comment on
-    /// either side. Every configuration variant, so a third one cannot be added on one side alone.
+    /// either side.
+    ///
+    /// **What this loop proves is narrower than it reads, and the narrower claim is the true one:**
+    /// the two spellings agree for every name currently offered to an operator. It walks
+    /// `sutura_config::CatalogProse::NAMES`, which is hand-written, and `parse` has a `_ =>` arm - so
+    /// nothing here grows when the enum does. *A third variant cannot be added on one side alone* is
+    /// held by the exhaustive match in [`catalog_prose`], as a compile error, and by nothing else.
     #[test]
     fn the_two_spellings_of_the_prose_setting_are_one_vocabulary() {
         for name in sutura_config::CatalogProse::NAMES {

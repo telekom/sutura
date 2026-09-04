@@ -107,7 +107,7 @@ where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let (service, prose) = mcp_service(catalog, opened, settings.runtime(), settings.prompt().catalog_prose())?;
+    let (service, prose) = mcp_service(catalog, opened, settings)?;
     // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
     // class: a pipe has no header a token could arrive in, so this surface grants every
     // capability to whoever can reach the process. Stated at startup, not left as a default
@@ -149,17 +149,12 @@ where
 /// claims a record was kept when none was. The sink is only the writer, so any composition that
 /// does install a subscriber must send it to standard error - on this transport standard output is
 /// the protocol channel, which is why the startup notice is an `eprintln!`.
-fn mcp_service<W>(
-    catalog: &LocalCatalog,
-    opened: OpenedWith<W>,
-    runtime: sutura_config::RuntimeSettings,
-    prose: sutura_config::CatalogProse,
-) -> Result<Served<W>, String>
+fn mcp_service<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, settings: &sutura_config::Settings) -> Result<Served<W>, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let working_set = runtime.working_set().bytes().get() as u64;
+    let working_set = settings.runtime().working_set().bytes().get() as u64;
     // `LocalService::start` loads the catalog again and re-runs every anchor - that is its contract,
     // the constructor that returns a service only if the bundle is fit to serve. `catalog` is handed
     // over rather than the `pinned` rebuilt, so the two loads cannot disagree about the version or
@@ -176,13 +171,13 @@ where
     if let Some(attached) = opened.attached {
         refuse_unattached(&served_tables(service.definitions()), &attached)?;
     }
-    // **The operator's setting, not a constant.** This line read `CatalogProse::Quoted` and called
-    // it *the default treatment*, which it was not: it was the ONLY treatment, so a deployment that
-    // had set `prompt.catalog_prose: omitted` - and had it honoured by the prompt and by the HTTP
-    // catalog body - still shipped every description over the agent surface, which is the reader the
-    // setting exists for. `#266`'s `H1`. The conversion is `crate::commands::catalog_prose` because
-    // this is the second root reading one decision, and a second inline `if` is how they drift.
-    Ok((service, catalog_prose(prose)))
+    // **Read here rather than taken as an argument**, and that is the whole of `#266`'s `H1` at this
+    // layer: this line was the constant `CatalogProse::Quoted` under a comment calling it *the
+    // default treatment*, which it was not - it was the only one. A caller-supplied setting would
+    // move the defect one frame up and leave the same line uncovered, because a test can pass the
+    // value it wants to see. The conversion is `crate::commands::catalog_prose`, shared with
+    // `sutura prompt`, because two roots resolving one decision separately is how this survived.
+    Ok((service, catalog_prose(settings.prompt().catalog_prose())))
 }
 
 #[cfg(test)]
@@ -231,31 +226,27 @@ mod tests {
         client.expect("the client initializes")
     }
 
-    /// THE claim of issue #110, end to end: the `mcp` command's own composition serves the two tools
-    /// over the protocol. The schema snapshots in `sutura-mcp` already pin the tool inputs; what was
-    /// missing is that a composition root links the surface and something answers.
+    /// The documented example, opened over the in-process engine, under a settings DOCUMENT.
     ///
-    /// A plain `test` rather than `#[tokio::test]`, deliberately. `mcp_service` opens the engine and
-    /// re-runs its anchors, and the engine drives its OWN runtime with `block_on` - which panics when
-    /// called from within a runtime, exactly as `sutura-serve`'s `run` documents. So the service is
-    /// built before any runtime exists, and the runtime is entered only for the handshake.
-    ///
-    /// The service is kept in this scope, NOT created inside the async block, so the caller's own
-    /// handle releases it after its runtime is gone - the same shape the `mcp` command's shutdown
-    /// takes, where a main-thread handle frees the engine once blocking work has settled.
-    /// The documented example, opened over the in-process engine, with the settings a bare process
-    /// resolves.
+    /// The overlay occupies the position a deployment's own file does, which is the whole point: the
+    /// setting has to arrive the way an operator writes it, or the read under test is the test's own
+    /// argument. The same construction `sutura_http::harness::settings` uses, for the same reason.
     ///
     /// Extracted because two tests compose it and the composition is the thing under test in both:
     /// a second copy would be a second answer to *what does this command build*.
-    fn example_composition() -> (
+    fn example_composition(
+        overlay: &str,
+    ) -> (
         super::LocalCatalog,
         crate::sources::OpenedWith<sutura_exec_datafusion::DataFusionWarehouse>,
         sutura_config::Settings,
     ) {
         let catalog = crate::commands::catalog_reader(&example().join("catalog")).expect("the example catalog is readable");
         let pinned = sutura_domain::pinned::SemanticCatalog::load(&catalog).expect("the example catalog loads");
-        let settings = crate::sources::configured().expect("the embedded defaults load");
+        let settings = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        )
+        .expect("the test settings load");
         // An exhaustive match into an `Option` rather than a refutable `let`: `clippy::unreachable`
         // is denied here, and a match is also what makes a third linked adapter a compile error in
         // this test the way it is in the command itself.
@@ -276,11 +267,22 @@ mod tests {
         (catalog, opened, settings)
     }
 
+    /// THE claim of issue #110, end to end: the `mcp` command's own composition serves the two tools
+    /// over the protocol. The schema snapshots in `sutura-mcp` already pin the tool inputs; what was
+    /// missing is that a composition root links the surface and something answers.
+    ///
+    /// A plain `test` rather than `#[tokio::test]`, deliberately. `mcp_service` opens the engine and
+    /// re-runs its anchors, and the engine drives its OWN runtime with `block_on` - which panics when
+    /// called from within a runtime, exactly as `sutura-serve`'s `run` documents. So the service is
+    /// built before any runtime exists, and the runtime is entered only for the handshake.
+    ///
+    /// The service is kept in this scope, NOT created inside the async block, so the caller's own
+    /// handle releases it after its runtime is gone - the same shape the `mcp` command's shutdown
+    /// takes, where a main-thread handle frees the engine once blocking work has settled.
     #[test]
     fn the_mcp_composition_serves_every_tool_the_surface_declares() {
-        let (catalog, opened, settings) = example_composition();
-        let (service, prose) = mcp_service(&catalog, opened, settings.runtime(), settings.prompt().catalog_prose())
-            .expect("the example bundle is fit to serve");
+        let (catalog, opened, settings) = example_composition("");
+        let (service, prose) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
@@ -329,14 +331,21 @@ mod tests {
     /// catalog body both withheld the catalog's prose still served every description to an agent
     /// over stdio, which is the surface with no token and no scope narrowing at all.
     ///
-    /// Asserted over the wire through the SDK's own client, on both halves of the reply and over the
-    /// real example catalog, because the defect was the WIRING: each half was already covered by a
-    /// test in `sutura-mcp` against a setting that arrived as an argument.
+    /// The setting arrives as a settings DOCUMENT rather than as an argument, which is what makes
+    /// this a test of the read and not of a parameter: a test that handed `mcp_service` the value it
+    /// wanted to see would pass with the line back to a constant one frame up. Then over the wire
+    /// through the SDK's own client, on both halves of the reply, because the defect was the WIRING -
+    /// what each half renders for a setting it was given is pinned in `sutura-mcp`.
+    ///
+    /// The runtime and drop-order rationale above applies here unchanged. What this does NOT reach
+    /// is `SUTURA_CONFIG_DIR` and `serve` - a settings tree on disk read by the spawned binary -
+    /// which is `tests/mcp.rs`'s
+    /// `a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface`, on the split that
+    /// suite's own header states: this one holds the composition, that one holds the process.
     #[test]
     fn the_mcp_composition_honours_the_prose_setting_it_was_configured_with() {
-        let (catalog, opened, settings) = example_composition();
-        let (service, prose) = mcp_service(&catalog, opened, settings.runtime(), sutura_config::CatalogProse::Omitted)
-            .expect("the example bundle is fit to serve");
+        let (catalog, opened, settings) = example_composition("prompt:\n  catalog_prose: omitted\n");
+        let (service, prose) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Omitted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
@@ -354,9 +363,14 @@ mod tests {
                 .as_ref()
                 .expect("the catalog carries structured content")
                 .to_string();
-            // A description the example catalog really carries, on a dimension of every metric.
+            // A description the example catalog really carries, on a dimension of every metric. What
+            // each half renders is `sutura-mcp`'s own business and is pinned there; what this test
+            // owns is that the setting reached them at all.
             assert!(!structured.contains("Where the customer is."), "{structured}");
+            // No description FIELD either, which is `#266`'s `H1` in its own words, and the setting
+            // echoed so a client reads *this deployment ships none* rather than inferring it.
             assert!(!structured.contains("description"), "{structured}");
+            assert!(structured.contains(r#""catalog_prose":"omitted""#), "{structured}");
             let text = result
                 .content
                 .first()

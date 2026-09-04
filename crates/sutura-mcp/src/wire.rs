@@ -460,6 +460,12 @@ fn render(rows: &RowSet) -> Vec<Vec<String>> {
 )]
 pub struct DescribeCatalogArgs {}
 
+// **Why this half reads the prose setting, and a plain comment for the reason `DescribeCatalogArgs`
+// states**: reasoning about a wire type is not caller-facing prose. Not to escape anything - `serde`
+// owns the field boundary here, so a description cannot cross one whatever it spells.
+// `prompt.catalog_prose` decides **who may put words in front of an agent**, which is a property of
+// the deployment rather than of one field on one surface. This half shipped every description while
+// the text block beside it withheld them: `docs/adr/0022`'s second amendment.
 /// What this deployment measures, as the catalog tool's structured content.
 ///
 /// **A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
@@ -471,26 +477,20 @@ pub struct DescribeCatalogArgs {}
 /// Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes no request context
 /// and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
 /// returns: it is the *pinned* bundle, the same one every answer is computed from.
-///
-/// # Why the structured half reads the prose setting
-///
-/// Not to escape anything - `serde` owns the field boundary here, so a description cannot cross one
-/// whatever it spells. `prompt.catalog_prose` decides **who may put words in front of an agent**,
-/// which is a property of the deployment rather than of one field on one surface. This half shipped
-/// every description while the text block beside it withheld them: `docs/adr/0022`'s second
-/// amendment.
 #[derive(Debug, serde::Serialize)]
 pub struct CatalogContent {
     /// Which snapshot this listing describes. The same version and digest an answer carries, so a
     /// model can tell that the metric it read about is the metric it measured.
     provenance: ProvenanceContent,
-    // ONE field for one fact, read by both halves of the result: `as_text` picks its notice from it
-    // and serde writes it out. A setting passed to `as_text` separately would let the two halves of
-    // one reply disagree about a decision the operator made once.
-    /// Which way the operator's `prompt.catalog_prose` setting points, so an absent description is a
-    /// fact a client can read rather than one it has to infer.
-    #[serde(rename = "catalog_prose")]
-    prose: ProseSetting,
+    /// Which way the operator's `prompt.catalog_prose` setting points - the operator's own spelling,
+    /// echoed rather than translated, as `sutura_http::wire::CatalogBody` echoes it - so an absent
+    /// description is a fact a client can read rather than one it has to infer.
+    catalog_prose: &'static str,
+    // The trust boundary the text half names. Filled in `of` from the same exhaustive match as the
+    // field above rather than decided again in `as_text`, so the two halves of one reply cannot
+    // answer the operator's question differently. `skip`: this crate's own text, not a client's field.
+    #[serde(skip)]
+    notice: &'static str,
     metrics: Vec<MetricContent>,
 }
 
@@ -526,23 +526,6 @@ pub struct DimensionContent {
     allowed_values: Option<Vec<String>>,
 }
 
-/// The prose setting, wearing the encoding a client reads it in.
-///
-/// A wrapper rather than a `serialize_with` on the field: a free serializer function is a signature
-/// clippy reads twice over, and two `#[expect]`s for one helper would be suppression rather than
-/// design. Not a second spelling either - `Serialize` delegates to `CatalogProse::as_str`.
-#[derive(Debug)]
-struct ProseSetting(CatalogProse);
-
-impl serde::Serialize for ProseSetting {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.0.as_str())
-    }
-}
-
 impl CatalogContent {
     /// The reader's view of a pinned bundle, under the prose setting this deployment was started
     /// with.
@@ -553,14 +536,23 @@ impl CatalogContent {
     /// here. A second argument cannot be left out.
     #[must_use]
     pub fn of(pinned: &PinnedDefinitions, prose: CatalogProse) -> Self {
-        let quoted = prose.is_quoted();
+        // **Exhaustive, and resolved once for both halves.** `is_quoted()` inside an `if` reads
+        // every future spelling as the `else` - the objection `sutura_cli::commands::catalog_prose`
+        // raises about the config-to-app hop, applied where the prose is actually carried, since a
+        // third variant landing in the `else` here is a listing that withholds prose nobody asked to
+        // withhold. Both facts come out of the one match, so nothing downstream branches again and
+        // the two halves of one reply cannot answer the operator's question differently.
+        let (carried, notice) = match prose {
+            CatalogProse::Quoted => (true, UNTRUSTED_CATALOG_NOTICE),
+            CatalogProse::Omitted => (false, CATALOG_PROSE_OMITTED_NOTICE),
+        };
         let metrics = pinned
             .definitions()
             .metrics()
             .values()
             .map(|metric| MetricContent {
                 name: String::from(metric.name().as_str()),
-                description: quoted.then(|| String::from(metric.description())),
+                description: carried.then(|| String::from(metric.description())),
                 grains: {
                     let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
                     // Reversed, because `Grain`'s own ordering runs fine to coarse and a reader wants
@@ -573,7 +565,7 @@ impl CatalogContent {
                     .values()
                     .map(|dimension| DimensionContent {
                         name: String::from(dimension.name().as_str()),
-                        description: quoted.then(|| String::from(dimension.description())),
+                        description: carried.then(|| String::from(dimension.description())),
                         filterable: dimension.is_filterable(),
                         allowed_values: dimension
                             .allowed_values()
@@ -584,7 +576,8 @@ impl CatalogContent {
             .collect();
         Self {
             provenance: bundle_content(pinned),
-            prose: ProseSetting(prose),
+            catalog_prose: prose.as_str(),
+            notice,
             metrics,
         }
     }
@@ -600,11 +593,7 @@ impl CatalogContent {
     /// `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES` and by the catalog's own parses, and a listing
     /// that grew past what a context tolerates is a bundle nobody could ask about either way.
     pub(crate) fn as_text(&self) -> String {
-        let mut out = String::from(if self.prose.0.is_quoted() {
-            UNTRUSTED_CATALOG_NOTICE
-        } else {
-            CATALOG_PROSE_OMITTED_NOTICE
-        });
+        let mut out = String::from(self.notice);
         out.push('\n');
         for metric in &self.metrics {
             out.push('\n');
@@ -701,6 +690,10 @@ mod tests {
     use sutura_domain::warehouse::{RowSet, Value};
 
     use super::{AskArgs, CatalogContent, CatalogProse, MalformedQuestion, OutcomeContent};
+
+    /// What the corpus walk puts on the DIMENSION's description and nowhere else, so an assertion
+    /// that a leak is absent cannot be satisfied by the metric's half.
+    const DIMENSION_MARK: &str = "On a dimension:";
 
     fn parse(json: &str) -> Result<Query, MalformedQuestion> {
         let args: AskArgs = serde_json::from_str(json).map_err(|cause| MalformedQuestion::NotAnObject { cause })?;
@@ -960,14 +953,18 @@ mod tests {
     /// `> `-prefixed, so none opens a line the tool did not write. Non-vacuous by construction -
     /// each corpus entry that got here would have reached column zero unquoted.
     ///
-    /// The corpus goes through a real `Description`, so what is proved is about prose a catalog can
-    /// actually hold; and each entry is run under BOTH settings, because the interesting failure is
-    /// a hostile description the omission was believed to have dropped - which is exactly what
-    /// `#266`'s `H1` found on the structured half beside this one.
+    /// The corpus goes through a real `Description` on BOTH fields, with DIFFERENT text, so what is
+    /// proved is about prose a catalog can actually hold and a dimension-half survival is visible;
+    /// and each entry is run under BOTH settings, because the interesting failure is a hostile
+    /// description the omission was believed to have dropped - which is exactly what `#266`'s `H1`
+    /// found on the structured half beside this one.
     #[test]
     fn the_injection_corpus_prose_cannot_reach_column_zero_in_the_catalog_tool() {
         for prose in sutura_app::untrusted::PROSE {
-            let bundle = crate::testing::described_bundle(prose, prose);
+            // A DISTINCT string per field, which `crate::testing::bundle` asks for and this walk was
+            // not doing: one string in both positions makes an assertion that neither reaches a
+            // caller pass on the metric's half alone.
+            let bundle = crate::testing::described_bundle(prose, &format!("{DIMENSION_MARK} {prose}"));
             let text = CatalogContent::of(&bundle, CatalogProse::Quoted).as_text();
             for line in text.lines() {
                 assert!(
@@ -981,19 +978,17 @@ mod tests {
                 "the corpus entry did not render quoted:\n{text}"
             );
 
-            // Under the omission neither half carries it: the structured field is absent rather
-            // than quoted, and the text block has nothing to quote.
+            // Under the omission neither half carries it, read FLAT on both: an index into
+            // `metrics[0].description` steps over a dimension's description one level down, which is
+            // the same blindness `#266`'s `H1` was found by.
             let omitted = CatalogContent::of(&bundle, CatalogProse::Omitted);
-            let rendered = serde_json::to_value(&omitted).expect("the catalog serializes");
-            assert!(
-                rendered["metrics"][0]["description"].is_null(),
-                "a corpus description survived an omission: {rendered}"
-            );
-            let text = omitted.as_text();
-            assert!(
-                !(text.contains("# SYSTEM") || text.contains("definitions: v99")),
-                "a corpus description survived an omission:\n{text}"
-            );
+            let structured = serde_json::to_value(&omitted).expect("the catalog serializes").to_string();
+            for half in [structured, omitted.as_text()] {
+                assert!(
+                    !(half.contains("# SYSTEM") || half.contains("definitions: v99") || half.contains(DIMENSION_MARK)),
+                    "a corpus description survived an omission:\n{half}"
+                );
+            }
         }
     }
 }
