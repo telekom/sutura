@@ -551,8 +551,8 @@ fn a_non_numeric_cell_does_not_win_a_minimum_over_a_number() {
 
 #[test]
 fn a_leaf_column_of_nulls_answers_null_and_never_names_a_refusal() {
-    // Which reduction re-aggregates a leaf is settled by the plan, not by the group's cells. Two
-    // halves of one property, and this PR moved the second one.
+    // Which reduction re-aggregates a leaf is settled by the plan, not by the group's cells - two
+    // halves of one property, of which only the second changed here.
     //
     // A group with no non-null cell is an answer: nothing was contributed, which is a null and not
     // a zero, and it is not the column's job to decide whether the aggregate above it exists.

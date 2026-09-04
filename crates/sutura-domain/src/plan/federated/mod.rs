@@ -206,10 +206,11 @@ impl FederatedPlan {
                 })?,
             }
         }
-        let carried = federation.carried();
-        if let Some(leaf) = carried.iter().find(|leaf| Reduction::of(leaf.combine()).is_none()) {
+        for leaf in federation.carried() {
             let aggregate = leaf.combine();
-            return Err(FederatedPlanError::LeafDoesNotReaggregate { aggregate });
+            if Reduction::of(aggregate).is_none() {
+                return Err(FederatedPlanError::LeafDoesNotReaggregate { aggregate });
+            }
         }
         Ok(Self {
             metric,
