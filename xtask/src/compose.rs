@@ -237,11 +237,7 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
         }
         Err(cause) => {
             eprintln!("xtask dev-up: {cause}");
-            if matches!(cause, docker::Failed::Silent(_)) {
-                for line in abandoned(&scope.project()) {
-                    eprintln!("  {line}");
-                }
-            }
+            report_abandoned(&cause, &scope.project());
             return Verdict::Fail;
         }
     }
@@ -279,9 +275,10 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
 /// that was correctly absent.
 fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&str]) -> Result<Published, Verdict> {
     let mut bound = Vec::new();
+    let project = scope.project();
     for service in SERVICES.iter().filter(|s| expected.contains(&s.name())) {
         let container_port = service.container_port().to_string();
-        let out = match docker::compose(root, &scope.project(), profiles, &["port", service.name(), &container_port]) {
+        let out = match docker::compose(root, &project, profiles, &["port", service.name(), &container_port]) {
             Ok(out) => out,
             Err(cause) => {
                 eprintln!("xtask dev-up: {cause}");
@@ -302,12 +299,25 @@ fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&s
     Ok(bound)
 }
 
+/// Print what a killed provisioning call left behind, if it left anything.
+///
+/// Whether it did is [`docker::Failed::left_running`]'s answer, not a test at each call site: both
+/// `dev-up` and `dev-down` issue a provisioning call, and a guard written twice is a guard the third
+/// caller forgets.
+fn report_abandoned(cause: &docker::Failed, project: &str) {
+    if !cause.left_running() {
+        return;
+    }
+    for line in abandoned(project) {
+        eprintln!("  {line}");
+    }
+}
+
 /// What a provisioning call that never answered leaves behind, and who removes it.
 ///
-/// **The decision, as a value rather than three `eprintln!`s.** A timed-out `docker compose up` has
-/// a consequence a timed-out query does not: killing the child does not stop the containers the
-/// child already started, so something has to be said about them. Three options, and the tool
-/// deliberately does NOT tear down:
+/// **The decision, as a value rather than three `eprintln!`s.** Killing the child does not stop the
+/// containers it had already started, so something has to be said about them. Three options, and the
+/// tool deliberately does NOT tear down:
 ///
 /// | Option | Why not |
 /// | --- | --- |
@@ -321,8 +331,8 @@ fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&s
 /// Fail-closed lives there, not here.
 fn abandoned(project: &str) -> [String; 3] {
     [
-        format!("containers this `up` had already started are NOT removed: {project}"),
-        String::from("a timeout is not proof they are wrong - `docker compose up` is idempotent, so a retry reuses the pull"),
+        format!("containers are NOT removed: killing docker does not stop what it had started - {project}"),
+        String::from("a timeout is not proof they are wrong - these subcommands are idempotent, so a retry reuses the pull"),
         String::from("`just dev-down` removes this worktree's project, its network and its named volumes"),
     ]
 }
@@ -397,6 +407,7 @@ pub(crate) fn run_down(args: &[String]) -> Verdict {
             }
             Err(cause) => {
                 eprintln!("xtask dev-down: {cause}");
+                report_abandoned(&cause, target);
                 return Verdict::Fail;
             }
         }
@@ -515,12 +526,10 @@ mod tests {
 
     #[test]
     fn a_timed_out_provision_reports_what_it_left_running_and_removes_nothing() {
-        // The decision, read off the value rather than off a comment. Killing `docker compose up`
-        // does not stop the containers it already started, and this tool deliberately does not tear
-        // them down: `up` is idempotent, so a timeout is not proof the tier is wrong, and the run
-        // may be a second `dev-up` over a tier that was already healthy. What has to hold is that
-        // the reader is TOLD the containers survived, and told where the removal lives - a report
-        // that read as if it had cleaned up would be worse than no report.
+        // The decision `abandoned`'s doc argues, read off the value rather than off the comment.
+        // Three properties, and the first two are what a report that had quietly cleaned up would
+        // fail: it names the project whose containers survived, it does not read as if they were
+        // removed, and it names the task that removes them.
         let report = super::abandoned("sutura-dev-aaaa1111");
         assert!(
             report.iter().any(|line| line.contains("sutura-dev-aaaa1111")),

@@ -38,13 +38,15 @@ external timeout killed them, twice, 50 minutes apart.
 | a gate hangs only AFTER provisioning starts | it should not any more - the readiness loop's `ps` carries the query budget, so this is a bug rather than the known shape |
 
 Every wait on a docker child is bounded now, and the budgets are per KIND of call because one
-number cannot serve both: `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` (10s, the pre-flight),
-`SUTURA_DOCKER_QUERY_TIMEOUT_SECS` (30s, a `ps` / `port` / `ls`) and
-`SUTURA_DOCKER_PROVISION_TIMEOUT_SECS` (1800s, an `up` / `down`, generous because killing a pull
-halfway leaves containers behind). **What is still not bounded is the descendants**: the kill
-reaches `docker`, not the CLI plugins it spawned, so a wedged daemon leaves those until it recovers.
-And a timed-out `up` deliberately does NOT tear down - `just dev-down` is named in the failure
-instead, for the reasons `xtask/src/compose.rs`'s `abandoned` records.
+number cannot serve a pull and a status query: `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for the
+pre-flight, `SUTURA_DOCKER_QUERY_TIMEOUT_SECS` for a `ps` / `port` / `ls`, and
+`SUTURA_DOCKER_PROVISION_TIMEOUT_SECS` for an `up` / `down`. The defaults and the argument for
+each are in `xtask/src/compose/docker/bounded.rs`, not repeated here.
+
+Two things a green run does NOT mean. **The descendants are still unbounded**: the kill reaches
+`docker`, not the CLI plugins it spawned, so a wedged daemon leaves those until it recovers. And a
+timed-out `up` deliberately does NOT tear down - it names `just dev-down` instead, for the reasons
+`xtask/src/compose.rs`'s `abandoned` records, so a failed provision can leave containers running.
 
 **If a gate hangs for minutes with no output, kill it and say so** - a hang is evidence, not a slow
 machine.

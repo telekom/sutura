@@ -22,7 +22,8 @@ use std::time::Duration;
 /// asked, and because this file is near its line budget.
 mod bounded;
 
-use bounded::{ANSWER_TIMEOUT_MAX_SECS, budget_from_env, run, waited};
+pub(in crate::compose) use bounded::budget_from_env;
+use bounded::{ANSWER_TIMEOUT_MAX_SECS, WEDGED_DAEMON_REMEDY, run, waited};
 pub(crate) use bounded::{Budget, Failed, Output};
 
 /// The compose file, relative to the repository root. One file; per-worktree values come from the
@@ -60,7 +61,9 @@ impl Missing {
             Self::Cli => "install docker (a host dependency; nix deliberately does not pin it)",
             Self::ComposePlugin => "install the Compose v2 plugin - `docker compose version` must work",
             Self::Daemon => "start the docker daemon - `docker info` must answer",
-            Self::WedgedDaemon => "RESTART the docker daemon - it is running but `docker info` never answered",
+            // The same sentence a status query that ran out of budget prints, from the module that
+            // detects both: one condition, one wording.
+            Self::WedgedDaemon => WEDGED_DAEMON_REMEDY,
         }
     }
 
@@ -366,17 +369,38 @@ pub(crate) fn parse_projects(text: &str) -> BTreeSet<String> {
 /// teardown must still be able to remove THIS worktree's project when the listing is unavailable -
 /// what the listing buys is the ability to report what was spared, not the authority to destroy.
 pub(crate) fn projects(root: &Path) -> BTreeSet<String> {
+    match unscoped(root, &["ls", "--all", "--format", "json"]) {
+        Ok(out) if out.ok => parse_projects(&out.stdout),
+        // SAID, not swallowed, and that is new. An empty listing is a legitimate answer - nothing is
+        // running - and a runtime that refused or never answered is not that answer. The destroy
+        // still proceeds, because what the listing buys is the ability to report what was SPARED and
+        // not the authority to remove; but "spared nothing else was running" is a claim nobody may
+        // make on a host that did not say.
+        Ok(out) => {
+            eprintln!("xtask compose: `docker compose ls` failed - nothing is reported as spared");
+            eprint!("{}", out.stderr);
+            BTreeSet::new()
+        }
+        Err(cause) => {
+            eprintln!("xtask compose: {cause} - nothing is reported as spared");
+            BTreeSet::new()
+        }
+    }
+}
+
+/// Run one compose subcommand WITHOUT this worktree's scoping flags, inside its kind's budget.
+///
+/// One caller, and it earns a function rather than a comment: `compose ls` takes none of
+/// [`scoped_args`]' flags - scoping the listing to one project is the opposite of what teardown
+/// reads it for - and the budget has to be derived from the arguments that are actually run. A
+/// `Budget::of` over a slice written beside the command line is a second place for *this call is an
+/// `ls`* to live, and two places drift.
+fn unscoped(root: &Path, extra: &[&str]) -> Result<Output, Failed> {
     let mut command = Command::new("docker");
     command.current_dir(root);
-    command.args(["compose", "ls", "--all", "--format", "json"]);
-    // Its own command line, because `compose ls` takes none of [`scoped_args`]' flags - scoping
-    // the listing to one project is the opposite of what teardown reads it for - but the budget is
-    // derived from the subcommand exactly as every other call's is.
-    run(&mut command, Budget::of(&["ls"]))
-        .ok()
-        .filter(|out| out.ok)
-        .map(|out| parse_projects(&out.stdout))
-        .unwrap_or_default()
+    command.arg("compose");
+    command.args(extra);
+    run(&mut command, Budget::of(extra))
 }
 
 #[cfg(test)]

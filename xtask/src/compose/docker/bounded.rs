@@ -12,18 +12,20 @@
 //!
 //! **The limit, stated because it is the one a reader would assume away: nothing MAKES a future
 //! call come through here.** One wait loop is a shape, not a mechanism - a `.output()` written into
-//! the parent module would be unbounded again and no gate would see it. `clippy.toml`'s
-//! `disallowed-methods` is this repository's mechanism for exactly that shape and cannot be used
-//! here: an entry is workspace-wide, and `Command::output` / `Command::status` have upwards of
-//! thirty legitimate call sites in `xtask` driving `git` and `cargo`, which wait without a bound
-//! on purpose.
+//! the parent module would be unbounded again and every test in the tree would still pass. Two
+//! mechanisms were weighed. `clippy.toml`'s `disallowed-methods` is out: an entry is workspace-wide,
+//! and `Command::output` / `Command::status` have dozens of legitimate call sites in `xtask` driving
+//! other tools, which wait without a bound on purpose. A path-scoped xtask gate over this directory
+//! - the shape `check-newtype-leaks` and `check-boot-order` already use, blanking comments and
+//! string interiors first, because the prose here writes `.output()` while explaining the defect -
+//! WOULD work, starts green, and is issue 274. What such a gate holds is narrow enough to be worth
+//! saying now: *no second wait loop was written in this directory*, never *every docker child is
+//! bounded*, because a wait laundered through a helper is invisible to a text scan.
 
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-
-use super::Missing;
 
 /// How often a child still running is checked for having finished.
 ///
@@ -38,6 +40,15 @@ pub(super) const TIMEOUT_MIN_SECS: u64 = 1;
 pub(super) const ANSWER_TIMEOUT_MAX_SECS: u64 = 600;
 /// Six hours. A pull that has not finished by then is a broken network rather than a slow one.
 const PROVISION_TIMEOUT_MAX_SECS: u64 = 21_600;
+
+/// What a reader does about a daemon that accepted a call and never answered.
+///
+/// **One sentence, here, because two conditions share it and this is the module that detects both.**
+/// The pre-flight's [`super::Missing::WedgedDaemon`] and a status query that ran out of budget are
+/// the same fault, so a second wording would be a second thing to keep true. It lives here rather
+/// than beside `Missing` so the dependency points inward: this module knows nothing about the
+/// pre-flight's vocabulary, and the pre-flight reads down into it.
+pub(super) const WEDGED_DAEMON_REMEDY: &str = "RESTART the docker daemon - it is running but `docker info` never answered";
 
 /// What one kind of call is allowed: its default, the variable that changes it, and how far.
 ///
@@ -74,6 +85,12 @@ enum Call {
 /// provisioning budget. That is the direction whose wrong answer is recoverable: a query
 /// misclassified as a provision is still bounded, only later than it should be, while a provision
 /// misclassified as a query is a pull killed halfway. Both are bounded, which is the property.
+///
+/// **What that costs, stated because the fail-safe direction HIDES it:** a query subcommand this
+/// list does not name takes the provisioning budget silently. Nothing - not the compiler, not a
+/// test, not a gate - reports it, because a slice of strings is exhaustive over nothing. Making it
+/// exhaustive means a `Subcommand` type the four call sites construct instead of writing arguments,
+/// which is a bigger change than this one and belongs on its own.
 const QUERIES: [&str; 3] = ["ps", "port", "ls"];
 
 impl Call {
@@ -122,9 +139,8 @@ impl Call {
     /// What a reader does about one that never answered.
     const fn remedy(self) -> &'static str {
         match self {
-            // A status query that did not answer IS the wedged daemon, so the probe's own wording is
-            // the one to use: two remedies for one condition is how they drift apart.
-            Self::Query => Missing::WedgedDaemon.remedy(),
+            // A status query that did not answer IS the wedged daemon: one condition, one wording.
+            Self::Query => WEDGED_DAEMON_REMEDY,
             // A provisioning call is the case where silence is genuinely ambiguous - a wedged daemon
             // and a slow pull look identical from here - so the remedy names both readings.
             Self::Provision => {
@@ -161,16 +177,17 @@ impl Budget {
 
 /// One budget, read from the environment and clamped.
 ///
-/// Same shape as `SUTURA_DEV_READY_TIMEOUT_SECS` in the parent module, deliberately: an absent or
-/// unparseable value takes the default rather than refusing, because a timeout helper is the wrong
-/// place to fail a startup over a malformed number.
+/// **Every overridable budget in this tier comes through here** - the probe's, both compose kinds',
+/// and the readiness deadline in `super::super::health` - so the policy is written once. An absent
+/// or unparseable value takes the default rather than refusing, because a timeout helper is the
+/// wrong place to fail a startup over a malformed number.
 ///
 /// CLAMPED, and both ends are load-bearing. `0` would report every call unanswered on a healthy
 /// host, and a bound that fails closed on everything is not a bound - it is an outage that still
 /// prints a reason. The ceiling keeps a very large value from restoring the unbounded wait this
 /// exists to remove, and keeps the `probe_budget() * 3` the probe's own test computes from
 /// overflowing a `Duration`.
-pub(super) fn budget_from_env(variable: &str, default_secs: u64, max_secs: u64) -> Duration {
+pub(in crate::compose) fn budget_from_env(variable: &str, default_secs: u64, max_secs: u64) -> Duration {
     let asked = std::env::var(variable)
         .ok()
         .and_then(|value| value.parse().ok())
@@ -231,18 +248,42 @@ pub(crate) struct Output {
 /// absence of an answer, and the two variants are the two ways to get one.
 #[derive(Debug)]
 pub(crate) enum Failed {
-    /// It never ran to an answer: the capture could not be opened, the spawn failed, or the wait
-    /// itself broke. All three are "could not run docker", which is what a reader can act on.
-    Broken(std::io::Error),
+    /// It never ran to an answer.
+    ///
+    /// `doing` says which half broke, because the two send a reader to different places: a spawn or
+    /// a wait that failed is about docker, and a capture that could not be opened is about this
+    /// host's temporary directory. One variant with the right words rather than two variants, since
+    /// no caller acts on them differently.
+    Broken {
+        /// What could not be done, in the words the message uses.
+        doing: &'static str,
+        /// Why not.
+        cause: std::io::Error,
+    },
     /// It was still running when its budget expired, and has been killed. The budget carries how long
     /// was spent and which kind of call spent it, so the message needs no second copy of either.
     Silent(Budget),
 }
 
+impl Failed {
+    /// Did the call leave containers running?
+    ///
+    /// **Decided here rather than at a call site**, because the cause is [`waited`]'s kill: killing
+    /// the `docker` process does not stop what it had already started, and only a PROVISIONING call
+    /// starts anything. A caller that remembered to ask for itself is a caller the next one forgets
+    /// to copy - `dev-down` issues a provisioning call too - so the value answers instead.
+    pub(crate) const fn left_running(&self) -> bool {
+        match *self {
+            Self::Silent(ref budget) => matches!(budget.call, Call::Provision),
+            Self::Broken { .. } => false,
+        }
+    }
+}
+
 impl std::fmt::Display for Failed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Broken(cause) => write!(f, "could not run docker: {cause}"),
+            Self::Broken { doing, cause } => write!(f, "could not {doing}: {cause}"),
             Self::Silent(budget) => write!(
                 f,
                 "{} never answered within {}s ({}) - {}",
@@ -251,6 +292,17 @@ impl std::fmt::Display for Failed {
                 budget.call.allowance().variable,
                 budget.call.remedy()
             ),
+        }
+    }
+}
+
+impl std::error::Error for Failed {
+    /// The cause chain, which the sibling `super::super::lock`'s error also carries: a `Display`
+    /// that flattened the `io::Error` into a string would be the end of the chain.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Broken { cause, .. } => Some(cause),
+            Self::Silent(_) => None,
         }
     }
 }
@@ -301,22 +353,18 @@ impl Captured {
         ))
     }
 
-    /// What the child wrote.
+    /// What the child wrote, as (stdout, stderr).
     ///
     /// A stream that cannot be read back is empty rather than an error: the call's own exit is the
     /// thing a caller acts on, and failing a provision because a temporary file went missing would
     /// replace a diagnostic with a second failure.
-    fn read(&self, ok: bool) -> Output {
+    fn read(&self) -> (String, String) {
         let text = |path: &PathBuf| {
             std::fs::read(path)
                 .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
                 .unwrap_or_default()
         };
-        Output {
-            stdout: text(&self.stdout),
-            stderr: text(&self.stderr),
-            ok,
-        }
+        (text(&self.stdout), text(&self.stderr))
     }
 }
 
@@ -329,8 +377,9 @@ impl Drop for Captured {
 
 /// Run one command inside the budget its kind allows, and collect what it printed.
 pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Failed> {
+    let broken = |doing: &'static str| move |cause| Failed::Broken { doing, cause };
     let captured = Captured::new();
-    let (stdout, stderr) = captured.handles().map_err(Failed::Broken)?;
+    let (stdout, stderr) = captured.handles().map_err(broken("capture docker's output"))?;
     let spawned = command
         // stdin null for the reason `super::probed` gives: nothing here reads input, and a child
         // that inherited the terminal can eat a keystroke meant for the hook that ran it.
@@ -338,11 +387,18 @@ pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Faile
         .stdout(stdout)
         .stderr(stderr)
         .spawn();
-    let mut child = spawned.map_err(Failed::Broken)?;
+    let mut child = spawned.map_err(broken("run docker"))?;
     match waited(&mut child, budget.allowed) {
-        Ok(Some(status)) => Ok(captured.read(status.success())),
+        Ok(Some(status)) => {
+            let (stdout, stderr) = captured.read();
+            Ok(Output {
+                stdout,
+                stderr,
+                ok: status.success(),
+            })
+        }
         Ok(None) => Err(Failed::Silent(budget)),
-        Err(cause) => Err(Failed::Broken(cause)),
+        Err(cause) => Err(broken("wait for docker")(cause)),
     }
 }
 
@@ -503,9 +559,24 @@ mod tests {
         // The two ways to get no answer are not the same answer. A binary that is not there
         // refused; only silence is the wedged daemon, and only silence names a budget.
         let mut command = Command::new("/nonexistent/sutura-not-a-binary");
-        let Err(Failed::Broken(cause)) = run(&mut command, budget_of(Call::Query, 30_000)) else {
+        let outcome = run(&mut command, budget_of(Call::Query, 30_000));
+        let Err(failed @ Failed::Broken { .. }) = outcome else {
             panic!("a command that cannot be spawned must be Broken");
         };
-        assert!(Failed::Broken(cause).to_string().contains("could not run docker"));
+        assert!(failed.to_string().contains("could not run docker"), "{failed}");
+        // Nothing was started, so nothing was left running - which is the half a caller acts on.
+        assert!(!failed.left_running());
+    }
+
+    #[test]
+    fn only_a_timed_out_provisioning_call_leaves_containers_running() {
+        // The consequence of the kill, answered by the layer that did the killing rather than by a
+        // `matches!` each caller has to remember: `dev-up` and `dev-down` both issue a provisioning
+        // call, and a third caller would forget to copy the guard.
+        assert!(Failed::Silent(Budget::of(&["up", "--detach"])).left_running());
+        assert!(Failed::Silent(Budget::of(&["down", "--volumes"])).left_running());
+        // A status query starts nothing, so a timed-out `ps` leaves nothing behind and must not
+        // print a teardown remedy - that would send a reader to remove a tier that is coming up.
+        assert!(!Failed::Silent(Budget::of(&["ps", "--all"])).left_running());
     }
 }

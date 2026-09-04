@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use sutura_dev::scope::Scope;
 
 use super::docker;
+use super::docker::budget_from_env;
 use crate::Verdict;
 
 /// How long to wait for every service to report healthy, unless overridden.
@@ -32,14 +33,17 @@ const READY_TIMEOUT_SECS: u64 = 900;
 /// test, attributed to whatever the test happened to be doing.
 const POLL_INTERVAL_MILLIS: u64 = 500;
 
+/// Six hours. A tier that has not become healthy by then is broken rather than slow, and a
+/// deadline settable past it would restore the indefinite wait this module exists to remove.
+const READY_TIMEOUT_MAX_SECS: u64 = 21_600;
+
 /// The readiness deadline on this host.
+///
+/// Read through the docker tier's own budget reader rather than a second copy of the same five
+/// lines, which is where the clamp comes from too: this was the one budget in the tier with no
+/// floor, so a `0` degraded the gate to a single poll.
 fn deadline() -> Duration {
-    Duration::from_secs(
-        std::env::var("SUTURA_DEV_READY_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(READY_TIMEOUT_SECS),
-    )
+    budget_from_env("SUTURA_DEV_READY_TIMEOUT_SECS", READY_TIMEOUT_SECS, READY_TIMEOUT_MAX_SECS)
 }
 
 /// Poll the health report until every expected service is ready, or the deadline passes.
@@ -67,11 +71,6 @@ fn poll_until_ready(
     mut poll: impl FnMut() -> Result<docker::Output, docker::Failed>,
 ) -> Result<(), Verdict> {
     let started = Instant::now();
-    // What the last poll was still waiting for. Carried out of the match so a timeout says which
-    // service never arrived rather than only that one did not - and declared without a value,
-    // because the only path that reads it is the one the `Waiting` arm assigns on.
-    let mut last: Vec<String>;
-
     loop {
         let reported = match poll() {
             Ok(out) if out.ok => docker::parse_ps(&out.stdout),
@@ -100,16 +99,19 @@ fn poll_until_ready(
                 eprintln!("  `docker compose --project-name {project} logs` has the detail.");
                 return Err(Verdict::Fail);
             }
-            docker::Readiness::Waiting(why) => last = why,
-        }
-
-        if started.elapsed() >= deadline {
-            eprintln!("xtask dev-up: {} service(s) never became ready:", last.len());
-            for line in &last {
-                eprintln!("  {line}");
+            // The deadline is checked HERE rather than after the match, because this is the only
+            // arm that does not return - and the names it carries are what a timeout has to print,
+            // so keeping them in scope is what makes the report say which service never arrived.
+            docker::Readiness::Waiting(why) => {
+                if started.elapsed() >= deadline {
+                    eprintln!("xtask dev-up: {} service(s) never became ready:", why.len());
+                    for line in &why {
+                        eprintln!("  {line}");
+                    }
+                    eprintln!("  waited {}s (SUTURA_DEV_READY_TIMEOUT_SECS)", deadline.as_secs());
+                    return Err(Verdict::Fail);
+                }
             }
-            eprintln!("  waited {}s (SUTURA_DEV_READY_TIMEOUT_SECS)", deadline.as_secs());
-            return Err(Verdict::Fail);
         }
         std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MILLIS));
     }
@@ -139,9 +141,8 @@ mod tests {
 
     #[test]
     fn a_daemon_that_wedges_after_the_preflight_fails_the_readiness_gate_rather_than_hanging_it() {
-        // The defect, at the loop rather than at the process. The deadline was read only after
-        // `docker compose ps` RETURNED, so a `ps` that never returned meant this budget was never
-        // consulted and `just dev-up` blocked with no output naming a cause.
+        // The defect this module's header describes, pinned at the loop rather than at the process:
+        // a poll that produced no answer must fail the gate, not take another lap.
         let mut polls = 0_u32;
         let started = Instant::now();
         let verdict = poll_until_ready(
@@ -155,9 +156,8 @@ mod tests {
         );
 
         assert_eq!(verdict, Err(Verdict::Fail));
-        // It failed rather than looping, and it did so having been handed the real fifteen-minute
-        // deadline: this is the assertion that the gate no longer waits on a runtime that has
-        // stopped answering, and it is not satisfied by a loop that merely terminates eventually.
+        // Handed the REAL deadline, so these two are the assertions that carry the property: a loop
+        // that merely terminates eventually satisfies neither.
         assert_eq!(polls, 1, "a silent runtime must not be asked again");
         assert!(
             started.elapsed() < Duration::from_secs(5),
@@ -183,8 +183,8 @@ mod tests {
 
     #[test]
     fn a_healthy_tier_passes_on_the_first_poll() {
-        // A bound that fails closed on everything is not a bound, it is an outage that still prints
-        // a reason - so the ordinary case is asserted beside the two failures.
+        // The ordinary case, asserted beside the two failures: a gate that failed on everything
+        // would satisfy both of those and be useless.
         let verdict = poll_until_ready(
             &["postgres"],
             Duration::from_secs(READY_TIMEOUT_SECS),
