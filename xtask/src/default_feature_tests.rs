@@ -37,10 +37,10 @@
 //! package's graph and no other. A single `nextest run` naming both packages resolves them together,
 //! which can enable a feature neither ships with - a different configuration, checked instead of the
 //! one that is published. **The limit of that claim**: the package's own feature SELECTION is the
-//! release's, which is what both refusal tests turn on, but a test run resolves DEV-dependencies too
-//! - `sutura-serve`'s pull `sutura-dev` with `mock-issuer` - and a release derivation has no
-//! dev-dependency graph at all, so unification over a shared dependency can differ from what is
-//! published. What this runs is the shipped SELECTION, not a byte-identical build of the artefact.
+//! release's, which is what both refusal tests turn on, but a test run also resolves
+//! DEV-dependencies (`sutura-serve`'s pull `sutura-dev` with `mock-issuer`) and a release derivation
+//! has no dev-dependency graph at all, so unification over a shared dependency can differ from what
+//! is published. What this runs is the shipped SELECTION, not a byte-identical build of the artefact.
 //!
 //! **AN EMPTY RUN IS RED**, because a lane that selects nothing and reports success is the defect
 //! this gate exists to end, one level up. `--no-tests fail` is passed rather than inherited, and the
