@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use sutura_app::prompt::{CatalogProse, PromptInputs, Tool};
+use sutura_app::surface::{LocalService, Surface as _};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 use sutura_domain::measure::RequiredFilter;
@@ -22,6 +23,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::Value;
+use sutura_runtime::TracingAuditSink;
 use sutura_semantic::Compiled;
 use sutura_sql::Dialect;
 
@@ -335,7 +337,13 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let question_path = arg(args, 1, "question.yaml", usage)?;
         let data = args.get(2).map(PathBuf::from);
 
-        let pinned = load(Path::new(&root))?;
+        // The catalog READER and not the bundle, because the service's constructor is what loads it:
+        // `LocalService::start` takes the port, re-runs every anchor, and hands back a service only
+        // if the bundle is fit to serve. The bundle is still needed here, before the engine exists,
+        // to know which tables to attach - which is the same double load `crate::mcp` and
+        // `sutura-serve` both do, and `refuse_unattached` below is what closes the gap it leaves.
+        let catalog = catalog_reader(Path::new(&root))?;
+        let pinned = catalog.load().map_err(|e| render(&e))?;
         let question = read_question(Path::new(&question_path))?;
         let settings = crate::sources::configured()?;
         // **The exhaustive match is the caller's, and that is what erasing later would have cost.**
@@ -350,58 +358,74 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             settings.server().request_timeout(),
             data.as_deref(),
         )? {
-            crate::sources::Opened::Files(opened) => answered(pinned, &question, &opened, settings.runtime()),
+            crate::sources::Opened::Files(opened) => answered(&catalog, &question, opened, settings.runtime()),
             #[cfg(feature = "bigquery")]
-            crate::sources::Opened::BigQuery(opened) => answered(pinned, &question, &opened, settings.runtime()),
+            crate::sources::Opened::BigQuery(opened) => answered(&catalog, &question, opened, settings.runtime()),
         }
     })())
 }
 
-/// Verifies the bundle against the data system that was opened, answers the question, and prints it.
+/// Starts the service over the data system that was opened, answers the question, and prints it.
 ///
-/// Generic in the adapter, so the two arms above share every line after them. It takes the bundle by
-/// value because `verify_and_validate` consumes it: the only constructor of `Validated` is the one
-/// that re-ran every anchor, which is what stops an arrangement of these lines that skips the check.
+/// Generic in the adapter, so the two arms above share every line after them.
+///
+/// **Through [`LocalService`] rather than `sutura_app::answer`, and that is the whole of this
+/// function's shape.** The invariants tree says every outcome is recorded before it is returned and
+/// names the service's constructor as what holds it - a constructor that takes a sink and has no
+/// form that omits one. This command used to call the application's answer function directly and
+/// drop the deadline with `into_outcome`, so the one shipped command a person runs on a terminal
+/// answered with no record while the row said otherwise. `crate::mcp` already composed it this way;
+/// this is the same composition behind a different driving port, and
+/// `cargo xtask check-boundaries` is what stops the direct call coming back.
+///
+/// The sink is [`TracingAuditSink`] and this binary installs no subscriber, so the record goes
+/// nowhere unless a composition installs one - the same honest default `crate::mcp` states, and the
+/// reason the row's limit says a written record is not a retained one. What changes is that the
+/// record exists before the rows are printed rather than not at all.
 fn answered<W>(
-    pinned: PinnedDefinitions,
+    catalog: &LocalCatalog,
     question: &Query,
-    opened: &crate::sources::OpenedWith<W>,
+    opened: crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
 ) -> Result<(), String>
 where
-    W: sutura_domain::warehouse::Warehouse,
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
 {
-    // The governance is not an order this function has to remember. One call runs the anchors against
-    // the engine it was handed and hands back a bundle only if every one reproduced its number;
-    // `sutura_app::answer` takes nothing else. A corrupted anchor stops here rather than answering.
-    let validated = sutura_app::verify_and_validate(pinned, &opened.engines)
-        .map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
+    // The governance is not an order this function has to remember. One call loads the catalog, runs
+    // the anchors against the engine it was handed and hands back a service only if every one
+    // reproduced its number. A corrupted anchor stops here rather than answering.
+    //
+    // **The working-set number is `runtime.working_set_max_bytes` and no longer a `1 << 30` literal**
+    // - a review correction, and the same one `sources::working_set` took. The answer path reads it
+    // only on the federated leg, which this command refuses, so nothing observable changes today;
+    // what changes is that an operator who lowered that key has not been quietly ignored by the one
+    // number this call passes. A literal here was the duplicate that drifts, one accessor from the
+    // value.
+    let service = LocalService::start(
+        catalog,
+        opened.engines,
+        TracingAuditSink::new(),
+        opened.broker,
+        runtime.working_set().bytes().get() as u64,
+    )
+    .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
+    // The gap the second load leaves, closed the way `crate::mcp` closes it: a model added to the
+    // catalog directory between the load above and the load inside `start` would otherwise be
+    // answered against a table nothing registered. Skipped for a data system nothing was attached
+    // to - nothing to compare is not the same as nothing missing.
+    if let Some(attached) = opened.attached {
+        crate::sources::refuse_unattached(&crate::sources::served_tables(service.definitions()), &attached)?;
+    }
     // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller, and
     // the identity the data system is reached under is the process's own.
-    let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
-    // The broker comes off the same value the engines did, which is the whole point of `OpenedWith`
+    //
+    // The broker came off the same value the engines did, which is the whole point of `OpenedWith`
     // carrying it: there is no path here that executes without a credential - `Warehouse::execute`
     // has no signature for it - and what the leg presents agrees with what the adapter was opened
     // under because ONE decision produced both.
-    //
-    // `into_outcome` because this command writes no audit record: the deadline `Answered` also
-    // carries is for a sink, and this binary answers one question on a terminal and exits.
-    //
-    // **The working-set number is `runtime.working_set_max_bytes` and no longer a `1 << 30` literal**
-    // - a review correction, and the same one `sources::working_set` took. `answer` reads it only on
-    // the federated path, which this command refuses, so nothing observable changes today; what
-    // changes is that an operator who lowered that key has not been quietly ignored by the one number
-    // this call passes. A literal here was the duplicate that drifts, one accessor from the value.
-    let outcome = sutura_app::answer(
-        &validated,
-        question,
-        &context,
-        &opened.broker,
-        &opened.engines,
-        runtime.working_set().bytes().get() as u64,
-    )
-    .map_err(|e| render(&e))?
-    .into_outcome();
+    let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
+    let outcome = service.answer(&context, question).map_err(|e| render(&e))?;
     print_outcome(&outcome)
 }
 
