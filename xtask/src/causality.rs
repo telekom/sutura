@@ -33,6 +33,21 @@
 //! records the defect the earlier shape produced and the limits of what replaced it - a
 //! tests-only branch reported as "changes behaviour and adds tests in one file", which is a
 //! different message asking for a different thing.
+//!
+//! WHICH TESTS ARE PROVEN, and this is the part that used to be missing. Both runs are scoped to
+//! the tests the diff ADDED ([`scoped`]), and the base run's verdict compares every failure it
+//! reported against that same set ([`base`]). Before that, the run was `--workspace` unfiltered
+//! and any assertion failure anywhere counted as red-by-assertion, so one unrelated failing cell
+//! early in the run answered "red on base" while the tests under test never ran at all. Two
+//! mechanisms rather than one, deliberately: the filter stops the unrelated failure happening,
+//! and the comparison stops it being read as evidence if the filter ever stops filtering.
+//!
+//! SCOPING THE HEAD RUN NARROWS A CLAIM, and the narrowing is on purpose. "The suite is green on
+//! HEAD" was never this gate's property - it is what `just test` and the nix `nextest` check are
+//! for - and holding it here meant the gate reported nothing about a change whenever anything
+//! else in the tree was red. What it asserts now is exactly what it needs: *these tests are green
+//! on HEAD and red on base*. Because nextest fails when a filter matches nothing, a test this
+//! gate cannot name is a loud failure on the HEAD run rather than a quiet pass.
 
 use std::path::Path;
 use std::process::Command;
@@ -40,14 +55,18 @@ use std::process::Command;
 use crate::Verdict;
 use crate::repo;
 
+mod base;
 mod diff;
 // `pub(crate)` rather than private: `crate::refusals` reads the same test regions this gate does,
 // because "which lines of this file are test code" is one question and a second implementation of
 // it would be a second thing to keep in step. Nothing else about the module moved.
 pub(crate) mod regions;
+mod scoped;
 
+use base::{BaseOutcome, classify_base, names_no_tests, report_base, tail};
 use diff::{ChangedFile, changed_with_additions};
-use regions::{AddedLine, PostImage, has_non_test_additions, scope};
+use regions::{PostImage, has_non_test_additions, scope};
+use scoped::{Scoped, adds_test};
 
 /// What the gate concluded, so the shape is testable without git or cargo.
 #[derive(Debug, PartialEq, Eq)]
@@ -68,23 +87,6 @@ pub(crate) enum Plan {
     },
     /// Impl and tests share a file; a human must state the evidence.
     NotSeparable { files: Vec<String> },
-}
-
-/// Does this diff hunk add a test?
-///
-/// Deliberately syntactic and deliberately generous: `#[test]`, `#[tokio::test]`,
-/// `#[rstest]`, a new `mod tests`. A false positive costs a slower gate; a false negative
-/// lets a vacuous test through, so the bias goes one way on purpose.
-fn adds_test(added_lines: &[AddedLine]) -> bool {
-    added_lines.iter().any(|l| {
-        let t = l.text.trim();
-        t.starts_with("#[test]")
-            || t.starts_with("#[tokio::test")
-            || t.starts_with("#[rstest")
-            || t.starts_with("#[test_case")
-            || (t.starts_with("mod tests") && t.contains('{'))
-            || t.starts_with("#[cfg(test)]")
-    })
 }
 
 /// Is this a Rust source path? Case-insensitive, since a case-sensitive extension test is
@@ -174,13 +176,8 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
 /// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
 /// and passing `ci` there would select a nextest profile that does not exist rather than a
 /// cargo one that does.
-fn cargo_test(dir: &Path, target: &Path) -> (bool, String) {
-    let out = Command::new("cargo")
-        .current_dir(dir)
-        .env("CARGO_TARGET_DIR", target)
-        .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile", "ci"])
-        .output();
-    match out {
+fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree) -> (bool, String) {
+    match nextest(dir, target, only, tree).output() {
         Ok(o) => {
             let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&o.stderr));
@@ -188,6 +185,49 @@ fn cargo_test(dir: &Path, target: &Path) -> (bool, String) {
         }
         Err(e) => (false, format!("could not run cargo: {e}")),
     }
+}
+
+/// Which tree a run happens in - which is a question about SERVICES, not about sources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tree {
+    /// The repo root: the tree whose service tier something provisioned before invoking the gate.
+    Provisioned,
+    /// The base worktree under `target/`, which no provisioner has ever seen.
+    Reconstructed,
+}
+
+/// The nextest invocation for one run.
+///
+/// THE REQUIREMENT DOES NOT CROSS INTO A TREE ITS ENDPOINT CANNOT REACH. `nix/with-tier.sh`
+/// exports `SUTURA_DEV_REQUIRE_TIER` into the recipe's whole process tree, so this gate inherits
+/// it - while the endpoint that requirement belongs to is published to
+/// `<root>/.sutura-dev/endpoints.json` and resolved by walking up from the harness. The base run
+/// happens in a git-derived worktree whose root is a different directory, and that file is
+/// gitignored, so it is not there and cannot be: the requirement crossed and the endpoint did
+/// not, and every tier-backed cell failed CLOSED in a tree where nothing was provisioned.
+///
+/// Measured, and it is why this parameter exists rather than a comment: two such cells were the
+/// whole of a base run's red, 86 tests into 1810, and the gate reported it as proof about a
+/// change that touched neither. `sutura_dev::requirement`'s own rule is that only the thing which
+/// provisioned a tier may declare one - so a run in a tree nothing provisioned gets the
+/// developer-machine direction, which skips loudly and names what did not run.
+///
+/// WHAT THAT LEAVES: a tier-backed cell cannot be proven causal by this gate. It skips in the
+/// reconstructed tree instead of running, so the base run is green and the verdict is *green
+/// against base behaviour* - a false alarm rather than a false green, which is the direction to
+/// be wrong in. Closing it means publishing an endpoint into a second root, and a second root for
+/// the discovery file is the cross-worktree defect `dev/src/scope.rs` exists to prevent.
+fn nextest(dir: &Path, target: &Path, only: &str, tree: Tree) -> Command {
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(dir)
+        .env("CARGO_TARGET_DIR", target)
+        .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile", "ci"])
+        .args(["-E", only]);
+    if tree == Tree::Reconstructed {
+        command.env_remove(sutura_dev::requirement::FORCE);
+    }
+    command
 }
 
 /// Does `path` exist at `base`?
@@ -216,47 +256,6 @@ fn base_has(root: &Path, base: &str, path: &str) -> bool {
 /// here already read by, and as the one place that would have to change if they diverged.
 fn strip_git_env_for(command: &mut Command) {
     crate::repo::strip_git_env(command);
-}
-
-/// What the base run actually told us.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BaseOutcome {
-    /// The changed tests passed without the change: they do not test it.
-    Green,
-    /// A test failed an assertion. This is the evidence the gate exists to collect.
-    RedByAssertion,
-    /// The tree did not build. Red, but it proves nothing about behaviour.
-    DidNotCompile,
-}
-
-/// Classify a base test run.
-///
-/// The distinction matters more than it looks. Before this existed, a base tree that failed to
-/// COMPILE counted as "red, as required" and the gate passed - a false green over exactly the
-/// changes it is supposed to judge. A test that does not compile has not been run.
-pub(crate) fn classify_base(text: &str, succeeded: bool) -> BaseOutcome {
-    if succeeded {
-        return BaseOutcome::Green;
-    }
-    // Order matters: a tree that did not build often ALSO prints "error: test run failed",
-    // so the compile check has to come first or a build failure reads as a real red.
-    let compile_failure = text.contains("could not compile")
-        || text.contains("error[E")
-        || text.contains("error: cannot find")
-        || text.contains("unresolved import");
-    if compile_failure {
-        return BaseOutcome::DidNotCompile;
-    }
-    // nextest first, then the `cargo test` wording, so the classifier survives a runner swap.
-    let assertion_failure = text.contains("error: test run failed")
-        || text.contains("FAIL [")
-        || text.contains("test result: FAILED")
-        || text.contains("panicked at");
-    if assertion_failure {
-        return BaseOutcome::RedByAssertion;
-    }
-    // Unknown failure: do not claim a proof we did not get.
-    BaseOutcome::DidNotCompile
 }
 
 /// Set up a detached worktree at HEAD under the given path.
@@ -312,6 +311,26 @@ fn report_not_separable(files: &[String]) -> Verdict {
     Verdict::Pass
 }
 
+/// A plan with test files whose tests this gate could not NAME.
+///
+/// FAILS, and that direction is the whole point. Both runs are scoped to the tests the diff
+/// added, so a scan that names none has two possible fallbacks: run nothing, or run everything.
+/// Running everything is the unfiltered run whose verdict was a property of the suite - the defect
+/// this scoping removes - and running nothing is a green gate over zero measurements. An empty
+/// scan is therefore a refusal, and the fix is the extractor rather than the run.
+fn report_unnamed_tests(test_files: &[String]) -> Verdict {
+    eprintln!("xtask test-causality: FAILED - the added tests could not be NAMED");
+    for f in test_files {
+        eprintln!("  {f} adds a test whose name this gate could not read");
+    }
+    eprintln!();
+    eprintln!("Both runs are scoped to the tests the diff added, so naming none of them would");
+    eprintln!("leave the gate measuring the whole suite and reading any failure in it as evidence");
+    eprintln!("about this change. An attribute `causality::scoped` does not recognise is the");
+    eprintln!("likely cause - add it there rather than widening the run.");
+    Verdict::Fail
+}
+
 /// The base state to put a worktree into: files to check out at `base`, files to delete.
 ///
 /// Two of these exist per proof. The first is the implementation change; the second is the files
@@ -338,7 +357,7 @@ fn base_state<'a>(root: &Path, base: &str, files: &'a [String]) -> BaseState<'a>
 }
 
 /// Reconstruct the baseline in a worktree and require the changed tests to fail there.
-fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held_back: &[String]) -> Verdict {
+fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held_back: &[String], scoped: &Scoped) -> Verdict {
     let first = base_state(root, base, revert);
     let held = base_state(root, base, held_back);
 
@@ -380,9 +399,17 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
     // both files and fails if they differ; it finds this binding by name, so a rename here is a
     // red gate rather than a silent one.
     let shared_target = root.join("target").join("causality-target");
-    let (head_ok, head_out) = cargo_test(root, &shared_target);
+    let only = scoped.filterset();
+    let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
-        eprintln!("xtask test-causality: FAILED - the tests are not green on HEAD");
+        if names_no_tests(&head_out) {
+            eprintln!("xtask test-causality: FAILED - nextest matched none of the tests this diff added");
+            eprintln!("  filter: {only}");
+            eprintln!("  A name this gate extracted is not a name nextest knows, so scoping the run");
+            eprintln!("  would silently measure nothing. Fix the extractor in `causality::scoped`.");
+        } else {
+            eprintln!("xtask test-causality: FAILED - the tests this diff added are not green on HEAD");
+        }
         eprintln!("{}", tail(&head_out, 30));
         return Verdict::Fail;
     }
@@ -395,7 +422,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
         return Verdict::Fail;
     }
 
-    let verdict = reconstruct_and_run(&wt, base, &first, &held, &shared_target);
+    let verdict = reconstruct_and_run(&wt, base, &first, &held, &shared_target, scoped);
     remove_worktree(root, &wt);
     verdict
 }
@@ -414,14 +441,22 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
 /// Restoring those too costs one more incremental build and yields a tree that is coherently at
 /// base, where the tests that ARE separable get the verdict they came for. Their own tests go
 /// with them, which is exactly what `plan` already excluded from the proof.
-fn reconstruct_and_run(wt: &Path, base: &str, first: &BaseState<'_>, held: &BaseState<'_>, target: &Path) -> Verdict {
+fn reconstruct_and_run(
+    wt: &Path,
+    base: &str,
+    first: &BaseState<'_>,
+    held: &BaseState<'_>,
+    target: &Path,
+    scoped: &Scoped,
+) -> Verdict {
     if let Err(e) = apply(wt, base, first) {
         eprintln!("xtask test-causality: {e}");
         return Verdict::Fail;
     }
 
-    let (base_ok, base_out) = cargo_test(wt, target);
-    let outcome = classify_base(&base_out, base_ok);
+    let only = scoped.filterset();
+    let (base_ok, base_out) = cargo_test(wt, target, &only, Tree::Reconstructed);
+    let outcome = classify_base(&base_out, base_ok, scoped.names());
 
     if retry_with_held_back(&outcome, held) {
         println!("  base: did not compile with the held-back file(s) still at HEAD");
@@ -437,8 +472,8 @@ fn reconstruct_and_run(wt: &Path, base: &str, first: &BaseState<'_>, held: &Base
             eprintln!("xtask test-causality: {e}");
             return Verdict::Fail;
         }
-        let (retry_ok, retry_out) = cargo_test(wt, target);
-        return report_base(&classify_base(&retry_out, retry_ok), &retry_out, true);
+        let (retry_ok, retry_out) = cargo_test(wt, target, &only, Tree::Reconstructed);
+        return report_base(&classify_base(&retry_out, retry_ok, scoped.names()), &retry_out, true);
     }
 
     report_base(&outcome, &base_out, false)
@@ -488,45 +523,6 @@ fn apply(wt: &Path, base: &str, state: &BaseState<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// Turn a base run into the gate's verdict.
-///
-/// `retried` only changes what the operator is told: after a second attempt, "not separable at
-/// file level" is no longer the likely explanation, because the tree WAS coherently at base.
-fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) -> Verdict {
-    match *outcome {
-        BaseOutcome::Green => {
-            eprintln!("xtask test-causality: FAILED - green against base behaviour");
-            eprintln!();
-            eprintln!("The changed tests pass with the implementation reverted, so they do not");
-            eprintln!("test the change. Make the test exercise the new behaviour, or say plainly");
-            eprintln!("that it is not a regression test.");
-            Verdict::Fail
-        }
-        BaseOutcome::RedByAssertion => {
-            println!("  base: red by assertion, as required");
-            println!("{}", tail(output, 12));
-            println!("xtask test-causality: ok - red on base, green on head");
-            Verdict::Pass
-        }
-        BaseOutcome::DidNotCompile => {
-            println!("  base: did not compile");
-            println!("{}", tail(output, 12));
-            println!();
-            println!("xtask test-causality: INCONCLUSIVE - the base tree does not build.");
-            println!("That is red, but a test that never ran is not evidence about behaviour.");
-            if retried {
-                println!("This is the SECOND attempt: every changed file is at base here, so the");
-                println!("build failure is in the changed tests themselves - they reference");
-                println!("something this branch introduced. State the evidence in the handoff.");
-            } else {
-                println!("Usually it means the change is not separable at file level: the test and");
-                println!("what it needs arrived together. State the evidence in the handoff.");
-            }
-            Verdict::Pass
-        }
-    }
-}
-
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
 pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(base) = base_ref(args) else {
@@ -568,22 +564,23 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                 println!("  regression test and this gate cannot prove it is causal.");
                 return Verdict::Pass;
             }
-            prove(&root, &base, &revert, &test_files, &held_back)
+            let Some(scoped) = Scoped::of(&files, &test_files, &working_tree) else {
+                return report_unnamed_tests(&test_files);
+            };
+            prove(&root, &base, &revert, &test_files, &held_back, &scoped)
         }
     }
 }
 
-/// The last `n` lines, so a failure shows the assertion rather than the whole compile log.
-fn tail(text: &str, n: usize) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let start = lines.len().saturating_sub(n);
-    lines.get(start..).map_or_else(String::new, |s| s.join("\n"))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
+    use std::path::Path;
+
+    use super::base::BaseOutcome;
     use super::regions::AddedLine;
-    use super::{BaseOutcome, BaseState, ChangedFile, Plan, adds_test, apply, plan, retry_with_held_back};
+    use super::scoped::Scoped;
+    use super::{BaseState, ChangedFile, Plan, Tree, apply, nextest, plan, retry_with_held_back};
 
     /// A post-image reader over a fixed set of files, standing in for the working tree.
     fn tree(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
@@ -609,15 +606,6 @@ mod tests {
             .enumerate()
             .map(|(offset, text)| AddedLine::new(first + offset, *text))
             .collect()
-    }
-
-    #[test]
-    fn recognises_added_tests() {
-        assert!(adds_test(&added_from(1, &["    #[test]"])));
-        assert!(adds_test(&added_from(1, &["#[tokio::test]"])));
-        assert!(adds_test(&added_from(1, &["#[cfg(test)]"])));
-        assert!(adds_test(&added_from(1, &["mod tests {"])));
-        assert!(!adds_test(&added_from(1, &["fn thing() {}", "// a comment"])));
     }
 
     #[test]
@@ -793,54 +781,6 @@ mod tests {
     }
 
     #[test]
-    fn a_base_that_did_not_compile_is_not_a_proof() {
-        use super::{BaseOutcome, classify_base};
-        // The false green this replaced: `cargo test` failed, so the gate said "red, as
-        // required" and passed. A tree that does not build has run no tests.
-        let compile = "error[E0432]: unresolved import `crate::thing`\nerror: could not compile";
-        assert_eq!(classify_base(compile, false), BaseOutcome::DidNotCompile);
-    }
-
-    #[test]
-    fn a_failed_assertion_is_the_evidence_wanted() {
-        use super::{BaseOutcome, classify_base};
-        // nextest's wording, which is what this now sees.
-        let nextest = "    FAIL [ 0.006s] xtask::bin/xtask a::b\n Summary 42 passed, 1 failed\nerror: test run failed";
-        assert_eq!(classify_base(nextest, false), BaseOutcome::RedByAssertion);
-        // And `cargo test`'s, so the classifier survives a runner swap.
-        let cargo = "running 3 tests\nthread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
-        assert_eq!(classify_base(cargo, false), BaseOutcome::RedByAssertion);
-    }
-
-    #[test]
-    fn a_build_failure_wins_over_a_test_run_failure_line() {
-        use super::{BaseOutcome, classify_base};
-        // nextest prints "error: test run failed" when the build failed too. Reading that as a
-        // real red is the false green this gate already had once.
-        let both = "error[E0433]: failed to resolve\nerror: could not compile\nerror: test run failed";
-        assert_eq!(classify_base(both, false), BaseOutcome::DidNotCompile);
-    }
-
-    #[test]
-    fn a_passing_base_means_the_test_does_not_test_the_change() {
-        use super::{BaseOutcome, classify_base};
-        assert_eq!(
-            classify_base("test result: ok. 12 passed; 0 failed", true),
-            BaseOutcome::Green
-        );
-    }
-
-    #[test]
-    fn an_unrecognised_failure_claims_nothing() {
-        use super::{BaseOutcome, classify_base};
-        // Conservative on purpose: an unfamiliar failure is not evidence of causality.
-        assert_eq!(
-            classify_base("linker exited with signal 9", false),
-            BaseOutcome::DidNotCompile
-        );
-    }
-
-    #[test]
     fn non_rust_files_are_ignored() {
         let files = vec![changed("README.md", 1, &["#[test]"])];
         assert_eq!(plan(&files, &tree(&[])), Plan::NotRequired);
@@ -907,7 +847,10 @@ mod tests {
         assert!(!retry_with_held_back(&BaseOutcome::DidNotCompile, &nothing_held));
         // A run that reached an assertion has ANSWERED. Retrying would revert the implementation
         // whose absence that assertion just measured, turning evidence into a different question.
-        assert!(!retry_with_held_back(&BaseOutcome::RedByAssertion, &held));
+        assert!(!retry_with_held_back(
+            &BaseOutcome::RedByAssertion { failed: Vec::new() },
+            &held
+        ));
         assert!(!retry_with_held_back(&BaseOutcome::Green, &held));
     }
 
@@ -930,5 +873,53 @@ mod tests {
 
         let _swept = std::fs::remove_dir_all(&wt);
         assert!(applied.is_ok(), "an absent file is the state asked for, got {applied:?}");
+    }
+    /// The tests one added file declares, for the two wiring assertions below.
+    fn one_added_test() -> Scoped {
+        let files = vec![changed("crates/x/tests/t.rs", 1, &["#[test]", "fn the_added_one() {}"])];
+        let read = tree(&[("crates/x/tests/t.rs", "#[test]\nfn the_added_one() {}\n")]);
+        Scoped::of(&files, &[String::from("crates/x/tests/t.rs")], &read).expect("one added test")
+    }
+
+    #[test]
+    fn both_runs_are_filtered_to_the_tests_the_diff_added() {
+        // The wiring, which no assertion about the filter expression alone would catch: a
+        // filterset that never reaches the command line leaves the whole-suite run in place, and
+        // that run's verdict is a property of the suite rather than of the change.
+        let command = nextest(
+            Path::new("/tmp/root"),
+            Path::new("/tmp/target"),
+            &one_added_test().filterset(),
+            Tree::Provisioned,
+        );
+        let args: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        assert!(args.iter().any(|arg| arg == "-E"), "{args:?}");
+        assert!(
+            args.iter().any(|arg| arg == "test(/(?:^|::)the_added_one(?:::|$)/)"),
+            "{args:?}"
+        );
+    }
+
+    #[test]
+    fn a_tier_backed_cell_is_not_required_in_a_worktree_the_endpoint_does_not_reach() {
+        // `nix/with-tier.sh` exports the requirement into this gate's whole process tree, and the
+        // endpoint it belongs to is published under the ROOT - so the base run, which happens in
+        // a worktree under `target/`, inherited a requirement whose discovery file is gitignored
+        // and therefore absent there. Every tier-backed cell then failed CLOSED in a tree nothing
+        // had provisioned, and the gate reported that as red-on-base.
+        let requirement = OsStr::new(sutura_dev::requirement::FORCE);
+        let removed = |tree: Tree| {
+            nextest(Path::new("/tmp/dir"), Path::new("/tmp/target"), "test(=t)", tree)
+                .get_envs()
+                .any(|(name, value)| name == requirement && value.is_none())
+        };
+        assert!(
+            removed(Tree::Reconstructed),
+            "a tree nothing provisioned may not inherit the requirement"
+        );
+        assert!(
+            !removed(Tree::Provisioned),
+            "the root keeps it: that is the tree whose endpoint was published"
+        );
     }
 }
