@@ -142,7 +142,8 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::model::{
-        Aggregate, ColumnName, DatasetName, Grain, MetricName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
+        Aggregate, ColumnName, DatasetName, Grain, MetricName, ModelName, ProjectName, QualifiedTable, SourceName, TableName,
+        TableQualifier,
     };
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::{
@@ -150,7 +151,7 @@ mod tests {
         StatementTables,
     };
     use sutura_domain::warehouse::preflight::TablesPresent;
-    use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
+    use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse};
 
     use sutura_app::Warehouses;
     use sutura_app::preflight::{Verdict, ask};
@@ -165,9 +166,6 @@ mod tests {
     /// a leg passing for the wrong reason: `preflight` reports an unknown name absent whatever it is,
     /// so nothing here would go red.
     const NO_SUCH_TABLE: &str = "sutura_acceptance_no_such_table";
-
-    /// A dataset name the fixture's project does not hold, for the leg about a listing that FAILS.
-    const NO_SUCH_DATASET: &str = "sutura_acceptance_no_such_dataset";
 
     /// The model the seam leg's bundles declare over the table the dataset really holds.
     const MODEL_ON_A_HELD_TABLE: &str = "held_here";
@@ -250,6 +248,21 @@ mod tests {
 
     fn source() -> SourceName {
         SourceName::parse("warehouse").expect("a source name is a source name")
+    }
+
+    /// [`NO_SUCH_TABLE`], parsed - the bare name, for a caller that qualifies it itself.
+    fn no_such_table() -> TableName {
+        TableName::parse(NO_SUCH_TABLE).expect("a table name parses")
+    }
+
+    /// [`NO_SUCH_TABLE`] as an unqualified path, which is the shape four legs ask about.
+    ///
+    /// **Unqualified on purpose, in every one of them.** `preflight` partitions an unaddressable path
+    /// into the absent set BEFORE anything is listed, so a name qualified into a dataset that is not
+    /// there could answer *absent* without a call ever being made. Resolved by the source's own
+    /// default dataset, the answer comes back from a real listing.
+    fn absent_table() -> QualifiedTable {
+        QualifiedTable::from(no_such_table())
     }
 
     /// A plan over the developer's table, built the way the compiler builds one.
@@ -487,7 +500,7 @@ mod tests {
         // `panic = "abort"`.
         let fixture = Fixture::required();
         let warehouse = warehouse(fixture);
-        let absent = QualifiedTable::from(TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
+        let absent = absent_table();
         let plan = plan(&absent);
 
         let refused = warehouse
@@ -537,7 +550,7 @@ mod tests {
         // A fictitious literal, so it is the one name in this leg nothing needs masking - and it is
         // the same spelling the `dry_run` control above uses, because both are asking *what does this
         // dataset do with a name it does not hold*.
-        let absent = QualifiedTable::from(TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
+        let absent = absent_table();
         let warehouse = warehouse(fixture);
 
         let clean = BTreeSet::from([present.clone()]);
@@ -596,8 +609,7 @@ mod tests {
         // billed for nothing.
         let fixture = Fixture::required();
         let present = fixture.unqualified();
-        let nowhere =
-            fixture.qualified_in_project(NO_SUCH_DATASET, TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
+        let nowhere = fixture.qualified_in_project("sutura_acceptance_no_such_dataset", no_such_table());
         let warehouse = warehouse(fixture);
 
         assert_eq!(
@@ -635,10 +647,13 @@ mod tests {
     /// the format requires it rather than because the pre-flight reads it: `tables.list` reports
     /// existence, and this record's own limit is that it says nothing about the columns a model names.
     ///
-    /// The scratch directory is cleared on the way IN, which is `sutura_catalog_local`'s own
-    /// argument: a failing run leaves its documents on disk to read, and the next run still starts
-    /// clean. `tempfile` is not a dependency of this workspace and two tests are not the argument for
-    /// adding one.
+    /// The scratch directory is `{case}-{pid}` and is cleared on the way IN, which is the shape nine
+    /// other modules here already use - `sutura_catalog_local`, `sutura_config::settings`,
+    /// `sutura_serve`'s served harness and the rest: a failing run leaves its documents on disk to
+    /// read, and the pid is what makes the next run start clean. **Consistency is the reason and cost
+    /// is not, which is a correction to the argument `sutura_catalog_local` states:** `tempfile 3.27.0`
+    /// is already resolved in `Cargo.lock` transitively, so declaring it would add no package - it
+    /// would add a tenth spelling of one idiom.
     fn bundle_naming(what: &str, models: &[(&str, &str)]) -> PinnedDefinitions {
         let root = std::env::temp_dir().join(format!("sutura-preflight-seam-{what}-{}", std::process::id()));
         drop(std::fs::remove_dir_all(&root));
@@ -712,50 +727,53 @@ mod tests {
         // the sink rather than the decision. An earlier revision of `docs/adr/0018` called the whole
         // seam structurally unreachable from here, which was wrong by one dependency edge.
         //
-        // **The control is the clean bundle, asked FIRST, and it is doing more work here than in the
-        // legs above.** `Verdict::Absent` is what an empty listing produces too, so a single-sided
-        // claim would be satisfied by a decoder that read nothing. And `ask` skips a source the bundle
-        // names no model in, so a bundle that reached this source with nothing would produce NO
-        // answers at all - which is why the count is asserted before the verdict is read.
+        // **Two-sidedness is already in the mixed assertion, and the clean bundle is here for a
+        // DIFFERENT reason - which is a correction to what this comment first said.** An empty
+        // listing reports both tables absent, so comparing the absent set's keys EXACTLY against the
+        // one fictitious name already fails in that world; the clean bundle is not what rescues it.
+        // What the clean bundle is the only live exercise of is the `Present` arm - the decision
+        // mapping a real `TablesPresent::All` to a verdict a root serves on - and #216's seam is both
+        // verdicts, not just the refusing one. It costs one more `tables.list`, billed for nothing.
+        //
+        // **What the count assertion in `one_verdict` holds is the third case**, and it is the one a
+        // reader misses: `ask` SKIPS a source the bundle names no model in, so a bundle that reached
+        // this source with nothing produces no answers at all rather than a wrong verdict.
         let fixture = Fixture::required();
-        let held = String::from(fixture.table.as_str());
-        let held_table = fixture.unqualified();
-        let absent_table = QualifiedTable::from(TableName::parse(NO_SUCH_TABLE).expect("a table name parses"));
+        let held = fixture.unqualified();
+        let absent = absent_table();
         let engines = Warehouses::of(warehouse(fixture));
 
-        let clean = bundle_naming("clean", &[(MODEL_ON_A_HELD_TABLE, held.as_str())]);
+        let clean = bundle_naming("clean", &[(MODEL_ON_A_HELD_TABLE, held.name().as_str())]);
         match one_verdict(&clean, &engines) {
             Verdict::Present { asked } => assert_eq!(
                 asked, 1,
                 "the control: the decision asked this dataset about the one table the bundle names in it"
             ),
-            other => panic!("the control: a bundle naming only {held_table} is present, and the decision said {other:?}"),
+            other => panic!("the control: a bundle naming only {held} is present, and the decision said {other:?}"),
         }
 
         let mixed = bundle_naming(
             "mixed",
             &[
-                (MODEL_ON_A_HELD_TABLE, held.as_str()),
+                (MODEL_ON_A_HELD_TABLE, held.name().as_str()),
                 (MODEL_ON_AN_ABSENT_TABLE, NO_SUCH_TABLE),
             ],
         );
         match one_verdict(&mixed, &engines) {
-            Verdict::Absent(absent) => {
+            Verdict::Absent(behind) => {
                 assert_eq!(
-                    absent.named().keys().collect::<Vec<&QualifiedTable>>(),
-                    vec![&absent_table],
+                    behind.named().keys().collect::<Vec<&QualifiedTable>>(),
+                    vec![&absent],
                     "the real listing named the table that is not there, and nothing the dataset holds"
                 );
+                let models = behind.named().get(&absent).expect("the assertion above named this table");
                 assert_eq!(
-                    absent
-                        .named()
-                        .get(&absent_table)
-                        .map(|models| models.iter().map(ToString::to_string).collect::<Vec<String>>()),
-                    Some(vec![String::from(MODEL_ON_AN_ABSENT_TABLE)]),
-                    "a refusal an operator can act on names the model whose `table:` is wrong: {absent}"
+                    models.iter().map(ModelName::as_str).collect::<Vec<&str>>(),
+                    vec![MODEL_ON_AN_ABSENT_TABLE],
+                    "a refusal an operator can act on names the model whose `table:` is wrong: {behind}"
                 );
             }
-            other => panic!("a bundle naming {absent_table} has to be refused, and the decision said {other:?}"),
+            other => panic!("a bundle naming {absent} has to be refused, and the decision said {other:?}"),
         }
     }
 
@@ -764,10 +782,7 @@ mod tests {
     /// **The count is asserted here rather than in each caller**, because it is the same guard both
     /// times and it is the one that catches a bundle that reached this source with no models: `ask`
     /// skips such a source, so the honest failure is *no answer* rather than a verdict that is wrong.
-    fn one_verdict(
-        pinned: &PinnedDefinitions,
-        engines: &Warehouses<Wired>,
-    ) -> Verdict<<Wired as sutura_domain::warehouse::Warehouse>::Error> {
+    fn one_verdict(pinned: &PinnedDefinitions, engines: &Warehouses<Wired>) -> Verdict<<Wired as Warehouse>::Error> {
         let answers = ask(pinned, engines);
         assert_eq!(
             answers.len(),

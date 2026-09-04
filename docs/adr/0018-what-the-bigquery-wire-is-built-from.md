@@ -505,7 +505,9 @@ this became its second caller.
   in the warning half:** a dataset that is not there cannot be told from a name somebody is about to
   fix, and the endpoint answers `404` for an invisible project too.
 
-**Six limits, in this record's own tradition of stating them next to the claim:**
+**The limits, in this record's own tradition of stating them next to the claim** - counted by nobody,
+because a hand-maintained number over a list that grows is the same defect as the ordinal deleted two
+bullets down:
 
 - **A live dataset HAS now answered a listing, and the documents this suite decodes are still ours.**
   The three response documents were written here, which is this record's existing limit restated for
@@ -573,16 +575,21 @@ this became its second caller.
   transport's sink. Those are `pub(crate)` in crates that depend ON this one, and they are rendering
   rather than decision; a run that asserted them would be an acceptance leg in a composition root,
   which is a different crate and its own change.
-- **That leg's own harness has a control, and it is the one test in the acceptance file that is not
-  `#[ignore]`d.** `ask` **skips** a source the bundle names no model in, so a scratch bundle that
-  reached this leg's source with nothing - a `source:` that stopped matching, a document the parse
-  refused - would hand the decision an empty question rather than fail.
-  `a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about` reads no project and
-  opens no socket, so it runs in `just test` and in `checks.nextest` while `just bigquery-acceptance`
-  skips it: a harness defect fails in the gate every change runs, not in the one venue that costs a
-  credential. Provoked both ways to check it fires - the document's `source:` pointed elsewhere gives
-  `left: []` against the two models expected, and a harness writing no document at all fails on the
-  catalog adapter's own `Empty`.
+- **That leg's own harness has a control, and what holds it is prose rather than a gate.** `ask`
+  **skips** a source the bundle names no model in, so a scratch bundle that reached this leg's source
+  with nothing - a `source:` that stopped matching, a document the parse refused - would hand the
+  decision an empty question rather than fail. So
+  `a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about` is the one test in
+  that file which is not `#[ignore]`d; the acceptance file's own header carries the venue argument.
+  Provoked both ways to check it fires: the document's `source:` pointed elsewhere gives `left: []`
+  against the two models expected, and a harness writing no document at all fails on the catalog
+  adapter's own `Empty`. **The direction nothing holds is the reverse one** - `#[ignore]` added to
+  that control drops it out of every gate into the credentialled venue alone, silently. The
+  *dangerous* direction is already mechanical, because a live leg missing `#[ignore]` reaches
+  `Fixture::required()`, which fails rather than skips. What would hold the other is a line-scan gate
+  asserting the partition - every `#[test]` in those two targets that reaches `Connection::required()`
+  is `#[ignore]`d, and every one that does not is not - on `check-boot-order`'s pattern. Not built
+  here: it is an `xtask` module plus two classification-table rows, which is its own change.
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
