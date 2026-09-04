@@ -42,6 +42,13 @@
 //! mechanisms rather than one, deliberately: the filter stops the unrelated failure happening,
 //! and the comparison stops it being read as evidence if the filter ever stops filtering.
 //!
+//! THE OLD ANSWER WAS NOT EVEN STABLE, which is the part that made it hard to see. Whether an
+//! unrelated cell failed BEFORE the tests under test - and so, under fail-fast, whether the wide
+//! run ever reached them - depended on nextest's scheduling and on which tree last compiled a
+//! shared test binary (see [`cargo_test`]), so one tree answered differently in two venues and
+//! neither answer looked wrong. Scoping removes the first dependence and `--no-fail-fast` the
+//! second.
+//!
 //! SCOPING THE HEAD RUN NARROWS A CLAIM, and the narrowing is on purpose. "The suite is green on
 //! HEAD" was never this gate's property - it is what `just test` and the nix `nextest` check are
 //! for - and holding it here meant the gate reported nothing about a change whenever anything
@@ -173,6 +180,28 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
 /// COMPILERS in one directory invalidates every artifact in it; alternating our own sources
 /// does not, because cargo fingerprints them and the dependency graph below them is identical.
 ///
+/// WHAT SHARING IT DOES NOT KEEP APART, measured on 2026-09-04 and NOT fixed here. The two trees
+/// are one unit as far as cargo is concerned - same package names, same relative paths, so the
+/// same artifact - and freshness is decided by mtime, so a build in either tree overwrites the
+/// other's binaries and the next run reuses them without noticing. Reproduced from an empty
+/// directory: the HEAD run built and passed, the base run in the worktree rebuilt the same test
+/// binary, and the same command back at the root then rebuilt NOTHING and failed - on a file that
+/// was present at the root, because the binary it executed was the worktree's.
+///
+/// So a run can be measuring the OTHER tree's code, and it reaches this repository twice: the
+/// postgres harness resolves its endpoint by walking up from `env!("CARGO_MANIFEST_DIR")`, which
+/// is baked into whichever tree compiled the binary; and the reverted source is baked in the same
+/// way. That is why the failure this gate was reported for is intermittent - one tree answered
+/// differently in two venues - and it is a defect in this optimisation rather than in the
+/// classification below.
+///
+/// The direction it fails in is what makes it survivable now: a stale binary makes a scoped test
+/// pass on base ("green against base behaviour") or vanish from HEAD, both of which are loud. It
+/// can only manufacture a false GREEN by executing some third tree's binary in which the same
+/// test failed, which is a far narrower window than *any failure anywhere counts*. Removing it
+/// needs a second target directory, whose cost is the paragraph above, or a first-party rebuild
+/// forced on every run - a trade-off with its own measurement, not a detail to slip in here.
+///
 /// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
 /// and passing `ci` there would select a nextest profile that does not exist rather than a
 /// cargo one that does.
@@ -217,13 +246,20 @@ enum Tree {
 /// against base behaviour* - a false alarm rather than a false green, which is the direction to
 /// be wrong in. Closing it means publishing an endpoint into a second root, and a second root for
 /// the discovery file is the cross-worktree defect `dev/src/scope.rs` exists to prevent.
+///
+/// `--no-fail-fast` IS AFFORDABLE ONLY BECAUSE THE RUN IS SCOPED, and it is what makes the verdict
+/// the same twice. Over the whole suite it would be a long bill for output nobody reads; over the
+/// tests one diff added it costs almost nothing, and it removes the last ordering dependence -
+/// with fail-fast, WHICH failures a verdict names is a function of nextest's scheduling, and a
+/// gate whose answer moves between two runs of one tree is the property this gate exists to
+/// supply.
 fn nextest(dir: &Path, target: &Path, only: &str, tree: Tree) -> Command {
     let mut command = Command::new("cargo");
     command
         .current_dir(dir)
         .env("CARGO_TARGET_DIR", target)
         .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile", "ci"])
-        .args(["-E", only]);
+        .args(["--no-fail-fast", "-E", only]);
     if tree == Tree::Reconstructed {
         command.env_remove(sutura_dev::requirement::FORCE);
     }
@@ -405,8 +441,10 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
         if names_no_tests(&head_out) {
             eprintln!("xtask test-causality: FAILED - nextest matched none of the tests this diff added");
             eprintln!("  filter: {only}");
-            eprintln!("  A name this gate extracted is not a name nextest knows, so scoping the run");
-            eprintln!("  would silently measure nothing. Fix the extractor in `causality::scoped`.");
+            eprintln!("  Nothing was measured, so this refuses rather than reporting on zero tests.");
+            eprintln!("  Two causes: a test attribute `causality::scoped` does not recognise, or a");
+            eprintln!("  shared target directory still holding the base run's binaries - see");
+            eprintln!("  `cargo_test`, and remove `target/causality-target` to rule the second out.");
         } else {
             eprintln!("xtask test-causality: FAILED - the tests this diff added are not green on HEAD");
         }
@@ -898,6 +936,10 @@ mod tests {
             args.iter().any(|arg| arg == "test(/(?:^|::)the_added_one(?:::|$)/)"),
             "{args:?}"
         );
+        // And the run completes, so which failures the verdict names is not a function of
+        // nextest's scheduling. This gate was reported as answering differently for one tree in
+        // two venues, and fail-fast over an unfiltered run is how that happens.
+        assert!(args.iter().any(|arg| arg == "--no-fail-fast"), "{args:?}");
     }
 
     #[test]
