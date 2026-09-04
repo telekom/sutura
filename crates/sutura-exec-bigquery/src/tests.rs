@@ -29,8 +29,8 @@ use crate::{BigQueryError, BigQueryWarehouse};
 mod fakes;
 
 use fakes::{
-    Broken, Case, Paged, Recording, Refusing, a_subject_token, day, impersonating_posture, leg_of, one_cell, open, other_posture,
-    plan, shared_posture, source,
+    Broken, Case, ListingRefused, Paged, Recording, Refusing, a_subject_token, day, impersonating_posture, leg_of, one_cell,
+    open, other_posture, plan, shared_posture, source,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -755,5 +755,31 @@ fn a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome() {
     assert!(
         !broken.preflight_was_refused(&error),
         "an outage must stay a warning, not become a boot refusal: {error:?}"
+    );
+}
+
+#[test]
+fn a_failed_listing_carries_the_transports_own_error_on_the_chain() {
+    // **The regression guard for `#[source]` on the one variant `preflight` can fail with**, and it
+    // is here rather than in the acceptance leg because that is the venue that costs a credential.
+    // `BigQueryError::Endpoint` is the only error `preflight` produces - the single `map_err` on that
+    // path - so a live assertion that the source is merely PRESENT could only ever fail if somebody
+    // deleted the attribute, which is a hermetic property paid for over the network.
+    //
+    // **It asserts the source's CONTENT, which is what makes it more than its neighbour.**
+    // `a_dry_run_the_endpoint_rejects_is_not_reported_as_accepted` already asserts `source().is_some()`
+    // on the same variant off the `dry_run` path - so presence was covered and the listing path was
+    // not, and neither asserted WHAT survived. What a root needs is the content:
+    // `refuse_absent_tables` prints `flatten(cause)`, and *the data system did not answer* on its own
+    // tells an operator nothing. The endpoint's own words are one link down.
+    let refused = open(Refusing, shared_posture());
+    let error = refused
+        .preflight(&asked(&["dim_customer"]))
+        .expect_err("a refused listing is a failure of the call");
+    let source = core::error::Error::source(&error).expect("the transport's own error is on the chain");
+    assert_eq!(
+        source.to_string(),
+        ListingRefused.to_string(),
+        "the chain has to carry what the TRANSPORT said, not a second copy of the adapter's sentence"
     );
 }

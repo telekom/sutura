@@ -523,22 +523,27 @@ bullets down:
   also placed it in that run's test list by ORDINAL, and the ordinal was wrong: it is deleted rather
   than corrected, because nextest reports in completion order and a position in that list is not a
   property of the suite.
-- **The soft edge is half live now, and the half that is not is named.** A listing that fails is a
-  different answer from one that reports a table absent, and until
-  `a_dataset_the_credential_cannot_list_is_unverified_and_never_every_table_absent` the whole
-  refusal-versus-warning split of `preflight_was_refused` was exercised against a fake transport
-  only. That test asks a real endpoint about a dataset that is not there and pins the WARNING half:
-  the call fails, the transport's own error survives on the chain, and `preflight_was_refused` answers
-  `false` - so a deployment naming a dataset nobody can read is reported *could not verify* and
-  serves, rather than being stopped as though its tables were absent. **Its control had to be added
-  after the fact, and what the leg claimed without one is the interesting part:** every variant that
-  is not a `401` or a `403` answers `false` and carries a `#[source]`, so a credential that would not
-  read, an unreachable host or a document that would not decode satisfied both assertions - the leg
-  would have reported *a dataset that is not there warns* out of a run in which nothing worked. It
-  now asks the fixture's own table FIRST and requires `All`, which makes the failure dataset-specific
-  rather than merely a failure. **The REFUSAL half still is not live:** it needs an identity holding
-  no `bigquery.tables.list`, which the acceptance environment's identity is not, so `401`/`403`
-  remains a fake-transport claim.
+- **A dataset that is not there is answered with a non-2xx, which is the one thing no fake can say -
+  and it is NARROWER than the claim this bullet first made.** The first version said
+  `a_dataset_the_credential_cannot_list_is_unverified_and_never_every_table_absent` *pins the warning
+  half* of `preflight_was_refused`. It does not: that decision is already held hermetically, twice
+  with controls - `wire::tables`' `was_refused` suite asserts `404` warns beside `401`, `403`, `500`
+  and `503`, and `a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome` asserts the same
+  thing one port up. A predicate over a status needs no service. **What needs one is the status
+  itself:** every field of `Listing` is `#[serde(default)]`, so a `200` with an empty body for a
+  dataset that does not exist would read as *every table is absent* and refuse a deployment over a
+  dataset name. The leg asks a real endpoint about a fictitious dataset in a project the credential
+  can see, and requires `WireError::Refused { status: 404 }` - so the empty-decode path is measured
+  not to be what a missing dataset produces.
+  **The oracle names the status because review caught it green for the wrong reasons.** `expect_err`
+  plus a surviving `#[source]` plus `!preflight_was_refused` is satisfied by `Unreachable`, by a `500`
+  or `503`, by `DeadlineSpent`, and by the two `403`s this crate deliberately puts in the warning half
+  (`rateLimitExceeded`, `quotaExceeded`) - in each of which the endpoint never answered about that
+  dataset, while the leg reported *a dataset that is not there warns*. The clean set asked FIRST is a
+  control on a second axis: this credential really can list this project, so the failure is
+  dataset-specific rather than an identity that reads nothing.
+  **The REFUSAL half still is not live:** it needs an identity holding no `bigquery.tables.list`,
+  which the acceptance environment's identity is not, so `401`/`403` remains a fake-transport claim.
 - **A document whose shape the service changes decodes to an EMPTY listing**, because every field is
   `#[serde(default)]` - and an empty listing means *every table is absent*. That fails toward
   refusing a deployment rather than serving one, which is the right direction, and a test pins the
@@ -581,9 +586,10 @@ bullets down:
   decision an empty question rather than fail. So
   `a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about` is the one test in
   that file which is not `#[ignore]`d; the acceptance file's own header carries the venue argument.
-  Provoked both ways to check it fires: the document's `source:` pointed elsewhere gives `left: []`
-  against the two models expected, and a harness writing no document at all fails on the catalog
-  adapter's own `Empty`. **The direction nothing holds is the reverse one** - `#[ignore]` added to
+  **Provoked both ways under `just test` on 2026-09-03, which is the venue and is named because a
+  mutation result without one is the shape this record is about:** the document's `source:` pointed
+  elsewhere gave `left: []` against the two models expected, and a harness writing no document at all
+  failed on the catalog adapter's own `Empty { path: ... }`. Each edit reverted after. **The direction nothing holds is the reverse one** - `#[ignore]` added to
   that control drops it out of every gate into the credentialled venue alone, silently. The
   *dangerous* direction is already mechanical, because a live leg missing `#[ignore]` reaches
   `Fixture::required()`, which fails rather than skips. What would hold the other is a line-scan gate

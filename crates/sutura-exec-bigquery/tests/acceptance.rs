@@ -156,6 +156,8 @@ mod tests {
     use sutura_app::Warehouses;
     use sutura_app::preflight::{Verdict, ask};
     use sutura_catalog_local::LocalCatalog;
+    use sutura_exec_bigquery::BigQueryError;
+    use sutura_exec_bigquery::wire::WireError;
 
     use crate::support::{Connection, Wired, bounds, named, opened, presented};
 
@@ -584,29 +586,38 @@ mod tests {
     #[test]
     #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
     fn a_dataset_the_credential_cannot_list_is_unverified_and_never_every_table_absent() {
-        // **The soft edge of the pre-flight, which the test above cannot reach and `docs/adr/0018`
-        // recorded as held by a fake transport only.** A listing that FAILS has to be a different
-        // answer from one that reports a table missing, and the reason it needs a live check is the
-        // direction the decoder fails in: every field of `wire::tables::Listing` is
-        // `#[serde(default)]`, so anything that decodes to nothing reads as *every table is absent*
-        // and would stop a boot. What a composition root has to get instead is an `Err` it renders as
-        // *could not verify*, on the warning side of `preflight_was_refused` - a `404` is a name
-        // somebody is about to fix, not a grant to add.
+        // **What this leg is the only place to establish - and it is NARROWER than the version of this
+        // comment review corrected.** That `404` warns rather than refuses is already pinned
+        // hermetically, twice with controls: `wire::tables`'s `was_refused` suite asserts it beside
+        // `401`, `403`, `500` and `503`, and `a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome`
+        // asserts the same one port up. A fake transport can hold a predicate over a status. What it
+        // cannot hold is a claim about the SERVICE, and that is this:
+        //
+        // **a dataset that is not there is answered with a non-2xx, so the empty-decode path is not
+        // what a missing dataset produces.** Every field of `wire::tables::Listing` is
+        // `#[serde(default)]`, so a document that decodes to nothing reads as *every table is absent*
+        // and would stop a boot. If the endpoint answered `200` with an empty body for a dataset that
+        // does not exist, the pre-flight would refuse a deployment over a dataset name instead of
+        // warning about it - and nothing in this repository could have known.
         //
         // **Both names in the path are fictitious literals, so this leg still writes no resource of
         // the developer's project into this repository.** The PROJECT is the fixture's own on
         // purpose: a dataset absent from a project the credential can see is the case being asked
         // about, and one in a project it cannot see is a different answer.
         //
-        // **The control is inside this test, and without it the leg passed for any failure at all.**
-        // `preflight_was_refused` answers `false` for every variant that is not a `401` or a `403` -
-        // a credential that would not read, an unreachable host, a document that would not decode -
-        // and each of those also carries a `#[source]`. So both assertions below were satisfied by a
-        // run in which NOTHING worked, and the leg would have reported *a dataset that is not there
-        // warns* just as loudly. Asking the fixture's own table first and requiring `All` is what
-        // makes the failure dataset-SPECIFIC: the same warehouse, in the same call sequence, listed a
-        // real dataset before it failed to list this one. It costs one more `tables.list`, which is
-        // billed for nothing.
+        // **The oracle names the STATUS, which is review correcting an assertion that was green for
+        // the wrong reasons.** `!preflight_was_refused` plus a surviving `#[source]` is satisfied by
+        // `Unreachable`, by a `500` or `503`, by `DeadlineSpent`, and by the two `403`s this crate
+        // deliberately puts in the warning half - `rateLimitExceeded` and `quotaExceeded`. In every
+        // one of those the endpoint never answered about this dataset at all, and the leg still
+        // reported *a dataset that is not there warns*. Matching `WireError::Refused { status: 404 }`
+        // is what makes a different answer RED, which is the only shape in which a green run is the
+        // measurement `docs/adr/0018` cites it as.
+        //
+        // The clean set is still asked FIRST, and it is a second control on a different axis: it says
+        // this credential really can list this project, so the failure below is dataset-SPECIFIC
+        // rather than an identity that reads nothing. It costs one more `tables.list`, billed for
+        // nothing.
         let fixture = Fixture::required();
         let present = fixture.unqualified();
         let nowhere = fixture.qualified_in_project("sutura_acceptance_no_such_dataset", no_such_table());
@@ -624,8 +635,14 @@ mod tests {
             .preflight(&BTreeSet::from([nowhere]))
             .expect_err("a dataset that is not there cannot answer a listing, and must not answer one emptily");
         assert!(
-            core::error::Error::source(&unverified).is_some(),
-            "the endpoint's own error did not survive #[source]: {unverified:?}"
+            matches!(
+                unverified,
+                BigQueryError::Endpoint {
+                    cause: WireError::Refused { status: 404, .. }
+                }
+            ),
+            "a dataset that is not there has to be a 404 from the service - anything else is a call that \
+             never reached this dataset, and reading it as *could not verify* would be an accident: {unverified:?}"
         );
         // `preflight_was_refused` answers `true` for `401` and `403` only, so this is the half of the
         // split a live dataset can reach without a second identity. **The refusal half stays a
@@ -647,15 +664,18 @@ mod tests {
     /// the format requires it rather than because the pre-flight reads it: `tables.list` reports
     /// existence, and this record's own limit is that it says nothing about the columns a model names.
     ///
-    /// The scratch directory is `{case}-{pid}` and is cleared on the way IN, which is the shape nine
-    /// other modules here already use - `sutura_catalog_local`, `sutura_config::settings`,
-    /// `sutura_serve`'s served harness and the rest: a failing run leaves its documents on disk to
-    /// read, and the pid is what makes the next run start clean. **Consistency is the reason and cost
-    /// is not, which is a correction to the argument `sutura_catalog_local` states:** `tempfile 3.27.0`
-    /// is already resolved in `Cargo.lock` transitively, so declaring it would add no package - it
-    /// would add a tenth spelling of one idiom.
+    /// **`CARGO_TARGET_TMPDIR` and NOT `std::env::temp_dir()`, which review corrected and which
+    /// matters more here than at the sibling call sites.** It is defined for an integration target
+    /// and is inside `target/`, which is `crates/sutura-cli/tests/declared_source.rs`'s own reason -
+    /// and these documents carry the fixture's real table name, deliberately left on disk after a
+    /// failing run. A predictable path in a shared system temp directory is the wrong place for that.
+    /// It also needs no dependency, which retires the `tempfile` argument this comment used to make:
+    /// `tempfile 3.27.0` is already resolved in `Cargo.lock` transitively, so cost was never the
+    /// reason.
+    ///
+    /// Cleared on the way IN rather than after, so a failing run leaves its documents to read.
     fn bundle_naming(what: &str, models: &[(&str, &str)]) -> PinnedDefinitions {
-        let root = std::env::temp_dir().join(format!("sutura-preflight-seam-{what}-{}", std::process::id()));
+        let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("preflight-seam-{what}"));
         drop(std::fs::remove_dir_all(&root));
         std::fs::create_dir_all(&root).expect("a scratch directory is creatable");
         for (model, table) in models {
