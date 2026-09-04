@@ -58,8 +58,9 @@ struct Listing {
     /// `{"format": "int32", "type": "integer"}` - a bare JSON number - described as *"The total
     /// number of tables in the dataset"*, against the neighbouring `etag`'s *"A hash of this page of
     /// results"*. So it is the DATASET's number and not the page's, which is what makes comparing it
-    /// against a whole finished listing the right comparison. Nothing here has seen whether a real
-    /// answer populates it; [`reported_total`] is what a live run reports.
+    /// against a whole finished listing the right comparison. **A real answer does populate it**,
+    /// measured in the `bigquery-acceptance` job on 2026-09-04 - one dataset at one moment, which is
+    /// the whole of what that establishes.
     #[serde(default)]
     total_items: Option<serde_json::Value>,
 }

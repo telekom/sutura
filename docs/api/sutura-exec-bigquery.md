@@ -514,8 +514,8 @@ What a listing's own reported total said, against the entries the same document 
 
 **Four variants rather than an `Option<u64>`, because each says something different about what a
 caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
-have merged with the answer. A reader has to name the case, which is the reason
-`sutura_domain::source::AnchorsRunAs` is an enum with a third variant rather than an `Option`.
+have merged with the answer. A reader has to name the case, for the reason
+`sutura_domain::source::AnchorIdentity` names `NoneDeclared` rather than answering `None`.
 
 **The comparison is against the entries the document CARRIED and never against the ids it
 named**, and the difference is a wrong claim avoided rather than a nicety: a listing entry whose

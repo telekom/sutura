@@ -847,8 +847,9 @@ mod tests {
             .expect("the dataset answered the listing - a refusal here is a grant, not a missing table");
 
         // Printed so the run's own output IS the measurement rather than a claim about it - a fixed
-        // word from a closed match plus two counts, never a resource name. What a green run finally
-        // says is whether this service populates the field at all, which nothing here had seen.
+        // word from a closed match plus two counts, never a resource name. What a green run says is
+        // that this service populates the field at all, which nothing here had seen until the
+        // `bigquery-acceptance` job answered `Accounted` on 2026-09-04.
         println!(
             "bigquery-acceptance: tables.list answered {:?} over {} usable table id(s)",
             held.total(),

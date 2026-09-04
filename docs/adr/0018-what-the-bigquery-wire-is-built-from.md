@@ -603,10 +603,20 @@ bullets down:
   now, in `just bigquery-acceptance`, one rung BELOW the domain port because `TablesPresent` carries
   no count and should not. It prints the verdict and requires a total the crate could read - red, not
   silent, if the service populates nothing, because a cross-check whose input never arrives has no
-  teeth. **Its limits:** it does not require the total to be EXACT, because the dataset is written to
-  by the corpus leg beside it and a moving number would be a leg failing for a reason outside the
-  diff; and until that job has run on a head carrying it, *whether the service populates the field*
-  is still unmeasured here.
+  teeth.
+
+  **And it has now RUN, green, in the `bigquery-acceptance` job on 2026-09-04**, which is what the
+  earlier deferral was owed: a real `tables.list` answered `ListingTotal::Accounted`, so the service
+  populates the field and its number agreed with the entries the same document carried. The
+  cross-check has a real input, and *whether it does* is no longer the open question. **Three limits
+  on that, in this record's habit of putting them beside the claim:** it is ONE dataset at one moment,
+  and a second deployment's service behaviour is not a property this run establishes; the leg
+  deliberately does not require the total to be EXACT, because the corpus leg writes four tables to
+  the same dataset and a moving number would be a leg failing for a reason outside the diff; and the
+  case the cross-check exists for - a document carrying no entries beside a non-zero total - has
+  never been seen live and cannot be provoked from here, so what holds its MEANING is the hermetic
+  suite over documents. It has never run on a developer machine either, for the reason the leg above
+  it has not: no dataset is named in this environment.
 - **A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
   wording.** Issue #120's own verification asked for a run asserting the boot refusal, and until
   `a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table` the two
