@@ -38,8 +38,13 @@
 //! which can enable a feature neither ships with - a different configuration, checked instead of the
 //! one that is published.
 //!
-//! **AN EMPTY RUN IS RED.** `--no-tests fail` is passed rather than left to nextest's default,
-//! because a lane that selects nothing and reports success is the defect this gate exists to end.
+//! **AN EMPTY RUN IS RED**, because a lane that selects nothing and reports success is the defect
+//! this gate exists to end, one level up. `--no-tests fail` is passed rather than inherited, and the
+//! limit next to that claim is measured: nextest 0.9.143's own default (`auto`) exits 4 on an empty
+//! selection **too**, so this pins a default rather than changing behaviour today. It is written
+//! down anyway because a default is not a mechanism - `auto`'s documented job is to *determine* the
+//! behaviour, and `NEXTEST_NO_TESTS` in an environment would override it silently.
+//!
 //! The consequence to read before adding a binary: a shipped package with no test that runs at its
 //! default features fails this gate, and that is the direction wanted here - such a package is
 //! exactly the hole that was invisible before.
@@ -49,15 +54,20 @@
 //! the same job; cargo keys artifacts per profile, so compiling there at anything but the profile
 //! those artifacts were built at reuses none of them - it rebuilds the whole closure, passes, and
 //! nobody attributes the minutes to it. A flag would be one more thing to get wrong in a place where
-//! being wrong is silent, and `check-warm-start` has already had to correct exactly that seam on the
-//! nix side. So [`profile_for`] reads the stamp `cargoWarmStart` leaves behind - the mechanism, not
-//! the directory's name - and `just gates` stays on the developer's default profile with no argument
-//! at all.
+//! being wrong is silent - `check-warm-start` holds that same seam for the flake apps, and its own
+//! test records nextest's `--profile` being taken for cargo's as a measured failure rather than a
+//! hypothetical one. So [`profile_for`] reads the stamp `cargoWarmStart` leaves behind - the
+//! mechanism, not the directory's name - and `just gates` stays on the developer's default profile
+//! with no argument at all.
 //!
-//! **What it does NOT reach.** The shipped packages only: a feature-off test in a crate that does
-//! not ship is compiled by the `--all-features` gates and run by nothing here either. It runs on the
-//! HOST triple, so the four `cross` builds stay the authority on a musl link. And it says nothing
-//! about a feature no shipped binary enables - `--all-features` is what reaches those.
+//! **What it does NOT reach**, and the first one is the limit to read before trusting this. It holds
+//! *the shipped lane's tests run*, NOT *the feature-off refusals are tested*: deleting both of them
+//! leaves this gate green over the several hundred tests that run in both configurations. What
+//! covers that is review of a diff removing a `#[cfg(not(feature = ...))]` test, and nothing
+//! mechanical. Then: the shipped packages only, so a feature-off test in a crate that does not ship
+//! is run by nothing here either; the HOST triple only, so the four `cross` builds stay the
+//! authority on a musl link; and nothing about a feature no shipped binary enables, which is what
+//! `--all-features` reaches.
 
 use std::path::Path;
 
@@ -122,7 +132,10 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) => {
-            eprintln!("xtask check-default-feature-tests: could not read {}: {error}", path.display());
+            eprintln!(
+                "xtask check-default-feature-tests: could not read {}: {error}",
+                path.display()
+            );
             return Verdict::Fail;
         }
     };
@@ -210,7 +223,7 @@ mod tests {
             "the profile must be cargo's: {words:?}"
         );
         assert!(
-            !words.iter().any(|word| *word == "--profile"),
+            !words.contains(&"--profile"),
             "`--profile` is nextest's own configuration profile: {words:?}"
         );
     }
@@ -218,7 +231,9 @@ mod tests {
     #[test]
     fn an_empty_selection_is_red_rather_than_green() {
         // The defect this whole gate exists to end, one level up: a lane that selects no test and
-        // reports success. nextest is told so explicitly rather than left on its own default.
+        // reports success. Written down rather than inherited - nextest 0.9.143's `auto` exits 4
+        // here too, measured, so what this holds is that the value stops depending on a default and
+        // on `NEXTEST_NO_TESTS` not being set in whatever environment the gate runs in.
         let words = invocation("sutura-cli", None);
         assert!(
             words.windows(2).any(|pair| pair == ["--no-tests", "fail"]),
@@ -228,7 +243,11 @@ mod tests {
 
     #[test]
     fn the_profile_is_derived_from_the_stamp_and_not_from_a_flag() {
-        assert_eq!(profile_for(None), None, "no target directory is the developer's default profile");
+        assert_eq!(
+            profile_for(None),
+            None,
+            "no target directory is the developer's default profile"
+        );
         let root = crate::repo::root().expect("the repo root");
         assert_eq!(
             profile_for(Some(&root)),
