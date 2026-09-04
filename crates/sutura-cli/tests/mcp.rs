@@ -706,9 +706,10 @@ mod tests {
         // default and the catalog's own words reach the agent on both halves.
         let (structured, text) = described_catalog(None);
         assert_eq!(structured["catalog_prose"], "quoted", "{structured}");
+        let flat = structured.to_string();
         assert!(
-            structured.to_string().contains(EXAMPLE_PROSE),
-            "the default withheld the catalog's prose from the structured half: {structured}"
+            flat.contains(EXAMPLE_PROSE),
+            "the default withheld the catalog's prose from the structured half: {flat}"
         );
         // Quoted, not spliced - `docs/adr/0022`'s text half, asserted through the process.
         assert!(text.contains(&format!("> {EXAMPLE_PROSE}")), "{text}");

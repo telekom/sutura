@@ -939,7 +939,8 @@ mod tests {
             // not doing: one string in both positions makes an assertion that neither reaches a
             // caller pass on the metric's half alone.
             let bundle = crate::testing::described_bundle(prose, &format!("{DIMENSION_MARK} {prose}"));
-            let text = CatalogContent::of(&bundle, CatalogProse::Quoted).as_text();
+            let content = CatalogContent::of(&bundle, CatalogProse::Quoted);
+            let text = content.as_text();
             for line in text.lines() {
                 assert!(
                     !(line.starts_with("# SYSTEM") || line.starts_with("```") || line.starts_with("definitions: v99")),
@@ -956,9 +957,7 @@ mod tests {
             // argument makes every `!contains(DIMENSION_MARK)` below vacuously true, so a negative
             // assertion over a marker needs the marker's presence proved in the other direction -
             // which is `catalog_prose_omitted_omits_it_from_the_tool`'s reason for existing twice.
-            let quoted = serde_json::to_value(CatalogContent::of(&bundle, CatalogProse::Quoted))
-                .expect("the catalog serializes")
-                .to_string();
+            let quoted = serde_json::to_value(&content).expect("the catalog serializes").to_string();
             assert!(
                 quoted.contains(DIMENSION_MARK),
                 "the dimension carried no mark of its own: {quoted}"
