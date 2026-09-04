@@ -29,28 +29,41 @@ pub(crate) struct Spared {
     pub(crate) because: &'static str,
 }
 
-/// What was considered and left alone.
+/// What a destroy would do.
 ///
-/// **A value rather than an empty `Vec`**, because an empty list of spared projects and a host that
-/// did not say what is running are different claims and were the same value. `spared nothing else
-/// was running` is a statement about the host; a runtime that refused made none.
+/// **A sum and not a struct, because one bit governs both halves.** Whether the runtime answered
+/// decides what may be said about the target *and* about the neighbours, so recording it on one
+/// field left the other free to overstate: an empty spared list read as "nothing else was running"
+/// on a host that had said nothing, and an absent target read as "this worktree has no project
+/// running" on the same host. Two variants also delete the two combinations that cannot occur.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Sparing {
-    /// The runtime answered; these are the projects left alone, in stable order. Empty means
-    /// nothing else was running - a claim only an answer supports.
-    Answered(Vec<Spared>),
-    /// The runtime did not answer, so nothing may be reported as spared either way.
-    Unknown,
+pub(crate) enum Plan {
+    /// The runtime answered, so what exists is known.
+    Considered {
+        /// This worktree's project, where the listing contained it. `None` means it is not
+        /// running - a state, not a failure.
+        target: Option<String>,
+        /// Everything the selection considered and left alone, in stable order. Empty means
+        /// nothing else was running, which is a claim only an answer supports.
+        spared: Vec<Spared>,
+    },
+    /// The runtime refused or never answered. This worktree's project is attempted anyway - the
+    /// listing buys the ability to report, not the authority to remove - and nothing at all is
+    /// reported about it or about a neighbour.
+    Blind {
+        /// This worktree's project, which is the only thing a destroy may ever target.
+        target: String,
+    },
 }
 
-/// What a destroy would do.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Plan {
-    /// This worktree's project, if there is anything to remove. `None` means the runtime ANSWERED
-    /// and this worktree's project was not in it - which is a state, not a failure.
-    pub(crate) target: Option<String>,
-    /// Everything the selection considered and left alone.
-    pub(crate) spared: Sparing,
+impl Plan {
+    /// What this destroy would remove, if anything.
+    pub(crate) fn target(&self) -> Option<&str> {
+        match *self {
+            Self::Considered { ref target, .. } => target.as_deref(),
+            Self::Blind { ref target } => Some(target),
+        }
+    }
 }
 
 /// Decide what to remove, given this worktree's project and what the runtime reported.
@@ -70,28 +83,25 @@ pub(crate) fn plan(project: &str, reported: &Listing) -> Plan {
     let existing = match *reported {
         Listing::Answered(ref existing) => existing,
         Listing::Unknown => {
-            return Plan {
-                target: Some(String::from(project)),
-                spared: Sparing::Unknown,
+            return Plan::Blind {
+                target: String::from(project),
             };
         }
     };
-    let target = existing.contains(project).then(|| String::from(project));
-    let spared = existing
-        .iter()
-        .filter(|name| name.as_str() != project)
-        .map(|name| Spared {
-            project: name.clone(),
-            because: if name.starts_with(OURS) {
-                "another worktree's - in use, left alone"
-            } else {
-                "not this tool's project"
-            },
-        })
-        .collect();
-    Plan {
-        target,
-        spared: Sparing::Answered(spared),
+    Plan::Considered {
+        target: existing.contains(project).then(|| String::from(project)),
+        spared: existing
+            .iter()
+            .filter(|name| name.as_str() != project)
+            .map(|name| Spared {
+                project: name.clone(),
+                because: if name.starts_with(OURS) {
+                    "another worktree's - in use, left alone"
+                } else {
+                    "not this tool's project"
+                },
+            })
+            .collect(),
     }
 }
 
@@ -102,7 +112,7 @@ pub(crate) fn plan(project: &str, reported: &Listing) -> Plan {
 /// read *inside* the lock, because another worktree can start between the two moments. A target
 /// that has stopped being this worktree's project is a refusal rather than a removal.
 pub(crate) fn still_eligible(plan: &Plan, project: &str) -> bool {
-    plan.target.as_deref().is_none_or(|target| target == project)
+    plan.target().is_none_or(|target| target == project)
 }
 
 /// The arguments that remove one project's containers, network and named volumes.
@@ -118,38 +128,45 @@ pub(crate) fn down_args() -> Vec<&'static str> {
 ///
 /// Here because this is the module that removes it, and shared because two places print it: a
 /// provisioning call that was killed with containers running, and a readiness gate that failed
-/// after `up --detach` had already returned. A second copy of a task name is a second thing to
-/// keep true when the task is renamed - which `check-guidance` would then fail on only one of.
+/// after `up --detach` had already returned. One wording, one place to change it - and NOT a
+/// citation mechanism: `check-guidance`'s advice scan reads every production `.rs` line for a
+/// backtick span starting `just `, so a renamed task fails on every copy rather than on one.
 pub(in crate::compose) const REMOVES_THIS_WORKTREE: &str =
     "`just dev-down` removes this worktree's project, its network and its named volumes";
 
 /// Print the plan. Called for a dry run and for a real one, so what a reader is shown before a
 /// destroy is byte-identical to what they would have been shown by `--dry-run`.
 pub(crate) fn describe(plan: &Plan) {
-    match plan.target.as_deref() {
+    // The two lines this replaces were both printed under `docker compose ls failed`, which is the
+    // one host where neither can be true: `remove nothing - this worktree has no compose project
+    // running`, and `spared nothing else was running`.
+    let (target, spared) = match *plan {
+        Plan::Blind { ref target } => {
+            println!("  remove   {target} (attempting blind - the runtime did not say what exists)");
+            println!("  spared   unknown - the runtime did not answer");
+            return;
+        }
+        Plan::Considered { ref target, ref spared } => (target, spared),
+    };
+    match target.as_deref() {
         Some(project) => println!("  remove   {project} (containers, network, named volumes)"),
         None => println!("  remove   nothing - this worktree has no compose project running"),
     }
-    match plan.spared {
-        // The line this replaces was printed two lines under `docker compose ls failed`, which is
-        // the one host where it cannot be true.
-        Sparing::Unknown => println!("  spared   unknown - the runtime did not answer"),
-        Sparing::Answered(ref spared) if spared.is_empty() => println!("  spared   nothing else was running"),
-        Sparing::Answered(ref spared) => {
-            for spared in spared {
-                println!("  spared   {} - {}", spared.project, spared.because);
-            }
+    if spared.is_empty() {
+        println!("  spared   nothing else was running");
+    } else {
+        for spared in spared {
+            println!("  spared   {} - {}", spared.project, spared.because);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use super::{Listing, Plan, Spared, down_args, plan, still_eligible};
 
-    use super::{Listing, Plan, Spared, Sparing, down_args, plan, still_eligible};
-
-    /// What the runtime answered, out of a list of project names.
+    /// What the runtime answered, out of a list of project names. `&[]` is an answer of nothing,
+    /// which is the case that has to stay distinguishable from no answer at all.
     fn answered(names: &[&str]) -> Listing {
         Listing::Answered(names.iter().map(|n| String::from(*n)).collect())
     }
@@ -162,9 +179,9 @@ mod tests {
         let existing = answered(&[mine, "sutura-dev-bbbb2222", "sutura-dev-cccc3333", "someone-elses-app"]);
 
         let chosen = plan(mine, &existing);
-        assert_eq!(chosen.target.as_deref(), Some(mine));
-        let Sparing::Answered(ref spared) = chosen.spared else {
-            panic!("an answered listing must produce an answered sparing: {:?}", chosen.spared);
+        assert_eq!(chosen.target(), Some(mine));
+        let Plan::Considered { ref spared, .. } = chosen else {
+            panic!("an answered listing must produce a considered plan: {chosen:?}");
         };
         assert_eq!(spared.len(), 3, "{spared:?}");
         for spared in spared {
@@ -179,22 +196,25 @@ mod tests {
         let existing = answered(&["sutura-dev-aaaa1111", "sutura-dev-bbbb2222"]);
         let chosen = plan("sutura-dev-aaaa1111", &existing);
         assert_eq!(
-            chosen.spared,
-            Sparing::Answered(vec![Spared {
-                project: String::from("sutura-dev-bbbb2222"),
-                because: "another worktree's - in use, left alone",
-            }])
+            chosen,
+            Plan::Considered {
+                target: Some(String::from("sutura-dev-aaaa1111")),
+                spared: vec![Spared {
+                    project: String::from("sutura-dev-bbbb2222"),
+                    because: "another worktree's - in use, left alone",
+                }]
+            }
         );
     }
 
     #[test]
     fn nothing_running_is_a_state_rather_than_a_failure() {
-        let chosen = plan("sutura-dev-aaaa1111", &Listing::Answered(BTreeSet::new()));
+        let chosen = plan("sutura-dev-aaaa1111", &answered(&[]));
         assert_eq!(
             chosen,
-            Plan {
+            Plan::Considered {
                 target: None,
-                spared: Sparing::Answered(Vec::new())
+                spared: Vec::new()
             }
         );
     }
@@ -207,7 +227,7 @@ mod tests {
         assert!(still_eligible(&chosen, "sutura-dev-aaaa1111"));
         assert!(!still_eligible(&chosen, "sutura-dev-bbbb2222"));
         // Nothing to remove is always eligible: there is no wrong thing to take.
-        let empty = plan("sutura-dev-aaaa1111", &Listing::Answered(BTreeSet::new()));
+        let empty = plan("sutura-dev-aaaa1111", &answered(&[]));
         assert!(still_eligible(&empty, "sutura-dev-bbbb2222"));
     }
 
@@ -219,16 +239,18 @@ mod tests {
         // `Up (healthy)`. An empty answer supports the first sentence; no answer supports neither.
         let chosen = plan("sutura-dev-aaaa1111", &Listing::Unknown);
         assert_eq!(
-            chosen.spared,
-            Sparing::Unknown,
-            "a host that did not answer must not be reported as a host with nothing running"
+            chosen,
+            Plan::Blind {
+                target: String::from("sutura-dev-aaaa1111")
+            },
+            "a host that did not answer must not be reported as a host with nothing running, and \
+             the listing buys the report rather than the authority to remove - a destroy that \
+             cannot see the project must still attempt it instead of reporting success having \
+             done nothing"
         );
-        assert_eq!(
-            chosen.target.as_deref(),
-            Some("sutura-dev-aaaa1111"),
-            "the listing buys the report, not the authority to remove - a destroy that cannot see \
-             the project must still attempt it rather than report success having done nothing"
-        );
+        // Distinguishable from an answer of nothing, which is the whole point: that one removes
+        // nothing and says so, and this one attempts the removal and claims nothing.
+        assert_ne!(chosen, plan("sutura-dev-aaaa1111", &answered(&[])));
         // And the re-check under the lock still passes on it: two unanswered reads agree, so a
         // destroy is not turned into a refusal by a runtime that is silent throughout.
         assert!(still_eligible(&chosen, "sutura-dev-aaaa1111"));

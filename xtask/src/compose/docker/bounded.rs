@@ -24,6 +24,7 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -34,7 +35,7 @@ use std::time::{Duration, Instant};
 const WAIT_POLL_MILLIS: u64 = 25;
 
 /// The floor under every budget here. See [`budget_from_env`] for why it is not cosmetic.
-pub(super) const TIMEOUT_MIN_SECS: u64 = 1;
+pub(in crate::compose) const TIMEOUT_MIN_SECS: u64 = 1;
 /// Ten minutes: long enough that no real daemon needs more to ANSWER a question, short enough to
 /// stay a bound. The ceiling for a probe and for a status query alike, because both are questions.
 pub(super) const ANSWER_TIMEOUT_MAX_SECS: u64 = 600;
@@ -165,12 +166,26 @@ pub(crate) struct Budget {
 
 impl Budget {
     /// The budget a compose invocation's arguments call for, on this host.
+    ///
+    /// **Resolved once per KIND and remembered, and the reason is the readiness loop.** It issues a
+    /// `ps` every 500ms for up to a 900s deadline, so a budget re-read per invocation is ~1800
+    /// environment reads per `dev-up` - and, now that an unusable override says so, ~1800 identical
+    /// warnings burying the one report a reader needs. The environment cannot change under this:
+    /// `set_var` is `unsafe` and the workspace forbids `unsafe_code`, so nothing in this process
+    /// writes one.
     pub(crate) fn of(extra: &[&str]) -> Self {
+        static QUERY: OnceLock<Duration> = OnceLock::new();
+        static PROVISION: OnceLock<Duration> = OnceLock::new();
+
         let call = Call::of(extra);
+        let remembered = match call {
+            Call::Query => &QUERY,
+            Call::Provision => &PROVISION,
+        };
         let allowance = call.allowance();
         Self {
             call,
-            allowed: budget_from_env(allowance.variable, allowance.default_secs, allowance.max_secs),
+            allowed: *remembered.get_or_init(|| budget_from_env(allowance.variable, allowance.default_secs, allowance.max_secs)),
         }
     }
 }
@@ -508,7 +523,13 @@ pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Faile
         .stderr(stderr)
         .spawn();
     let mut child = spawned.map_err(broken("run docker"))?;
-    answered(waited(&mut child, budget.allowed), budget, &captured)
+    let status = answered(waited(&mut child, budget.allowed), budget)?;
+    let (stdout, stderr) = captured.read();
+    Ok(Output {
+        stdout,
+        stderr,
+        ok: status.success(),
+    })
 }
 
 /// What a bounded wait's outcome means, given the budget it was spent under.
@@ -518,16 +539,13 @@ pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Faile
 /// process - `unsafe` to arrange, and this workspace forbids `unsafe_code`. Taking the wait's
 /// result as a value makes the DECISION assertable without arranging the condition, which is what
 /// stopped a spawned call from being reported as one that started nothing.
-fn answered(waited: Result<Option<ExitStatus>, std::io::Error>, budget: Budget, captured: &Captured) -> Result<Output, Failed> {
+///
+/// PURE, and deliberately: it decides which failure this is and returns the status, so what the
+/// child wrote is read by [`run`]. A version that also took the capture made its test build a
+/// temporary directory to assert a branch that never touches one.
+fn answered(waited: Result<Option<ExitStatus>, std::io::Error>, budget: Budget) -> Result<ExitStatus, Failed> {
     match waited {
-        Ok(Some(status)) => {
-            let (stdout, stderr) = captured.read();
-            Ok(Output {
-                stdout,
-                stderr,
-                ok: status.success(),
-            })
-        }
+        Ok(Some(status)) => Ok(status),
         Ok(None) => Err(Failed::Silent(budget)),
         // NOT `Broken`: the child was spawned, so a provisioning call may have started containers,
         // and the budget is what lets `left_running` say so.
@@ -730,9 +748,8 @@ mod tests {
         // not a hand-built value: the arm cannot be reached on demand, because `try_wait` fails on
         // `ECHILD` and arranging that needs `unsafe`, which this workspace forbids.
         let echild = || std::io::Error::from(std::io::ErrorKind::NotFound);
-        let captured = super::Captured::new();
 
-        let Err(lost @ Failed::Lost { .. }) = super::answered(Err(echild()), Budget::of(&["up", "--detach"]), &captured) else {
+        let Err(lost @ Failed::Lost { .. }) = super::answered(Err(echild()), Budget::of(&["up", "--detach"])) else {
             panic!("a wait that failed on a spawned child must be Lost, not Broken");
         };
         assert!(
@@ -749,7 +766,7 @@ mod tests {
         );
 
         // And a lost STATUS query still started nothing, so the two kinds stay distinguishable.
-        let Err(query) = super::answered(Err(echild()), Budget::of(&["ps", "--all"]), &captured) else {
+        let Err(query) = super::answered(Err(echild()), Budget::of(&["ps", "--all"])) else {
             panic!("Lost");
         };
         assert!(!query.left_running());

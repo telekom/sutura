@@ -53,14 +53,21 @@ before concluding a hang is not a wait:
 | Not covered | Why |
 | --- | --- |
 | the descendants | the kill reaches `docker`, not the CLI plugins it spawned, so a wedged daemon leaves those until it recovers |
-| the reap after the kill | `waited`'s own `child.wait()` is unbounded, deliberately: the process has just been sent `SIGKILL`, so a bound there would be a bound on the kernel |
-| `compose::lock`'s holder probe | `lsof` is run with `.output()` on the same `dev-up` path - not a docker child, so the sentence survives literally, and a hang there still reads exactly like one |
+| the reap after the kill | unbounded, deliberately - see `abandon`'s doc; the process has just been sent `SIGKILL`, so a bound there would be a bound on the kernel |
+| `compose::lock`'s holder probe (**open**, unlike the two above) | `lsof` is run with `.output()` on the same `dev-up` path - not a docker child, so the sentence survives literally, and a hang there still reads exactly like one |
 
 One more thing a green run does NOT mean: a timed-out `up` deliberately does NOT tear down - it
 names `just dev-down` instead, for the reasons `xtask/src/compose.rs`'s `abandoned` records, so a
 failed provision can leave containers running. What is fail-closed is the discovery file: it is
 removed BEFORE the tier is touched, so a failed `dev-up` or `dev-down` leaves no endpoint a harness
-can connect to. A tier that is up with no discovery file is that, and `just dev-up` again is the fix.
+can connect to. **A tier that is up with no discovery file is that**, and `just dev-up` again is the
+fix - so is a `just test` whose postgres cells fail closed after a `dev-up` in the same worktree,
+because `publish` writes the whole file and the nix tier's entry goes with it
+(`sutura-postgres-tier stop && start` republishes).
+
+Held the same way as the sentence above it, and worth the same suspicion: `with_endpoints_forgotten`
+covers everything inside it by construction, but a third tier-changing path would have to be routed
+through it by hand. One placement in `dev-up` and one in `dev-down`, not a mechanism.
 
 **If a gate hangs for minutes with no output, kill it and say so** - a hang is evidence, not a slow
 machine.

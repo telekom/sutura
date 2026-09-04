@@ -22,6 +22,11 @@ use std::time::Duration;
 /// asked, and because this file is near its line budget.
 mod bounded;
 
+/// The floor under every budget, reached by the sibling whose deadline goes through
+/// [`budget_from_env`] so that its clamp test asserts the constant instead of a copy of the number.
+/// Test-only because production has no reason to name it - the clamp is `budget_from_env`'s job.
+#[cfg(test)]
+pub(in crate::compose) use bounded::TIMEOUT_MIN_SECS;
 pub(in crate::compose) use bounded::budget_from_env;
 use bounded::{ANSWER_TIMEOUT_MAX_SECS, WEDGED_DAEMON_REMEDY, run, waited};
 pub(crate) use bounded::{Budget, Failed, Output};

@@ -52,6 +52,10 @@ fn deadline() -> Duration {
 /// about what a failed run leaves behind, and a decision that only exists as output is a decision
 /// no test can read. Two lines and not three - this run did not kill a provisioning call, so
 /// `abandoned`'s "a timeout is not proof they are wrong" is about a different failure.
+///
+/// **Why it is not `Failed::left_running`'s answer:** that one answers for the CALL, and a status
+/// query starts nothing. What started containers here is the RUN, which only the caller that
+/// issued the provision knows about - so it is said once, at this gate's failure exit.
 fn tier_is_up(project: &str) -> [String; 2] {
     [
         format!("the containers are already up - `docker compose --project-name {project} ps` says what state they are in"),
@@ -68,6 +72,16 @@ pub(crate) fn wait_until_healthy(root: &Path, scope: &Scope, profiles: &[&str], 
     let project = scope.project();
     poll_until_ready(expected, deadline(), &project, || {
         docker::compose(root, &project, profiles, &["ps", "--all", "--format", "json"])
+    })
+    // On the FUNCTION's failure exit and not on one arm of the loop, because "a provision came
+    // first" is a precondition of this gate rather than a property of how it failed: `up --detach`
+    // returned ok above every one of the four ways below. Printed on the silent-runtime arm only,
+    // it missed the arm most likely to be reached - the deadline expiring - which also leaves the
+    // tier up.
+    .inspect_err(|_| {
+        for line in tier_is_up(&project) {
+            eprintln!("  {line}");
+        }
     })
 }
 
@@ -98,14 +112,6 @@ fn poll_until_ready(
             // reader to the containers when the fault is the daemon.
             Err(cause) => {
                 eprintln!("xtask dev-up: {cause}");
-                // NOT through `Failed::left_running`, and that is the point: it answers for the
-                // CALL, and a status query starts nothing. By the time this gate runs, `up
-                // --detach` has returned ok - so what started containers is the RUN, and only the
-                // caller that issued the provision knows that. Without these lines the reader gets
-                // exit 1 and a wedged-daemon remedy with nothing about their containers.
-                for line in tier_is_up(project) {
-                    eprintln!("  {line}");
-                }
                 return Err(Verdict::Fail);
             }
         };
@@ -142,6 +148,7 @@ fn poll_until_ready(
 mod tests {
     use std::time::{Duration, Instant};
 
+    use super::super::docker::TIMEOUT_MIN_SECS;
     use super::{READY_TIMEOUT_SECS, poll_until_ready};
     use crate::Verdict;
     use crate::compose::docker::{Budget, Failed, Output};
@@ -226,7 +233,7 @@ mod tests {
         // the host environment - which is exactly how the budget-contrast assertion went red on a
         // configuration the change itself invites.
         let deadline = super::deadline();
-        assert!(deadline >= Duration::from_secs(1), "{deadline:?}");
+        assert!(deadline >= Duration::from_secs(TIMEOUT_MIN_SECS), "{deadline:?}");
         assert!(deadline <= Duration::from_secs(super::READY_TIMEOUT_MAX_SECS), "{deadline:?}");
     }
 
