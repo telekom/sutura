@@ -108,8 +108,11 @@ fn failures(text: &str) -> Vec<String> {
     reported
 }
 
+/// One runner's wording: a printed line in, the failure it names out.
+type ReadFailure = fn(&str) -> Option<String>;
+
 /// Every distinct failure `read` finds, in the order the run printed them.
-fn collect(text: &str, read: fn(&str) -> Option<String>) -> Vec<String> {
+fn collect(text: &str, read: ReadFailure) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     for named in text.lines().filter_map(|line| read(line.trim())) {
         if !found.contains(&named) {
