@@ -379,13 +379,37 @@ fn hook_problems(root: &Path) -> Vec<String> {
 }
 
 /// Is this tool on PATH?
+///
+/// A `PATH` walk and NOT a `--version` run, which is what this used to be. Three reasons, and the
+/// first is a hang somebody hit:
+///
+/// 1. `.status()` has no timeout, so `found("docker")` against a wedged daemon blocked `just doctor`
+///    forever - the same defect `xtask`'s container probe was bounded to remove, in the one command
+///    whose whole job is to say what is wrong with this machine.
+/// 2. It answers the question actually asked. A tool that is installed but hangs on `--version` IS
+///    on `PATH`, and reporting it `MISSING` sends a reader to install something they already have.
+/// 3. It executes nothing. `doctor` runs four of these, and spawning four processes to learn what a
+///    directory listing already knows is a cost with no answer attached to it.
+///
+/// No timeout is needed because nothing is waited on. `X_OK` rather than merely existing, because a
+/// file on `PATH` that cannot be executed is not a usable tool.
 fn found(tool: &str) -> bool {
-    Command::new(tool)
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    std::env::var_os("PATH").is_some_and(|path| found_in(tool, &path))
+}
+
+/// The deciding half, with the search path passed in.
+///
+/// Split for the reason the container probe next door is split: the line that reads the ENVIRONMENT
+/// is one line, and the decision is a function beside it that a test can call with a path it built
+/// itself. The alternative is a test that mutates `PATH`, which in this edition needs an `unsafe`
+/// block and makes the test order-dependent for a value the whole process shares.
+fn found_in(tool: &str, path: &std::ffi::OsStr) -> bool {
+    std::env::split_paths(path).any(|dir| {
+        std::fs::metadata(dir.join(tool)).is_ok_and(|meta| {
+            // Executable, not merely present: a file on `PATH` that cannot be run is not a tool.
+            meta.is_file() && std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0
+        })
+    })
 }
 
 fn cmd_doctor(_args: &[String]) -> ExitCode {
@@ -451,6 +475,38 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    /// `found_in` executes nothing, so a tool that would hang is still reported present.
+    ///
+    /// Against the previous shape this case did not fail, it never returned: `found` ran
+    /// `--version` and waited with no timeout, which is what hung `just doctor` on a wedged daemon.
+    #[test]
+    fn a_tool_that_would_hang_is_still_found_because_nothing_is_executed() {
+        let dir = std::env::temp_dir().join(format!("sutura-found-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let tool = dir.join("sutura-test-hangs");
+        std::fs::write(&tool, "#!/bin/sh\nwhile :; do :; done\n").expect("write");
+        std::fs::set_permissions(
+            &tool,
+            <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+        )
+        .expect("chmod");
+        std::fs::create_dir_all(dir.join("sutura-test-dir")).expect("subdir");
+
+        let answer = super::found_in("sutura-test-hangs", dir.as_os_str());
+        let absent = super::found_in("sutura-test-not-here", dir.as_os_str());
+        // A directory is present and carries the execute bit, and is still not a tool.
+        let directory = super::found_in("sutura-test-dir", dir.as_os_str());
+        drop(std::fs::remove_dir_all(&dir));
+
+        assert!(
+            answer,
+            "a tool on the path is found even though running it would never return"
+        );
+        assert!(!absent, "a tool that is not on the path is not found");
+        assert!(!directory, "a directory is not an executable tool");
+    }
+
     use super::{COMMANDS, local_base};
 
     #[test]

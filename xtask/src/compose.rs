@@ -152,7 +152,21 @@ fn require_docker(task: &str) -> Result<(), Verdict> {
 /// The DIRECTION is not decided here: `sutura_dev::requirement` owns it, because the harness that
 /// reads the discovery file has to make the same decision and two copies of it would drift. What is
 /// decided here is the wording, which is about docker and belongs beside the docker gate.
+///
+/// **With one override, and it is the reason the bounded probe distinguishes silence from refusal.**
+/// `Requirement::Optional` exists for a machine that does not have docker - nix deliberately does not
+/// pin it, so that is a legitimate configuration and skipping is correct. A daemon that is installed,
+/// running and never answers is a different machine: it HAS the tier and the tier is faulty. Skipping
+/// there produces exactly the outcome the tier exists to prevent - `just dev-up` exiting zero having
+/// provisioned nothing, no discovery file written, the tier tests then declining, and the whole run
+/// green. So [`docker::Missing::may_be_skipped`] can veto the optional direction, and only that one
+/// variant does.
 fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Verdict {
+    let requirement = if missing.may_be_skipped() {
+        requirement
+    } else {
+        Requirement::Required
+    };
     match requirement {
         Requirement::Optional => {
             println!("xtask {task}: SKIPPED - no container runtime ({missing:?})");
@@ -167,8 +181,16 @@ fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Ver
             eprintln!("  {}", missing.remedy());
             eprintln!("  This tier is the only thing standing behind a network adapter. A run that");
             eprintln!("  skipped it would report green having tested nothing, which is the exact");
-            eprintln!("  failure the tier exists to prevent. Set {FORCE}=0 to");
-            eprintln!("  skip instead, and mean it.");
+            eprintln!("  failure the tier exists to prevent.");
+            if missing.may_be_skipped() {
+                eprintln!("  Set {FORCE}=0 to skip instead, and mean it.");
+            } else {
+                // Deliberately NOT offering the knob here. It would be the wrong advice: the daemon
+                // is installed and running, so skipping does not describe this machine - it just
+                // hides a fault behind a green run.
+                eprintln!("  {FORCE} does NOT apply: the daemon is installed and running, so this");
+                eprintln!("  is a fault on a machine that has the tier, not a machine without one.");
+            }
             Verdict::Fail
         }
     }
