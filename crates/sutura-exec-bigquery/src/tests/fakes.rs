@@ -164,10 +164,9 @@ impl JobTransport for Recording {
         // pays is not a fact about which tables a dataset holds, and it is the one this fake was
         // blind to. See `Self::listed`.
         self.listed.borrow_mut().push(format!("{}:{pair}", at.billed_to().as_str()));
-        // Spelled out rather than `unwrap_or_default`, because there is no default a `HeldTables`
-        // could carry that is not an answer to this issue's own question: an undeclared pair is an
-        // empty dataset that reported nothing, which is precisely the ambiguity the real decoder now
-        // reports instead of hiding.
+        // An undeclared pair is an empty dataset that reported nothing - the ambiguity the real
+        // decoder now reports rather than hides. `HeldTables` has no `Default` for that reason: what
+        // an absence means here is the question, so it is stated at the site.
         Ok(self
             .holding
             .get(&pair)

@@ -831,16 +831,29 @@ mod tests {
         // document. So the total is observable only where the transport answers, which is also where
         // the decision that reads it will have to live.
         //
-        // One more `tables.list` call than this file made before - a metadata read, billed for
-        // nothing - and it is a second call rather than a fold into the leg above because that leg
-        // holds a `Warehouse` and this question is a rung below it.
+        // **What the extra leg costs, stated rather than rounded to nothing:** one more
+        // `tables.list` - a metadata read, billed for nothing - plus a second credential file read
+        // and **a second token exchange**, because `Credential::bearer` caches nothing and mints per
+        // call. It is a second leg rather than a fold into the one above because that one holds a
+        // `Warehouse` and this question is a rung below it, and because two independently named legs
+        // is what lets a reader see which claim a red run broke.
+        // **A THIRD composition, and `tests/support/mod.rs` states that having one is the point** -
+        // agent, credential, transport and warehouse assembled once so both legs are evidence for
+        // the same composition rather than for two that resemble each other. This leg cannot reuse
+        // it: `BigQueryWarehouse` exposes no transport accessor, and a `wire(connection)` helper in
+        // `support` would be an item `corpus.rs` never calls, which `dead_code = "deny"` fails. So
+        // the exception is real and its cost is stated: a change to HOW the wire is composed leaves
+        // this leg green against the shape it hard-codes. Only `bounds()` is shared, which is the
+        // one that spends money.
         let fixture = Fixture::required();
+        // The same project in both roles, which mirrors `BigQueryWarehouse::addressed`'s unqualified
+        // branch - the rule that carried a live quota-project bug, so it is named rather than
+        // re-derived: `billed_to` differs from `project` only where a path names another project.
         let at = DatasetAddress::of(
             fixture.connection.billing_project.clone(),
-            fixture.connection.billing_project.clone(),
-            fixture.connection.dataset.clone(),
+            fixture.connection.billing_project,
+            fixture.connection.dataset,
         );
-        let held_by_the_dataset = fixture.table.as_str().to_owned();
         let wire = BigQueryWire::new(WireAgent::pinned(bounds()), fixture.connection.credentials);
         let held = wire
             .list_tables(&at)
@@ -859,7 +872,7 @@ mod tests {
         // The control, and it is what stops the assertion below being satisfied by a listing that
         // named nothing: a total reported beside no entries is the shape change itself.
         assert!(
-            held.holds(&held_by_the_dataset),
+            held.holds(fixture.table.as_str()),
             "the listing named the fixture table, so this is a real listing of a real dataset"
         );
         // **The claim this leg exists to settle**, and it is red rather than silent if the service

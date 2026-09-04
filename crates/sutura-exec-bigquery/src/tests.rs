@@ -569,6 +569,12 @@ fn a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named() {
     // an `Err` from this method is a WARNING the deployment serves past, so refusing on a shape
     // change would move it from *refused for the wrong reason* to *served anyway*, which is the
     // worse direction. Whoever settles that changes this test, and the record with it.
+    //
+    // **What this test is NOT, said next to it:** it is not a regression test. Its assertion holds
+    // identically on the base tree - the behaviour it pins is the behaviour that was already there -
+    // so a `just causality` green over it would be a COMPILE artifact of naming `ListingTotal`. What
+    // it holds is the absence of a decision, and the evidence for that is a mutation: `preflight`
+    // made to skip a dataset whose listing is `Short` turns this red.
     let warehouse = open(
         Recording::empty().holding_with_total(
             "acme-analytics/warehouse",

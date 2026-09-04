@@ -464,12 +464,16 @@ how many there were supposed to be.
 **A struct rather than the `BTreeSet<String>` alias it was, and the second field is the whole
 reason.** The set alone cannot tell an EMPTY dataset from a document whose shape the service
 changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
-absent*. `ListingTotal` is what the two can be told apart by, and it has to travel on this
-answer because the decision that would read it lives above the transport while the document that
-carries it is only visible below.
+absent*. `ListingTotal` is what the two can be told apart by.
 
-The set is still what a caller asks with - `Self::holds` is the only question the pre-flight
-puts to it - so nothing above here reads a count in order to conclude anything.
+**Why it travels on the answer rather than being decided here, which is not the same as *it
+could not be*:** `JobTransport::listing_was_refused` is proof that this port can hold a
+decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
+that the choice is not settled - `docs/adr/0018` states why refusing is not obviously the safe
+direction - and a transport that turned the value into a verdict would have taken it.
+
+The set is still what the pre-flight asks with, and `Self::holds` is its only question;
+`Self::named` is for a diagnostic and for a test, not for a count anything concludes from.
 
 #### Methods
 
@@ -523,6 +527,11 @@ table id is outside `usable_table_id`'s accepted set is DROPPED, so a dataset ho
 crate cannot match legitimately names fewer ids than it carried entries - and `BigQuery` does
 permit an id this crate would drop. Comparing a total against the named set would report that
 ordinary dataset as short of its own total, which is a shape change nobody served.
+
+The same cross-check one document over is `crate::BigQueryError::Incomplete`, which compares
+`delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
+here so a reader who greps one finds the other: that one refuses because a short result set is a
+wrong number, and this one cannot, because a short listing is a boot warning.
 
 #### Variants
 

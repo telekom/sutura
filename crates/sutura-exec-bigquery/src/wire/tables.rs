@@ -158,13 +158,10 @@ const MAX_TABLE_ID_BYTES: usize = 1024;
 ///
 /// **Infallible by construction, and that is the property rather than an implementation detail.**
 /// Every way the field can arrive that this crate cannot read as a count lands on
-/// [`ListingTotal::Unreadable`] - a float, a negative, an object, a number past `u64` - so the field
-/// can neither refuse a listing nor be mistaken for one of the two answers that mean something. The
-/// [`Listing::total_items`] documentation is where the *why* is argued.
-///
-/// **A string is accepted as well as a number**, which is not defensive clutter: this service spells
-/// `totalRows` as a JSON string in the sibling document, so a count arriving quoted is its own
-/// established habit rather than a hypothetical.
+/// [`ListingTotal::Unreadable`] - a float, a negative, an object, a number past `u64`, a string that
+/// is not a number - so the field can neither refuse a listing nor be mistaken for one of the two
+/// answers that mean something. [`Listing::total_items`] argues why that matters and why a quoted
+/// count is read too.
 ///
 /// `carried` is the count of entries the whole finished listing carried - every page, before any id
 /// this crate cannot match was dropped. [`ListingTotal`] says why it may not be the named set.
@@ -573,8 +570,9 @@ mod tests {
         ] {
             assert_eq!(read(&[spelling]).total(), ListingTotal::Unreadable, "{spelling}");
         }
-        // A count spelled as a string IS read, and that is not defensive clutter: this service spells
-        // `totalRows` as a JSON string in the sibling document, so a quoted count is its own habit.
+        // THE control, without which the loop above is a function that answers `Unreadable` to
+        // everything: a count spelled as a string is read. `Listing::total_items` says why one can
+        // arrive that way.
         assert_eq!(
             read(&[r#"{"totalItems":"12","tables":[]}"#]).total(),
             ListingTotal::Short {
@@ -586,10 +584,9 @@ mod tests {
 
     #[test]
     fn a_total_this_crate_cannot_read_never_costs_the_listing_that_carried_it() {
-        // **The property the field is decoded as raw JSON for**, and the direction that makes it
-        // matter: a decode failure here is `NotAListing`, which `was_refused` puts in the WARNING
-        // half - so a deployment would serve on past a pre-flight that had quietly stopped verifying
-        // anything. A field nothing yet decides on must not be able to do that.
+        // **The property the field is decoded as raw JSON for** - `Listing::total_items` argues the
+        // direction. The mutation that shows this test is not free: the field as an `Option<u64>`
+        // fails here with `invalid type: map, expected u64`.
         for hostile in [
             r#"{"totalItems":{"count":2},"tables":[{"tableReference":{"tableId":"dim_customer"}}]}"#,
             r#"{"totalItems":"lots","tables":[{"tableReference":{"tableId":"dim_customer"}}]}"#,
