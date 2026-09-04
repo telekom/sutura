@@ -247,7 +247,7 @@ ci:
     # byte-compared and no test covers them, so four stale-page incidents were invisible locally
     # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
     # along - but this loop names its checks, so a name left out is a check nobody ran.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L \
             || nix build ".#checks.$system.$check" -L --offline
@@ -722,6 +722,19 @@ clean-branches *args:
 doctor:
     cargo run -q -p sutura-dev -- doctor
 
+# The identity provider's nix-native tier, by hand: `just keycloak-tier start|stop|status`.
+#
+# NOT a step anybody has to remember before committing, and that is deliberate - no gate needs it.
+# `checks.keycloak-tier` provisions and tears down its own instance in the sandbox, which is where
+# the property that no human is needed is actually held. This task is for looking at a real issuer:
+# `start` writes the port into `.sutura-dev/endpoints.json` and the realm, client and two subjects
+# into `.sutura-dev/keycloak-realm.json`, both generated per start and removed by `stop`.
+#
+# Through `nix run` rather than a dev-shell package, so a contributor who never touches identity
+# does not fetch a JVM and a 186 MB server on `nix develop`. See `apps.keycloak-tier` in flake.nix.
+keycloak-tier *args:
+    nix run .#keycloak-tier -- {{ args }}
+
 # ------------------------------------------------------- the compose tier ---
 #
 # One independent service instance per worktree, provisioned through xtask rather than through the
@@ -758,12 +771,16 @@ dev-up-datahub:
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 #
 # A named task rather than a cell in the default suite, and NOT because a network is missing - the
-# `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers:
-# `xtask dev-up` writes the docker services, and `sutura-postgres-tier start` - which `just test`
-# runs - rewrites the file with `postgres` as its only entry. So a docker service is invisible to the
-# discovery file for the whole of `just test`, which also sets the fail-closed direction, and a cell
-# over one would be unconditionally red there. The clobbering is a defect in that seam and is
-# recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than papered over here.
+# `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers,
+# and ONE HALF OF THE CLOBBERING IS NOW GONE: every nix-native tier writes through
+# `nix/tier-endpoints.nix`, which MERGES its own service into the file, so `sutura-postgres-tier
+# start` no longer leaves `postgres` as the only entry. The other half stands - `xtask dev-up` goes
+# through `sutura_dev::discovery::publish`, which serialises the whole document from the docker
+# services it just read, so a `dev-up` after a nix tier still drops the nix entry. A docker service
+# is therefore still invisible for the whole of `just test` when the order runs that way, which
+# also sets the fail-closed direction, and a cell over one would be unconditionally red there. The
+# remaining half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than
+# papered over here.
 #
 # It brings the profile up first, because a task that asked for the fail-closed direction against a
 # tier nobody started would just be a confusing way to spell an error.

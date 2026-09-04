@@ -47,10 +47,11 @@ const JUSTFILE: &str = "justfile";
 
 /// The recipe names in this repo's justfile, or `None` when it could not be read.
 ///
-/// Exposed for a citation checker that is not this gate: `check-guidance` reads the remedy text in
-/// `xtask/src/guidance/claims.rs`, where a `just <task>` citation rots exactly the way one in a
-/// page does. This is the only parser in the workspace that knows what a recipe header looks like,
-/// and a second copy of it is the transcription this module's header objects to.
+/// Exposed for the citation checkers that are not this gate. `check-guidance` reads the remedy text
+/// in `xtask/src/guidance/claims.rs` and, since `github.com/telekom/sutura#243`, every `just <task>`
+/// a program PRINTS - both rot exactly the way a citation in a page does. This is the only parser in
+/// the workspace that knows what a recipe header looks like, and a second copy of it is the
+/// transcription this module's header objects to.
 pub(crate) fn recipe_names(root: &std::path::Path) -> Option<BTreeSet<String>> {
     let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
     Some(recipes(&text).into_iter().map(|recipe| recipe.name).collect())
@@ -107,7 +108,16 @@ fn recipes(text: &str) -> Vec<Recipe> {
             continue;
         }
         if let Some((head, _)) = raw.split_once(':') {
-            let name = head.split_whitespace().next().unwrap_or_default();
+            // `@` IS NOT PART OF THE NAME. `just` reads a leading `@` on a header as "run this
+            // recipe quietly", and `just @dev-endpoint` is not how anybody invokes it - `printed`
+            // below already strips the same prefix off a body line. Keeping it made this parser
+            // disagree with the other hand-parse of this file, and the disagreement was not
+            // theoretical: `sutura-dev` prints `just dev-endpoint` at the moment a service is
+            // missing, the header is `@dev-endpoint service:`, and the only authority for "is that
+            // a recipe" answered no. Latent for the two rules below - nothing cites a quiet recipe
+            // in the justfile itself - and live the moment a gate read a printed line, which
+            // `check-guidance`'s `advice` check now does.
+            let name = head.split_whitespace().next().unwrap_or_default().trim_start_matches('@');
             // `:=` is an assignment, not a recipe. None exist today; the guard costs a line and
             // stops one being read as a recipe called `set`.
             if !name.is_empty() && !head.ends_with(":=") && !raw.contains(":=") {
@@ -352,6 +362,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::{citations, cited_task, problems, recipes, scope_of};
 
     /// A justfile with the shape the rules are about: one narrowed recipe that states its scope
@@ -447,6 +459,29 @@ lint:
     cargo clippy --workspace
 ";
         assert_eq!(problems(tools), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_quiet_recipes_name_does_not_carry_its_at_sign() {
+        // `just @dev-endpoint` is not how anything invokes it, and the justfile's own comment above
+        // that recipe cites it without the prefix. RED BEFORE THE FIX beside it: the name came back
+        // as `@dev-endpoint`, so `recipe_names` - the one authority every citation checker in this
+        // workspace resolves a `just <task>` against - denied that a recipe `sutura-dev` prints
+        // exists. `dev/src/provisioned.rs`'s own hand-parse of this file already stripped it, which
+        // is what kept the disagreement invisible.
+        let quiet = "@dev-endpoint service:\n    cargo run -q -p xtask -- dev-endpoint {{ service }}\nlint:\n    cargo clippy --workspace\n";
+        let parsed = recipes(quiet);
+        let names: BTreeSet<&str> = parsed.iter().map(|recipe| recipe.name.as_str()).collect();
+        assert!(names.contains("dev-endpoint"), "the `@` is still in the name: {names:?}");
+        assert!(!names.contains("@dev-endpoint"), "both spellings parsed: {names:?}");
+
+        // And against the real file, so a rename of the one quiet recipe does not make this vacuous.
+        let root = crate::repo::root().expect("the repo root");
+        let known = super::recipe_names(&root).expect("the justfile is readable");
+        assert!(
+            !known.iter().any(|name| name.starts_with('@')),
+            "a recipe name still carries the quiet prefix: {known:?}"
+        );
     }
 
     #[test]

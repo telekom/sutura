@@ -6,7 +6,7 @@
 //! the process**. All of it through `crate::router` with `tower`'s `oneshot`, so what is exercised is
 //! the composed transport rather than a call to `sutura_app::answer`.
 //!
-//! # The two things this closes, and they were both holes rather than gaps
+//! # The three things this closes, and they were all holes rather than gaps
 //!
 //! 1. **`403 credential_unavailable` had never been produced by a request.** It was asserted in
 //!    `crate::wire::refusal`'s own unit test - a `RefusalReason` handed to the mapper - and by nothing
@@ -18,15 +18,24 @@
 //!    layer below a request: what was missing is that the *verified caller's* own subject and its own
 //!    assertion are what the broker is asked about, per request, and that what comes back is what the
 //!    adapter is handed.
+//! 3. **Nothing joined the two halves of the exchange chain.** The transport retains the token that
+//!    verified, and `sutura_exec_bigquery::WorkloadIdentityBroker` sends an asker's token to an
+//!    `StsExchange` - and each half was asserted against its own fixture. So a transport that retained
+//!    a MANGLED assertion - the scheme still on it, say - left both suites green while the shipped
+//!    broker would have exchanged garbage. The joining test drives that broker through this router over
+//!    a fake exchange and asserts the `subject_token` it was handed is byte-for-byte the compact JWT
+//!    leg 1 verified.
 //!
 //! # What none of it is
 //!
-//! **This is not leg 2 delivered, and nothing here may be cited as it.** The subject credential is
-//! minted by a fake broker and consumed by a fake adapter, so what is proved is that the transport
-//! carries a per-subject credential from the broker to the port without mixing two callers up. It says
-//! nothing about a real token exchange, and nothing whatever about two subjects reading two row sets -
-//! that needs a data system with row-level security and two real grants. `AGENTS.md` keeps the shipped
-//! position: no source a deployment SERVES executes as the asking subject.
+//! **This is not leg 2 delivered, and nothing here may be cited as it.** Two of the three tests mint
+//! from a fake broker, the third from the shipped exchanging one over a fake exchange, and every one of
+//! them is consumed by a fake adapter - so what is proved is that the transport carries a per-subject
+//! credential from the broker to the port without mixing two callers up, and that the document it
+//! carries is the one an exchange would need. It says nothing about whether a real authorization server
+//! accepts that document, and nothing whatever about two subjects reading two row sets - that needs a
+//! data system with row-level security and two real grants. `AGENTS.md` keeps the shipped position: no
+//! source a deployment SERVES executes as the asking subject.
 
 use std::sync::Arc;
 
@@ -38,11 +47,15 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
+use sutura_exec_bigquery::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
 
 use crate::inbound::gate::InboundGate;
 use crate::state::ServiceState;
 use crate::surface::LocalService;
-use crate::testing::{Answered, accepted_by, an_issuer, asked, bundle, catalog_of, direct_overlay, sink, source};
+use crate::testing::{
+    Answered, accepted_by, an_issuer, asked, bundle, catalog_of, declared_inbound, direct_overlay, serving, settings_with, sink,
+    source,
+};
 
 // ------------------------------------------------------------------- the fakes ----
 
@@ -368,5 +381,189 @@ async fn an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_fi
         answered.body.contains(SourcePosture::ImpersonationAtSource.as_str()),
         "an answer says which identity produced each of its legs: {}",
         answered.body
+    );
+}
+
+// ------------------------------------------------- the exchange, and its fake ----
+
+/// The workload-identity pool an impersonating source declares. Not a real one, and cannot be.
+///
+/// The value is asserted on rather than merely passed, which is what shows the broker sends the
+/// declaration it holds **for that source** rather than something the request contributed.
+const POOL: &str = "//iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/example/providers/example";
+
+/// The scope that declaration asks for. A published Google scope string, which is public.
+const SCOPE: &str = "https://www.googleapis.com/auth/bigquery.readonly";
+
+/// One call the broker made to the exchange, recorded as it was made.
+///
+/// A named struct and not a tuple, because the assertion that matters is on **which** of the three
+/// values: `subject_token` is the seam this module exists to close, and a positional `.2` in a failure
+/// message would not say so.
+struct Exchanged {
+    /// The audience the broker asked for.
+    audience: String,
+    /// The scope the broker asked for.
+    scope: String,
+    /// The document the broker offered as the subject's own credential.
+    subject_token: String,
+}
+
+/// An RFC 8693 exchange that records what it was asked and answers with a credential naming it.
+///
+/// **A real implementor of `sutura_exec_bigquery::StsExchange`, which is the point.** The narrow port
+/// exists so the broker's decisions are exercised with no network, and a fake at it runs the shipped
+/// broker's real code path - where a fixture broker of this crate's own would be asserting on itself.
+///
+/// Records through an unbounded channel rather than a lock, for `RecordsWhatItWasHanded`'s reason:
+/// `clippy.toml` bans `std::sync::Mutex`, `tokio::sync::Mutex` cannot be taken from a synchronous port
+/// method, and `std::cell::RefCell` - which this port's in-crate fake uses, where a single thread is
+/// all there is - is not `Sync`, so a broker holding one cannot be handed to a router at all.
+struct EchoesWhatItWasAskedToExchange {
+    asked: tokio::sync::mpsc::UnboundedSender<Exchanged>,
+}
+
+/// The fixture exchange's own defect, which nothing here provokes.
+///
+/// Its own type because `StsExchange::Error` is what `ExchangeUnusable::Provider` wraps, and that is a
+/// `503`-shaped failure rather than the `403` governance refusal this module asserts on. A fake with
+/// one error for both would let a refusal pass for the wrong reason.
+#[derive(Debug, thiserror::Error)]
+#[error("the fixture exchange in `identity_e2e` cannot fail, and did")]
+struct NoFixtureExchangeFailure;
+
+impl StsExchange for EchoesWhatItWasAskedToExchange {
+    type Error = NoFixtureExchangeFailure;
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the subject token IS the assertion: that the document leg 1 verified is what \
+                  the shipped broker offered to an exchange"
+    )]
+    fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error> {
+        let offered = String::from(subject_token.expose_secret());
+        drop(self.asked.send(Exchanged {
+            audience: String::from(audience),
+            scope: String::from(scope),
+            subject_token: offered.clone(),
+        }));
+        // A real deadline and not `NothingExpires`: an exchanged credential has a lifetime, that
+        // lifetime is what `Expiry::earliest` folds over, and `sutura_app::answer` compares the fold
+        // against the wall clock. Derived from the clock rather than written as a literal, so the test
+        // does not start failing on a date.
+        Ok(StsCredential::of(
+            Secret::new(format!("sts-token-for/{offered}")),
+            Expiry::At {
+                unix_seconds: in_an_hour(),
+            },
+        ))
+    }
+}
+
+/// An hour from now, as a JWT timestamp.
+///
+/// `saturating_add` because `arithmetic_side_effects` is denied here, and a clock before the epoch is
+/// answered with `0` rather than a `Result` that would reach every caller.
+fn in_an_hour() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+        .saturating_add(3_600)
+}
+
+/// A fake exchange and the receiving end of every call the broker makes to it.
+fn an_exchange() -> (
+    EchoesWhatItWasAskedToExchange,
+    tokio::sync::mpsc::UnboundedReceiver<Exchanged>,
+) {
+    let (asked, received) = tokio::sync::mpsc::unbounded_channel();
+    (EchoesWhatItWasAskedToExchange { asked }, received)
+}
+
+/// A router that verifies its callers and hands them to the **shipped** exchanging broker.
+///
+/// Through `crate::testing::serving`, so the service is started by the real `LocalService::start` and
+/// the router is the real one. The broker is a parameter because the two tests below need two: one that
+/// holds the source and one that holds nothing for it.
+fn app_over(
+    broker: WorkloadIdentityBroker<EchoesWhatItWasAskedToExchange>,
+    issuer: &MockIssuer,
+    published: &PublishedKeySet,
+) -> (axum::Router, tokio::sync::mpsc::UnboundedReceiver<String>) {
+    let settings = settings_with(&direct_overlay(issuer, &published.path().to_string_lossy()));
+    let gate = InboundGate::from_declaration(&declared_inbound(&settings)).expect("a published key set builds a gate");
+    let recording = recording_warehouse();
+    (
+        serving(bundle(), recording.warehouses, broker, settings, Some(gate)),
+        recording.handed,
+    )
+}
+
+#[tokio::test]
+async fn the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified() {
+    // **The join, and it is the assertion neither half could make alone.** `crate::inbound` retains
+    // the token that verified and `WorkloadIdentityBroker` offers an asker's token to an exchange -
+    // each against its own fixture, each green whatever the other did with the bytes. What is asserted
+    // here is the identity of those bytes: the `subject_token` the shipped broker sent is the compact
+    // JWT this caller presented, character for character.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "shipped-exchange").expect("the key set publishes");
+    let (exchange, mut asked) = an_exchange();
+    let broker = WorkloadIdentityBroker::empty(exchange)
+        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
+    let (app, mut handed) = app_over(broker, &issuer, &published);
+
+    let token = accepted(&issuer, "ada@example.com");
+    let answered = ask(&app, Some(&token)).await;
+    assert_eq!(answered.status, StatusCode::OK, "{}", answered.body);
+
+    let call = asked.try_recv().expect("the shipped broker performed an exchange");
+    // The seam. A transport that retained the header's whole value, or trimmed the token, or handed
+    // over the subject's NAME, passes every other test in this file and fails here.
+    assert_eq!(
+        call.subject_token, token,
+        "the document exchanged is not the one leg 1 verified"
+    );
+    // And the two halves of the DECLARATION, so what reached the exchange is what this deployment
+    // declared for this source rather than anything the request carried.
+    assert_eq!(call.audience, POOL, "the pool the exchange was asked for");
+    assert_eq!(call.scope, SCOPE, "the scope the exchange was asked for");
+    assert!(asked.try_recv().is_err(), "one question over one source is one exchange");
+
+    // The far end: what the exchange answered is what the adapter was handed as its job's bearer, so
+    // the credential travelled the whole way rather than being minted and dropped.
+    let bearer = handed.try_recv().expect("the adapter was handed a credential");
+    assert_eq!(
+        bearer,
+        format!("sts-token-for/{token}"),
+        "the leg did not run under what the exchange returned"
+    );
+}
+
+#[tokio::test]
+async fn a_source_the_shipped_exchanging_broker_holds_nothing_for_is_refused_before_anything_is_exchanged() {
+    // `credential_unavailable_is_reachable_end_to_end` above shows the request path reaches the
+    // refusal, over a fake broker whose only behaviour IS to refuse. This one shows the **shipped**
+    // exchanging broker producing it, and adds the assertion a status code cannot carry: nothing was
+    // exchanged and the adapter was never reached, so a subject with no grant is refused *before* a
+    // credential exists rather than being answered under one the deployment holds.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "nothing-to-exchange").expect("the key set publishes");
+    let (exchange, mut asked) = an_exchange();
+    let (app, mut handed) = app_over(WorkloadIdentityBroker::empty(exchange), &issuer, &published);
+
+    let refused = ask(&app, Some(&accepted(&issuer, "ada@example.com"))).await;
+    let body = refused.body;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{body}");
+    let parsed: serde_json::Value = serde_json::from_str(&body).expect("a refusal is JSON");
+    assert_eq!(parsed["reason"]["code"], "credential_unavailable", "{body}");
+
+    assert!(
+        asked.try_recv().is_err(),
+        "a subject the broker holds nothing for must not reach an authorization server"
+    );
+    assert!(
+        handed.try_recv().is_err(),
+        "a refused subject must not reach the data system at all"
     );
 }

@@ -84,6 +84,18 @@ rcgen = { workspace = true }
 # `xtask` links the same library to learn a compose project name and should not compile a crypto
 # backend for it.
 sutura-dev = { workspace = true, features = ["mock-issuer"] }
+# The one broker in this workspace that EXCHANGES rather than minting from configuration, for the
+# transport half of `github.com/telekom/sutura#147`: `crate::identity_e2e` drives
+# `WorkloadIdentityBroker` over a fake `StsExchange` through the real router, so what is asserted is
+# that the compact JWT leg 1 verified is byte-for-byte the `subject_token` the shipped broker sends.
+# A fixture broker of this crate's own cannot say that - it would be asserting on itself.
+#
+# **A DEV-dependency, and the distinction is the whole reason this edge is allowed.** Dev edges do not
+# propagate, so no shipped artifact gains this crate; `cargo xtask check-boundaries` walks normal
+# edges for the adapter-class half for exactly this reason - a dev edge between two adapters is how a
+# test reaches a real implementor instead of a copy of one. Default features, so the `wire` feature's
+# `ureq`/rustls closure stays out: the port and the broker are not behind it.
+sutura-exec-bigquery = { workspace = true }
 # The SAME dependency as above, with the log-capture writer turned on. The router's span is
 # observable only as bytes, so the harness builds a subscriber over a buffer and asserts on them -
 # and the writer comes from `sutura-runtime` rather than being copied here, because a second copy is

@@ -1,0 +1,312 @@
+# The Keycloak tier, nix-native: the CI venue for the identity provider, on
+# `nix/postgres-tier.nix`'s pattern.
+#
+# `compose.services.yaml` is the DEMO venue - a person's machine, a docker socket, the `identity`
+# profile. This is the other one: one start/stop/status script over the `nixpkgs` package, run by
+# `checks.keycloak-tier` inside the sandbox and by `just keycloak-tier` from the same script, so the
+# two cannot drift. It needs no docker socket and no network beyond loopback.
+#
+# # What it provisions, and why NO HUMAN is in the loop
+#
+# A realm, one confidential client and TWO users, through `kcadm.sh`. Two rather than one is the
+# whole point: `docs/adr/0008` draws the two-subject property, and a tier that can only produce one
+# subject's token cannot be cited for it. Every credential is GENERATED at `start` - there is no
+# password anywhere in this file, in the repository, or in a fixture, which is what makes a public
+# repository and a working identity fixture compatible.
+#
+# `start` then **proves its own provisioning before it reports success**: it asks the token endpoint
+# for an access token as each subject and exits non-zero if either does not come back. So "no human
+# is needed" is a fail-closed check rather than a claim - a realm that came up half-provisioned is a
+# red run at the point of provisioning, not a puzzling refusal in a test twenty minutes later.
+#
+# # The two things a reader should know before citing this tier
+#
+# **What it can be cited for that `sutura_dev::issuer` cannot:** a real provider's own documents and
+# signatures - an `RS256` token, the JWKS it publishes for it, the discovery document, and the
+# question that module names as having exactly one venue (what a real provider will actually mint).
+# The mock issuer cannot generate an RSA key at all, by deliberate design, so that path has no other
+# venue.
+#
+# **What it still cannot be cited for:** two subjects reading two row sets. Nothing in this
+# repository carries a per-subject credential into a data system yet - `compose.services.yaml` says
+# so at length and this tier does not change it. It makes leg 1 provable against a real provider; it
+# does not make leg 2 exist.
+#
+# # Three mechanics that are not obvious
+#
+# **The package is already augmented, so nothing is copied.** `nixpkgs` runs `kc.sh build` in its
+# own build phase, so the store tree carries `lib/quarkus`. What Keycloak needs on top of that is a
+# WRITABLE `kc.home.dir` for its embedded store - and it looks for the build marker under that same
+# directory. So the home is a symlink farm onto the store package with one real directory, `data`,
+# and the server starts `--optimized`: no augmentation at run time, no write next to the jar, no
+# 186 MB copy. Measured on 2026-09-03: `start-dev` against the store package fails with
+# `AccessDeniedException: .../lib/quarkus/transformed-bytecode.jar`, and `--optimized` against an
+# empty home fails with *"the '--optimized' flag was used for first ever server start"* - the farm is
+# what satisfies both.
+#
+# **THE PORT IS CHOSEN BY THE OPERATING SYSTEM, not by us.** `--http-port=0` binds an ephemeral port
+# and the server prints it; the tier reads it back out of the log and publishes it into
+# `.sutura-dev/endpoints.json`. That is `docs/adr/0009`'s rule applied to a service that, unlike
+# Postgres, cannot be reached over a unix socket: there is no fixed port to collide with a neighbour
+# worktree, and no "check whether the port is free, then bind" window. `--http-management-port=0`
+# is there for the same reason and is easy to miss - Keycloak's management interface defaults to a
+# FIXED 9000, which two worktrees would fight over even though nothing here reads it.
+#
+# **`--cache=local`, and this is the one a reader is most likely to leave out.** `--http-port=0`
+# removes the port that is visible; production mode also opens an Infinispan/JGroups channel on a
+# FIXED range, 7800 to 7810, before it serves anything. Measured on 2026-09-03: the check passed on
+# a machine where that range happened to be free and the SAME derivation, rebuilt minutes later,
+# failed with *"Unable to start JGroups Channel: No available port to bind to in range
+# [7800 .. 7810]"*. A local cache has nobody to replicate to and no channel to open, so the second
+# fixed port goes away rather than being allocated around. It is a RUN-time option, verified rather
+# than assumed: passing it through the package's `confFile` instead makes `kc.sh build` print *"The
+# following run time options were found, but will be ignored during build time: kc.cache"*.
+#
+# **`stop` kills a process GROUP.** `kc.sh` is a shell script that spawns the JVM rather than
+# `exec`ing it, so killing the script's pid leaves Keycloak running. `set -m` makes the launch its
+# own process group and `kill -- -$pid` takes the whole group, which needs no `pgrep` - `procps` is
+# not in a nix build sandbox's PATH and is not portable to darwin.
+{ pkgs }:
+let
+  endpoints = import ./tier-endpoints.nix { inherit pkgs; };
+
+  # The realm this tier provisions. Named once, here, because the tier script, the check that runs
+  # it and anything that later reads the realm file all have to agree on it.
+  realm = "sutura-dev";
+  client = "sutura-dev-cli";
+  # The two subjects `docs/adr/0008`'s property needs. Deliberately not people: a fixture that
+  # looks like somebody's account in a public repository is a disclosure with extra steps.
+  subjects = [ "subject-a" "subject-b" ];
+in
+{
+  package = pkgs.keycloak;
+
+  # Where the realm, the client and the two subjects are written for a reader.
+  #
+  # NOT in `endpoints.json`: that file is the discovery contract and holds addresses only, and
+  # `dev/src/discovery.rs` is deliberately narrow about what an endpoint is. Credentials go beside
+  # it in their own file, generated per `start`, `0600`, and removed by `stop`.
+  realmFile = ".sutura-dev/keycloak-realm.json";
+
+  inherit realm client subjects;
+
+  tier = pkgs.writeShellApplication {
+    name = "sutura-keycloak-tier";
+    runtimeInputs = [
+      pkgs.keycloak
+      pkgs.curl
+      pkgs.coreutils
+      endpoints.script
+    ];
+    text = ''
+      set -o errexit -o nounset
+
+      root="$(pwd -P)"
+      state="$root/.sutura-dev"
+      realm=${realm}
+      client=${client}
+      subjects="${builtins.concatStringsSep " " subjects}"
+
+      # The server's own directory. In the sandbox `$NIX_BUILD_TOP` is per-build and goes away with
+      # it; in a dev shell it is keyed by a hash of the worktree so two worktrees cannot share an
+      # embedded store - the fixture nobody can debug.
+      if [ -n "''${NIX_BUILD_TOP:-}" ]; then
+        home="$NIX_BUILD_TOP/sutura-keycloak"
+      else
+        key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
+        home="''${TMPDIR:-/tmp}/sutura-keycloak-$key"
+      fi
+      pidfile="$home/tier.pid"
+      log="$home/server.log"
+      admincfg="$home/kcadm.json"
+      realmfile="$state/keycloak-realm.json"
+
+      # Keycloak reads both from the environment - `nixpkgs` patches its launcher for exactly this,
+      # which is what lets the store package stay read-only while the state does not.
+      export KC_HOME_DIR="$home"
+      export KC_CONF_DIR="${pkgs.keycloak}/conf"
+      # The JVM and `kcadm.sh` both write under `$HOME`; in the sandbox there is not one.
+      export HOME="$home"
+
+      # A throwaway credential, generated per start. Nothing here is ever written down.
+      generated() {
+        head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9'
+      }
+
+      # Is the server up? The answer is the exit code and nothing is changed, so a wrapper can tear
+      # down only what it brought up - `nix/postgres-tier.nix` explains why that distinction exists.
+      status() {
+        [ -f "$pidfile" ] || return 1
+        kill -0 -- "-$(cat "$pidfile")" 2>/dev/null
+      }
+
+      # The port the operating system chose, out of the server's own log.
+      published_port() {
+        sed -n 's|.*Listening on: http://127\.0\.0\.1:\([0-9]*\).*|\1|p' "$log" | tail -1
+      }
+
+      provision() {
+        port="$1"
+        base="http://127.0.0.1:$port"
+        client_secret="$(generated)"
+
+        # The admin console is answerable a moment after the port is, so the login is retried
+        # rather than assumed. Everything after it is a hard failure: a realm that did not get
+        # created is not something to continue past.
+        for _ in $(seq 1 30); do
+          if kcadm.sh config credentials --config "$admincfg" --server "$base" \
+            --realm master --user "$admin_user" --password "$admin_password" >/dev/null 2>&1; then
+            break
+          fi
+          sleep 2
+        done
+
+        kcadm.sh create realms --config "$admincfg" -s realm="$realm" -s enabled=true >/dev/null
+        # Confidential, with the direct access grant: that is the flow a test uses to obtain a
+        # token for a named subject without a browser. `standardFlowEnabled=false` because nothing
+        # here redirects, and a client offering a flow nobody uses is surface for free.
+        kcadm.sh create clients --config "$admincfg" -r "$realm" \
+          -s clientId="$client" -s enabled=true -s publicClient=false \
+          -s directAccessGrantsEnabled=true -s standardFlowEnabled=false \
+          -s secret="$client_secret" >/dev/null
+
+        # `requiredActions=[]` and a complete profile are load-bearing, not decoration. Measured on
+        # 2026-09-03: a user created with a username alone is refused at the token endpoint with
+        # `invalid_grant: Account is not fully set up`, because the realm's default profile action
+        # is still pending - a human at a browser is exactly what would have cleared it, which is
+        # the one thing this tier may not need.
+        for subject in $subjects; do
+          kcadm.sh create users --config "$admincfg" -r "$realm" \
+            -s username="$subject" -s enabled=true -s emailVerified=true \
+            -s email="$subject@example.com" -s firstName="$subject" -s lastName=fixture \
+            -s 'requiredActions=[]' >/dev/null
+          kcadm.sh set-password --config "$admincfg" -r "$realm" \
+            --username "$subject" --new-password "$(subject_password "$subject")" >/dev/null
+        done
+
+        # PROVE IT, before reporting success. A tier whose realm came up half-provisioned must fail
+        # here, where the message is about provisioning, rather than in whatever reads it next.
+        for subject in $subjects; do
+          token="$(curl -sS --max-time 20 -X POST \
+            "$base/realms/$realm/protocol/openid-connect/token" \
+            -d grant_type=password -d client_id="$client" -d client_secret="$client_secret" \
+            -d username="$subject" -d "password=$(subject_password "$subject")")"
+          case "$token" in
+            *access_token*) ;;
+            *)
+              echo "keycloak tier: $subject could not obtain a token from $realm" >&2
+              echo "$token" >&2
+              exit 1
+              ;;
+          esac
+        done
+
+        # The realm's own credentials, for a reader that needs a token. `umask` first: the file
+        # holds generated secrets and the state directory is inside the worktree.
+        (
+          umask 077
+          {
+            printf '{"issuer":"%s/realms/%s",' "$base" "$realm"
+            printf '"discovery":"%s/realms/%s/.well-known/openid-configuration",' "$base" "$realm"
+            printf '"realm":"%s","client":{"id":"%s","secret":"%s"},' \
+              "$realm" "$client" "$client_secret"
+            printf '"admin":{"username":"%s","password":"%s"},' "$admin_user" "$admin_password"
+            printf '"subjects":['
+            separator=
+            for subject in $subjects; do
+              printf '%s{"username":"%s","password":"%s"}' \
+                "$separator" "$subject" "$(subject_password "$subject")"
+              separator=,
+            done
+            printf ']}\n'
+          } > "$realmfile"
+        )
+      }
+
+      # One password per subject, derived from this start's own seed so it never has to be stored
+      # between the two places that need it.
+      subject_password() {
+        printf '%s-%s' "$1" "$password_seed"
+      }
+
+      start() {
+        if status; then
+          echo "keycloak tier: already up - leaving it to whoever started it."
+          return 0
+        fi
+        # Not running, so whatever is in the home is from a previous run: an embedded store that no
+        # longer matches the realm file is worse than a cold start.
+        rm -rf "$home"
+        mkdir -p "$home/data" "$state"
+        # The read-only halves come from the store package, which `nixpkgs` has already run
+        # `kc.sh build` over; `data` is the one directory the server writes.
+        for part in bin lib conf providers themes; do
+          ln -s "${pkgs.keycloak}/$part" "$home/$part"
+        done
+
+        admin_user=tier-admin
+        admin_password="$(generated)"
+        password_seed="$(generated)"
+        export KC_BOOTSTRAP_ADMIN_USERNAME="$admin_user"
+        export KC_BOOTSTRAP_ADMIN_PASSWORD="$admin_password"
+
+        # `set -m` puts the launch in its own process group; `stop` kills the group, because
+        # `kc.sh` spawns the JVM rather than replacing itself with it.
+        set -m
+        kc.sh start --optimized --cache=local --http-enabled=true --hostname-strict=false \
+          --http-host=127.0.0.1 --http-port=0 --http-management-port=0 \
+          >"$log" 2>&1 &
+        echo "$!" > "$pidfile"
+        set +m
+
+        port=
+        for _ in $(seq 1 90); do
+          port="$(published_port)"
+          [ -n "$port" ] && break
+          if ! status; then
+            echo "keycloak tier: the server exited before it published a port" >&2
+            tail -20 "$log" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        if [ -z "$port" ]; then
+          echo "keycloak tier: no port published within the timeout" >&2
+          tail -20 "$log" >&2
+          stop
+          exit 1
+        fi
+
+        provision "$port"
+        # Published LAST, and that ordering is the contract: the entry in `endpoints.json` is a
+        # claim that a provisioned realm is there, so it may not appear before the realm does.
+        sutura-tier-endpoint publish "$root" keycloak 127.0.0.1 "$port"
+      }
+
+      stop() {
+        if [ -f "$pidfile" ]; then
+          pid="$(cat "$pidfile")"
+          kill -TERM -- "-$pid" 2>/dev/null || true
+          for _ in $(seq 1 20); do
+            kill -0 -- "-$pid" 2>/dev/null || break
+            sleep 1
+          done
+          kill -KILL -- "-$pid" 2>/dev/null || true
+          rm -f "$pidfile"
+        fi
+        # Withdraw the claim - both halves of it. A stale endpoint makes a fail-closed cell panic
+        # on a dead server where the honest outcome is a skip, and a stale realm file hands out
+        # credentials for a realm that is gone.
+        sutura-tier-endpoint withdraw "$root" keycloak
+        rm -f "$realmfile"
+      }
+
+      case "''${1:-}" in
+        start) start ;;
+        stop) stop ;;
+        status) status ;;
+        *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
+      esac
+    '';
+  };
+}

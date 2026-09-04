@@ -5,10 +5,12 @@
 //! compiler version two releases old - each read as current, and each cost someone the time
 //! to find out otherwise.
 //!
-//! Scope: documentation and configuration (`.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh`).
-//! Rust source is deliberately out of scope - see the filter in `run`.
+//! Scope: documentation and configuration (`.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh`) for
+//! everything that judges a SENTENCE - Rust source is deliberately out of that, see the filter in
+//! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
+//! than read.
 //!
-//! Six checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Seven checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
@@ -16,11 +18,17 @@
 //! * `counts` - a number in prose that counts something, checked against the count
 //! * `references` - a gate, task or skill named in prose must exist
 //! * `remedies` - the correction a failure prints, held to the standard of the prose it corrects
+//! * `advice` - a task a failure prints must exist, over every `.rs` file this repository publishes
 //!
-//! The sixth is the only one that reads THIS binary's own source rather than the tree, and it is
-//! here because of `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface
-//! was absent for as long as it took a person to read it, because the scope below is prose files
-//! and no gate in the repository - this one included - reads a Rust string literal.
+//! The last two are the ones that read Rust rather than prose. `remedies` is here because of
+//! `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface was absent for as
+//! long as it took a person to read it, because the prose scope below never reached this binary's
+//! own source. `advice` is here because of `github.com/telekom/sutura#243`, which is the same hole
+//! one layer out - it closed for the remedy table and stayed open for every other string a program
+//! prints, so `AGENTS.md`'s "cite a `just` task, never a raw command line" held where a reader is
+//! documented to and nowhere a reader is told. Its scope, and what it declines to catch, are in
+//! [`advice`]'s own header; the short version is that it resolves a citation and does not read a
+//! sentence, which is why widening to `.rs` costs it no false positives.
 //!
 //! `claims` and `counts` exist because of one review, and because of one CAUSE rather than
 //! nineteen mistakes: nineteen false sentences across `README.md`, `docs/` and `AGENTS.md`, four of
@@ -46,6 +54,10 @@ use crate::repo;
 // boundary is the one seam here: `stale`, `versions` and `references` judge a LINE, while
 // `claims` and `counts` judge a claim across lines and need a flattened view to do it.
 mod claims;
+// The citation half of `github.com/telekom/sutura#243`. A module rather than lines here for the
+// reason above: this file has to have room for the tables, and a scan over Rust source shares
+// nothing with them but the span walk and the task-name parse below.
+mod advice;
 
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 
@@ -262,6 +274,20 @@ fn task_name_at(tail: &str) -> Option<&str> {
     Some(name)
 }
 
+/// Every CLOSED backtick span in `text`, in order.
+///
+/// Fields 1, 3, 5 ... of a backtick split are the spans, and `take` before `skip` is what drops an
+/// unterminated trailing backtick: the last field follows no closing one, so it is not a span.
+///
+/// One walk, here rather than in each of its callers, because the remedy check under `claims` and
+/// [`advice`] read a citation the same way, and a second copy of "what is a backtick span" would be
+/// a second thing to keep true - the class of drift this whole module is about.
+fn spans(text: &str) -> Vec<&str> {
+    let parts: Vec<&str> = text.split('`').collect();
+    let closed = parts.len().saturating_sub(1);
+    parts.into_iter().take(closed).skip(1).step_by(2).collect()
+}
+
 /// `cargo xtask <name>` mentioned anywhere must be a task that exists.
 fn bad_task_references(root: &Path, files: &[String]) -> Vec<String> {
     let known = known_tasks();
@@ -437,10 +463,23 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
     problems.extend(remedy_problems(&root));
+    // Also not over `text_files`, and for the same reason one layer out: what a program PRINTS is
+    // in `.rs`. `files` and not `text_files` is the whole point of `github.com/telekom/sutura#243`.
+    let (advice, cited) = advice::advice_problems(&root, &files);
+    problems.extend(advice);
+    // FAIL CLOSED. A citation walk that reads nothing passes everything, which is the failure mode
+    // `check-scope` and the remedy scan each guard separately. This tree prints dozens, so zero
+    // means the span reader stopped reading rather than the advice being clean.
+    if cited == 0 {
+        problems.push(String::from(
+            "read no `just` or `cargo xtask` citation out of any printed line in the workspace - \
+             the scan is broken, not the source",
+        ));
+    }
 
     if problems.is_empty() {
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {cited} printed citation(s)",
             text_files.len(),
             FORBIDDEN.len(),
             PINS.len(),

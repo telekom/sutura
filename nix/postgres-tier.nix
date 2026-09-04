@@ -11,6 +11,12 @@
 # `postgresql_18` pins the same minor the docker image once used, and like `nix/duckdb.nix` it is
 # the single path from nixpkgs to the server used by flake.nix AND devenv.nix.
 { pkgs }:
+let
+  # The one writer for `endpoints.json`, shared with every other nix-native tier. It replaced the
+  # single `printf` that used to write the whole document here, which was correct only while this
+  # was the only nix tier: see `nix/tier-endpoints.nix` for the entry it would have dropped.
+  endpoints = import ./tier-endpoints.nix { inherit pkgs; };
+in
 {
   package = pkgs.postgresql_18;
 
@@ -42,7 +48,7 @@
   # worktree, which is where the harness looks.
   tier = pkgs.writeShellApplication {
     name = "sutura-postgres-tier";
-    runtimeInputs = [ pkgs.postgresql_18 ];
+    runtimeInputs = [ pkgs.postgresql_18 endpoints.script ];
     text = ''
       set -o errexit -o nounset
 
@@ -101,19 +107,21 @@
             -v ON_ERROR_STOP=1 \
             -c "CREATE DATABASE sutura OWNER sutura TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8'"
         fi
-        # The harness reads `<root>/.sutura-dev/endpoints.json` and treats the host as the socket dir.
-        printf '{"project":"sutura","provisioner":"nix","services":{"postgres":{"host":"%s","port":%s}}}\n' \
-          "$pg" "$port" > "$root/.sutura-dev/endpoints.json"
+        # The harness reads `<root>/.sutura-dev/endpoints.json` and treats the host as the socket
+        # dir. MERGED rather than written whole: a second nix tier's entry lives in the same file.
+        sutura-tier-endpoint publish "$root" postgres "$pg" "$port"
       }
 
       stop() {
         if [ -d "$pg" ]; then
           pg_ctl -D "$pg" stop -m fast || true
         fi
-        # The endpoint file is a claim that a server is there. Withdraw it, or discovery keeps
-        # believing it and the cells fail on a dead socket instead of skipping. `|| true` because a
-        # tier that was never started has no file to remove and that is not a failure.
-        rm -f "$root/.sutura-dev/endpoints.json" || true
+        # The endpoint entry is a claim that a server is there. Withdraw it, or discovery keeps
+        # believing it and the cells fail on a dead socket instead of skipping. Withdrawing the
+        # LAST service removes the file, which is what a postgres-only worktree saw when this was a
+        # bare `rm -f`; a tier that was never started has nothing to withdraw and that is not a
+        # failure.
+        sutura-tier-endpoint withdraw "$root" postgres
       }
 
       # Is a server up? Nothing is changed, and the answer is the exit code - so a wrapper can stop

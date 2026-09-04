@@ -929,8 +929,10 @@ economise.
    `CONTRIBUTING.md` - and **a non-markdown asset under `docs/` still runs them**, because
    `check-docs` is what resolves it. That first clause is about what reads `AGENTS.md`, not about
    what `check-guidance` reads: `check-guidance` scans every `.md`, `.nix`, `.yml`, `.yaml`, `.toml`
-   and `.sh` in the tree. The point is that deferring it over that one file defers the whole of what
-   checks that file's content.
+   and `.sh` in the tree for the checks that judge a sentence, and - since the citation half was
+   widened past prose - every published `.rs` file for the one check that only resolves a cited task
+   name. The point is that deferring it over that one file defers the whole of what checks that
+   file's content.
 
    **The residual risk, stated rather than waved at, because the replacement is narrower than what it
    replaced.** What makes the skip safe is a CLASSIFICATION of the sweep rather than its size, so the
@@ -974,6 +976,7 @@ economise.
    | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
    | `check-crap` | Deferred, and the row easiest to get wrong: it reads `docs/crap.md` for the `cargo-crap` version `nix/crap.nix` pins, so a page edit that drops that version merges green |
    | `check-gate-classification` | Deferred, and it reads the two tables above - so a pull request can break this classification and only the `main` push says so |
+   | `check-venues` | Deferred, and the deferred verdict is the map itself: `docs/where-identity-is-proven.md` is a `docs/*.md` page, so a pull request can leave a venue claiming a limit it does not state and only the `main` push says so. The half that reads `.github/workflows/ci.yml` is unreachable from such a diff |
    | `text-hygiene`, `line-endings` | Deferred. Whitespace and CRLF in a new page |
    | `max-lines` | Deferred, and **this is the sharpest one**: a new 1200-line page merges green and fails the publish |
 

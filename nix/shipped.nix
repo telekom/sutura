@@ -349,9 +349,146 @@ let
         }
       ])
     binaries);
+
+  # The two checks that assert what the list above SHIPPED, rather than what it was asked to
+  # ship. Here rather than in `flake.nix` because every input they read is this module's -
+  # `binaries`, `imageTargets`, `crossPackages`, `nativeBinaries`, and the features paragraph
+  # at the head of this file that `shipped-features` is the mechanism for. `flake.nix` also has
+  # no room: it sits within a few dozen lines of the 1000-line limit `cargo xtask max-lines`
+  # holds, so a check's BODY has to live with the decision it checks. `flake.nix` still
+  # declares both under `checks`, which is where `nix flake check` and two xtask gates look.
+  artifactChecks = {
+    # A shipped package holds one executable, THAT executable is the one it was supposed to
+    # build, and no toolchain is in its closure. It held three binaries and a full cargo
+    # once, so this is a check rather than a sentence in a comment.
+    #
+    # EVERY shipped binary at EVERY shipped target, and both dimensions are the point. A
+    # cross build has its own dependency derivation and its own `cargoExtraArgs`, so "the
+    # native package holds one binary" says nothing about the musl one; and since #111 there
+    # are two binaries, so "the package built one thing" says nothing about WHICH thing. The
+    # price is that this check pulls every cross build in, which is what it costs for the
+    # assertion to be true rather than assumed.
+    #
+    # **THE NAME ASSERTION IS THE HALF THAT IS NEW, and it is the cheap guard against the
+    # defect #111 was.** `cargoExtraArgs` names a cargo PACKAGE while the image names an
+    # ENTRYPOINT PATH, and nothing relates the two: a `--package` pointing at the wrong
+    # crate builds, ships, and produces an image whose entrypoint does not exist - which
+    # fails at `docker run` on somebody else's machine. Two lines here turn that into a
+    # red gate.
+    one-binary =
+      let
+        cells = pkgs.lib.concatMap
+          (b: map (target: { inherit target; inherit (b) bin; drv = crossPackages."${b.bin}-${target}"; }) imageTargets)
+          binaries;
+        checkOne = p: ''
+          echo "one-binary: ${p.bin} ${p.target}"
+          count="$(ls ${p.drv}/bin | wc -l)"
+          if [ "$count" != "1" ]; then
+            echo "${p.bin} ${p.target}: the shipped package holds $count binaries, expected 1:" >&2
+            ls ${p.drv}/bin >&2
+            exit 1
+          fi
+          if [ ! -x "${p.drv}/bin/${p.bin}" ]; then
+            echo "${p.bin} ${p.target}: the shipped package holds no executable called '${p.bin}', so the image entrypoint would not exist:" >&2
+            ls ${p.drv}/bin >&2
+            exit 1
+          fi
+          # A toolchain in the closure means something baked a build-time path into the
+          # binary. That is how cargo got in: `env!("CARGO")` in a workspace member.
+          if grep -qE '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths; then
+            echo "${p.bin} ${p.target}: a Rust toolchain is in the runtime closure:" >&2
+            grep -E '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths >&2
+            exit 1
+          fi
+        '';
+      in
+      pkgs.runCommand "sutura-one-binary" { } ''
+        set -eu
+        ${pkgs.lib.concatMapStrings checkOne cells}
+        touch $out
+      '';
+
+    # WHICH FEATURES A PUBLISHED BINARY CARRIES, asserted from inside the binary.
+    #
+    # `nix/shipped.nix` decides that both shipped binaries are built with cargo's DEFAULT
+    # feature set, and the reason is the four cross builds: `sutura-serve`'s `tls` and
+    # `bigquery` features each pull a rustls closure with `ring` in it, and two of the four
+    # release triples are musl. Issue #111 asks for that to be a STATED choice rather than
+    # one somebody discovers, and a comment is not a mechanism - so this is the mechanism.
+    #
+    # READ OUT OF THE ARTIFACT, never out of a manifest. `nix/auditable.nix` builds every
+    # shipped binary with `cargo auditable`, which puts the crates the compiler actually
+    # linked into one ELF section, and `rust-audit-info` reads them back. A check over
+    # `Cargo.toml` would be asserting what somebody wrote down; this asserts what shipped.
+    # It is the same section `release.yml`'s SBOM and `ci.yml`'s cross job already depend
+    # on, so a build that stopped embedding it fails here too rather than passing quietly.
+    #
+    # TWO DIRECTIONS, because only checking the absence would pass on a binary that linked
+    # nothing at all: `axum` must be present in the server and `ring` absent from both.
+    #
+    # **What this does NOT claim.** It is a statement about a crate NAME in a list, not
+    # about reachable code: a future default feature that pulls TLS under a different crate
+    # name is invisible to it, and so is a crate present for a reason other than the feature
+    # this row is about. It is also the NATIVE build only - the cross artifacts get the same
+    # `cargoExtraArgs` from the same list, so the feature set cannot differ per target
+    # without `nix/shipped.nix` saying so, and pulling four cross builds in to re-read the
+    # same list would double this check's cost for nothing.
+    shipped-features =
+      let
+        # `axum` for the server and `datafusion` for both: one is the transport the
+        # published server exists to carry, the other is the engine neither binary can
+        # answer a question without.
+        required = { sutura = [ "datafusion" ]; sutura-serve = [ "axum" "datafusion" ]; };
+        # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
+        # variant of, while `ring` is the one that compiles C and assembly and is therefore
+        # the one the cross builds actually pay for.
+        #
+        # **Both binaries have a `bigquery` feature to leave off since issue #121, and this
+        # list is what says they left it off** - an assertion about the ARTIFACT rather than
+        # about a manifest, which is the whole reason it reads the embedded dependency list.
+        # A `bigquery` that stopped being optional on either crate fails here.
+        forbidden = [ "ring" "ureq" ];
+        quoted = name: "'\"" + name + "\"'";
+        wantOne = bin: name: ''
+          if ! grep -q ${quoted name} deps-${bin}.json; then
+            echo "${bin}: the embedded dependency list does not name ${name}" >&2
+            exit 1
+          fi
+        '';
+        banOne = bin: name: ''
+          if grep -q ${quoted name} deps-${bin}.json; then
+            echo "${bin}: the embedded dependency list names ${name}, so the published binary carries a feature nix/shipped.nix says it does not - see the features paragraph there" >&2
+            exit 1
+          fi
+        '';
+        checkOne = b:
+          let drv = nativeBinaries.${b.bin}; in ''
+          echo "shipped-features: ${b.bin}"
+          rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
+          crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
+          # A FLOOR, for the reason `ci.yml` gives at its own copy of this number: the exact
+          # count moves with every dependency bump, and what is checked is the difference
+          # between a list of crates and no list at all. `grep -o | wc -l`, never `grep -c`,
+          # because the document is one line.
+          if [ "''${crates:-0}" -lt 100 ]; then
+            echo "${b.bin}: read $crates crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nothing below means anything" >&2
+            exit 1
+          fi
+          echo "${b.bin}: $crates crate(s) embedded"
+          ${pkgs.lib.concatMapStrings (wantOne b.bin) required.${b.bin}}
+          ${pkgs.lib.concatMapStrings (banOne b.bin) forbidden}
+        '';
+      in
+      pkgs.runCommand "sutura-shipped-features" { nativeBuildInputs = [ pkgs.rust-audit-info ]; } ''
+        set -eu
+        ${pkgs.lib.concatMapStrings checkOne binaries}
+        touch $out
+      '';
+  };
 in
 {
   inherit
+    artifactChecks
     binaries
     crossPackages
     crossTargets
