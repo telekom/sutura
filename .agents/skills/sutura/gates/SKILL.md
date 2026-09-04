@@ -256,15 +256,37 @@ anything with no `#[test]` - and keep every assertion where it is. Orphaning now
 fails a filter that matches nothing.
 
 **Which verdicts pass:** *red on base* and, without proving anything, "the base tree does not
-build" and "not separable" - the last asks for evidence instead: the command you ran, the failure
-before, the pass after. Everything else fails, and the three that fail are the three where the gate
-has no answer rather than a bad one: green against base, red outside the diff, and the added tests
-not running at all.
+build", "the base run named no failure", "not separable" and "every added test is `#[ignore]`d" -
+the last three ask for evidence instead: the command you ran, the failure before, the pass after.
+Everything else fails, and the three that fail are the three where the gate has no answer rather
+than a bad one: green against base, red outside the diff, and the added tests not running at all.
 
 **What it could not tell apart until #278.** The base run was the whole suite and any assertion
 failure counted, so with fail-fast one unrelated cell was the entire verdict and the tests under
 test never ran - `ok - red on base` about something else. Both runs are scoped to the tests the diff
 added now, the verdict NAMES what reddened, and a failure outside the diff is its own answer.
+
+**A TEST NAME IS NOT A KEY HERE, and the first fix for #278 was keyed on one.** 23 of this tree's
+1782 test-function names are duplicated - `deserialization_goes_through_the_constructor` four times
+in `sutura-domain`. Measured on nextest 0.9.143, `test(/(?:^|::)sums(?:::|$)/)` matches six tests in
+three packages, one of them a MODULE called `sums`. So a collided failure satisfied both the filter
+and the name comparison, and a vacuous added test still got *ok - red on base, green on head*. The
+key is now the binary or package, the module path the file contributes, and the name.
+
+**The generalisable half:** the filter and the comparison are two ENFORCERS of one key, not two
+independent keys. A second check on the same key catches the enforcer failing and never catches the
+key being wrong - so "two mechanisms" is only worth what the key is worth, and the argument to write
+down is which of the two it is.
+
+**Two smaller ways the same gate lied, both from believing a word rather than measuring it.**
+`ABORT [` is nextest's WINDOWS status; Unix prints `SIG<name> [`, so a base run whose only failure
+was an abort parsed to zero failures and printed *the base tree does not build* about a tree that
+built fine. And a filterset naming only `#[ignore]`d tests matches nothing, which nextest reports as
+`no tests to run` and exit 4 - a false RED, so ignored tests leave the scope rather than being
+named in a filter or forced to run. There are 12 such attributes in 3 files
+(`git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'`, 2026-09-05) - and the unanchored form of
+that command answers 23 in 7 files, because most `#[ignore` in this tree is a doc comment ABOUT
+one: this page's own rule about a count and the command beside it, in miniature.
 
 **Why one commit answered differently in two venues, which is the part nobody could have guessed:
 only one venue provisions the tier.** `just causality` sources `nix/with-tier.sh`, which starts

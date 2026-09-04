@@ -33,8 +33,11 @@
 //!
 //! AN `#[ignore]`d TEST IS NAMED AND DROPPED, because a filterset naming only ignored tests
 //! matches nothing and nextest exits 4 with *error: no tests to run* - a false RED on legitimate
-//! work, and this tree has 23 ignored tests across 7 files. Running them instead is the wrong
-//! direction for the same reason a tier-backed cell is not required in the reconstructed worktree
+//! work, and this tree holds 12 such attributes in 3 files
+//! (`git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'`, 2026-09-05; the unanchored form answers 23
+//! in 7, because most `#[ignore` here is a doc comment ABOUT one).
+//! Running them is the wrong direction for the reason a tier-backed cell is not required in the
+//! reconstructed worktree
 //! (see [`super::nextest`]): they are ignored because this venue lacks what they need, so forcing
 //! them in a tree nothing provisioned fails CLOSED and reads as red-on-base. So they leave the
 //! scope, and a diff whose every added test is ignored gets [`Scan::OnlyIgnored`] - a statement
