@@ -249,7 +249,7 @@ mod tests {
     /// Extracted because two tests compose it and the composition is the thing under test in both:
     /// a second copy would be a second answer to *what does this command build*.
     fn example_composition() -> (
-        LocalCatalog,
+        super::LocalCatalog,
         crate::sources::OpenedWith<sutura_exec_datafusion::DataFusionWarehouse>,
         sutura_config::Settings,
     ) {
@@ -335,13 +335,8 @@ mod tests {
     #[test]
     fn the_mcp_composition_honours_the_prose_setting_it_was_configured_with() {
         let (catalog, opened, settings) = example_composition();
-        let (service, prose) = mcp_service(
-            &catalog,
-            opened,
-            settings.runtime(),
-            sutura_config::CatalogProse::Omitted,
-        )
-        .expect("the example bundle is fit to serve");
+        let (service, prose) = mcp_service(&catalog, opened, settings.runtime(), sutura_config::CatalogProse::Omitted)
+            .expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Omitted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");

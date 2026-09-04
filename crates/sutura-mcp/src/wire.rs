@@ -491,8 +491,8 @@ pub struct CatalogContent {
     // `as_text` separately would let the two halves of one result disagree.
     /// Which way the operator's `prompt.catalog_prose` setting points, so an absent description is a
     /// fact a client can read rather than one it has to infer.
-    #[serde(rename = "catalog_prose", serialize_with = "prose_as_str")]
-    prose: CatalogProse,
+    #[serde(rename = "catalog_prose")]
+    prose: ProseSetting,
     metrics: Vec<MetricContent>,
 }
 
@@ -528,12 +528,22 @@ pub struct DimensionContent {
     allowed_values: Option<Vec<String>>,
 }
 
-/// The setting as the word an operator wrote, which is what a client reads.
-fn prose_as_str<S>(prose: &CatalogProse, out: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    out.serialize_str(prose.as_str())
+/// The prose setting, wearing the encoding a client reads it in.
+///
+/// A wrapper and not a `serialize_with` on the field, because a free serializer function is a
+/// signature clippy reads as a complex type passed by reference and both `#[expect]`s would be
+/// suppression rather than design. It is not a second spelling either: `Serialize` here delegates to
+/// `CatalogProse::as_str`, which is the one the settings parser accepts.
+#[derive(Debug)]
+struct ProseSetting(CatalogProse);
+
+impl serde::Serialize for ProseSetting {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.0.as_str())
+    }
 }
 
 impl CatalogContent {
@@ -577,7 +587,7 @@ impl CatalogContent {
             .collect();
         Self {
             provenance: bundle_content(pinned),
-            prose,
+            prose: ProseSetting(prose),
             metrics,
         }
     }
@@ -593,7 +603,7 @@ impl CatalogContent {
     /// `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES` and by the catalog's own parses, and a listing
     /// that grew past what a context tolerates is a bundle nobody could ask about either way.
     pub(crate) fn as_text(&self) -> String {
-        let mut out = String::from(if self.prose.is_quoted() {
+        let mut out = String::from(if self.prose.0.is_quoted() {
             UNTRUSTED_CATALOG_NOTICE
         } else {
             CATALOG_PROSE_OMITTED_NOTICE

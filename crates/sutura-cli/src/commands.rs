@@ -154,6 +154,11 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
 }
 
 /// `describe <dir> <metric>`: one metric in full, prose included.
+///
+/// **`prompt.catalog_prose` is deliberately not read here, and the reader is why.** That setting
+/// decides who may put words in front of an AGENT; this command prints to a terminal for somebody
+/// who named the catalog directory on the command line and can therefore read the documents
+/// themselves. Withholding the prose from them would omit nothing they do not already have.
 pub(crate) fn describe(args: &[String]) -> ExitCode {
     report((|| {
         let usage = "describe <catalog-dir> <metric>";

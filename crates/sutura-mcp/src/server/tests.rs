@@ -270,7 +270,10 @@ async fn catalog_prose_omitted_omits_it_from_the_tool_answers() {
     assert_eq!(structured["catalog_prose"], "omitted", "{flat}");
     // And what a caller needs in order to ask a valid question is untouched.
     assert_eq!(structured["metrics"][0]["name"], "revenue", "{flat}");
-    assert_eq!(structured["metrics"][0]["dimensions"][0]["allowed_values"][0], "north", "{flat}");
+    assert_eq!(
+        structured["metrics"][0]["dimensions"][0]["allowed_values"][0], "north",
+        "{flat}"
+    );
     let text = result
         .content
         .first()
