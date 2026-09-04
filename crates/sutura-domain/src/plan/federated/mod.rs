@@ -206,6 +206,11 @@ impl FederatedPlan {
                 })?,
             }
         }
+        let carried = federation.carried();
+        if let Some(leaf) = carried.iter().find(|leaf| Reduction::of(leaf.combine()).is_none()) {
+            let aggregate = leaf.combine();
+            return Err(FederatedPlanError::LeafDoesNotReaggregate { aggregate });
+        }
         Ok(Self {
             metric,
             measure_label,
@@ -266,6 +271,13 @@ pub enum FederatedPlanError {
     /// An answer key names a column the leg it belongs to does not project.
     #[error("the {side:?} leg projects no key `{label}`")]
     KeyNotOnLeg { side: LegSide, label: String },
+    /// A carried leaf names an aggregate the combine has no re-aggregating function for.
+    ///
+    /// Refused before a plan exists rather than when a group is reduced: it is a defect in this
+    /// workspace's own wiring, and reduced, the same plan refused a group holding a value and
+    /// answered `Null` for a group of nulls, under the metric's own certified name.
+    #[error("a carried leaf re-aggregates with `{aggregate}`, which the combine cannot apply")]
+    LeafDoesNotReaggregate { aggregate: Aggregate },
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.
@@ -326,8 +338,9 @@ pub enum FederatedFailure {
     Overflow { aggregate: Aggregate },
     /// An aggregate the combiner does not know how to re-aggregate with.
     ///
-    /// The splitter refuses such a measure, so this is a wiring defect rather than a choice - a
-    /// caller must receive a failure, not silent data.
+    /// Unreachable through a plan [`FederatedPlan::new`] built, which refuses such a federation
+    /// before any leg runs. **The limit:** that guarantee is module-scoped - code in this file can
+    /// write the struct literal - so this stays a refusal rather than becoming a panic.
     #[error("the combiner does not re-aggregate with `{aggregate:?}`")]
     UnsupportedAggregate { aggregate: Aggregate },
     /// Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion
@@ -768,7 +781,7 @@ fn aggregate<'a>(
     values: impl Iterator<Item = &'a Value>,
     metric: &MetricName,
 ) -> Result<Value, FederatedFailure> {
-    let reduction = Reduction::of(aggregate)?;
+    let reduction = Reduction::of(aggregate).ok_or(FederatedFailure::UnsupportedAggregate { aggregate })?;
     let Some(column) = LeafColumn::parse(values, aggregate)? else {
         return Ok(Value::Null);
     };
@@ -781,10 +794,9 @@ fn aggregate<'a>(
 
 /// What a leaf column is reduced to, named rather than left as the aggregate it came from.
 ///
-/// Parsed **before** the column is read, because an aggregate the combiner does not re-aggregate
-/// with is a wiring defect rather than a property of the data: deciding it afterwards means a
-/// column read for nothing, and a diagnostic naming whatever shape that column happened to have
-/// instead of the defect.
+/// [`Reduction::of`] is the one definition of which aggregates the combine re-aggregates with, and
+/// [`FederatedPlan::new`] is where a leaf naming any other one is refused - so which reduction a
+/// column gets is settled by the plan, before a single cell of it is read.
 #[derive(Clone, Copy)]
 enum Reduction {
     /// [`Aggregate::Sum`], which a `Count` leaf also re-aggregates with.
@@ -796,13 +808,15 @@ enum Reduction {
 }
 
 impl Reduction {
-    /// The reduction an aggregate re-aggregates with, or the refusal that it does not.
-    const fn of(aggregate: Aggregate) -> Result<Self, FederatedFailure> {
+    /// The reduction an aggregate re-aggregates with, or `None` for one that has none.
+    ///
+    /// Named arms rather than a wildcard, so a seventh [`Aggregate`] has to answer here.
+    const fn of(aggregate: Aggregate) -> Option<Self> {
         match aggregate {
-            Aggregate::Sum => Ok(Self::Total),
-            Aggregate::Min => Ok(Self::Least),
-            Aggregate::Max => Ok(Self::Greatest),
-            other => Err(FederatedFailure::UnsupportedAggregate { aggregate: other }),
+            Aggregate::Sum => Some(Self::Total),
+            Aggregate::Min => Some(Self::Least),
+            Aggregate::Max => Some(Self::Greatest),
+            Aggregate::Count | Aggregate::Avg | Aggregate::CountDistinct => None,
         }
     }
 }

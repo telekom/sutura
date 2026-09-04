@@ -5163,6 +5163,7 @@ Why a federated plan could not be built.
 - `NotLookup` - The leg meant to be the lookup leg is not a `LegPlan::Lookup`.
 - `SameSource` - Both legs name the same data system, which is a single-source question, not a federated one.
 - `KeyNotOnLeg` - An answer key names a column the leg it belongs to does not project.
+- `LeafDoesNotReaggregate` - A carried leaf names an aggregate the combine has no re-aggregating function for.
 
 ##### Implements
 

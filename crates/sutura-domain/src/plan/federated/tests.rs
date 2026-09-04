@@ -81,6 +81,10 @@ fn lookup_leg() -> LegPlan {
 }
 
 fn plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> FederatedPlan {
+    try_plan_for(measure_name, measure, include_unmatched).expect("a test plan is a valid two-leg plan")
+}
+
+fn try_plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> Result<FederatedPlan, FederatedPlanError> {
     let name = metric(measure_name);
     let federation = Federation::of(measure);
     FederatedPlan::new(
@@ -98,7 +102,6 @@ fn plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> F
             AnswerKey::lookup(String::from("region")),
         ],
     )
-    .expect("a test plan is a valid two-leg plan")
 }
 
 fn sum_plan(include_unmatched: bool) -> FederatedPlan {
@@ -544,6 +547,47 @@ fn a_non_numeric_cell_does_not_win_a_minimum_over_a_number() {
             })
         ));
     }
+}
+
+#[test]
+fn a_leaf_column_of_nulls_answers_null_and_never_names_a_refusal() {
+    // Which reduction re-aggregates a leaf is settled by the plan, not by the group's cells. Two
+    // halves of one property, and this PR moved the second one.
+    //
+    // A group with no non-null cell is an answer: nothing was contributed, which is a null and not
+    // a zero, and it is not the column's job to decide whether the aggregate above it exists.
+    let all_null = sum_plan(true)
+        .combine(
+            &fact(vec![fact_row(Value::Null), fact_row(Value::Null)]),
+            &one_lookup(),
+            UNBOUNDED,
+        )
+        .expect("a group of nulls is an answer");
+    assert_eq!(
+        all_null.rows(),
+        &[vec![
+            Value::Text("A".into()),
+            Value::Text("north".into()),
+            Value::Text("2026-06".into()),
+            Value::Null,
+        ]]
+    );
+
+    // And a leaf the combine has no re-aggregating function for is refused before a plan exists.
+    // `Federation::of` is total, so `count_distinct` classifies as a leaf carrying grouping keys
+    // whose combine is a `CountDistinct` nothing above the legs can apply. Deciding that while
+    // reducing made the diagnosis depend on the data: the same plan refused a group holding a value
+    // and answered `Null` for a group of nulls, under the metric's own certified name.
+    let refused = try_plan_for(
+        "distinct_customers",
+        &Measure::Simple(term(Aggregate::CountDistinct, "customer_key")),
+        true,
+    )
+    .expect_err("a leaf with no re-aggregating function is not a plan");
+    assert_eq!(
+        refused.to_string(),
+        "a carried leaf re-aggregates with `count_distinct`, which the combine cannot apply"
+    );
 }
 
 #[test]
