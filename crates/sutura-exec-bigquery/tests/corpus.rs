@@ -181,7 +181,7 @@ mod naming;
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use sutura_domain::model::{SourceName, TableName};
+    use sutura_domain::model::{InvalidIdentifier, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::Executable;
     use sutura_domain::query::{Query, ToolOutcome};
@@ -189,7 +189,7 @@ mod tests {
 
     use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline};
 
-    use crate::naming::{build_token, ci_run_id, run_token, suffixed_bundle};
+    use crate::naming::{build_token, ci_run_id, run_token, suffixed_bundle, suffixed_table};
     use crate::support::{Connection, Wired, bounds, opened, presented};
 
     /// What the fixture LOADS are bounded by, which is not what the questions are bounded by.
@@ -598,6 +598,7 @@ mod tests {
             names.len()
         );
     }
+
     /// The token source itself is pinned, because distinctness is what the whole fix rests on.
     ///
     /// The suffixing logic is tested above with fixed strings; this one pins the value that makes
@@ -660,56 +661,51 @@ mod tests {
         assert_eq!(ci_run_id(Some("true"), Some(" 42 ")).as_deref(), Some("42"));
     }
 
-    /// The per-run table name's ceiling is owned by [`TableName::parse`], and this pins that.
+    /// The ceiling on a per-run table name is owned by [`TableName::parse`], and this pins that.
     ///
-    /// A name longer than 63 characters is REFUSED by [`TableName::parse`] - and [`crate::naming::suffixed_table`]
-    /// propagates that refusal as a panic - because a data system silently truncates a longer name
-    /// and reading a truncated table is a wrong number. So the boundary is the parse, and the price
-    /// is a loud failure at the first table rather than a silent rename. This test asserts both
-    /// halves: a realistic CI-length token survives, and an over-long name is refused rather than
-    /// truncated.
+    /// **It asserts nothing about a length itself, deliberately.** A re-check here would be dead
+    /// code: a name over the ceiling never gets past [`crate::naming::suffixed_table`] to be
+    /// measured, so the boundary belongs to the parse and the honest thing to pin is that BOTH
+    /// token shapes this leg can generate get through it, and that an over-long one comes back
+    /// as `TooLong` **carrying the limit** - named, so a panic from elsewhere in the assembly
+    /// cannot pass for it. A data system silently truncates a longer name, and a plan naming a
+    /// table the load did not write is a wrong number rather than a failure.
     #[test]
     fn a_per_run_table_name_that_would_exceed_the_ceiling_is_refused_not_truncated() {
-        // A realistic run id length: GitHub run ids are a handful of digits, comfortably inside the
-        // 63-character ceiling once suffixed. This is what `just bigquery-acceptance` actually ships.
-        let committed = bundle();
-        let ok = suffixed_bundle(&committed, "1234567890", "rows");
-        for model in ok.definitions().models().values() {
-            assert!(
-                model.table_name().as_str().len() <= 63,
-                "a realistic token overflowed the ceiling: {}",
-                model.table_name()
-            );
-        }
-
-        // The other direction: an absurd token makes the name over-long, and `parse` must REFUSE it
-        // rather than silently truncating to a table that is not the one the plan names.
-        let too_long = "x".repeat(50);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            drop(suffixed_bundle(&committed, &too_long, "rows"));
-        }));
-        assert!(
-            result.is_err(),
-            "an over-long per-run name was accepted - it would silently become a truncated table"
-        );
-
-        // **The LOCAL token's own shape, through the same parse, at its widest.** Everything above
-        // feeds a CI-shaped token; the local branch is `{nanos:x}_{pid}`, the longer of the two and
-        // the one no other deterministic test puts through `TableName::parse`. A 2026 clock is 16 hex
-        // digits and `u32::MAX` is the widest pid any platform can hand us, so this is the worst case
-        // that exists: on the longest committed fixture name and the longest leg it leaves three
-        // characters of headroom. Without this the local leg would panic on its first table while
-        // every test in this file stayed green.
+        // The widest LOCAL token that can exist: a 2026 clock is 16 hex digits and `u32::MAX` is
+        // the widest pid any platform can hand us. The local branch is the longer of the two - and
+        // the one nothing else here puts through the parse, so without this the local leg would
+        // panic on its first table while every deterministic test in this file stayed green. That
+        // is the same defect review found one level up, in the token's own source.
         let widest = build_token(None, 1_777_000_000_000_000_000, u32::MAX);
-        let locally = suffixed_bundle(&committed, &widest, "anchors");
-        for model in locally.definitions().models().values() {
+        // Every committed fixture name rather than one, since the ceiling is reached by the LONGEST.
+        let committed = bundle();
+        for model in committed.definitions().models().values() {
+            let name = model.table_name();
+            // A realistic CI run id, which is the shape `just bigquery-acceptance` ships under CI.
             assert!(
-                model.table_name().as_str().len() <= 63,
-                "the local token at its widest overflowed the ceiling: {} is {} characters",
-                model.table_name(),
-                model.table_name().as_str().len()
+                suffixed_table(name, "1234567890", "rows").is_ok(),
+                "a realistic CI token was refused for {name}"
+            );
+            assert!(
+                suffixed_table(name, &widest, "anchors").is_ok(),
+                "the local token at its widest was refused for {name}: {widest}"
             );
         }
+
+        // The other direction, and the refusal is NAMED rather than merely counted: an absurd token
+        // pushes the name past the ceiling, and what comes back has to be the parse's own `TooLong`
+        // with the limit on it. `is_err()` alone would pass on any refusal at all.
+        let refused = suffixed_table(
+            &TableName::parse("fct_usage_daily").expect("a fixture name parses"),
+            &"x".repeat(50),
+            "rows",
+        )
+        .err();
+        assert!(
+            matches!(refused, Some(InvalidIdentifier::TooLong { limit: 63, .. })),
+            "an over-long per-run name was not refused as TooLong at 63: {refused:?}"
+        );
     }
 
     #[test]

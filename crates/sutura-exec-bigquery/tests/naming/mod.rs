@@ -23,7 +23,7 @@
 //! the project are resources.
 
 use sutura_domain::catalog::{Definitions, Description, Metric, Model, Relationship};
-use sutura_domain::model::TableName;
+use sutura_domain::model::{InvalidIdentifier, TableName};
 use sutura_domain::pinned::PinnedDefinitions;
 
 /// A token unique to this RUN of the leg, so two runs never share a fixture table.
@@ -84,12 +84,13 @@ pub(crate) fn build_token(ci_run_id: Option<&str>, nanos: u128, pid: u32) -> Str
 /// name is preserved at the front so a human reading a log or a dataset still sees which model a
 /// table holds.
 ///
-/// The 63-character ceiling is [`TableName::parse`]'s and is not re-checked here: a longer name is
-/// REFUSED, propagated as a panic, because a data system that silently truncates leaves the plan
-/// naming a table the load did not write, and reading the wrong table is a wrong number.
-pub(crate) fn suffixed_table(committed: &TableName, token: &str, leg: &str) -> TableName {
-    let raw = format!("{committed}_{token}_{leg}");
-    TableName::parse(&raw).unwrap_or_else(|e| panic!("the per-run table name {raw} is not a legal name: {e:?}"))
+/// The 63-character ceiling is [`TableName::parse`]'s, so the refusal is RETURNED rather than
+/// re-checked or panicked: a data system that silently truncates leaves the plan naming a table the
+/// load did not write, and reading the wrong table is a wrong number rather than an error. Handing
+/// back the parse's own [`InvalidIdentifier`] lets a caller assert WHICH refusal it got - a test
+/// that catches a panic instead passes on a panic from anywhere, including one this never raised.
+pub(crate) fn suffixed_table(committed: &TableName, token: &str, leg: &str) -> Result<TableName, InvalidIdentifier> {
+    TableName::parse(format!("{committed}_{token}_{leg}"))
 }
 
 /// The bundle, with every model's table renamed to this run's suffixed physical table.
@@ -108,7 +109,8 @@ pub(crate) fn suffixed_bundle(tokened: &PinnedDefinitions, token: &str, leg: &st
         .models()
         .values()
         .map(|model| {
-            let table = suffixed_table(model.table_name(), token, leg);
+            let table = suffixed_table(model.table_name(), token, leg)
+                .expect("this leg's own tokens leave every fixture name inside the ceiling");
             Model::new(
                 model.name().clone(),
                 model.source().clone(),
