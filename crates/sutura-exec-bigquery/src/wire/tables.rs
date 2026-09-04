@@ -199,9 +199,10 @@ fn reported_total(field: Option<&serde_json::Value>, identified: usize) -> Listi
 /// A listing being read, one page at a time.
 ///
 /// **A type rather than three locals inside [`list`], because the decisions worth pinning are the
-/// ones that span pages** - which page's total counts, and that the entry count is the whole
-/// listing's rather than the last page's. As locals in a loop only a socket can drive, both would be
-/// claims in a doc comment; here `super::tests` folds pages in by hand and asserts them.
+/// ones that span pages** - which page's total counts, and that the count it is compared against is
+/// the whole listing's rather than the last page's. As locals in a loop only a socket can drive,
+/// both would be claims in a doc comment; here `super::tests` folds pages in by hand and asserts
+/// them.
 #[derive(Debug, Default)]
 struct Accumulating {
     /// The ids read so far, after every id this crate cannot match was dropped.
