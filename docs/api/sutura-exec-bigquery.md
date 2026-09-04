@@ -145,6 +145,23 @@ composition, and a generic keeps the transport's own error type visible in `BigQ
 ### Methods
 
 ```rust
+pub fn drop_table(&self, table: &TableName) -> Dropped<<T as >::Error>
+```
+
+Removes one table from the connection's dataset.
+
+**The tidy half of per-run fixture cleanup.** A run names its tables with a per-run suffix
+(see `tests/corpus.rs`), so what it removes is its OWN tables and never a colleague's. The
+`crate::importer` header states the guarantee half - every `CREATE` also carries a 24-hour
+expiration, because `panic = "abort"` means a cancelled runner never reaches this method and
+the expiration is what still cleans up after it.
+
+It takes a table name and never a statement, for the same reason `load_fixture` does: the
+statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
+
+Behind the same `fixtures` feature and in the same impl block, for the same two reasons.
+
+```rust
 pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
 ```
 
@@ -187,6 +204,8 @@ of its own.
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use None`
 
 ## `use None`
 

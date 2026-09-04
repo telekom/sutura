@@ -254,3 +254,14 @@ When a file with tests hits the 1000-line cap, move the **harness** - fakes, fix
 anything with no `#[test]` - and keep every assertion where it is. Only a *green* base verdict
 fails; "the base tree does not build" and "not separable" both pass, and the second asks for
 evidence instead: the command you ran, the failure before, the pass after.
+
+**Expect that harness move to answer INCONCLUSIVE, and know why before reading it as a pass.**
+Measured on #119: the new harness file added no `#[test]`, so it is *revertible*, while the test file
+declaring `mod <harness>;` added tests and is *held* - so the base tree is a `mod` pointing at a file
+that is not there, `E0583`, and the verdict is `INCONCLUSIVE - the base tree does not build`. That is
+the gate being honest rather than broken, and it is the **expected** outcome of following the rule
+above, not a sign of doing it wrong. What it costs is the proof: causality establishes nothing about
+your assertions in that run, so a **mutation** takes its place - break the thing each new test
+claims, one at a time, and paste the test that reddens. Scope it to a whole test binary
+(`-E 'binary_id(<pkg>::<target>)'`), never a name pattern: a filter that omits the guarding test
+reports green and proves nothing, which happened on that same PR before it was caught.
