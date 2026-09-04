@@ -37,16 +37,30 @@ external timeout killed them, twice, 50 minutes apart.
 | stray processes accumulate | the probe kills its child, not the child's descendants; `docker` CLI plugins outlive it until the daemon recovers |
 | a gate hangs only AFTER provisioning starts | it should not any more - the readiness loop's `ps` carries the query budget, so this is a bug rather than the known shape |
 
-Every wait on a docker child is bounded now, and the budgets are per KIND of call because one
-number cannot serve a pull and a status query: `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for the
-pre-flight, `SUTURA_DOCKER_QUERY_TIMEOUT_SECS` for a `ps` / `port` / `ls`, and
-`SUTURA_DOCKER_PROVISION_TIMEOUT_SECS` for an `up` / `down`. The defaults and the argument for
-each are in `xtask/src/compose/docker/bounded.rs`, not repeated here.
+Every wait on a docker child *that goes through `compose::docker`* is bounded, and the budgets are
+per KIND of call because one number cannot serve a pull and a status query:
+`SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for the pre-flight, `SUTURA_DOCKER_QUERY_TIMEOUT_SECS` for a
+`ps` / `port` / `ls`, and `SUTURA_DOCKER_PROVISION_TIMEOUT_SECS` for an `up` / `down`. The defaults
+and the argument for each are in `xtask/src/compose/docker/bounded.rs`, not repeated here.
 
-Two things a green run does NOT mean. **The descendants are still unbounded**: the kill reaches
-`docker`, not the CLI plugins it spawned, so a wedged daemon leaves those until it recovers. And a
-timed-out `up` deliberately does NOT tear down - it names `just dev-down` instead, for the reasons
-`xtask/src/compose.rs`'s `abandoned` records, so a failed provision can leave containers running.
+**What holds that, and where it stops.** Nothing does yet - it is one wait loop in one module,
+which is a shape rather than a mechanism, and a `.output()` written beside it would be unbounded
+again with every test still green. The path-scoped gate that would hold it is issue 274, and what
+even that holds is narrower than the sentence: *no second wait loop in that directory*, never
+*every docker child is bounded*. So do not read a green run as the property, and check these three
+before concluding a hang is not a wait:
+
+| Not covered | Why |
+| --- | --- |
+| the descendants | the kill reaches `docker`, not the CLI plugins it spawned, so a wedged daemon leaves those until it recovers |
+| the reap after the kill | `waited`'s own `child.wait()` is unbounded, deliberately: the process has just been sent `SIGKILL`, so a bound there would be a bound on the kernel |
+| `compose::lock`'s holder probe | `lsof` is run with `.output()` on the same `dev-up` path - not a docker child, so the sentence survives literally, and a hang there still reads exactly like one |
+
+One more thing a green run does NOT mean: a timed-out `up` deliberately does NOT tear down - it
+names `just dev-down` instead, for the reasons `xtask/src/compose.rs`'s `abandoned` records, so a
+failed provision can leave containers running. What is fail-closed is the discovery file: it is
+removed BEFORE the tier is touched, so a failed `dev-up` or `dev-down` leaves no endpoint a harness
+can connect to. A tier that is up with no discovery file is that, and `just dev-up` again is the fix.
 
 **If a gate hangs for minutes with no output, kill it and say so** - a hang is evidence, not a slow
 machine.

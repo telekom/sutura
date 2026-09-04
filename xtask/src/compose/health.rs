@@ -46,6 +46,19 @@ fn deadline() -> Duration {
     budget_from_env("SUTURA_DEV_READY_TIMEOUT_SECS", READY_TIMEOUT_SECS, READY_TIMEOUT_MAX_SECS)
 }
 
+/// What a reader does about a readiness gate that failed with the tier already running.
+///
+/// A value rather than two `eprintln!`s, for the reason `super::abandoned` is one: it is a decision
+/// about what a failed run leaves behind, and a decision that only exists as output is a decision
+/// no test can read. Two lines and not three - this run did not kill a provisioning call, so
+/// `abandoned`'s "a timeout is not proof they are wrong" is about a different failure.
+fn tier_is_up(project: &str) -> [String; 2] {
+    [
+        format!("the containers are already up - `docker compose --project-name {project} ps` says what state they are in"),
+        String::from(super::teardown::REMOVES_THIS_WORKTREE),
+    ]
+}
+
 /// Poll the health report until every expected service is ready, or the deadline passes.
 ///
 /// A health GATE and not a sleep. The distinction is what happens when it is wrong: a sleep that was
@@ -85,6 +98,14 @@ fn poll_until_ready(
             // reader to the containers when the fault is the daemon.
             Err(cause) => {
                 eprintln!("xtask dev-up: {cause}");
+                // NOT through `Failed::left_running`, and that is the point: it answers for the
+                // CALL, and a status query starts nothing. By the time this gate runs, `up
+                // --detach` has returned ok - so what started containers is the RUN, and only the
+                // caller that issued the provision knows that. Without these lines the reader gets
+                // exit 1 and a wedged-daemon remedy with nothing about their containers.
+                for line in tier_is_up(project) {
+                    eprintln!("  {line}");
+                }
                 return Err(Verdict::Fail);
             }
         };
@@ -179,6 +200,34 @@ mod tests {
 
         assert_eq!(verdict, Err(Verdict::Fail));
         assert_eq!(polls, 1);
+    }
+
+    #[test]
+    fn a_readiness_gate_that_gave_up_says_the_tier_is_still_up() {
+        // `up --detach` returned ok before this gate ran, so the containers exist whatever the gate
+        // then decided - and the reader was being handed a wedged-daemon remedy and nothing else.
+        // Read off the value rather than off the comment, the way `abandoned`'s report is.
+        let report = super::tier_is_up("sutura-dev-aaaa1111");
+        assert!(
+            report.iter().any(|line| line.contains("sutura-dev-aaaa1111")),
+            "the report must name the project whose containers are up: {report:?}"
+        );
+        assert!(
+            report.iter().any(|line| line.contains("just dev-down")),
+            "the report must name the task that removes them: {report:?}"
+        );
+    }
+
+    #[test]
+    fn the_readiness_deadline_is_clamped_at_both_ends() {
+        // Read through the public path, the way the probe budget's own test is: this was the one
+        // budget in the tier with no floor, so `SUTURA_DEV_READY_TIMEOUT_SECS=0` degraded the gate
+        // to a single poll. Bounds and not a value, because asserting the DEFAULT here would read
+        // the host environment - which is exactly how the budget-contrast assertion went red on a
+        // configuration the change itself invites.
+        let deadline = super::deadline();
+        assert!(deadline >= Duration::from_secs(1), "{deadline:?}");
+        assert!(deadline <= Duration::from_secs(super::READY_TIMEOUT_MAX_SECS), "{deadline:?}");
     }
 
     #[test]

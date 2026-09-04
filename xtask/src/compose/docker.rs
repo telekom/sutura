@@ -365,25 +365,36 @@ pub(crate) fn parse_projects(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Ask the runtime what it knows. Failure is an empty listing rather than an error, because
-/// teardown must still be able to remove THIS worktree's project when the listing is unavailable -
-/// what the listing buys is the ability to report what was spared, not the authority to destroy.
-pub(crate) fn projects(root: &Path) -> BTreeSet<String> {
+/// What the runtime said when asked which compose projects exist.
+///
+/// **Two variants because emptiness and absence are different claims**, and collapsing them into
+/// one `BTreeSet` made the tool state something no host had told it. An empty answer supports
+/// "nothing else was running"; a host that refused or never answered supports nothing at all - and
+/// it also does not support "this worktree has no project", which is how a destroy came to report
+/// success having removed a tier that was still up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Listing {
+    /// The runtime answered. Possibly with nothing, which is a legitimate answer.
+    Answered(BTreeSet<String>),
+    /// It refused, or never answered inside its budget.
+    Unknown,
+}
+
+/// Ask the runtime what it knows. An unanswered listing does not stop a destroy, because what the
+/// listing buys is the ability to report what was spared, not the authority to remove - but it is
+/// carried as [`Listing::Unknown`] rather than as an empty answer, so nothing downstream reports a
+/// spared neighbour, or an absent project, on a host that did not say.
+pub(crate) fn projects(root: &Path) -> Listing {
     match unscoped(root, &["ls", "--all", "--format", "json"]) {
-        Ok(out) if out.ok => parse_projects(&out.stdout),
-        // SAID, not swallowed, and that is new. An empty listing is a legitimate answer - nothing is
-        // running - and a runtime that refused or never answered is not that answer. The destroy
-        // still proceeds, because what the listing buys is the ability to report what was SPARED and
-        // not the authority to remove; but "spared nothing else was running" is a claim nobody may
-        // make on a host that did not say.
+        Ok(out) if out.ok => Listing::Answered(parse_projects(&out.stdout)),
         Ok(out) => {
-            eprintln!("xtask compose: `docker compose ls` failed - nothing is reported as spared");
+            eprintln!("xtask compose: `docker compose ls` failed - what else is running is unknown");
             eprint!("{}", out.stderr);
-            BTreeSet::new()
+            Listing::Unknown
         }
         Err(cause) => {
-            eprintln!("xtask compose: {cause} - nothing is reported as spared");
-            BTreeSet::new()
+            eprintln!("xtask compose: {cause} - what else is running is unknown");
+            Listing::Unknown
         }
     }
 }

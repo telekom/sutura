@@ -13,7 +13,7 @@
 //! indistinguishable from "there was nothing to consider", which is precisely the case where a
 //! reader needs to know the safety mechanism fired.
 
-use std::collections::BTreeSet;
+use super::docker::Listing;
 
 /// The prefix every project this tool creates carries, so a stray one is identifiable as ours and
 /// anything else is visibly not.
@@ -29,23 +29,53 @@ pub(crate) struct Spared {
     pub(crate) because: &'static str,
 }
 
+/// What was considered and left alone.
+///
+/// **A value rather than an empty `Vec`**, because an empty list of spared projects and a host that
+/// did not say what is running are different claims and were the same value. `spared nothing else
+/// was running` is a statement about the host; a runtime that refused made none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Sparing {
+    /// The runtime answered; these are the projects left alone, in stable order. Empty means
+    /// nothing else was running - a claim only an answer supports.
+    Answered(Vec<Spared>),
+    /// The runtime did not answer, so nothing may be reported as spared either way.
+    Unknown,
+}
+
 /// What a destroy would do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Plan {
-    /// This worktree's project, if the runtime has one. `None` means there is nothing to remove -
-    /// which is a state, not a failure.
+    /// This worktree's project, if there is anything to remove. `None` means the runtime ANSWERED
+    /// and this worktree's project was not in it - which is a state, not a failure.
     pub(crate) target: Option<String>,
-    /// Everything the selection considered and left alone, in stable order.
-    pub(crate) spared: Vec<Spared>,
+    /// Everything the selection considered and left alone.
+    pub(crate) spared: Sparing,
 }
 
-/// Decide what to remove, given this worktree's project and every project the runtime reports.
+/// Decide what to remove, given this worktree's project and what the runtime reported.
 ///
 /// **Exactly one project can ever be the target**, and it is the one [`sutura_dev::scope::Scope::project`]
 /// named - the same function start used. Everything else is spared with a reason, including another
 /// worktree's `sutura-dev-` project: those are the ones a wildcard would have taken, and a wildcard
 /// is what this function exists instead of.
-pub(crate) fn plan(project: &str, existing: &BTreeSet<String>) -> Plan {
+///
+/// **An unanswered listing still targets this worktree's project**, and that is the fail-closed
+/// direction rather than an oversight. The listing buys the ability to report what was spared, not
+/// the authority to remove - and the alternative was measured: a refused `compose ls` read as
+/// "this worktree has no compose project running", so `dev-down` printed `ok` and exited zero with
+/// its container still `Up (healthy)`. A `down` on a project that is not there is a no-op; a
+/// destroy that reports success having removed nothing is the silent success rule 1 exists against.
+pub(crate) fn plan(project: &str, reported: &Listing) -> Plan {
+    let existing = match *reported {
+        Listing::Answered(ref existing) => existing,
+        Listing::Unknown => {
+            return Plan {
+                target: Some(String::from(project)),
+                spared: Sparing::Unknown,
+            };
+        }
+    };
     let target = existing.contains(project).then(|| String::from(project));
     let spared = existing
         .iter()
@@ -59,7 +89,10 @@ pub(crate) fn plan(project: &str, existing: &BTreeSet<String>) -> Plan {
             },
         })
         .collect();
-    Plan { target, spared }
+    Plan {
+        target,
+        spared: Sparing::Answered(spared),
+    }
 }
 
 /// Is the plan still the plan?
@@ -81,6 +114,15 @@ pub(crate) fn down_args() -> Vec<&'static str> {
     vec!["down", "--volumes", "--remove-orphans"]
 }
 
+/// The one sentence that names what removes this worktree's tier.
+///
+/// Here because this is the module that removes it, and shared because two places print it: a
+/// provisioning call that was killed with containers running, and a readiness gate that failed
+/// after `up --detach` had already returned. A second copy of a task name is a second thing to
+/// keep true when the task is renamed - which `check-guidance` would then fail on only one of.
+pub(in crate::compose) const REMOVES_THIS_WORKTREE: &str =
+    "`just dev-down` removes this worktree's project, its network and its named volumes";
+
 /// Print the plan. Called for a dry run and for a real one, so what a reader is shown before a
 /// destroy is byte-identical to what they would have been shown by `--dry-run`.
 pub(crate) fn describe(plan: &Plan) {
@@ -88,11 +130,15 @@ pub(crate) fn describe(plan: &Plan) {
         Some(project) => println!("  remove   {project} (containers, network, named volumes)"),
         None => println!("  remove   nothing - this worktree has no compose project running"),
     }
-    if plan.spared.is_empty() {
-        println!("  spared   nothing else was running");
-    } else {
-        for spared in &plan.spared {
-            println!("  spared   {} - {}", spared.project, spared.because);
+    match plan.spared {
+        // The line this replaces was printed two lines under `docker compose ls failed`, which is
+        // the one host where it cannot be true.
+        Sparing::Unknown => println!("  spared   unknown - the runtime did not answer"),
+        Sparing::Answered(ref spared) if spared.is_empty() => println!("  spared   nothing else was running"),
+        Sparing::Answered(ref spared) => {
+            for spared in spared {
+                println!("  spared   {} - {}", spared.project, spared.because);
+            }
         }
     }
 }
@@ -101,10 +147,11 @@ pub(crate) fn describe(plan: &Plan) {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{Plan, Spared, down_args, plan, still_eligible};
+    use super::{Listing, Plan, Spared, Sparing, down_args, plan, still_eligible};
 
-    fn set(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|n| String::from(*n)).collect()
+    /// What the runtime answered, out of a list of project names.
+    fn answered(names: &[&str]) -> Listing {
+        Listing::Answered(names.iter().map(|n| String::from(*n)).collect())
     }
 
     #[test]
@@ -112,12 +159,15 @@ mod tests {
         // The neighbour-killing case, asserted on the selection rather than by running docker and
         // looking at what is gone. Three other projects are present and every one of them survives.
         let mine = "sutura-dev-aaaa1111";
-        let existing = set(&[mine, "sutura-dev-bbbb2222", "sutura-dev-cccc3333", "someone-elses-app"]);
+        let existing = answered(&[mine, "sutura-dev-bbbb2222", "sutura-dev-cccc3333", "someone-elses-app"]);
 
         let chosen = plan(mine, &existing);
         assert_eq!(chosen.target.as_deref(), Some(mine));
-        assert_eq!(chosen.spared.len(), 3, "{:?}", chosen.spared);
-        for spared in &chosen.spared {
+        let Sparing::Answered(ref spared) = chosen.spared else {
+            panic!("an answered listing must produce an answered sparing: {:?}", chosen.spared);
+        };
+        assert_eq!(spared.len(), 3, "{spared:?}");
+        for spared in spared {
             assert_ne!(spared.project, mine);
         }
     }
@@ -126,25 +176,25 @@ mod tests {
     fn a_spared_neighbour_is_a_category_and_never_silence() {
         // Silence is indistinguishable from "there was nothing to consider", which is exactly the
         // case where a reader needs to know the check fired.
-        let existing = set(&["sutura-dev-aaaa1111", "sutura-dev-bbbb2222"]);
+        let existing = answered(&["sutura-dev-aaaa1111", "sutura-dev-bbbb2222"]);
         let chosen = plan("sutura-dev-aaaa1111", &existing);
         assert_eq!(
             chosen.spared,
-            vec![Spared {
+            Sparing::Answered(vec![Spared {
                 project: String::from("sutura-dev-bbbb2222"),
                 because: "another worktree's - in use, left alone",
-            }]
+            }])
         );
     }
 
     #[test]
     fn nothing_running_is_a_state_rather_than_a_failure() {
-        let chosen = plan("sutura-dev-aaaa1111", &BTreeSet::new());
+        let chosen = plan("sutura-dev-aaaa1111", &Listing::Answered(BTreeSet::new()));
         assert_eq!(
             chosen,
             Plan {
                 target: None,
-                spared: Vec::new()
+                spared: Sparing::Answered(Vec::new())
             }
         );
     }
@@ -153,12 +203,36 @@ mod tests {
     fn a_target_that_stopped_being_ours_is_no_longer_eligible() {
         // The re-check under the lock. If the project name a destroy is about to pass to docker is
         // not the one this worktree derives NOW, the removal targets somebody else.
-        let chosen = plan("sutura-dev-aaaa1111", &set(&["sutura-dev-aaaa1111"]));
+        let chosen = plan("sutura-dev-aaaa1111", &answered(&["sutura-dev-aaaa1111"]));
         assert!(still_eligible(&chosen, "sutura-dev-aaaa1111"));
         assert!(!still_eligible(&chosen, "sutura-dev-bbbb2222"));
         // Nothing to remove is always eligible: there is no wrong thing to take.
-        let empty = plan("sutura-dev-aaaa1111", &BTreeSet::new());
+        let empty = plan("sutura-dev-aaaa1111", &Listing::Answered(BTreeSet::new()));
         assert!(still_eligible(&empty, "sutura-dev-bbbb2222"));
+    }
+
+    #[test]
+    fn a_runtime_that_did_not_answer_spares_nothing_and_still_targets_this_worktree() {
+        // Both halves of the same conflation, and both were measured on a host with a refused
+        // `compose ls`: the destroy printed `spared nothing else was running` two lines under the
+        // failure report, and it printed `remove nothing` and `ok` with its own container still
+        // `Up (healthy)`. An empty answer supports the first sentence; no answer supports neither.
+        let chosen = plan("sutura-dev-aaaa1111", &Listing::Unknown);
+        assert_eq!(
+            chosen.spared,
+            Sparing::Unknown,
+            "a host that did not answer must not be reported as a host with nothing running"
+        );
+        assert_eq!(
+            chosen.target.as_deref(),
+            Some("sutura-dev-aaaa1111"),
+            "the listing buys the report, not the authority to remove - a destroy that cannot see \
+             the project must still attempt it rather than report success having done nothing"
+        );
+        // And the re-check under the lock still passes on it: two unanswered reads agree, so a
+        // destroy is not turned into a refusal by a runtime that is silent throughout.
+        assert!(still_eligible(&chosen, "sutura-dev-aaaa1111"));
+        assert!(!still_eligible(&chosen, "sutura-dev-bbbb2222"));
     }
 
     #[test]

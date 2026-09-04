@@ -228,34 +228,9 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
     } else {
         println!("  profiles  {}", active.join(", "));
     }
-    match docker::compose(&root, &scope.project(), &active, &["up", "--detach", "--remove-orphans"]) {
-        Ok(out) if out.ok => {}
-        Ok(out) => {
-            eprintln!("xtask dev-up: `docker compose up` failed");
-            eprint!("{}", out.stderr);
-            return Verdict::Fail;
-        }
-        Err(cause) => {
-            eprintln!("xtask dev-up: {cause}");
-            report_abandoned(&cause, &scope.project());
-            return Verdict::Fail;
-        }
-    }
-
-    if let Err(verdict) = health::wait_until_healthy(&root, &scope, &active, &expected) {
-        return verdict;
-    }
-
-    let bound = match read_back_ports(&root, &scope, &active, &expected) {
-        Ok(bound) => bound,
-        Err(verdict) => return verdict,
-    };
-    let path = match discovery::publish(&scope, &bound) {
+    let path = match with_endpoints_forgotten("dev-up", &scope, || provision(&root, &scope, &active, &expected)) {
         Ok(path) => path,
-        Err(problem) => {
-            eprintln!("xtask dev-up: {problem}");
-            return Verdict::Fail;
-        }
+        Err(verdict) => return verdict,
     };
 
     println!("xtask dev-up: ok - {} service(s) healthy", expected.len());
@@ -264,6 +239,85 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
     println!("  lock      {} (released now)", held.path().display());
     drop(held);
     Verdict::Pass
+}
+
+/// Change the tier with this worktree's discovery file removed FIRST.
+///
+/// **The order is the mechanism, and it is why this is a function rather than a rule.** From the
+/// moment provisioning or teardown starts, an endpoint file written by an earlier run is a claim
+/// nothing has checked - host ports are ephemeral by design, so a recreated container does not come
+/// back on the one it names, and `sutura_dev::provisioned` has no revalidation and no fallback,
+/// deliberately. Removing it first means every failure path between here and `discovery::publish`
+/// is covered by construction; a `forget` remembered at each early return is covered until somebody
+/// adds the next one, which is exactly what happened - `run_up` had none at all, and `run_down`'s
+/// killed-`down` arm returned above the one it had.
+///
+/// The direction that survives is the one where the file is missing while containers are up: a
+/// harness then gets `NotProvisioned`, which is an error somebody reads, rather than a connection
+/// to whatever holds that port now - which is `discovery::forget`'s own "wrong answer instead of an
+/// error".
+///
+/// **The limit, next to the claim: the file is the granularity, not one service.** `publish` writes
+/// the whole document, so a failed `dev-up` now also drops an entry a *different* provisioner
+/// wrote - `nix/postgres-tier.nix`'s - exactly as a successful one already did. That tier
+/// republishes on `start`; nothing here can be finer without a per-provisioner file.
+fn with_endpoints_forgotten<T>(
+    task: &str,
+    scope: &Scope,
+    change_the_tier: impl FnOnce() -> Result<T, Verdict>,
+) -> Result<T, Verdict> {
+    if let Err(problem) = discovery::forget(scope) {
+        eprintln!("xtask {task}: {problem}");
+        return Err(Verdict::Fail);
+    }
+    change_the_tier()
+}
+
+/// Bring the tier up, wait for it, and record what it bound. The path written, on success.
+fn provision(root: &Path, scope: &Scope, active: &[&str], expected: &[&str]) -> Result<std::path::PathBuf, Verdict> {
+    let project = scope.project();
+    match docker::compose(root, &project, active, &["up", "--detach", "--remove-orphans"]) {
+        Ok(out) if out.ok => {}
+        Ok(out) => {
+            eprintln!("xtask dev-up: `docker compose up` failed");
+            eprint!("{}", out.stderr);
+            return Err(Verdict::Fail);
+        }
+        Err(cause) => {
+            eprintln!("xtask dev-up: {cause}");
+            report_abandoned(&cause, &project);
+            return Err(Verdict::Fail);
+        }
+    }
+    health::wait_until_healthy(root, scope, active, expected)?;
+    let bound = read_back_ports(root, scope, active, expected)?;
+    discovery::publish(scope, &bound).map_err(|problem| {
+        eprintln!("xtask dev-up: {problem}");
+        Verdict::Fail
+    })
+}
+
+/// Remove the planned project, if the plan named one.
+fn remove(root: &Path, plan: &teardown::Plan, profiles: &[&str]) -> Result<(), Verdict> {
+    let Some(target) = plan.target.as_deref() else {
+        return Ok(());
+    };
+    match docker::compose(root, target, profiles, &teardown::down_args()) {
+        Ok(out) if out.ok => {
+            println!("  removed  {target}");
+            Ok(())
+        }
+        Ok(out) => {
+            eprintln!("xtask dev-down: `docker compose down` failed");
+            eprint!("{}", out.stderr);
+            Err(Verdict::Fail)
+        }
+        Err(cause) => {
+            eprintln!("xtask dev-down: {cause}");
+            report_abandoned(&cause, target);
+            Err(Verdict::Fail)
+        }
+    }
 }
 
 /// Ask docker which host port each service actually landed on.
@@ -333,7 +387,7 @@ fn abandoned(project: &str) -> [String; 3] {
     [
         format!("containers are NOT removed: killing docker does not stop what it had started - {project}"),
         String::from("a timeout is not proof they are wrong - these subcommands are idempotent, so a retry reuses the pull"),
-        String::from("`just dev-down` removes this worktree's project, its network and its named volumes"),
+        String::from(teardown::REMOVES_THIS_WORKTREE),
     ]
 }
 
@@ -397,27 +451,11 @@ pub(crate) fn run_down(args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    if let Some(target) = plan.target.as_deref() {
-        match docker::compose(&root, target, &every_profile, &teardown::down_args()) {
-            Ok(out) if out.ok => println!("  removed  {target}"),
-            Ok(out) => {
-                eprintln!("xtask dev-down: `docker compose down` failed");
-                eprint!("{}", out.stderr);
-                return Verdict::Fail;
-            }
-            Err(cause) => {
-                eprintln!("xtask dev-down: {cause}");
-                report_abandoned(&cause, target);
-                return Verdict::Fail;
-            }
-        }
-    }
-
-    // A stale discovery file is the one way discovery could hand back a wrong answer instead of an
-    // error, so it goes with the containers rather than after them.
-    if let Err(problem) = discovery::forget(&scope) {
-        eprintln!("xtask dev-down: {problem}");
-        return Verdict::Fail;
+    // The discovery file goes BEFORE the containers, not after them: a `down` that is killed
+    // half-way through, or exits non-zero, used to return above the `forget` that stood here and
+    // leave a readable endpoint file over a tier in an unknown state. See `with_endpoints_forgotten`.
+    if let Err(verdict) = with_endpoints_forgotten("dev-down", &scope, || remove(&root, &plan, &every_profile)) {
+        return verdict;
     }
     println!("xtask dev-down: ok");
     drop(held);
@@ -543,6 +581,39 @@ mod tests {
             report.iter().any(|line| line.contains("just dev-down")),
             "the report must name the task that removes them: {report:?}"
         );
+    }
+
+    #[test]
+    fn a_failing_provision_leaves_no_discovery_file_behind() {
+        // The claim `abandoned`'s doc rests on - "nothing a harness reads can point at a
+        // half-provisioned tier" - was not true: `run_up` never forgot, so a file an earlier
+        // successful run published outlived every failure path, naming an ephemeral port the
+        // recreated container no longer owns. `run_down`'s killed-`down` arm returned above its
+        // `forget` for the same effect.
+        //
+        // Asserted on the ORDER and not on the call: the closure sees the file already gone, which
+        // is the property a `forget` bolted onto each early return does not have.
+        let root = std::env::temp_dir().join(format!("sutura-forget-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("temp dirs are creatable");
+        let scope = sutura_dev::scope::Scope::from_root(&root).expect("a real directory is a scope");
+        let published = sutura_dev::discovery::publish(&scope, &[("clickhouse", String::from("127.0.0.1:60660"))])
+            .expect("the temp worktree is writable");
+        assert!(published.is_file(), "the fixture did not publish anything to forget");
+
+        let mut seen_by_the_tier_change = None;
+        let outcome: Result<(), Verdict> = super::with_endpoints_forgotten("dev-up", &scope, || {
+            seen_by_the_tier_change = Some(published.exists());
+            Err(Verdict::Fail)
+        });
+
+        assert_eq!(outcome, Err(Verdict::Fail), "the failure has to propagate unchanged");
+        assert_eq!(
+            seen_by_the_tier_change,
+            Some(false),
+            "the file was still readable while the tier was being changed"
+        );
+        assert!(!published.exists(), "a failed provision left {} behind", published.display());
+        drop(std::fs::remove_dir_all(&root));
     }
 
     #[test]
