@@ -117,6 +117,8 @@ let
   # probe priced it.** `--features bigquery` costs **12 compiled units** on every one of the four
   # published triples - the adapter and its outbound TLS closure, nothing else - and under 2% of a
   # `cross` job, because they finish inside the slack ahead of `datafusion` on the critical path.
+  # (CI runs 33808343712 and 33838360913, 2026-09-04. A figure with no run beside it is a figure
+  # nobody can re-take, which is why this one carries one.)
   # So default-off buys nothing in BUILD time. What it buys is the artefact: no published binary
   # of either executable links an outbound TLS stack, and `checks.shipped-features` asserts that
   # out of each binary's own embedded dependency list rather than out of this file. Keep the

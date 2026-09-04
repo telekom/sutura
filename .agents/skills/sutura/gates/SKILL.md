@@ -203,6 +203,23 @@ therefore does not see.
 - **A count in prose is only as good as the command beside it.** An anchored
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.
+- **A READOUT under a comment claiming it is an assertion, which is the cheapest version of this
+  whole class.** Both `ci.yml` link-check steps ended in `file <path>`, and the older one said so:
+  *"Proves the arch, not just the exit code."* It proves neither. Measured: `file` on a path that
+  does not exist prints ``cannot open`` and **exits 0**, and nothing compared its answer to the
+  triple - so a renamed or missing executable was green, and the feature-probe step reads that name
+  out of a manifest. `nix/assert-linked.sh` asserts the two things the sentence claimed and names
+  the one it still does not (the libc half, unmeasured, so a musl target linked dynamically
+  passes). **The transferable question:** for every command a step runs for its side effect, ask
+  what its EXIT CODE is a function of. `file`, `echo`, `grep -c` and any `| head` answer zero on
+  inputs a reader would call a failure.
+- **A refusal that is weaker than the claim it defends, and the tell is a quantifier.** The same
+  step refuses an EMPTY probe manifest, which reads as *a probe cannot silently disappear* and is
+  not that claim: with a second binary declaring a probe, deleting the first one's leaves the
+  manifest non-empty and the job green. *At least one row* defends nothing about WHICH row. What
+  closes it is a second declaration that must agree - here `cargo xtask check-shipped-binaries`
+  reconciling `nix/shipped.nix`'s `probeFeatures` against the `cargo build --features` a page
+  documents, failing closed when no page documents one at all.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
