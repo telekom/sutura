@@ -210,10 +210,8 @@ pub(in crate::compose) fn budget_from_env(variable: &str, default_secs: u64, max
 /// can be lost in an edit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Override {
-    /// Nothing was set, so the default stands.
-    Default(u64),
-    /// A value was set and is used exactly as written.
-    Honoured(u64),
+    /// The value in force: the default where nothing was set, or an override used as written.
+    Used(u64),
     /// A value was set and cannot be used as written: not a number, or outside the clamp.
     Unusable {
         /// What was asked for, where it parsed at all.
@@ -228,7 +226,7 @@ impl Override {
     fn of(value: Option<&str>, default_secs: u64, max_secs: u64) -> Self {
         let clamp = |secs: u64| secs.clamp(TIMEOUT_MIN_SECS, max_secs);
         let Some(value) = value else {
-            return Self::Default(clamp(default_secs));
+            return Self::Used(clamp(default_secs));
         };
         let Ok(asked) = value.parse::<u64>() else {
             return Self::Unusable {
@@ -238,7 +236,7 @@ impl Override {
         };
         let used = clamp(asked);
         if used == asked {
-            Self::Honoured(used)
+            Self::Used(used)
         } else {
             Self::Unusable {
                 asked: Some(asked),
@@ -250,8 +248,7 @@ impl Override {
     /// The budget in seconds, whichever way it was reached.
     const fn seconds(self) -> u64 {
         match self {
-            Self::Default(secs) | Self::Honoured(secs) => secs,
-            Self::Unusable { used, .. } => used,
+            Self::Used(secs) | Self::Unusable { used: secs, .. } => secs,
         }
     }
 }
@@ -766,8 +763,8 @@ mod tests {
         let ceiling = 600;
         let of = |value: Option<&str>| super::Override::of(value, 30, ceiling);
 
-        assert_eq!(of(None), super::Override::Default(30), "nothing set means the default");
-        assert_eq!(of(Some("45")), super::Override::Honoured(45));
+        assert_eq!(of(None), super::Override::Used(30), "nothing set means the default");
+        assert_eq!(of(Some("45")), super::Override::Used(45));
 
         // Both ends of the clamp, and both are load-bearing. `0` would report every call on a
         // healthy host as unanswered, and a value past the ceiling restores the unbounded wait.
