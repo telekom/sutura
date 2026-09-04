@@ -202,8 +202,8 @@ impl Venue {
                  would have started it"
             ),
             Self::Undeclared => format!(
-                "nothing yet - nothing in this worktree declares `{service}`: a service is a row in \
-                 `compose.services.yaml` or a `nix/<service>-tier.nix` module, and this one has neither for it"
+                "nothing yet - nothing declares `{service}`: a service is a row in `compose.services.yaml` \
+                 or a `nix/<service>-tier.nix` module, and this worktree has neither for it"
             ),
         }
     }
@@ -232,9 +232,12 @@ impl Absent {
         &self.0.reason
     }
 
-    /// Which venue answers for the service this was raised about, in the worktree it looked in.
-    fn venue(&self) -> Venue {
-        venue(self.0.worktree.as_deref(), &self.0.service)
+    /// The line naming the task that starts the service this was raised about.
+    ///
+    /// Every arm of [`Absent::remedy`] that names one calls THIS, so the venue and the service it
+    /// is read for cannot come apart.
+    fn venue_advice(&self) -> String {
+        venue(self.0.worktree.as_deref(), &self.0.service).advice(&self.0.service)
     }
 
     /// What to run, chosen from the reason rather than printed unconditionally.
@@ -242,34 +245,30 @@ impl Absent {
     /// A message that says "run `just dev-up`" when the tier is already up and the service is
     /// behind a profile sends somebody to re-run something that will not help.
     ///
-    /// **Every arm that names a task for a service asks [`Venue::advice`] for it**, so the two that
-    /// do cannot answer differently. Which task starts a service is a property of its venue and not
-    /// of what went wrong.
+    /// One line per line of the message; the label and the hanging indent under it belong to the
+    /// `Display` impl, so no arm has to know whether its line comes first.
     fn remedy(&self) -> Vec<String> {
         match self.0.reason {
             Reason::NoWorktree { .. } => vec![String::from(
-                "run        this from inside a checkout of this repository - the walk upwards found no root",
+                "this from inside a checkout of this repository - the walk upwards found no root",
             )],
             Reason::NoScope(_) => vec![String::from(
-                "run        nothing yet - the worktree root did not resolve, which is a filesystem problem",
+                "nothing yet - the worktree root did not resolve, which is a filesystem problem",
             )],
             Reason::NotDiscovered(ref problem) => match *problem {
                 DiscoveryError::NotProvisioned { .. } => vec![
-                    format!("run        {}", self.venue().advice(&self.0.service)),
-                    format!(
-                        "             `just dev-endpoint {}` then prints where it landed",
-                        self.0.service
-                    ),
+                    self.venue_advice(),
+                    format!("`just dev-endpoint {}` then prints where it landed", self.0.service),
                 ],
                 DiscoveryError::UnknownService { .. } => vec![
-                    String::from("run        `just dev-endpoints` to see what this worktree actually has, and"),
-                    format!("             {}", self.venue().advice(&self.0.service)),
+                    String::from("`just dev-endpoints` to see what this worktree actually has, and"),
+                    self.venue_advice(),
                 ],
                 DiscoveryError::Unreadable { .. }
                 | DiscoveryError::Malformed { .. }
                 | DiscoveryError::UnreadablePublishedAddress { .. }
                 | DiscoveryError::Unwritable { .. } => vec![String::from(
-                    "run        `just dev-down` then `just dev-up` - the discovery file is not readable as one",
+                    "`just dev-down` then `just dev-up` - the discovery file is not readable as one",
                 )],
             },
         }
@@ -286,8 +285,16 @@ impl std::fmt::Display for Absent {
             writeln!(f, "  discovery  {}", discovery.display())?;
         }
         writeln!(f, "  because    {}", self.0.reason)?;
-        for line in self.remedy() {
-            writeln!(f, "  {line}")?;
+        // The label once, and every line after it hanging two columns past the field column above
+        // - so a continuation cannot be misread as another field, and an arm supplying a line does
+        // not have to know how many came before it. That last part is what a shared advice line
+        // needs: the same sentence is the first line of one remedy and the second of another.
+        let mut remedy = self.remedy().into_iter();
+        if let Some(first) = remedy.next() {
+            writeln!(f, "  run        {first}")?;
+        }
+        for line in remedy {
+            writeln!(f, "               {line}")?;
         }
         write!(
             f,
