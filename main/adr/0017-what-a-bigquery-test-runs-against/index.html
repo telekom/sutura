@@ -3623,9 +3623,43 @@ named: rotation somebody has to remember, and a credential that leaks if the env
 a second project needs a credential, move the acceptance leg to Workload Identity Federation - GitHub
 mints an OIDC JWT under <code>permissions: id-token: write</code>, Google STS exchanges it for a short-lived token,
 and <strong>there is no key at all</strong>. A workload pool accepts <code>subject_token_type: jwt</code> with an attribute
-condition pinning the repository. Neither <code>id-token</code> nor a Google auth action appears in any workflow
-today, so this is greenfield; the moment that changes is a workflow diff with no key to rotate. Until
-then the key is the cost of the evidence, and this paragraph is its expiry.</p>
+condition pinning the repository. Until then the key is the cost of the evidence, and this paragraph is
+its expiry.</p>
+<p><strong>One sentence of that paragraph was wrong when it was merged, and it is corrected here rather than
+quietly</strong>, because it was the half a reader would have used as the signal to watch. It said <em>neither
+<code>id-token</code> nor a Google auth action appears in any workflow</em>, and therefore that the moment either did
+was the diff to look for. Measured 2026-09-03: <code>git log -S</code> dates <code>id-token: write</code> in
+<code>.github/workflows/release.yml</code> to telekom/sutura#97, merged <strong>two hours before this amendment
+landed</strong> - the release path mints an OIDC token for Fulcio to sign a certificate against, which is a
+keyless-signing exchange with a different audience and no Google in it at all. So the permission is not
+the signal and never was; a workflow can hold it for years with the key untouched. <strong>What is greenfield
+is the Google half</strong>: no <code>google-github-actions/auth</code>, no workload pool, and no STS exchange anywhere in
+this repository. The signal is therefore a Google STS exchange in the acceptance job with no key placed
+beside it, <strong>and that one is mechanical</strong>: <code>cargo xtask check-venues</code> reads the job's own credential state
+and holds it to exactly one mechanism - a key and a federated token together is a half-finished migration,
+neither is a leg authenticating with nothing, and the keyless state fails asking for this paragraph to be
+amended. A gate whose failure is good news is the only shape that reaches a record.</p>
+<p><strong>The transferable part, since this record keeps finding the same shape:</strong> a limit whose evidence is
+<em>nothing in the tree does X</em> is only as good as a search somebody ran. This one was written from
+recollection two hours after the tree stopped agreeing with it, and no gate could have known - which is
+why the sentence now names the command and the date, per this repository's own rule about a number in
+prose. <strong>And the correction is registered rather than merely made:</strong> both halves of the wrong sentence -
+the claim about the tree, and the <em>watch for the permission arriving</em> instruction it justified - are
+wordings of one entry in <code>check-guidance</code>'s contradicted-claims table, resting on
+<code>.github/workflows/release.yml</code> still holding <code>id-token: write</code>, so the rule retires itself the day that
+stops being true instead of forbidding a sentence that has become correct again. <strong>Two limits of that,
+stated rather than left to be discovered.</strong> It matches a literal, so a paraphrase escapes - the same
+limit the gate records for every row in that table. And this page is <code>except</code>ed from the rule, because
+the quotation above would otherwise fail it: that exemption is a blind spot, and what keeps it from
+outliving its reason is <code>a_page_a_rule_exempts_holds_a_wording_that_rule_forbids</code>, which fails if this
+page stops quoting the sentence it corrects.</p>
+<p><strong>The gate named above had the same defect, one round later, and it is fixed here rather than shipped.</strong>
+<code>check-venues</code> read this job for <code>id-token: write</code> - the very proxy this amendment exists to retire,
+narrowed from <em>any workflow</em> to <em>this job</em>. That retires the one false positive and keeps the class: the
+permission granted here for some other keyless exchange would report a half-finished <strong>Google</strong>
+migration that does not exist. What it reads now is what the paragraph above actually names - a Google
+auth action, a workload pool, or an STS endpoint in this job - and
+<code>an_id_token_grant_is_not_the_google_signal_this_record_corrected</code> is the test that keeps the proxy out.</p>
 <h3 id="the-limit-each-venue-must-state">The limit each venue must state<a class="headerlink" href="#the-limit-each-venue-must-state" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>A fork's pull request gets no secret</strong>, so the acceptance job is absent on exactly the
