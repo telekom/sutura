@@ -3454,14 +3454,14 @@ rather than anything this repository can carry.</p>
   <code>bigquery</code> feature on a binary <code>nix</code> does not package, and the image and all four cross binaries are
   <code>sutura-cli</code>, which links the engine only. So no published artifact opens a dataset, and a green here
   says nothing about one that does.</li>
-<li><strong>NEW: this leg WRITES, and two runs against one dataset will race.</strong> Four tables named after the
-  example models - <code>dim_customer</code>, <code>dim_product</code>, <code>fct_subscription_monthly</code> and <code>fct_usage_daily</code> -
-  are replaced on every run. The names are fixed rather than suffixed because the generator renders a
-  model's table unqualified and the job's <code>defaultDataset</code> resolves it, so a per-run name would need
-  the catalog to change. The dataset this is pointed at should therefore hold nothing else under those
-  names, and a second concurrent job in the same dataset is a defect nothing here prevents. The names
-  themselves are committed fixtures rather than resources, so unlike the project and the dataset they
-  need no <code>::add-mask::</code> in a public log.</li>
+<li><strong>This leg WRITES, and two runs against one dataset will race</strong> - <em>and, since #119, no longer.</em>
+  Four tables named after the example models - <code>dim_customer</code>, <code>dim_product</code>,
+  <code>fct_subscription_monthly</code> and <code>fct_usage_daily</code> - used to be replaced on every run under names
+  that were fixed because the generator rendered them unqualified and the job's <code>defaultDataset</code>
+  resolved them. The seventh amendment below is the closure: every table is now suffixed with the
+  run's own token, and a per-run table name stays safe to print because only the dataset and the
+  project are resources. The committed fixture names themselves need no <code>::add-mask::</code> in a public
+  log.</li>
 </ul>
 <h2 id="fourth-amendment-2026-08-31-the-finding-is-fixed-and-the-legs-tolerance-is-deleted-rather-than-relaxed">Fourth amendment, 2026-08-31: the finding is fixed, and the leg's tolerance is deleted rather than relaxed<a class="headerlink" href="#fourth-amendment-2026-08-31-the-finding-is-fixed-and-the-legs-tolerance-is-deleted-rather-than-relaxed" title="Permanent link">&para;</a></h2>
 <p><strong>Status of the amendment: accepted.</strong> The third amendment's <em>finding</em> section ends by naming the
@@ -4045,6 +4045,49 @@ does fail closed, freely: a matrix target that is not a release target has no
 <code>feature-probes-&lt;triple&gt;</code> attribute, so <code>nix build</code> fails. The gate's own header argues a matrix
 cannot be derived because <code>strategy.matrix</code> takes literals, which is exactly the argument for
 reconciling this pair too. It is the same shape as the rule above and is a separate change.</p>
+<h2 id="seventh-amendment-2026-09-04-the-acceptance-leg-is-re-entrant-and-two-runs-no-longer-race">Seventh amendment, 2026-09-04: the acceptance leg is re-entrant, and two runs no longer race<a class="headerlink" href="#seventh-amendment-2026-09-04-the-acceptance-leg-is-re-entrant-and-two-runs-no-longer-race" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted.</strong> The third amendment's "NEW" bullet - <em>this leg WRITES, and two
+runs against one dataset will race</em> - stopped being true in #119, and this is its record. The bullet
+itself now points here; a merged record that quietly stops being true is worse than one wrong from
+the start, and the race was the one way this leg could fail for a reason that looked like a product
+bug.</p>
+<h3 id="the-mechanism-a-per-run-table-suffix-applied-before-the-plan-is-compiled">The mechanism: a per-run table suffix, applied before the plan is compiled<a class="headerlink" href="#the-mechanism-a-per-run-table-suffix-applied-before-the-plan-is-compiled" title="Permanent link">&para;</a></h3>
+<p>Every corpus table is now named with a token unique to the run (<code>GITHUB_RUN_ID</code> in CI, a clock+pid
+value locally) and a per-test leg (<code>accept</code>, <code>rows</code>, <code>anchors</code>) - <code>dim_customer_&lt;token&gt;_rows</code>, and so
+on. The suffixed names live in the DEFINITIONS: the leg rebuilds a <code>PinnedDefinitions</code> whose models'
+tables carry the suffix, and both the engine and <code>BigQuery</code> compile against that bundle, so the plan
+and the dataset agree (only the models' tables change; relationships and metrics are cloned verbatim,
+and <code>pin</code> recomputes the digest). Two runs, or this leg's own three tests under nextest's default
+parallelism, each create, read and drop only their own tables.</p>
+<h3 id="the-two-mechanisms-that-keep-it-clean-and-why-both-are-there">The two mechanisms that keep it clean, and why both are there<a class="headerlink" href="#the-two-mechanisms-that-keep-it-clean-and-why-both-are-there" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Each <code>CREATE</code> sets a 24-hour table expiration.</strong> This is the GUARANTEE half, and it exists for a
+  reason specific to this crate: the shipped profiles run <code>panic = "abort"</code>, so a cancelled runner
+  never unwinds - a <code>Drop</code> guard that would clean up is skipped before it runs. Table expiration is
+  the mechanism that survives that: the table self-deletes after the interval whether or not anybody
+  drops it.</li>
+<li><strong>Each run DROPs its own tables when it finishes.</strong> This is the TIDY half - a complete run leaves
+  nothing behind even for the 24-hour interval. It is not the guarantee, because an abort skips it;
+  the expiration is.</li>
+</ul>
+<h3 id="the-per-run-table-name-is-safe-to-print">The per-run table name is safe to print<a class="headerlink" href="#the-per-run-table-name-is-safe-to-print" title="Permanent link">&para;</a></h3>
+<p>The suffixed names are committed-fixture-names-plus-tokens, not resources: only the dataset and the
+project are resources. A run prints its table names as they load, which is what lets a log say which
+run wrote them; the dataset and project are still masked in CI, and a table name never carries them.</p>
+<h3 id="the-belt-a-ci-concurrency-group-shared-across-refs">The belt: a CI concurrency group shared across refs<a class="headerlink" href="#the-belt-a-ci-concurrency-group-shared-across-refs" title="Permanent link">&para;</a></h3>
+<p><code>ci.yml</code>'s <code>bigquery-acceptance</code> job now carries a job-level <code>concurrency</code> group keyed on the
+dataset (<code>vars.SUTURA_BQ_DATASET</code>), not on the ref, with <code>cancel-in-progress: false</code>. Two in-repo
+runs against the one <code>bq-test</code> dataset therefore QUEUE rather than interleave. It is the belt, not
+the braces: the per-run suffix is what makes them safe, and the developer's own local run is a
+concurrent writer the group cannot serialise - its per-run table names announce it on the shared
+dataset, and the <code>just bigquery-acceptance</code> comment says that in one sentence.</p>
+<h3 id="what-becomes-provable-and-how">What becomes provable, and how<a class="headerlink" href="#what-becomes-provable-and-how" title="Permanent link">&para;</a></h3>
+<p><code>just bigquery-acceptance</code> twice concurrently, locally, both green - the table names differ per run,
+and each run drops its own. The CI job is green on a branch, its printed table names carrying the
+run suffix.</p>
+<h3 id="not-in-scope">Not in scope<a class="headerlink" href="#not-in-scope" title="Permanent link">&para;</a></h3>
+<p>Cross-dataset fixtures (#118) and the conformance packs (#116) are still future work; this change
+makes the first safe to add rather than doing it.</p>
 
 
 
