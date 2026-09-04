@@ -34,10 +34,14 @@
 //!   binary does. `crates/sutura-cli/src/sources.rs` holds such a call today - a unit test that
 //!   answers through a declared source to prove the witness the registry carries reaches the
 //!   adapter - and it is test vocabulary, like everything under `tests/`.
-//! * **It reads a PATH rooted at `sutura_app`.** `use sutura_app as app;` and then `app::answer(..)`
-//!   is invisible, and so is a re-export of `answer` through a third crate. `use sutura_app::*` is
-//!   not a hole: `clippy::wildcard_imports` is on through `pedantic` and the gate runs with
-//!   `-D warnings`.
+//! * **It reads a PATH rooted at `sutura_app`.** Three ways past that, and only one is still open.
+//!   Renaming the CRATE - `use sutura_app as app;` or `use sutura_app::{self as app};` - is
+//!   [refused](Reaches::TheRootRenamed) rather than chased, the way `boot_order` refuses a rename of
+//!   its own tracked name. `use sutura_app::*` is not a hole either: `clippy::wildcard_imports` is
+//!   on through `pedantic` and the gate runs with `-D warnings`. What remains is a **re-export of
+//!   `answer` through a third crate**, and a dependency renamed in a manifest
+//!   (`app = { package = "sutura-app" }`) - neither is in this tree, and no scan of `src/` could
+//!   see either.
 //! * Comments and multi-line string interiors are blanked first, through the serde gate's
 //!   [`code_lines`](crate::serde_parse::scan::code_lines). **What makes that load-bearing is the
 //!   scanned set and not this file:** `xtask` declares no dependency on `sutura-app`, so this module
@@ -125,14 +129,30 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
             continue;
         };
         scanned = scanned.saturating_add(1);
+        // Counted as examined above, then skipped before the region scan: a file that never names
+        // the application has no path to classify, and [`regions::scope`] reads the file a second
+        // time to resolve a `#[cfg(test)] mod` declaration. The sibling gate short-circuits the
+        // same way for the same reason.
+        if !text.contains(APPLICATION_PATH) {
+            continue;
+        }
         let tests = regions::scope(rel, &read);
         for path in application_paths(&crate::serde_parse::scan::code_lines(&text).join("\n")) {
             paths = paths.saturating_add(1);
-            if path.names_the_answer && !tests.covers(path.line) {
-                problems.push(format!(
+            if tests.covers(path.line) {
+                continue;
+            }
+            match path.reaches {
+                Reaches::Elsewhere => {}
+                Reaches::TheAnswer => problems.push(format!(
                     "{rel}:{}: `{}` names `{APPLICATION_PATH}::{ANSWER}` in its own source",
                     path.line, caller.name
-                ));
+                )),
+                Reaches::TheRootRenamed => problems.push(format!(
+                    "{rel}:{}: `{}` imports `{APPLICATION_PATH}` under another name, which makes every \
+                     path through it invisible to this rule - import it as itself",
+                    path.line, caller.name
+                )),
             }
         }
     }
@@ -182,7 +202,32 @@ fn door_line(code: &str) -> Option<usize> {
     })
 }
 
-/// One path rooted at [`APPLICATION_PATH`]: where it is, and whether it reaches the answer function.
+/// What a path rooted at [`APPLICATION_PATH`] actually reaches.
+///
+/// An enum rather than a `bool`, because there are two ways a caller can end up on the other side of
+/// the driving port and only one of them is a call. A reader names the case instead of deciding what
+/// `false` covered.
+#[derive(Debug, PartialEq, Eq)]
+enum Reaches {
+    /// Something else on the application - a type, a module, the port trait, a call THROUGH it.
+    /// The shape the fix leaves behind, and the shape the rest of the tree is full of.
+    Elsewhere,
+    /// [`ANSWER`] itself. The bypass this rule exists for.
+    TheAnswer,
+    /// The application crate under another name.
+    ///
+    /// **Refused rather than followed, for the reason `boot_order` gives about its own tracked
+    /// name: text matching cannot chase a rename.** `use sutura_app as app;` and
+    /// `use sutura_app::{self as app};` both leave every later call spelled `app::answer(..)`,
+    /// which this scan has never heard of - the module header used to carry that as a stated limit,
+    /// and a limit a sibling gate already knows how to close is a missing check rather than a
+    /// boundary. Nothing in the four callers imports a crate that way, so the cost is one forbidden
+    /// idiom; renaming an ITEM (`Surface as _`, `DatasetId as WireDataset`) is untouched, which is
+    /// what keeps this a targeted refusal instead of a style rule.
+    TheRootRenamed,
+}
+
+/// One path rooted at [`APPLICATION_PATH`]: where it is, and what it reaches.
 ///
 /// Both halves are wanted at the call site and both are counted - the second decides a violation,
 /// and the first is what makes a reported line one a reader can open. A named pair rather than a
@@ -191,8 +236,8 @@ fn door_line(code: &str) -> Option<usize> {
 struct ApplicationPath {
     /// 1-based line in the file the code came from.
     line: usize,
-    /// Do this path's segments include [`ANSWER`]?
-    names_the_answer: bool,
+    /// What this path reaches on the application.
+    reaches: Reaches,
 }
 
 /// Every path rooted at [`APPLICATION_PATH`] in `code`.
@@ -220,10 +265,48 @@ fn application_paths(code: &str) -> Vec<ApplicationPath> {
         }
         found.push(ApplicationPath {
             line: before.matches('\n').count().saturating_add(1),
-            names_the_answer: names_the_answer(rest),
+            reaches: reaches(rest),
         });
     }
     found
+}
+
+/// Classify the path or `use` tree at the start of `rest`.
+///
+/// The rename is checked FIRST, because a renamed root makes the second question meaningless: the
+/// answer would then be reached under a spelling this scan cannot see.
+fn reaches(rest: &str) -> Reaches {
+    if renames_the_root(rest) {
+        Reaches::TheRootRenamed
+    } else if names_the_answer(rest) {
+        Reaches::TheAnswer
+    } else {
+        Reaches::Elsewhere
+    }
+}
+
+/// Is the application crate itself being imported under another name?
+///
+/// Two spellings, and both are one keystroke from an idiom this tree already uses:
+/// `use sutura_app as app;` and `use sutura_app::{self as app};`. An ITEM renamed on the way through
+/// is not one of them - `use sutura_app::surface::{LocalService, Surface as _};` is in this tree
+/// twice and stays legal, because every call site it produces still spells the root.
+fn renames_the_root(rest: &str) -> bool {
+    let aliased = |after: &str| after.chars().next().is_none_or(|next| !is_ident(next));
+    let trimmed = rest.trim_start();
+    if let Some(after) = trimmed.strip_prefix("as") {
+        return aliased(after);
+    }
+    // `::{self as app}` - the same rename, one brace deeper.
+    trimmed
+        .strip_prefix("::")
+        .map(str::trim_start)
+        .and_then(|tree| tree.strip_prefix('{'))
+        .map(str::trim_start)
+        .and_then(|group| group.strip_prefix("self"))
+        .map(str::trim_start)
+        .and_then(|after_self| after_self.strip_prefix("as"))
+        .is_some_and(aliased)
 }
 
 /// Does the path or `use` tree at the start of `rest` reach [`ANSWER`] itself?
@@ -289,22 +372,39 @@ pub(super) fn explain() {
     eprintln!();
     eprintln!("A unit test is exempt - `#[cfg(test)]` is skipped, and so is everything under");
     eprintln!("`tests/`, which is where the typed `ServiceError` is asserted from.");
+    eprintln!();
+    eprintln!("If the line reported was an IMPORT of the application under another name: this rule");
+    eprintln!("finds a bypass by matching the application's path as text, so a crate renamed at the");
+    eprintln!("`use` leaves every call site spelled something it has never heard of. Import the");
+    eprintln!("crate as itself - renaming an item on the way through (`Surface as _`) is untouched.");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{APPLICATION_LIB, ApplicationPath, application_paths, door, door_line, names_the_answer};
+    use super::{
+        APPLICATION_LIB, ApplicationPath, Reaches, application_paths, door, door_line, names_the_answer, renames_the_root,
+    };
     use crate::serde_parse::scan::code_lines;
 
-    /// A path at `line`, and whether it reached the answer function.
-    fn at(line: usize, names_the_answer: bool) -> ApplicationPath {
-        ApplicationPath { line, names_the_answer }
+    /// A path at `line`, and what it reached.
+    fn at(line: usize, reaches: Reaches) -> ApplicationPath {
+        ApplicationPath { line, reaches }
+    }
+
+    /// The answer function itself, at `line`.
+    fn answers(line: usize) -> ApplicationPath {
+        at(line, Reaches::TheAnswer)
+    }
+
+    /// Some other path into the application, at `line`.
+    fn elsewhere(line: usize) -> ApplicationPath {
+        at(line, Reaches::Elsewhere)
     }
 
     #[test]
     fn a_direct_call_to_the_answer_path_is_found_with_its_line() {
         let code = "fn a() {\n    let x = sutura_app::answer(&v, &q);\n}\n";
-        assert_eq!(application_paths(code), vec![at(2, true)]);
+        assert_eq!(application_paths(code), vec![answers(2)]);
     }
 
     #[test]
@@ -318,7 +418,7 @@ mod tests {
                     let a: sutura_app::Answered = todo!();\n";
         assert_eq!(
             application_paths(code),
-            vec![at(1, false), at(2, false), at(3, false), at(5, false)],
+            vec![elsewhere(1), elsewhere(2), elsewhere(3), elsewhere(5)],
             "only a path rooted at the application counts, and none of these names `answer`"
         );
     }
@@ -359,7 +459,7 @@ mod tests {
     fn a_turbofish_call_is_still_the_answer_path() {
         assert_eq!(
             application_paths("let o = sutura_app::answer::<W, StaticCredentialBroker>(&v, &q);"),
-            vec![at(1, true)]
+            vec![answers(1)]
         );
     }
 
@@ -371,13 +471,50 @@ mod tests {
     fn a_call_through_the_port_is_not_the_answer_path() {
         assert_eq!(
             application_paths("let o = sutura_app::surface::Surface::answer(&service, &context, &query)?;"),
-            vec![at(1, false)]
+            vec![elsewhere(1)]
         );
         assert_eq!(
             application_paths("let o = <Composed<W> as sutura_app::surface::Surface>::answer(&service, &c, &q)?;"),
-            vec![at(1, false)]
+            vec![elsewhere(1)]
         );
         assert!(!names_the_answer("::surface::Surface::answer(&service, &context, &query)"));
+    }
+
+    /// Renaming the CRATE is refused, because text matching cannot follow a rename.
+    ///
+    /// Red against the previous rule by construction: both spellings were `Elsewhere` then, and the
+    /// module header carried the hole as a stated limit rather than a check.
+    #[test]
+    fn importing_the_application_under_another_name_is_refused() {
+        for aliased in [
+            "use sutura_app as app;\n",
+            "pub(crate) use sutura_app as app;\n",
+            "use sutura_app::{self as app};\n",
+            "use sutura_app::{ self as app };\n",
+        ] {
+            assert_eq!(application_paths(aliased), vec![at(1, Reaches::TheRootRenamed)], "{aliased}");
+        }
+    }
+
+    /// And renaming an ITEM on the way through is NOT refused - this tree does it twice.
+    ///
+    /// Without this the rule would ban `Surface as _`, which every caller of the port writes, and a
+    /// targeted refusal would have become a style rule nobody can satisfy.
+    #[test]
+    fn renaming_an_item_on_the_way_through_is_allowed() {
+        for legal in [
+            "use sutura_app::surface::{LocalService, Surface as _};\n",
+            "use sutura_app::prompt::CatalogProse as Prose;\n",
+            "use sutura_app::{Warehouses as Engines};\n",
+        ] {
+            let after_root = legal
+                .strip_prefix("use sutura_app")
+                .expect("every fixture here spells the root before the rename");
+            assert!(!renames_the_root(after_root), "{legal}");
+            assert_eq!(application_paths(legal), vec![elsewhere(1)], "{legal}");
+        }
+        // `answer` renamed at the import is still the answer, not a root rename.
+        assert_eq!(application_paths("use sutura_app::answer as ask;\n"), vec![answers(1)]);
     }
 
     /// The door is where this rule believes it is, over the REAL file.
