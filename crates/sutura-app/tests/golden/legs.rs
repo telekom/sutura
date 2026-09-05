@@ -76,7 +76,16 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// disagree without any test noticing; they did, and the label the splitter chose was a legal
 /// dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
 /// the parse check for a reserved label: `parses_in_the_dialect_it_was_generated_for` asks each of
-/// the four targets whether an alias in this namespace is valid there.
+/// the four targets' PARSERS whether an alias in this namespace is valid there.
+///
+/// **A parser is not the venue that decides, and the internal namespace is the one place in this
+/// repository where that gap is load-bearing.** Every internal label starts with the character
+/// `InvalidIdentifier::BadFirstCharacter` refuses *because* it is legal in some dialects and not
+/// others, so a parse check here is exactly the shape `telekom/sutura#92` established as blind. What
+/// runs it is `an_internal_label_survives_as_an_alias_at_the_service` in
+/// `crates/sutura-exec-bigquery/tests/acceptance.rs`, against the one target whose documentation
+/// restricts a column NAME to a letter or an underscore first. `label.rs` carries the table of what
+/// each venue establishes, and which two targets are still parser-only.
 fn link_key(table_name: &str) -> PlanKey {
     PlanKey::new(InternalLabel::Link.label(), column(table_name, "customer_key"))
 }
@@ -321,6 +330,9 @@ fn pins_the_statement_and_its_parameters(dialect: Dialect) {
 /// parser-differential problem that makes translation unusable. A failure here means `generate_leg`
 /// produced something that is not valid SQL for that target, which is otherwise only discoverable by
 /// running it - and there is nothing to run a leg against yet.
+///
+/// **So a green here establishes four PARSERS and nothing about four services**, which matters most
+/// for the reserved alias `link_key` renders: see that function, and `label.rs` for the venue table.
 fn parses_in_the_dialect_it_was_generated_for(dialect: Dialect, target: polyglot_sql::DialectType) {
     let mut checked = 0_usize;
     for (name, leg) in shapes() {

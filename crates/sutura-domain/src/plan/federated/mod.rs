@@ -385,6 +385,15 @@ struct LegIndexes {
     lookup_pos: BTreeMap<String, usize>,
     leaf_indexes: Vec<usize>,
     leaf_labels: Vec<String>,
+    /// One all-null remote row, as the one-element slice a LEFT-retained fact row is projected
+    /// against - the stand-in for a lookup row that is not there.
+    ///
+    /// **Resolved here rather than built in [`FederatedPlan::project`], which runs once per distinct
+    /// link value.** Only the unmatched arm reads it, so building it there allocated one throwaway
+    /// `Vec<Value>` per matched link value and one per INNER miss as well. `docs/adr/0009`'s
+    /// working-set ceiling makes link cardinality the axis that matters, which is what makes an
+    /// allocation per link value a correctness question here rather than a style one.
+    unmatched: [Vec<Value>; 1],
 }
 
 impl LegIndexes {
@@ -412,6 +421,7 @@ impl LegIndexes {
         // Both legs project the link under the one internal label, so this is the scheme's constant
         // rather than a field either leg could have spelled differently.
         let link = InternalLabel::Link.label();
+        let unmatched = [vec![Value::Null; lookup_columns.len()]];
         Ok(Self {
             fact_join: column_index(fact, &link, "fact")?,
             lookup_join: column_index(lookup, &link, "lookup")?,
@@ -421,6 +431,7 @@ impl LegIndexes {
             lookup_pos,
             leaf_indexes,
             leaf_labels,
+            unmatched,
         })
     }
 
@@ -563,7 +574,9 @@ impl FederatedPlan {
         // The mono path's ordered-result contract, applied above the legs: ascending by each key
         // cell **typed**, nulls last, in key order. Not by rendered text, so an integer key `10`
         // orders after `9` rather than before it because `"10" < "9"`. `compare_cells` carries why
-        // the null placement is a contract and where the other half of it is written.
+        // the null placement is a contract, where the other half of it is written, and the half it
+        // does NOT reach - a text key is compared by bytes and the mono path's text order is the
+        // serving source's collation.
         let key_width = columns.len().saturating_sub(1);
         rows.sort_by(|a, b| {
             for (a_cell, b_cell) in a.iter().zip(b).take(key_width) {
@@ -619,10 +632,11 @@ impl FederatedPlan {
         byte_budget: u64,
         groups: &mut GroupMap,
     ) -> Result<(), FederatedFailure> {
-        let unmatched = [vec![Value::Null; indexes.lookup_columns.len()]];
         let remote_rows: &[Vec<Value>] = match matched {
             Some(rows) => rows,
-            None if self.include_unmatched => &unmatched,
+            // Built once by `LegIndexes::resolve`, not here: this function runs once per distinct
+            // link value and the other two arms never read it. See the field.
+            None if self.include_unmatched => &indexes.unmatched,
             None => return Ok(()),
         };
         for fact_row in fact_rows {
@@ -796,7 +810,23 @@ const fn value_bytes(value: &Value) -> u64 {
     }
 }
 
-/// A total order over key cells, matching the mono path's `ORDER BY` rather than rendered text.
+/// A total order over key cells: the mono path's null placement and its numeric order, never its
+/// rendered text.
+///
+/// **What "matching the mono path" reaches, stated before the argument for it.** The null placement
+/// and the by-value numeric order are the contract, and both are asserted. **Text is not:** this
+/// compares `&str` by bytes, while the mono path's text order is whatever **collation** the serving
+/// data system applies - `docs/adr/0012` records that collation as *unstated by the plan* and
+/// *differing per system*, which is why its own conformance packs re-sort text by bytes rather than
+/// trusting a source's locale. So for a text key on a target whose collation is not byte order -
+/// `Postgres` under a non-`C` locale orders `Business` after `business`, byte order puts it before -
+/// one certified metric still comes back in one order from one data system and another from two.
+/// That is the class of defect the null half of this comparator closes, surviving for text keys.
+/// `telekom/sutura#92` scoped itself out of it explicitly - its *not in scope* is *"ordering
+/// stability where the question itself does not determine an order. This is only about null placement
+/// within an order the plan already asks for."* - so it is a limit rather than a regression, and
+/// closing it means declaring a text collation per dialect the way `Dialect::identifier_case` is
+/// declared.
 ///
 /// **`ASC NULLS LAST`, which is the whole of the ordered-result contract and not this file's
 /// choice.** A whole-answer plan emits `ORDER BY <key> ASC NULLS LAST` -
@@ -807,8 +837,8 @@ const fn value_bytes(value: &Value) -> u64 {
 /// a golden pins statement text, and this path emits none. The placement is stated in both places
 /// for the same reason it is stated in the SQL: a default is not a contract.
 ///
-/// Integers order by value, then reals by value, then text lexicographically, and a null after all
-/// of them - so a numeric column is ordered numerically (`9` before `10`) and not by its string form
+/// Integers order by value, then reals by value, then text by bytes, and a null after all of them -
+/// so a numeric column is ordered numerically (`9` before `10`) and not by its string form
 /// (`"10"` before `"9"`). Cells of different scalar types never compare equal. A result column in a
 /// data system has one logical type, so the cross-type ranks decide nothing an `ORDER BY` decides;
 /// what they buy is a TOTAL order, which is what makes the sort deterministic for a column

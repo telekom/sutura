@@ -384,7 +384,17 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         federation,
         answer_keys,
     )
-    .map_err(|_never| RefusalReason::FederationNotExecutable)
+    // **The cause is erased here, and the binding no longer claims otherwise.** It was `_never`,
+    // which asserted the arm was unreachable; `NotFact`, `NotLookup` and `SameSource` are indeed
+    // structurally impossible from this call site, but `KeyNotOnLeg { side, label }` is not - it
+    // fires if a change above stops projecting `InternalLabel::Link` onto one of the two legs it
+    // builds. Flattened into `FederationNotExecutable`, which is ALSO the refusal every federated
+    // question already gets from a shipped binary (`EXECUTES_LEGS` is defaulted-`false`), such a
+    // wiring defect would be indistinguishable from the ordinary refusal: no side, no label, no log.
+    // `telekom/sutura#338` carries the two remedies and why neither is a line - one needs a new
+    // `RefusalReason` and everything downstream of the vocabulary, the other a `tracing` edge on a
+    // crate whose two dependencies `cargo xtask check-boundaries` holds.
+    .map_err(|_unassemblable| RefusalReason::FederationNotExecutable)
 }
 
 /// The predicates a statement carries, paired with the parameters they bind.

@@ -793,6 +793,44 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
     }
 }
 
+#[test]
+fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
+    // **The other arm of the same check, and the reachable one.** The test above builds an unlinked
+    // LOOKUP leg, so `KeyNotOnLeg { side: Fact }` was the untested half of a refusal this commit
+    // introduced. It is also the half that matters: the fact leg is the one the splitter builds from
+    // the question's own keys, so a change there that stopped pushing `InternalLabel::Link` is what
+    // this arm exists to catch - and the only production caller erases the cause
+    // (`telekom/sutura#338`), which leaves this assertion as the whole of the diagnosis.
+    let unlinked = LegPlan::Fact {
+        source: source(FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(FACT)),
+        bucket: bucket(),
+        keys: vec![key("product_family", FACT)],
+        terms: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range: range(),
+    };
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        String::from("revenue"),
+        bucket(),
+        unlinked,
+        lookup_leg(),
+        true,
+        Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
+        Vec::new(),
+    );
+    match plan {
+        Err(FederatedPlanError::KeyNotOnLeg { side, ref label }) => {
+            assert!(matches!(side, crate::plan::LegSide::Fact));
+            assert_eq!(*label, InternalLabel::Link.label());
+        }
+        ref other => panic!("a fact leg that projects no link is not a plan, got {other:?}"),
+    }
+}
+
 /// One fact row: a product family, a link value, and the sum leaf.
 fn keyed_fact_row(family: &str, link: Value, measure: i64) -> Vec<Value> {
     vec![

@@ -15,6 +15,7 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::model::{
     Aggregate, ColumnName, DatasetName, Grain, MetricName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
 };
+use sutura_domain::plan::federated::InternalLabel;
 use sutura_domain::plan::{
     PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, StatementTables,
 };
@@ -127,6 +128,26 @@ pub(crate) fn absent_table() -> QualifiedTable {
 /// unbounded form, so every real plan carries them and the generator refuses one with no
 /// predicate.
 pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
+    labelled_plan(table, String::from("period"), String::from("total_amount"))
+}
+
+/// The same plan, with its two projected labels taken from the internal federation namespace.
+///
+/// **The one thing a parse check cannot answer, put in a shape the service can.** Every internal
+/// label starts with a digit, which is the character `InvalidIdentifier::BadFirstCharacter` refuses
+/// *because* it is legal in some dialects and not others - and `BigQuery` documents a **column name**
+/// as starting with a letter or an underscore. Whether that reaches a backtick-quoted select ALIAS
+/// is the question, and `sutura_sql::generate`'s `aliased` puts the label in exactly that one
+/// position: `GROUP BY` and `ORDER BY` carry the expression.
+///
+/// A whole-answer plan rather than a leg, deliberately: no published adapter executes a leg
+/// (`EXECUTES_LEGS` is defaulted-`false`), and the alias is rendered by the same `aliased` either
+/// way - so this asks the service the alias question without pretending to execute federation.
+pub(crate) fn plan_in_the_internal_namespace(table: &QualifiedTable) -> QueryPlan {
+    labelled_plan(table, InternalLabel::Link.label(), InternalLabel::Leaf(0).label())
+}
+
+fn labelled_plan(table: &QualifiedTable, bucket_label: String, measure_label: String) -> QueryPlan {
     // Every column is qualified by the table's BARE name, because `FROM a.b.c` gives the reference
     // an implicit alias of `c`. That is a claim about GoogleSQL that no local test can check, and
     // `the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers` is what checks it.
@@ -142,7 +163,7 @@ pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
         source(),
         MetricName::parse("total_amount").expect("a metric name parses"),
         StatementTables::only(table.clone()),
-        PlanBucket::new(String::from("period"), Grain::Month, column("day")),
+        PlanBucket::new(bucket_label, Grain::Month, column("day")),
         Vec::new(),
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {
@@ -150,7 +171,7 @@ pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
                 column: column("amount"),
             },
         },
-        String::from("total_amount"),
+        measure_label,
         vec![
             PlanFilter::new(
                 PredicateOrigin::Definition,
