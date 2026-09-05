@@ -427,7 +427,7 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
 /// Stripping markers was rejected: `#` also starts a markdown heading, and joining a heading to the
 /// paragraph before it could match a "claim" spanning two sections. A claim written across two
 /// comment lines needs a needle that fits on one of them.
-fn flatten(text: &str) -> (String, Vec<usize>) {
+pub(in crate::guidance) fn flatten(text: &str) -> (String, Vec<usize>) {
     let mut flat = String::with_capacity(text.len());
     let mut lines = Vec::with_capacity(text.len());
     let mut line = 1_usize;

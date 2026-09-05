@@ -174,9 +174,28 @@ therefore does not see.
   either.
 - **`check-guidance` reads prose and cannot catch a paraphrase.** It holds forbidden phrases, a
   version pin that must agree wherever it is written, claims known false in each recorded wording,
-  and two gated counts. It fails a cited `just` task that does not exist and a cited `cargo` line
-  missing `--all-features`. Its own stated blind spot: a comment marker is not stripped, so a claim
-  wrapping inside a `#` block is not found.
+  and the gated counts - `cargo xtask --help` and the tables themselves are the authority for how
+  many, and a number here would be a second thing to keep true. It fails a cited `just` task that
+  does not exist and a cited `cargo` line missing `--all-features`. Its own stated blind spot: a
+  comment marker is not stripped, so a claim wrapping inside a `#` block is not found.
+- **A phrase rule cannot hold a sentence that was TRUE when it was written**, and that is the whole
+  argument for the constant check. A published page said an adapter's `IMPERSONATION` was
+  `NoPlaceForASubject` while the constant declared `PerSubjectCredential`; the sentence went false
+  when a constant three commits away in another file changed, so no recorded wording could have
+  forbidden it, and `just api` then regenerated the page from the doc comment faithfully -
+  **regeneration is not verification.** What holds it now RESOLVES rather than matches: for a
+  sentence naming a constant by intra-doc link and a sibling variant of that constant's enum, the
+  declaration is read out of the tree and the sentence has to name the variant it holds. **The
+  instance was fixed by deleting the value from the prose, not by correcting it** - where a reader
+  can be sent to the declaration, one copy beats two in step - so what keeps the check from passing
+  over silence is a FLOOR: at least one doc comment in the tree must be read as stating a value
+  correctly, or the verdict is about nothing. Measured when it landed: 6 resolvable pairs in the
+  workspace, one of them stating a value, and one contradiction - the reported instance and no
+  false positive. **What it does not reach:** a value the compiler resolves and a text scan does not
+  (an alias, a `const fn`, a re-export), a description that gets the value wrong without naming a
+  sibling variant, and a claim written across two sentences - the window is one sentence, because a
+  window of the doc BLOCK reports `sutura-exec-bigquery`'s own module header, which states the value
+  correctly and discusses the other variant fourteen lines down.
 - **A `just` task cited in a printed Rust string is checked; a raw command line there is not.**
   The scope split is deliberate and was measured before it was taken. What judges a SENTENCE stays
   on prose files, because a rule table written in Rust holds the phrases it forbids and a scan over
