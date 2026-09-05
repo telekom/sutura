@@ -53,7 +53,10 @@
 //!   test function containing it, so `#[ignore]` on the only cell that reaches a variant keeps the
 //!   verdict green. Held by review, not by this gate.
 //! * **A variant is a directory git would publish**, read off the same listing as the evidence -
-//!   see [`variants`] for the two ways the filesystem disagreed with it.
+//!   see [`variants`] for the two ways the filesystem disagreed with it. What that costs, stated:
+//!   an EMPTY `examples/<name>` is in no listing, so nothing watches it, in this venue or any
+//!   other. Measured: `mkdir examples/empty-probe` leaves the verdict at its healthy line, and one
+//!   file git would publish inside it - tracked, or merely unignored - fails the gate by name.
 //! * **It says nothing about what is IN the directory.** An example whose data was deleted fails
 //!   the test that reads it, in `nextest`, which is the venue for that.
 //!
