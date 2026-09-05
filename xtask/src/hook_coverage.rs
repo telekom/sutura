@@ -500,12 +500,17 @@ mod tests {
 
     #[test]
     fn a_skipped_hook_is_told_apart_from_one_that_ran() {
-        // The whole defect in one assertion: five of these ten inspected nothing, and the number
+        // The whole defect in one assertion: SIX of these ten inspected nothing, and the number
         // was available the entire time.
+        //
+        // Six rather than the five the report measured, and the difference is the point: that run
+        // touched a workflow file so the Actions analysis ran, and this capture touched only a
+        // README so it did not. The counts are a property of the DIFF - which is exactly why a
+        // reader cannot infer them and the verdict has to print them.
         let rows = super::rows(COMMIT_LOG);
         assert_eq!(rows.len(), 10, "{rows:?}");
-        assert_eq!(rows.iter().filter(|row| row.coverage.inspected()).count(), 5);
-        assert_eq!(rows.iter().filter(|row| row.coverage == Coverage::NoMatchingFiles).count(), 5);
+        assert_eq!(rows.iter().filter(|row| row.coverage.inspected()).count(), 4);
+        assert_eq!(rows.iter().filter(|row| row.coverage == Coverage::NoMatchingFiles).count(), 6);
     }
 
     #[test]
