@@ -3742,6 +3742,15 @@ is how a <code>doc_markdown</code> failure lived on such a line in both roots un
 default set. <strong>Its limit is CI's:</strong> <code>ci.yml</code> reaches every gate as a nix check or a nix app and that
 gate is neither, so what CI has for this lane is the four <code>cross</code> link builds for the compile half and
 nothing at all for the lint half.</p>
+<blockquote>
+<p><strong>Amended, and the limit is gone rather than narrowed.</strong> That gate is now a nix app -
+<code>ci.yml</code> runs <code>nix run .#default-features</code> on every pull request that touches Rust - so the lint
+half of this lane is gated in CI and not only in <code>just gates</code>. An app and not a check for the
+reason the paragraph above gives for it not being a hygiene gate: it shells out to cargo, which
+wants a resolvable registry and a writable target directory the sandbox has not got. <strong>What did
+not change:</strong> both passes stop at metadata, so the four <code>cross</code> builds are still the only thing
+that LINKS the default set, and they are still <code>needs: [ci]</code>.</p>
+</blockquote>
 <p><strong>The measurement this record's own rule asks for, taken 2026-09-02.</strong> <code>cargo check -p sutura-cli
 --all-targets</code> on the default feature set touches neither <code>ring</code> nor <code>ureq</code>; the same command with
 <code>--features bigquery</code> compiles <code>ring</code> from C and assembly. That is the whole argument for default-off
