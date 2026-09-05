@@ -30,6 +30,19 @@ Two ways to lose a file, both of which have happened:
 why the gates that inspect repo files are unaffected. It does not reach the dependency closure at
 all: crane synthesises that from the manifests, so it does not move whatever the filter does.
 
+**A check can also fail on an unmodified tree with nothing lost, and it cost a session before it
+was named.** The checks decompress one dependency closure for their `target/`, and a build script
+may have baked the absolute `$OUT_DIR` it ran in into the code it generated - `utoipa-swagger-ui`
+does, into a `rust-embed` `#[folder]`. A linux build directory is `/build` for every derivation so
+the literal still resolves; a darwin one is `/nix/var/nix/builds/nix-<pid>-<random>/`, so it
+resolves nowhere and a THIRD-PARTY crate fails to compile in a check that changed nothing -
+`just validate` red at `checks.nextest` before running a test, on `main`. `flake.nix`'s
+`inheritedArtifacts` pairs every `cargoArtifacts` with `nix/purge-baked-out-dirs.sh`, which
+regenerates exactly the output naming a directory it no longer sits in: one crate of 138 measured,
+so the reuse the checks exist on survives. **What it does not reach:** a generated file naming some
+OTHER absolute directory, or a path written into a compiled artifact rather than into the bytes of
+the output directory. Both fail the same loud way.
+
 **`flake.nix` cannot be fully modularised.** `apps.<name>`, the `packages = ` block and the
 `checks = {` block must stay in it, because two xtask gates scan that file for them **textually**
 and both fail closed on finding none. A `nix/` module holds what an app or a check *points at*,

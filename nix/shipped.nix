@@ -25,6 +25,7 @@
 , rustToolchainFile
 , craneLib
 , commonArgs
+, inheritedArtifacts
 , auditable
 , mimallocFor
 , optLevelFor
@@ -192,8 +193,7 @@ let
         SUTURA_MIMALLOC_LIB_DIR = "${mimallocFor { targetPkgs = pkgs; optLevel = optLevelFor profile; isMusl = false; }}/lib";
       };
     in
-    craneLib.buildPackage (args // {
-      cargoArtifacts = craneLib.buildDepsOnly args;
+    craneLib.buildPackage (args // inheritedArtifacts (craneLib.buildDepsOnly args) // {
       # NAMED AFTER THE EXECUTABLE, so a build log and a store path say which of the two shipped
       # binaries this is. `commonArgs.pname` is `sutura` for the workspace, and with two shipped
       # binaries that made both derivations `sutura-0.1.0`. On the final attrset and never on
@@ -258,8 +258,7 @@ let
         "CFLAGS_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "-DMI_LIBC_MUSL=1";
       };
     in
-    crossLib.buildPackage (args // {
-      cargoArtifacts = crossLib.buildDepsOnly args;
+    crossLib.buildPackage (args // inheritedArtifacts (crossLib.buildDepsOnly args) // {
       # Same reasoning as `nativeFor`; crane appends the target itself.
       pname = binary.bin;
       # One package, and the target. Same reasoning as `nativeFor`.
