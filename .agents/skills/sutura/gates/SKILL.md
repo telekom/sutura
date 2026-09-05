@@ -537,11 +537,31 @@ claims, one at a time, and paste the test that reddens. Scope it to a whole test
 (`-E 'binary_id(<pkg>::<target>)'`), never a name pattern: a filter that omits the guarding test
 reports green and proves nothing, which happened on that same PR before it was caught.
 
-**Which verdicts pass:** *red on base* and, without proving anything, "the base tree does not
-build", "the base run named no failure", "not separable" and "every added test is `#[ignore]`d" -
-the last three ask for evidence instead: the command you ran, the failure before, the pass after.
-Everything else fails, and the three that fail are the three where the gate has no answer rather
-than a bad one: green against base, red outside the diff, and the added tests not running at all.
+**A SECOND CAUSE WEARS THAT SAME VERDICT, and this file recorded only the first one - #332.** *A
+commit that changes a public signature a kept-at-HEAD test file calls.* The gate holds test files at
+HEAD and reverts implementation files to base, so if the change altered an item's ARITY or TYPE the
+held tests cannot compile against the base implementation, the retry puts everything at base, and the
+answer is `the base tree does not build` for a reason that has nothing to do with the tests being
+non-causal. Hit twice in one day - #331 changed `FederatedPlan::new`'s arity; #286 hit it earlier and
+supplied a restatement instead of a mutation, which its review correctly refused. **The verdict is
+indistinguishable from the harness move, so an author who reads only the paragraph above does not
+recognise their own situation and never reaches for the substitute.** Two substitutes, both used on
+#331: **scope the gate per commit** - `just causality <the commit before the signature change>` -
+which is the one that yields a real `ok - red on base, green on head`, or **prove by mutation** as
+above.
+
+**AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
+INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. The gate
+prints the zero numerator on those arms since #307, so a current run says `0 of N` there - but the
+sentence is the same shape as the honest ratio and #331's body had to say in prose which one it was.
+
+**Which verdicts pass:** *red on base* and, without proving anything, "not separable" and "every
+added test is `#[ignore]`d" - the last two ask for evidence instead: the command you ran, the failure
+before, the pass after. **The two INCONCLUSIVE answers are neither** - "the base tree does not build"
+and "the base run named no failure" exit **3** since #307, which is not 0 and not 1: see the paragraph
+at the end of this section for what each venue does with it. Everything else fails, and the three
+that fail are the three where the gate has no answer rather than a bad one: green against base, red
+outside the diff, and the added tests not running at all.
 
 **Reconstructing that evidence for "not separable": restore the base's OUTPUT, not its code.** The
 obvious move - paste the base file's implementation half under the head file's tests - does not
@@ -616,14 +636,19 @@ fail-on-mismatch rule would have reddened every branch in the sample, and a gate
 correct work gets disabled. **What it therefore is not:** nothing forces the remainder to be
 proven. `7 of 8` is an instruction to run a mutation by hand, not a mechanism.
 
-**Four passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
+**FIVE passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
 which is the same defect class one level up, so it is worth the row. `no changed tests`,
-*tests changed but no implementation did*, `EVERY ADDED TEST IS #[ignore]d` and
-`NO BASE BEHAVIOUR TO COMPARE AGAINST` all return exit 0 without either run having happened, and two
-of the thirteen replayed branches landed on one of them with 3 and 7 added tests. They print a
-ZERO-numerator line now (`0 of 3`), because the numerator is what the filterset NAMES and that
-equals what was measured only once both runs are done. **So the citable claim is: a branch that ran
-the two runs prints the ratio, and a branch that did not says instead that it measured nothing.**
+*tests changed but no implementation did*, `EVERY ADDED TEST IS #[ignore]d`,
+`NO BASE BEHAVIOUR TO COMPARE AGAINST` and `NOT MECHANICALLY SEPARABLE` all return exit 0 without
+either run having happened, and two of the thirteen replayed branches landed on one of them with 3
+and 7 added tests. **Four of the five print a ZERO-numerator line** (`0 of 3`), because the numerator
+is what the filterset NAMES and that equals what was measured only once both runs are done. The fifth
+prints no number at all: `no changed tests` has a denominator of zero by construction, and `0 of 0`
+reads as *the diff added none* rather than as *none was measured*. This paragraph said *four* and
+*they all do*; both were corrected by #319, and the count was wrong because
+`NOT MECHANICALLY SEPARABLE` was left out of a list the same sentence claimed to include.
+**So the citable claim is: a branch that ran the two runs prints the ratio, and a branch that did not
+either says it measured nothing or had nothing to count.**
 
 **`N of N` WAS MANUFACTURED OUT OF AN INPUT THE GATE COULD NOT READ, and that is the one wording
 that asserts complete coverage.** The denominator comes from a second scan over the whole diff; when
@@ -661,6 +686,15 @@ module this diff does not contain is its own refusal with its own remedy (state 
 extractor is not at fault). **The tell to look for: a printed sentence containing a fact, and no
 code that reads it.**
 
+**AND ITS INVERSE IS STILL UNREPORTED, which is the shape of the refusal's own limit.** That refusal
+reads a `.rs` diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only**
+diff turns on compiles the same whole module of tests into the build with **zero added `.rs` lines** -
+so the plan finds no changed test file, answers `no changed tests - nothing to prove`, and passes.
+Reproduced through `plan`. **Strictly asymmetric: a `.rs` diff ADDING that `mod` refuses; a manifest
+diff ENABLING it passes.** Nothing in the gate reads a manifest, so this is stated rather than held;
+the general question it stands for is which *inputs a gate does not read at all* can change what the
+tree compiles.
+
 **A GATE THAT SCANS A LANGUAGE MUST LEX IT, and this one read an attribute as ONE line.** A
 continuation line starts with neither `#[` nor anything else the search skipped, so the downward
 walk from `#[test]` stopped on `clippy::disallowed_methods,` and no name came out. **Measured over
@@ -674,16 +708,25 @@ unclosed attribute is an ERROR rather than an answer. **This is the third time i
 scan counted where it should have lexed** - `check-workflows`' braces, `check-docs`' fences, and now
 this - so the pattern is the rule, not the instance.
 
-**A GREEN CAUSALITY STEP CAN BE AN INCONCLUSIVE ONE, and a required CI job cannot tell.** Both
-`INCONCLUSIVE` arms return `Verdict::Pass`, so `base did not compile` and `the base run named no
-failure` are exit 0 - and that is deliberate, because the HARNESS MOVE lands on the first of them
-every time and a gate that reddens correct work gets disabled. **Measured, on a finished branch:**
-its `ci` causality step was green off `INCONCLUSIVE - the base tree does not build` (a `-D dead-code`
-error, because a `#[cfg(test)]` helper was held at HEAD while its only caller was removed at base),
-while the same commit refused locally. So the branch had red-before-green evidence in neither venue
-and its author had a green check. Both arms now print *this exit PASSES and N of M added tests
-measured*; the exit code itself is an open decision. **When citing this gate, cite the VERDICT LINE,
-never the step's colour.**
+**A GREEN CAUSALITY STEP USED TO BE AN INCONCLUSIVE ONE, and no required job could tell.** Both
+`INCONCLUSIVE` arms returned `Verdict::Pass`, so `base did not compile` and `the base run named no
+failure` were exit 0. **Measured, on a finished branch:** its `ci` causality step was green off
+`INCONCLUSIVE - the base tree does not build` (a `-D dead-code` error, because a `#[cfg(test)]`
+helper was held at HEAD while its only caller was removed at base), while the same commit refused
+locally. So the branch had red-before-green evidence in neither venue and its author had a green
+check.
+
+**They exit 3 now (#307), and the shape of the fix is the transferable part.** Failing was rejected on
+measured cost - the harness move lands on `DidNotCompile` every time, so does a changed signature on
+the retry, and a gate that reddens correct work gets disabled - so the decision moved to the venue
+with the **default closed**: 3 is neither 0 nor 1, so a consumer that has not been taught the code
+fails on it. Two have been taught it, at one line each, and **both still continue** - `ci.yml`
+annotates the pull request and writes the step summary, `ship-check` retains the verdict and goes on
+to the remaining hooks. **So the job is still green on an inconclusive run.** What changed is that
+continuing is a stated decision in one readable place, the verdict reaches a reviewer who never opens
+the log, and `just causality` by hand now exits non-zero. What is still not held by anything: that
+the author supplied the substitute evidence. **When citing this gate, cite the VERDICT LINE, never
+the step's colour.**
 
 **THE BASE IS THE OTHER WAY IT LIES, and the failing direction is the default one.** `ship-check`
 defaults to `origin/main`, so on the second PR of a stack the diff carries the PARENT branch's
