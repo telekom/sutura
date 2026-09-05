@@ -365,6 +365,18 @@ jobs:
         if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
         run: nix build .#checks.x86_64-linux.keycloak-tier -L
 
+      # The Postgres tier's state machine, which the `Tests` step above cannot report on: it starts
+      # this tier and stops it, so a green run there means a server came up. Whether `status` and
+      # `.sutura-dev/endpoints.json` agree, what a stop that FAILS does to the claim, and which of
+      # the two records `nix/with-tier.sh` acts on are all invisible to it - and all three were one
+      # discarded suite run.
+      #
+      # Gated like the identity tier and for its reason: nothing compiled here changes what the
+      # tier script does, and the two conditions between them cover every file it reads.
+      - name: Postgres tier
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
+        run: nix build .#checks.x86_64-linux.postgres-tier -L
+
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
       # would pass unnoticed. A separate check, so the gap is visible rather than assumed.
       - name: Doctests

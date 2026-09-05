@@ -8,8 +8,12 @@
 //!
 //! It is a port on the first day rather than a `String` field, so *which* credential shape a
 //! deployment holds is a choice of implementor. [`Bearer`] carries the deadline because a minted token
-//! has one, and [`crate::BigQueryWarehouse`]'s `IMPERSONATION` still says `NoPlaceForASubject` because
-//! nothing mints one.
+//! has one, and whether this adapter has anywhere for a subject's own credential to arrive is
+//! declared by [`crate::BigQueryWarehouse`]'s `IMPERSONATION` rather than by anything this port
+//! decides - and that declaration is deliberately the only copy of the value. This sentence used to
+//! carry a second copy and stated the OPPOSITE of it for three commits, on a published page;
+//! `check-guidance` refuses the shape now, so the correction is to stop encoding the value rather
+//! than to keep two copies in step.
 //!
 //! **What this is NOT, and the correction is review's rather than a hedge:** this port is not yet the
 //! seam at which per-subject execution arrives as *merely another implementor*. Three signatures say

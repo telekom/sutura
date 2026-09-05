@@ -4976,7 +4976,7 @@ names from the same `Federation` and looks them up in the fact leg's result. The
 copy of the naming rule to drift.
 
 **The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
-happens instead.** The `Above` tree already carries the only
+happens instead.** The [`Above`](crate::federation::Above) tree already carries the only
 [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path; this module walks it
 above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
 the wrong number this shape exists to prevent.
@@ -5021,8 +5021,10 @@ Turns one result per leg into one answer's rows.
 
 The fact and lookup results are joined on the recorded link column, grouped by the answer's
 keys - in the order the question asked them, matching the mono path - and the bucket,
-re-aggregated by each leaf's own `Carried::combine`, and only then divided through the
-`Above` tree.
+re-aggregated by each leaf's own [`Carried::combine`](crate::federation::Carried::combine),
+and only then divided through the [`Above`](crate::federation::Above) tree. Those last two
+steps belong to `reaggregate`, reached as `Leaves::of` and `Leaves::measure`; the join, the
+grouping and the budget are this file's.
 
 `byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
 the answer materialised here is counted as it is built, and a question that would cross it is

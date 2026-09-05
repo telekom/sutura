@@ -69,8 +69,9 @@ runs:
   # two lines. `rust-audit-info` emits `{"packages":[{"name":...}]}` and nothing else, so
   # there `"name":` IS the count.
   #
-  # A FLOOR of 100 rather than a fixed number, for the reason `release.yml` gives at its own
-  # assertion: the exact number moves with every dependency bump, and what is being checked is
+  # A FLOOR of 100 rather than a fixed number, for the reason
+  # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number: the exact
+  # number moves with every dependency bump, and what is being checked is
   # the difference between a list of crates and no list at all. MEASURED on 2026-08-31 for the
   # native build: `rust-audit-info` 263 packages, syft 241 `bom-ref` and 242 `SPDXID` - so the
   # floor sits an order of magnitude below the real value and well above the three files an
@@ -83,6 +84,10 @@ runs:
       RESULT_PREFIX: ${{ inputs.result-prefix }}
     run: |
       set -eu
+      # An EMPTY set is zero iterations and exit 0, so this step would report a readable
+      # dependency list having read no binary at all - the shape the floor above exists to stop,
+      # one level up. `set -u` covers UNSET only, and the value arrives as an expression.
+      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would inspect no binary"; exit 1; }
       for bin in $BINARIES; do
         embedded="${RESULT_PREFIX}${bin}/bin/${bin}"
 

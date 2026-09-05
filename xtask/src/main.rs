@@ -23,9 +23,11 @@ mod crap;
 mod default_feature_tests;
 mod default_features;
 mod docs;
+mod examples;
 mod fmt;
 mod gate_classification;
 mod guidance;
+mod hook_coverage;
 mod hooks;
 mod line_endings;
 mod markdown;
@@ -354,6 +356,14 @@ const TASKS: &[Task] = &[
         run: docs::run,
     },
     Task {
+        // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the
+        // Rust that reaches for them. A `docs/*.md`-only diff can change neither.
+        name: "check-examples",
+        description: "every directory under examples/ is reached by a test",
+        kind: Kind::Hygiene(Reads::Code),
+        run: examples::run,
+    },
+    Task {
         // `Reads::Prose`, and it has to be: the page it reads is a `docs/*.md` one, so the
         // classification it holds is itself deferred by the skip it describes. That is not a
         // circularity - the `main` push runs it unconditionally, and a wrong classification
@@ -417,6 +427,20 @@ const TASKS: &[Task] = &[
         description: "what a diff requires; --since <ref>, or paths (fails open)",
         kind: Kind::Standalone,
         run: changes::run_classify,
+    },
+    Task {
+        // Beside `classify` because it reads the same diff, and STANDALONE because it reads a
+        // prek LOG - an argument, produced by a run that has already happened, which no
+        // argument-free sweep can have. It exists because `just ship-check` said `green` over a
+        // diff five of its ten hooks never looked at, and printed neither number.
+        //
+        // FAILS CLOSED where `classify` fails open, and the two directions are deliberate: that
+        // gate widens what runs when it cannot read a diff; this one reports what a run covered,
+        // where an unreadable diff would declare every surface untouched and every gap absent.
+        name: "hook-coverage",
+        description: "what a diff-scoped hook run left uninspected; --since <ref> [--log <stage>:<path>]... [--ran <task>]... [--surface-tasks]",
+        kind: Kind::Standalone,
+        run: hook_coverage::run,
     },
     Task {
         name: "changed-packages",

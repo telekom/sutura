@@ -963,6 +963,7 @@ economise.
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
    | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
    | `check-expect-thresholds` | every tracked `*.rs` |
+   | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |
    | `check-skills` | `.agents/skills/**` and the router - prose, and none of it under `docs/` |
    | `check-scope` | the `justfile`, which no other gate reads |
    | `check-hook-tiers` | `.pre-commit-config.yaml` |

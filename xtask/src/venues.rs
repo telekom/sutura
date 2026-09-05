@@ -75,6 +75,13 @@ use crate::repo;
 // lives beside that parser, where the fixture it needs is.
 mod acceptance;
 
+// The same venue's ENVIRONMENT contract, one layer out: `acceptance` reads what the job DOES with
+// each value, and this reads whether the environment can be made to carry it at all. Three lists
+// of names - the sync script, the page's table, the workflow's own references - and until this
+// nothing reconciled any two of them. Its own file for the reason `acceptance` is: a different
+// parser over different files, with its fixtures beside it.
+mod environment;
+
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
@@ -621,13 +628,16 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     let mut problems = page_problems(&page, &tests, &invoked);
     problems.extend(acceptance::problems(&workflow));
+    let contract = environment::problems(&root);
+    problems.extend(contract.problems);
 
     if problems.is_empty() {
         println!(
-            "xtask check-venues: ok - {PAGE} and the `{}` job, {} cited test(s), {} CI invocation(s) resolved",
+            "xtask check-venues: ok - {PAGE} and the `{}` job, {} cited test(s), {} CI invocation(s) resolved, {} environment name(s) reconciled across three lists",
             acceptance::JOB,
             cited_tests(&page).len(),
-            invoked.len()
+            invoked.len(),
+            contract.names
         );
         return Verdict::Pass;
     }

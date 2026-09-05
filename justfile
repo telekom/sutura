@@ -178,6 +178,26 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
+# The PAGES, run: `crates/sutura-cli/tests/documented.rs` reads every invocation of this binary
+# `docs/getting-started.md` and `examples/single-player/README.md` print, runs it from a clone's
+# working directory, and holds every refusal block and provenance line they print as output against
+# the command in the fence above it.
+#
+# It exists because the pages drifted: both printed a `Debug` dump `render_refusal` had replaced, so
+# the first page a reader is sent to showed output no build had produced. Also a gate -
+# `checks.nextest` runs it, because the example needs no network and no credential. A published page
+# has to be able to cite the task rather than a raw `cargo` line, which is what this recipe is for.
+
+# Run the suite that runs every command the documentation prints.
+documented:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "documented: scope sutura-cli - the pages' own commands, over the spawned binary."
+    echo "documented: run \`just test\` for the whole workspace's suite; this target is part of it."
+    cargo nextest run -p sutura-cli --all-features
+
 # The DECLARED source, asked a question: `crates/sutura-cli/tests/declared_source.rs` copies the
 # example catalog with `source: warehouse` in place of `source: local`, writes a `sources.warehouse`
 # entry over the example's own data, and spawns `sutura query` with `SUTURA_CONFIG_DIR` pointing at
@@ -247,7 +267,7 @@ ci:
     # byte-compared and no test covers them, so four stale-page incidents were invisible locally
     # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
     # along - but this loop names its checks, so a name left out is a check nobody ran.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L \
             || nix build ".#checks.$system.$check" -L --offline
@@ -830,11 +850,13 @@ dev-up-datahub:
 # `nix/tier-endpoints.nix`, which MERGES its own service into the file, so `sutura-postgres-tier
 # start` no longer leaves `postgres` as the only entry. The other half stands - `xtask dev-up` goes
 # through `sutura_dev::discovery::publish`, which serialises the whole document from the docker
-# services it just read, so a `dev-up` after a nix tier still drops the nix entry. A docker service
-# is therefore still invisible for the whole of `just test` when the order runs that way, which
-# also sets the fail-closed direction, and a cell over one would be unconditionally red there. The
-# remaining half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than
-# papered over here.
+# services it just read, so a `dev-up` after a nix tier still drops the nix entry and the server it
+# named goes on running unnamed. For POSTGRES that no longer blocks a suite run: `nix/with-tier.sh`
+# reads a running-but-unpublished tier as its own state and republishes the entry (#298), which
+# `checks.postgres-tier` holds. For any other nix tier it stands whole, because nothing sources a
+# wrapper for one - and the wholesale write itself is gated by nothing either way. The remaining
+# half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than papered over
+# here.
 #
 # It brings the profile up first, because a task that asked for the fail-closed direction against a
 # tier nobody started would just be a confusing way to spell an error.
