@@ -883,7 +883,7 @@
         };
 
         # The REFERENCE reader for the dependency list `cargo auditable` embeds - see
-        # `nix/auditable.nix`. `ci.yml`'s cross job runs it beside `syft` on every shipped
+        # `nix/auditable.nix`. The pull-request link check runs it beside `syft` on every shipped
         # target, and it is a second tool rather than a redundant one: this one answers "is the
         # section there", `syft` answers "can the release path's reader parse it". A run where
         # the first passes and the second fails is the interesting one, and without both there

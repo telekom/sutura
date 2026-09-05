@@ -10,9 +10,7 @@ inputs:
   binaries:
     description: >
       Space-separated shipped binaries, as `cross-link.yml`'s `BINARIES` holds them, which must
-      stay in step with `binaries` in `nix/shipped.nix`. It said `ci.yml` until the `cross` matrix
-      moved into a reusable workflow to get that file under the line cap; the caller is what
-      changed, not the contract.
+      stay in step with `binaries` in `nix/shipped.nix`.
     required: false
     default: sutura sutura-serve
   result-prefix:
