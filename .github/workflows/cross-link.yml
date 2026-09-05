@@ -21,10 +21,20 @@
 #
 # WHAT IT COSTS: the four legs are reported as `cross / link (<triple>)` rather than
 # `cross (<triple>)`. None of them is a required context - `ci` is the only one in the `main`
-# ruleset - so no ruleset changes with this file. `cargo xtask check-workflows` reads every file in
-# `.github/workflows`, and `cargo xtask check-shipped-binaries` reads that directory and
-# `.github/actions`, so the `nix` references and the `BINARIES` literal below are checked exactly
-# where they were.
+# ruleset - so no ruleset changes with this file. `cargo xtask check-workflows`'s REFERENCE scan
+# reads every file in `.github/workflows`, and `cargo xtask check-shipped-binaries` reads that
+# directory and `.github/actions`, so the `nix run` / `nix build` references and the `BINARIES`
+# literal below are checked exactly where they were - measured through `just hygiene`, 64
+# references in 18 files before and 64 in 19 after.
+#
+# AND ONE HALF OF ONE GATE DID NOT FOLLOW, which is the limit that belongs beside that claim. The
+# same gate's REFUSAL of a literal release build in ordinary CI reads the single name
+# `.github/workflows/ci.yml`, so a literal `nix build .#sutura-serve` written in THIS file would not
+# be refused. It costs nothing today and that is measured rather than assumed: all three builds
+# below are interpolated or the probe manifest, and `literal_release_builds` exempts both
+# deliberately. `github.com/telekom/sutura#290` carries the widening and why it is not in this
+# commit - `xtask/src/workflows.rs` is 981 lines of the same unexemptable 1000-line cap, and the
+# change plus its tests measured 1115.
 #
 # PULL REQUESTS: every target, `ci` profile, no image. A branch proves every arch still COMPILES
 # AND LINKS; the tag-triggered release workflow alone builds and proves what ships.
