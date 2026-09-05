@@ -614,14 +614,14 @@ fn verdict(failures: &[String], reported: usize, changed: usize) -> Verdict {
 mod tests {
     use super::{Coverage, Row, Surface};
 
-    /// prek 0.4.14's **`--dry-run`** commit-stage output on a diff of one README, `--color never`.
+    /// prek 0.4.14's **`--dry-run`** commit-stage output over a diff of one README, `--color
+    /// never`. Captured 2026-09-05 and pasted verbatim.
     ///
-    /// **Its doc used to call this a real run, and it is not** - reported in review, and the two
-    /// captures are byte-identical apart from the status column: `prek run --dry-run --files
-    /// README.md` produces exactly this. The correction matters because a dry run is the state
+    /// **Its doc used to call this prek's real output, and it is not** - reported in review and
+    /// re-measured here: `prek run --color never --dry-run --files README.md` reproduces all ten
+    /// rows byte for byte. The correction matters because a dry run is the state
     /// [`Coverage::DryRun`] exists for, so this fixture is the RED arm for that rule rather than
-    /// evidence about a real one. [`REAL_COMMIT_LOG`] is the real capture, and the two differ in
-    /// the verdict they produce.
+    /// evidence about a real run. [`REAL_COMMIT_LOG`] is the real one.
     ///
     /// Byte-for-byte either way: the padding is what the row parser keys on, so a hand-tidied
     /// fixture would test a format prek does not print.
@@ -639,10 +639,14 @@ mod tests {
     );
 
     /// prek 0.4.14's REAL commit-stage output, `--color never`, over a diff of one README on a
-    /// host with nix - so `structural gates` and the secret scan actually executed.
+    /// host with nix - so `structural gates`, the suite, the doctests and the secret scan actually
+    /// executed. Captured on 2026-09-05, exit 0, and pasted verbatim.
     ///
-    /// The point of having both is that they are told apart: over this one the verdict is a pass,
-    /// and over [`COMMIT_LOG`] it is a failure naming every dry-run row. Before, the two produced
+    /// The point of having both is that they are told apart. The two captures are the same ten
+    /// rows in the same order over the same diff: six identical, and four differing in the status
+    /// column alone - plus the one dot of padding that column's width costs. That is exactly why
+    /// the column is not evidence on its own. Over this one the verdict is a pass; over
+    /// [`COMMIT_LOG`] it is a failure naming every dry-run row. Before, the two produced
     /// character-for-character the same lines.
     const REAL_COMMIT_LOG: &str = concat!(
         "cargo fmt.............................................(no files to check)Skipped\n",
