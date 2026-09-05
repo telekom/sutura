@@ -54,15 +54,23 @@
 //!
 //! * **The wait itself** - the five calls on a `Command` or a `Child` that return only when the
 //!   child does.
-//! * **The pipe** - `Stdio::piped()`, which does not wait and is the *precondition* for every
-//!   drain that can. `read_to_string`, `read_to_end`, `read_line`, `lines`, `io::copy` and
-//!   `bytes` all block forever on a pipe that never reaches EOF, and none of them is enumerable:
-//!   gating the readers is incomplete, and here it is also **wrong**. Measured 2026-09-05 with
-//!   `grep -c std::fs::read_to_string` over each file in scope: **8 lines across three of the
-//!   seven**, every one reading a file rather than a child. Gating the precondition
-//!   instead covers the whole class with one needle, because in `std` the only ways to hold a
-//!   child's pipe are `Stdio::piped()` and the two `Command` calls that pipe internally - and both
-//!   of those are already needles.
+//! * **The pipe** - `Stdio::piped()` and `io::pipe()`. Neither waits, and both are the
+//!   *precondition* for a drain that can. `read_to_string`, `read_to_end`, `read_line`, `lines`,
+//!   `io::copy` and `bytes` all block forever on a pipe that never reaches EOF, and none of them
+//!   is enumerable: gating the readers is incomplete, and here it is also **wrong**. Measured
+//!   2026-09-05 with `grep -c std::fs::read_to_string` over each file in scope: **8 lines across
+//!   three of the seven files**, every one reading a file rather than a child. Gating the
+//!   precondition instead covers the class with two needles, because those two are the only ways
+//!   in `std` to make a pipe a child can be handed, beside the two `Command` calls that pipe
+//!   internally - and those are needles already.
+//!
+//!   **`io::pipe()` was missed on the first pass at this fix, so the finding's own class recurred
+//!   inside the fix for it.** `Stdio::piped()` alone reads as complete and is not: `std::io::pipe`
+//!   has been stable since 1.87, and `Stdio::from` over its write end restores the identical hang
+//!   with no `piped` anywhere. Verified on the pinned compiler rather than assumed - `rustc
+//!   1.98.0`, `--edition 2024`, compiled and ran. **The needle is a pipe's CREATION, not its
+//!   handoff:** `Stdio::from` is also how the waiter hands its child the capture FILES, so gating
+//!   that would fire on the fix.
 //!
 //! **The pipe half is a rule this tier already stated about itself, in prose, with no mechanism.**
 //! `docker/bounded.rs` documents its capture as *"Files, because a pipe puts the hang back"* -
@@ -101,7 +109,7 @@
 //! to the bounded one there is nothing to separate them by. Per-function would be the stronger
 //! rule and is not available while both live in one file.
 //!
-//! **THE RECEIVER IS NOT KNOWABLE, so three of the six needles fire on anything.** `.output()`,
+//! **THE RECEIVER IS NOT KNOWABLE, so three of the seven needles fire on anything.** `.output()`,
 //! `.status()` and `.wait()` are ordinary method names, and a line scan sees the call, never the
 //! type it is called on. Measured, not hypothesised: a plain `Spared::status()` accessor over a
 //! `&'static str` in `compose/teardown.rs`, with no child process anywhere near it, was reported
@@ -119,7 +127,12 @@
 //! directory nobody put in scope - which is the price of scoping to two narrow patterns rather than
 //! sweeping `xtask/`, where the unbounded `git` and `cargo` calls legitimately live. Renaming on
 //! import is the same blind spot spelled differently: `use std::process::Stdio as S` makes
-//! `S::piped()` invisible to the pipe needle.
+//! `S::piped()` invisible to the pipe needles - as does `use std::io::pipe` and then a bare
+//! `pipe()`, since the needle is the qualified spelling. A bare `pipe()` needle was weighed and
+//! rejected: it would put a THIRD ordinary name in the table immediately after the ambiguity of
+//! the first three was declared a known weakness. A pipe made outside `std` is invisible for the
+//! same reason - a `libc::pipe` handed over as an `OwnedFd`, or the `os_pipe` crate - and this
+//! tier depends on neither today.
 //!
 //! **Comments and multi-line string interiors are blanked first**, through the shared lexer
 //! [`code_lines`](crate::serde_parse::scan::code_lines), and that is load-bearing rather than tidy:
@@ -151,8 +164,9 @@ const TIER: &[&str] = &["xtask/src/compose.rs", "xtask/src/compose/**/*.rs"];
 /// move and not a red gate.
 const RUNTIME: &[&str] = &["xtask/src/compose/docker.rs", "xtask/src/compose/docker/**/*.rs"];
 
-/// What a needle's match means. Three cases, because one sentence for all six would be false
-/// about two of them.
+/// What a needle's match means. Three cases: a name only a child carries, an ordinary name
+/// anything can carry, and a pipe that is not a wait at all. One sentence for all seven would be
+/// false about most of them, and it was - that is review finding two.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Blocks {
     /// A name `Command` and `Child` alone carry, so a match is the call it looks like.
@@ -172,13 +186,12 @@ impl Blocks {
         match self {
             Self::OnAChild => "waits on a child process",
             Self::OnAnyReceiver => {
-                "waits on a child process - or is a method of that name on \
-                                    something that is not one, which a line scan cannot tell \
-                                    apart"
+                "waits on a child process - or is a method of that name on something that is not \
+                 one, which a line scan cannot tell apart"
             }
             Self::PipeToAChild => {
-                "gives a child a pipe, and a read on a pipe that never reaches \
-                                   EOF blocks this thread forever"
+                "gives a child a pipe, and a read on a pipe that never reaches EOF blocks this \
+                 thread forever"
             }
         }
     }
@@ -197,7 +210,8 @@ struct Needle {
 /// `.output()` and `.status()` are the two that produced the hangs; `.wait_with_output()`,
 /// `.wait()` and `.try_wait()` are the rest of the surface a hand-rolled loop reaches for, and
 /// including them is what stops the fix from being *"write the loop yourself"*. `Stdio::piped()`
-/// is the one that is not a wait at all - see the header for why the pipe rather than the reads.
+/// and `io::pipe()` are the two that are not waits at all - see the header for why a pipe's
+/// creation is the needle and the reads on it are not.
 ///
 /// **Adding or removing one is an architecture decision**, the sentence `LEAKY` in
 /// `xtask/src/newtype_leaks.rs` carries for the same reason: the diff is where the argument happens.
@@ -224,6 +238,10 @@ const BLOCKING: &[Needle] = &[
     },
     Needle {
         text: "Stdio::piped()",
+        blocks: Blocks::PipeToAChild,
+    },
+    Needle {
+        text: "io::pipe()",
         blocks: Blocks::PipeToAChild,
     },
 ];
@@ -257,6 +275,14 @@ const ALLOWED: &[Allowance] = &[Allowance {
           neither `/proc` nor `lsof` already reports an unidentified holder and behaves \
           identically. A bound there would be a bound on a local process listing",
 }];
+
+impl Allowance {
+    /// Does this entry excuse `needle` in `rel`? One definition, because [`is_allowed`] asks it
+    /// forwards and [`stale`] asks it backwards, and two spellings of one predicate can disagree.
+    fn covers(&self, rel: &str, needle: &Needle) -> bool {
+        self.path == rel && self.needle == needle.text
+    }
+}
 
 /// A file in the tier, and every blocking site in it.
 struct Waiting {
@@ -377,20 +403,18 @@ fn judged(scanned: usize, waiting: &[Waiting]) -> Vec<String> {
     problems
 }
 
-/// The allowances whose file no longer matches the needle they excuse.
+/// The allowances that no longer match the needle they excuse.
 fn stale(waiting: &[Waiting]) -> impl Iterator<Item = &'static Allowance> {
     ALLOWED.iter().filter(move |allowance| {
         !waiting
             .iter()
-            .any(|found| found.path == allowance.path && found.sites.iter().any(|&(_, needle)| needle.text == allowance.needle))
+            .any(|found| found.sites.iter().any(|&(_, needle)| allowance.covers(&found.path, needle)))
     })
 }
 
 /// Is this needle, in this file, declared?
 fn is_allowed(rel: &str, needle: &Needle) -> bool {
-    ALLOWED
-        .iter()
-        .any(|allowance| allowance.path == rel && allowance.needle == needle.text)
+    ALLOWED.iter().any(|allowance| allowance.covers(rel, needle))
 }
 
 /// Printed on failure. A gate that only says no gets worked around.
@@ -543,6 +567,25 @@ mod tests {
     }
 
     #[test]
+    fn an_anonymous_pipe_is_the_same_shape_without_the_word_piped() {
+        // Missed on the first pass at the blocking finding, and measured on the pinned compiler:
+        // `std::io::pipe` is stable, `Stdio::from` over its write end is the same hang, and
+        // `piped` appears nowhere in it.
+        let source = "let (mut reader, writer) = std::io::pipe().ok()?;\n\
+                      let mut child = command.stdout(Stdio::from(writer)).spawn().ok()?;\n\
+                      reader.read_to_string(&mut sink).ok()?;\n";
+        assert_eq!(found(source), vec!["io::pipe()"], "{:?}", found(source));
+    }
+
+    #[test]
+    fn handing_a_child_a_file_is_not_handing_it_a_pipe() {
+        // `Stdio::from` is how the waiter gives its child the capture files, which is the FIX for
+        // the pipe class - so the needle is a pipe's creation and never its handoff.
+        let source = "Ok((Stdio::from(fresh(&self.stdout)?), Stdio::from(fresh(&self.stderr)?)))\n";
+        assert!(found(source).is_empty(), "{:?}", found(source));
+    }
+
+    #[test]
     fn a_null_stdio_is_not_a_pipe() {
         // The waiter hands its child three of these, so reading one as a pipe would make the gate
         // fire on the code it protects.
@@ -595,9 +638,21 @@ mod tests {
     }
 
     #[test]
+    fn the_needle_count_this_module_and_the_skill_row_state_is_the_one_declared() {
+        // Both say SEVEN, five waits and two pipes. An eighth is an architecture decision and
+        // should be a prose diff too, so this is what makes the two move together.
+        // `check-guidance`'s gated counts would be the stronger mechanism and are not reachable
+        // from here: registering one needs lines `xtask/src/guidance/claims.rs` has not got, and
+        // splitting that table is its own change.
+        assert_eq!(BLOCKING.len(), 7);
+        let waits = BLOCKING.iter().filter(|found| found.blocks != Blocks::PipeToAChild).count();
+        assert_eq!(waits, 5);
+    }
+
+    #[test]
     fn the_three_kinds_do_not_share_a_sentence() {
-        // One message for all six would be false about two of them, which is what made the two
-        // review findings possible in the first place.
+        // One message for all seven would be false about five of them, which is what made the
+        // second review finding possible in the first place.
         assert_ne!(Blocks::OnAChild.says(), Blocks::OnAnyReceiver.says());
         assert!(
             !Blocks::PipeToAChild.says().contains("waits"),
@@ -680,7 +735,7 @@ mod tests {
     #[test]
     fn every_needle_is_found_where_it_is_written() {
         // The fixture is text this scan reads, not Rust a compiler reads, so one shape serves all
-        // six - what is under test is that no declared needle is unreachable.
+        // seven - what is under test is that no declared needle is unreachable.
         for needle in BLOCKING {
             let source = format!("fn f() {{\n    let _ = subject{};\n}}\n", needle.text);
             assert_eq!(found(&source), vec![needle.text], "{} was not found", needle.text);
