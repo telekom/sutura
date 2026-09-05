@@ -21,14 +21,17 @@
 //! a page that exists. An exclusion over nothing is the shape a stale one takes, and it reads as
 //! a page being kept off the site while nothing is.
 //!
-//! **The limit, next to the claim.** `exclude_docs` is ignore-file syntax, and this gate does not
-//! implement it - so a glob, a directory pattern or a `!` negation is REFUSED rather than
-//! approximated. Each line must name one page literally, because a pattern this gate cannot
-//! resolve to a file is an exclusion nothing checks.
+//! **The limit, next to the claim.** `exclude_docs` is ignore-file syntax, and this gate
+//! implements the two shapes it accepts rather than all of it - so a glob, a directory pattern or
+//! a `!` negation is REFUSED, because a pattern this cannot resolve is an exclusion nothing
+//! checks. The two it does implement match the way mkdocs matches them, [`exclude`] carries the
+//! measurement of what happened when they did not, and a pattern reaching more than one page is
+//! itself a finding.
 //!
 //! A LINK from a published page into an excluded one is the third thing this holds, and it is
 //! here because `mkdocs build --strict` does NOT catch it: mkdocs logs that link at INFO and
-//! exits 0, measured. [`links`] carries the rule and the measurement.
+//! exits 0, measured. [`links`] carries the rule, the measurement, the `--8<--` includes it
+//! follows to find a page's real body, and the syntax it still does not read.
 //!
 //! The second half is the assets. `mkdocs.yml` names its own stylesheet, its logo and its
 //! favicon by path, and mkdocs copies what it finds without complaining about what it does not:
@@ -51,6 +54,7 @@ use std::path::Path;
 use crate::Verdict;
 use crate::repo;
 
+mod exclude;
 mod links;
 
 /// The site configuration. Paths inside it are relative either to this file's directory (the
@@ -236,35 +240,6 @@ fn exclusions(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// What makes a line a pattern rather than a path this gate can resolve.
-const PATTERN_CHARS: &[char] = &['*', '?', '[', ']'];
-
-/// The exclusions, judged against the pages on disk and against the nav.
-///
-/// Pure, so every arm is testable without a repo - the same reason [`problems`] is.
-fn exclusion_problems(patterns: &[String], present: &BTreeSet<String>, nav: &BTreeSet<String>, docs_dir: &str) -> Vec<String> {
-    let mut problems = Vec::new();
-    for pattern in patterns {
-        if pattern.starts_with('!') || pattern.ends_with('/') || pattern.contains(PATTERN_CHARS) {
-            problems.push(format!(
-                "{CONFIG} excludes `{pattern}`, which is a pattern rather than a page - this gate does not implement ignore-file syntax, so it cannot say which files that keeps off the site. Name each page literally"
-            ));
-            continue;
-        }
-        if !present.contains(pattern) {
-            problems.push(format!(
-                "{CONFIG} excludes `{pattern}`, but there is no `{docs_dir}/{pattern}` - an exclusion over nothing reads as a page being kept off the site while none is, so delete it"
-            ));
-        }
-        if nav.contains(pattern) {
-            problems.push(format!(
-                "{CONFIG} both navigates to `{pattern}` and excludes it - mkdocs drops an excluded page from the build, so the nav entry is a link to nothing. Choose one"
-            ));
-        }
-    }
-    problems
-}
-
 /// Every page under the docs directory, relative to it, with `/` separators.
 fn pages(root: &Path, docs_dir: &str) -> BTreeSet<String> {
     let mut found = Vec::new();
@@ -438,6 +413,54 @@ fn font_problem(text: &str) -> Option<String> {
     ))
 }
 
+/// The `pymdownx.snippets` extension, and where it resolves an include from.
+///
+/// A stub page's published body is whatever `--8<--` pulls in, so [`links`] has to follow the
+/// include - and it resolves against the repo root, which is what `base_path: ["."]` means. That
+/// makes the root an ASSUMPTION this gate depends on, so the assumption is gated rather than
+/// written down: a different `base_path` is a finding here, not a silent disagreement between
+/// the file the gate reads and the file mkdocs publishes.
+fn snippet_problems(text: &str) -> (links::Snippets, Vec<String>) {
+    let extensions = block(text, "markdown_extensions");
+    let mut inside = None;
+    let mut base = None;
+    for line in &extensions {
+        let stripped = strip_comment(line);
+        if stripped.trim().is_empty() {
+            continue;
+        }
+        let depth = stripped.len().saturating_sub(stripped.trim_start().len());
+        if stripped.trim().starts_with("- pymdownx.snippets") {
+            inside = Some(depth);
+            continue;
+        }
+        let Some(opened) = inside else { continue };
+        if depth <= opened {
+            inside = None;
+            continue;
+        }
+        if let Some((key, value)) = stripped.trim().split_once(':')
+            && key == "base_path"
+        {
+            base = Some(String::from(value.trim()));
+        }
+    }
+    let configured = extensions
+        .iter()
+        .any(|line| strip_comment(line).trim().starts_with("- pymdownx.snippets"));
+    if !configured {
+        return (links::Snippets::NotConfigured, Vec::new());
+    }
+    // `["."]` is mkdocs' own default written out, and the only value this gate can follow.
+    let problems = match base.as_deref() {
+        None | Some("[\".\"]" | "['.']" | "[.]") => Vec::new(),
+        Some(other) => vec![format!(
+            "{CONFIG} sets `pymdownx.snippets.base_path` to `{other}`, and this gate resolves a `--8<--` include against the repo root - so the file it reads for a stub page is not the file mkdocs publishes. Keep the base path at `[\".\"]`, or teach this gate the one you want"
+        )],
+    };
+    (links::Snippets::Followed, problems)
+}
+
 /// Configuration from the replaced stack, still on disk.
 fn superseded_problems(root: &Path) -> Vec<String> {
     SUPERSEDED
@@ -477,26 +500,39 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .collect();
     let present = pages(&root, &docs_dir);
     let patterns = exclusions(&config);
-    let excluded: BTreeSet<String> = patterns.iter().cloned().collect();
+    let exclude::Resolved {
+        pages: excluded,
+        problems: exclusion_problems,
+    } = exclude::resolve(&patterns, &present, &nav, &docs_dir);
 
     let mut found = problems(&nav, &present, &excluded, &docs_dir);
-    found.extend(exclusion_problems(&patterns, &present, &nav, &docs_dir));
-    // Only the published pages: what an excluded page links to is nobody's business, since
-    // nothing renders it.
-    let mut linked = 0_usize;
-    for page in present.difference(&excluded) {
-        if let Ok(text) = std::fs::read_to_string(root.join(&docs_dir).join(page)) {
-            let (problems, read) = links::problems(page, &text, &excluded, &docs_dir);
-            found.extend(problems);
-            linked = linked.saturating_add(read);
-        }
+    found.extend(exclusion_problems);
+    let (snippets, snippet_problems) = snippet_problems(&config);
+    found.extend(snippet_problems);
+    let published: Vec<&String> = present.difference(&excluded).collect();
+    let sweep = links::sweep(&root, &docs_dir, &published, &excluded, snippets);
+    found.extend(sweep.problems);
+    let linked = sweep.read;
+    // FAIL CLOSED, TWICE, because the two ways the scan can read less than it claims are
+    // different failures and one floor cannot see both.
+    //
+    // PER PAGE first: every published page has to be scanned end to end. A repo-wide link total
+    // was the only floor this had, and `.take(1)` on the page loop satisfied it with 3 links off
+    // one page while 51 of 52 went unread - the quantifier `sutura/gates` records as defending
+    // nothing about WHICH row.
+    if sweep.scanned != published.len() {
+        found.push(format!(
+            "scanned {} of {} published page(s) - the pages this could not read are named above, and a page nothing scanned is a page nothing checked",
+            sweep.scanned,
+            published.len()
+        ));
     }
-    // FAIL CLOSED, for the reason `links` states: a link scan that reads nothing approves
-    // everything, and the verdict line cannot tell that from a tree whose pages agree.
-    if linked == 0 && !present.is_empty() {
+    // PER TREE second, for the case the per-page count cannot see: every page opened and parsed
+    // and not one link read means the link parser is broken, not that the tree agrees.
+    if linked == 0 && !published.is_empty() {
         found.push(format!(
             "read no link to a page in `{docs_dir}` out of {} page(s) - the scan is broken, not the tree",
-            present.len().saturating_sub(excluded.len())
+            published.len()
         ));
     }
     if declares(&config, "exclude_docs") && patterns.is_empty() {
@@ -521,10 +557,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if found.is_empty() {
         println!(
-            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {linked} page link(s) land on one, {} asset(s) resolve",
+            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} of {} published page(s) scanned, {linked} page link(s) land on one, {} asset(s) resolve",
             nav.len(),
             present.len(),
             excluded.len(),
+            sweep.scanned,
+            published.len(),
             declared.len()
         );
         return Verdict::Pass;
@@ -544,7 +582,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        block, declares, exclusion_problems, exclusions, list_entry, nav_target, nested_scalar, problems, top_level_scalar,
+        block, declares, exclusions, list_entry, nav_target, nested_scalar, problems, snippet_problems, top_level_scalar,
     };
 
     fn set(items: &[&str]) -> BTreeSet<String> {
@@ -802,51 +840,28 @@ extra:
     }
 
     #[test]
-    fn excluding_a_page_that_is_not_there_is_a_problem() {
-        // The shape a stale exclusion takes: it reads as a page being kept off the site while
-        // nothing is, and the nav check cannot see it because the page is gone.
-        let found = exclusion_problems(
-            &[String::from("implementation-plan.md")],
-            &set(&["index.md"]),
-            &set(&["index.md"]),
-            "docs",
-        );
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("an exclusion over nothing"), "{found:?}");
-    }
+    fn the_snippet_base_path_this_gate_depends_on_is_gated_rather_than_assumed() {
+        // The gate follows `--8<--` against the REPO ROOT to find a stub page's real body, so a
+        // different base path means it reads a different file from the one mkdocs publishes.
+        let default = "markdown_extensions:
+  - pymdownx.snippets:
+      base_path: [\".\"]
+      check_paths: true
+";
+        let (snippets, problems) = snippet_problems(default);
+        assert!(matches!(snippets, super::links::Snippets::Followed));
+        assert!(problems.is_empty(), "{problems:?}");
 
-    #[test]
-    fn excluding_a_page_the_nav_also_names_is_a_problem() {
-        // mkdocs drops an excluded page from the build, so the nav entry links to nothing.
-        let found = exclusion_problems(
-            &[String::from("gates.md")],
-            &set(&["index.md", "gates.md"]),
-            &set(&["index.md", "gates.md"]),
-            "docs",
-        );
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("Choose one"), "{found:?}");
-    }
+        let moved = default.replace("[\".\"]", "[\"docs\"]");
+        let (_, problems) = snippet_problems(&moved);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems.first().is_some_and(|p| p.contains("base_path")), "{problems:?}");
 
-    #[test]
-    fn a_pattern_this_gate_cannot_resolve_to_a_file_is_refused() {
-        // Refused rather than approximated: this gate does not implement ignore-file matching,
-        // so an exclusion it cannot resolve is an exclusion nothing checks.
-        for pattern in ["*.md", "drafts/", "!keep.md", "plan-[12].md"] {
-            let found = exclusion_problems(&[String::from(pattern)], &set(&["index.md"]), &set(&["index.md"]), "docs");
-            assert_eq!(found.len(), 1, "{pattern}: {found:?}");
-            assert!(found[0].contains("Name each page literally"), "{pattern}: {found:?}");
-        }
-        // And a literal path that resolves is not.
-        assert!(
-            exclusion_problems(
-                &[String::from("notes/why-the-order.md")],
-                &set(&["index.md", "notes/why-the-order.md"]),
-                &set(&["index.md"]),
-                "docs",
-            )
-            .is_empty()
-        );
+        // With the extension absent, `--8<--` is text mkdocs publishes verbatim, so there is
+        // nothing to follow and `links` says so about a page that carries one.
+        let (snippets, problems) = snippet_problems("markdown_extensions:\n  - admonition\n");
+        assert!(matches!(snippets, super::links::Snippets::NotConfigured));
+        assert!(problems.is_empty(), "{problems:?}");
     }
 
     // NOTE: there is deliberately no test here that reads the real `mkdocs.yml` and the real
