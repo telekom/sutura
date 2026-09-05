@@ -794,8 +794,15 @@
         # `GOOGLE_APPLICATION_CREDENTIALS` at a credential file, plus `SUTURA_BQ_DATASET` and
         # `SUTURA_BQ_TABLE`. The billing project comes from a service-account key's own
         # `project_id`, so CI configures no project variable. `--run-ignored only` is what reaches
-        # the `#[ignore]`d tests - every one in the crate, not a listed set, so a test added there is
-        # reached without editing this comment; every other task skips them.
+        # the `#[ignore]`d tests - every one in the targets this app runs, not a listed set, so a
+        # test added there is reached without editing this comment; every other task skips them.
+        #
+        # **The `two_principals` binary is filtered OUT here and run by its own app below.** The
+        # filter is on the BINARY and not on a test list, so the property the paragraph above
+        # states survives: a test added to either target is still reached without editing this
+        # comment. What it buys is that the two acceptance legs stay runnable by whoever holds one
+        # credential - the two-principal cell needs five more values and two more key documents,
+        # and one app demanding all of them would make the legs somebody CAN run unreachable.
         apps.bigquery-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''
@@ -803,7 +810,30 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features --run-ignored only "$@"
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'not binary(two_principals)' "$@"
+          '');
+        };
+        # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth
+        # amendment and issue #123.
+        #
+        # Its own app for the reason the filter above gives, and everything the app beside it says
+        # about being an app rather than a check applies unchanged: the sandbox has no network.
+        #
+        # **What it needs beyond that app's environment:** `SUTURA_BQ_RLS_DATASET`,
+        # `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`, `SUTURA_BQ_PRINCIPAL_A_ROWS`,
+        # `SUTURA_BQ_PRINCIPAL_B_ROWS`, and a key document per principal at
+        # `SUTURA_BQ_PRINCIPAL_A_KEY` / `SUTURA_BQ_PRINCIPAL_B_KEY`. It fails loudly without any of
+        # them - `tests/two_principals.rs` carries what each names.
+        apps.bigquery-two-principals = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-two-principals" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'binary(two_principals)' "$@"
           '');
         };
         # `nix run .#crap` - the CRAP gate, outside the sandbox.

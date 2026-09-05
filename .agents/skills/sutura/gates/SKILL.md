@@ -228,6 +228,18 @@ therefore does not see.
   closes it is a second declaration that must agree - here `cargo xtask check-shipped-binaries`
   reconciling `nix/shipped.nix`'s `probeFeatures` against the `cargo build --features` a page
   documents, failing closed when no page documents one at all.
+- **A verdict's rules can hold its SPELLING while nothing holds its TRANSITION, and the second is
+  usually what the sentence beside it promises.** `check-venues`' `unrun` arrived with three rules -
+  the word is in the vocabulary, a `not built` venue may not claim it, the venue's section must use
+  it - and all three read the page. Nothing read whether a run had happened, so *the change that
+  carries the first green run moves this cell* was, still, a sentence nothing read. The failure is
+  silent and permanent: wire the leg into a job, watch it go green on every push, and the page goes
+  on telling its next reader that nothing has run it with every gate green. **The question to ask
+  of any state token: what reads the thing that makes it STOP being true?** Here the answer was in
+  reach - a workflow invoking the venue's `Reached by` task - and the rule that closed it is
+  deliberately one-sided, because an invocation is not a green run and the authority for *did this
+  pass* is unreachable from the sandbox the gate runs in. A one-sided rule that names its side is
+  worth more than a two-sided one nobody can implement.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
