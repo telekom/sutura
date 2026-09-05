@@ -121,6 +121,14 @@ names follow the stack after a re-`up` (which only rotates the keys). `just infr
 | --- | --- |
 | `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B` |
 | `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
+| `vars`, the two-principal cell's own | `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`, `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` |
+
+`sync-bq-test-env.sh` pushes all ten, so the second row is what an `infra-set` against a stack
+that predates it will not have put there. The cell's own workflow step **fails closed** on any
+one of the five being unset rather than skipping - so the environment carrying the first row and
+not the second is a red `bigquery-acceptance`, not a quiet skip. **Nothing reconciles these two
+lists**: neither the script's names, nor this table, nor the `vars.` the job reads is derived from
+either of the others, so all three are held by review - see telekom/sutura#310.
 
 The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
 `bigquery.jobUser` and dataset-level `bigquery.dataEditor` on both the stack dataset and the
