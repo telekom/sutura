@@ -559,10 +559,10 @@ impl FederatedPlan {
         columns.push(String::from(self.bucket.label()));
         columns.push(self.measure_label.clone());
 
-        // Deterministic order. The answer's rows are ordered by their key cells **typed** - a null
-        // before a number, integers by value, reals by value - and not by their rendered text, so an
-        // integer key `10` orders after `9` the way the mono path's ORDER BY would, rather than
-        // before it because `"10" < "9"`.
+        // The mono path's ordered-result contract, applied above the legs: ascending by each key
+        // cell **typed**, nulls last, in key order. Not by rendered text, so an integer key `10`
+        // orders after `9` rather than before it because `"10" < "9"`. `compare_cells` carries why
+        // the null placement is a contract and where the other half of it is written.
         let key_width = columns.len().saturating_sub(1);
         rows.sort_by(|a, b| {
             for (a_cell, b_cell) in a.iter().zip(b).take(key_width) {
@@ -797,17 +797,30 @@ const fn value_bytes(value: &Value) -> u64 {
 
 /// A total order over key cells, matching the mono path's `ORDER BY` rather than rendered text.
 ///
-/// Nulls sort first, then integers by value, then reals by value, then text lexicographically, so a
-/// numeric column is ordered numerically (`9` before `10`) and not by its string form (`"10"` before
-/// `"9"`). Cells of different scalar types never compare equal.
+/// **`ASC NULLS LAST`, which is the whole of the ordered-result contract and not this file's
+/// choice.** A whole-answer plan emits `ORDER BY <key> ASC NULLS LAST` -
+/// `sutura_sql::generate::ordered_nulls_last`, which `telekom/sutura#92` decided after a live run
+/// found the four dialects disagreeing about null placement, and which makes every target converge
+/// on the engine's own order. This comparator ranked a null FIRST, so one certified metric came back
+/// in one order from one data system and in another order from two, with no golden able to see it -
+/// a golden pins statement text, and this path emits none. The placement is stated in both places
+/// for the same reason it is stated in the SQL: a default is not a contract.
+///
+/// Integers order by value, then reals by value, then text lexicographically, and a null after all
+/// of them - so a numeric column is ordered numerically (`9` before `10`) and not by its string form
+/// (`"10"` before `"9"`). Cells of different scalar types never compare equal. A result column in a
+/// data system has one logical type, so the cross-type ranks decide nothing an `ORDER BY` decides;
+/// what they buy is a TOTAL order, which is what makes the sort deterministic for a column
+/// [`RowSet`] permits to be mixed.
 fn compare_cells(a: &Value, b: &Value) -> std::cmp::Ordering {
     use std::cmp::Ordering::Equal;
     const fn rank(value: &Value) -> u8 {
         match value {
-            Value::Null => 0,
-            Value::Integer(_) => 1,
-            Value::Real(_) => 2,
-            Value::Text(_) => 3,
+            Value::Integer(_) => 0,
+            Value::Real(_) => 1,
+            Value::Text(_) => 2,
+            // Last, and the one rank that is a contract rather than a tie-break. See above.
+            Value::Null => 3,
         }
     }
     let order = rank(a).cmp(&rank(b));

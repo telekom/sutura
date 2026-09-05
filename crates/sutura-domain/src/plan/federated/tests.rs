@@ -817,6 +817,55 @@ fn the_join_kind_decides_a_null_fact_key_the_way_it_decides_an_unmatched_one() {
 }
 
 #[test]
+fn the_answer_orders_ascending_with_nulls_last_like_the_mono_path() {
+    // **The ordered-result contract is one contract, and federation was on the other side of it.**
+    // A whole-answer plan emits `ORDER BY <key> ASC NULLS LAST` - `sutura_sql::generate`'s
+    // `ordered_nulls_last`, which #92 decided and which makes all four dialects converge on the
+    // engine's own placement. This comparator ranked a null FIRST, so one certified metric came back
+    // in one order from one data system and in another from two.
+    //
+    // Both halves of the comparator are asserted here, because they are one `ORDER BY`: a numeric
+    // key is ordered NUMERICALLY (`9` before `10`, not `"10"` before `"9"`) and a null goes LAST.
+    let facts = fact(vec![
+        keyed_fact_row("A", Value::Text("c1".into()), 10),
+        keyed_fact_row("A", Value::Text("c2".into()), 20),
+        keyed_fact_row("A", Value::Text("c9".into()), 30),
+    ]);
+    let lookup = lookup(vec![
+        vec![Value::Text("c1".into()), Value::Integer(10)],
+        vec![Value::Text("c2".into()), Value::Integer(9)],
+    ]);
+
+    let combined = sum_plan(true)
+        .combine(&facts, &lookup, UNBOUNDED)
+        .expect("a left join combines");
+    assert_eq!(
+        combined.rows(),
+        &[
+            vec![
+                Value::Text("A".into()),
+                Value::Integer(9),
+                Value::Text("2026-06".into()),
+                Value::Integer(20),
+            ],
+            vec![
+                Value::Text("A".into()),
+                Value::Integer(10),
+                Value::Text("2026-06".into()),
+                Value::Integer(10),
+            ],
+            vec![
+                Value::Text("A".into()),
+                Value::Null,
+                Value::Text("2026-06".into()),
+                Value::Integer(30),
+            ],
+        ],
+        "ascending by value, nulls last - the same order the mono path's ORDER BY asks for"
+    );
+}
+
+#[test]
 fn a_null_key_and_an_unmatched_key_re_aggregate_into_one_unmatched_group() {
     // The measure is what this asserts and a row count could not: both rows land in the one group
     // whose remote keys are null, so the answer is their SUM. Dropping the null-keyed row answered
