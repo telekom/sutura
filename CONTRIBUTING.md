@@ -266,7 +266,14 @@ just docs-deploy   # one version to gh-pages
 The site is mkdocs-material versioned by [mike](https://github.com/jimporter/mike), built with
 `--strict`, and every command goes through pixi's isolated `docs` environment. `nav` in `mkdocs.yml`
 is explicit rather than derived, and `cargo xtask check-docs` fails on a page in no nav entry, a nav
-entry with no file, or an asset that stopped resolving. `just validate` does **not** render the
-site, so `just docs` is owed by any change that touches a doc comment.
+entry with no file, or an asset that stopped resolving. A page that is deliberately not part of the
+site - the implementation plans are the case - is named in `exclude_docs` instead, and the same gate
+fails an exclusion naming no page, a page both navigated to and excluded, a pattern it cannot
+resolve to one file, and a published page that LINKS an excluded one. That last is not `--strict`'s
+job: mkdocs logs such a link at INFO and exits 0, measured. **This file is one of those published
+pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relative link written
+here resolves against that page's URL rather than the repository root, and the gate reads this file
+to judge it. `just validate` does **not** render the site, so `just docs` is owed by any change that
+touches a doc comment.
 [Publishing the docs](https://github.com/telekom/sutura/blob/main/docs/publishing.md) covers the
 versioning and the one repository setting it needs.

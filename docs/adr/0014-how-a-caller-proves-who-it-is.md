@@ -18,7 +18,7 @@ cheap to decide now and expensive to retrofit. It then decides one half. This re
 **leg 1, from the caller to sutura.**
 
 It exists because the gap is not theoretical. Three things already in
-[the implementation plan](../implementation-plan.md) consume a claim shape that nothing currently issues:
+`docs/implementation-plan.md` consume a claim shape that nothing currently issues:
 
 | What depends on it | What it needs and cannot get |
 | --- | --- |

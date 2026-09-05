@@ -10,7 +10,7 @@ invariant yet - see *What this would change in the invariants* below, which says
 written before the mechanism exists.
 
 **Corrected:** this said "deliberately UNSCHEDULED" and "no branch in the implementation stack" while
-[the plan](../implementation-plan.md) carried `feat/raw-sql-tool` as a row, 0009's order table carried
+`docs/implementation-plan.md` carried `feat/raw-sql-tool` as a row, 0009's order table carried
 the same branch with a done-when, and the identity half of the plan said it has a row now. Three records
 against one is not a tie, and this was the stale one - exactly the cross-record contradiction class this
 set claims to have eliminated. It is scheduled, it is last, and what follows is why last rather than why

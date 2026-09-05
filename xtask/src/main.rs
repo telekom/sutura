@@ -27,6 +27,7 @@ mod gate_classification;
 mod guidance;
 mod hooks;
 mod line_endings;
+mod markdown;
 mod max_lines;
 mod newtype_leaks;
 mod pins;
