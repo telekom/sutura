@@ -49,9 +49,9 @@
 //! THE OLD ANSWER WAS NOT EVEN STABLE, which is the part that made it hard to see. Whether an
 //! unrelated cell failed BEFORE the tests under test - and so, under fail-fast, whether the wide
 //! run ever reached them - depended on nextest's scheduling and on which tree last compiled a
-//! shared test binary (see [`cargo_test`]), so one tree answered differently in two venues and
-//! neither answer looked wrong. Scoping removes the first dependence and `--no-fail-fast` the
-//! second.
+//! shared test binary (see [`runner::cargo_test`]), so one tree answered differently in two
+//! venues and neither answer looked wrong. Scoping removes the first dependence and
+//! `--no-fail-fast` the second.
 //!
 //! SCOPING THE HEAD RUN NARROWS A CLAIM, and the narrowing is on purpose. "The suite is green on
 //! HEAD" was never this gate's property - it is what `just test` and the nix `nextest` check are

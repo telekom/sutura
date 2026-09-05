@@ -45,7 +45,7 @@
 //! `#[ignore` in this tree is a doc comment ABOUT one - no number is written down, because the
 //! argument holds at any count above zero and a figure would rot within a PR).
 //! Running them is the wrong direction for the reason a tier-backed cell is not required in the
-//! reconstructed worktree (see [`super::nextest`]): they are ignored because this venue lacks what
+//! reconstructed worktree (see [`super::runner::nextest`]): they are ignored because this venue lacks what
 //! they need, so forcing them in a tree nothing provisioned fails CLOSED and reads as
 //! red-on-base. So they leave the
 //! scope, and a diff whose every added test is ignored gets [`Scan::OnlyIgnored`] - a statement

@@ -82,7 +82,8 @@ pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
 /// is not an extractor bug. Naming only ignored tests in a filterset matches nothing, which
 /// nextest reports as `no tests to run` and this gate read as a failure - a false RED on
 /// legitimate work, and a gate that reddens a correct change gets disabled. Running them instead
-/// fails CLOSED in a tree nothing provisioned, the trap [`nextest`] records for tier-backed cells.
+/// fails CLOSED in a tree nothing provisioned, the trap [`super::runner::nextest`] records for
+/// tier-backed cells.
 pub(super) fn report_only_ignored(names: &[Ident]) -> Verdict {
     println!("xtask test-causality: EVERY ADDED TEST IS `#[ignore]`d");
     for name in names {
