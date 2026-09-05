@@ -629,7 +629,30 @@ The sentence. A test asserts it is not empty; nothing asserts its wording.
 
 `Debug`, `Serialize`
 
-### `struct DescribeCatalogArgs`
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### Module `catalog`
+
+The catalog tool's wire shape: what `describe_catalog` takes, what it answers, and the text half
+of that answer.
+
+**Its own module because `wire.rs` was twenty-one lines under the thousand-line limit
+`cargo xtask max-lines` enforces and cannot exempt**, at the banner that file already carried -
+and the seam is one whole TOOL rather than a share of lines. `wire.rs` keeps the question and the
+answer of `ask`; everything here belongs to the other tool a caller can reach, and the two share
+nothing but `prose`, which is where the `Option` behind a description stays private.
+
+Why the arguments type has braces and no fields, and why the reasoning about a wire type is a
+plain comment rather than a doc comment, are both stated at `DescribeCatalogArgs` - `schemars`
+puts a root doc comment into the schema's `description`, which is text a MODEL reads.
+
+#### `struct DescribeCatalogArgs`
 
 ```rust
 pub struct DescribeCatalogArgs
@@ -638,11 +661,11 @@ pub struct DescribeCatalogArgs
 This tool takes no arguments. It returns the whole of what this deployment measures, and there is
 nothing to filter or select: send an empty object.
 
-#### Implements
+##### Implements
 
 `Debug`, `Deserialize<'de>`, `JsonSchema`
 
-### `struct CatalogContent`
+#### `struct CatalogContent`
 
 ```rust
 pub struct CatalogContent
@@ -651,7 +674,7 @@ pub struct CatalogContent
 What this deployment measures, as the catalog tool's structured content.
 
 **A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
-the same deliberate cost `AskArgs` already pays.** An adapter never calls another adapter, so
+the same deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
 this crate cannot import that shape; what keeps the two equal is review plus the fact that both
 are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
 missing field would show up as a missing call rather than as a silent divergence.
@@ -660,7 +683,7 @@ Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes n
 and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
 returns: it is the *pinned* bundle, the same one every answer is computed from.
 
-#### Methods
+##### Methods
 
 ```rust
 pub fn of(pinned: &PinnedDefinitions, prose: CatalogProse) -> Self
@@ -679,11 +702,11 @@ crate's only two readers of it, so this builder cannot fill a `description` or p
 without the operator's decision, and a third `CatalogProse` spelling is a compile error in
 both rather than an `else` arm here.
 
-#### Implements
+##### Implements
 
 `Debug`, `Serialize`
 
-### `struct MetricContent`
+#### `struct MetricContent`
 
 ```rust
 pub struct MetricContent
@@ -691,11 +714,11 @@ pub struct MetricContent
 
 One metric, as much of it as a caller needs to ask a valid question.
 
-#### Implements
+##### Implements
 
 `Debug`, `Serialize`
 
-### `struct DimensionContent`
+#### `struct DimensionContent`
 
 ```rust
 pub struct DimensionContent
@@ -703,6 +726,6 @@ pub struct DimensionContent
 
 One dimension of one metric.
 
-#### Implements
+##### Implements
 
 `Debug`, `Serialize`
