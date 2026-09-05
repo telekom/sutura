@@ -4093,6 +4093,162 @@ run suffix.</p>
 <h3 id="not-in-scope">Not in scope<a class="headerlink" href="#not-in-scope" title="Permanent link">&para;</a></h3>
 <p>Cross-dataset fixtures (#118) and the conformance packs (#116) are still future work; this change
 makes the first safe to add rather than doing it.</p>
+<h2 id="eighth-amendment-2026-09-04-the-two-principal-cell-exists-and-what-it-is-not">Eighth amendment, 2026-09-04: the two-principal cell exists, and what it is <em>not</em><a class="headerlink" href="#eighth-amendment-2026-09-04-the-two-principal-cell-exists-and-what-it-is-not" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted; the cell is written and has not been run.</strong> The sixth amendment
+said the cell's two prerequisites were provisioned and that "what is still required is the cell
+itself". This is that cell - issue #123 - and this amendment records three decisions taken while
+writing it, one measurement that closed a question the wrong way, and the two things a human still
+has to do.</p>
+<h3 id="what-the-cell-is-and-the-one-sentence-that-keeps-it-honest">What the cell is, and the one sentence that keeps it honest<a class="headerlink" href="#what-the-cell-is-and-the-one-sentence-that-keeps-it-honest" title="Permanent link">&para;</a></h3>
+<p><code>crates/sutura-exec-bigquery/tests/two_principals.rs</code>, reached by <code>just bigquery-two-principals</code> and
+by <code>nix run .#bigquery-two-principals</code>. One <code>QueryPlan</code> value, borrowed twice, so <strong>the statement is
+the same statement and not two that resemble each other</strong> - and each leg presents a bearer minted
+from that principal's own service-account key through this crate's own <code>Credential</code>, which is issue</p>
+<h1 id="123s-second-bullet-answered-by-reusing-the-credential-path-a-deployment-runs-rather-than-by">123's second bullet answered by reusing the credential path a deployment runs rather than by<a class="headerlink" href="#123s-second-bullet-answered-by-reusing-the-credential-path-a-deployment-runs-rather-than-by" title="Permanent link">&para;</a></h1>
+<p>hand-rolling a token exchange.</p>
+<p><strong>It is leg 2's SOURCE half and not leg 2.</strong> The two principals are service accounts whose private
+keys the leg holds, so nothing was exchanged and nobody asked. What a green run would establish is
+that a real data system applies the row grant of the principal whose bearer this adapter <em>presented</em>
+rather than the identity the transport holds; what it says about a caller is nothing.
+<code>docs/where-identity-is-proven.md</code> carries that as a venue of its own with five exclusions, and it
+deliberately does <strong>not</strong> move the <em>two subjects read two different row sets</em> row up to it: two
+principals is not two subjects, and eliding those is the overstatement that page exists to prevent.</p>
+<h3 id="three-decisions-and-the-reason-each-went-the-way-it-did">Three decisions, and the reason each went the way it did<a class="headerlink" href="#three-decisions-and-the-reason-each-went-the-way-it-did" title="Permanent link">&para;</a></h3>
+<p><strong>It has its own task and its own nix app rather than being a third leg inside
+<code>just bigquery-acceptance</code>.</strong> It needs five values and two key documents the other two legs do not,
+and one task demanding all of them would make the legs a developer holding one credential <em>can</em> run
+unreachable. Both apps filter on the test BINARY and not on a test list, so the property the
+acceptance app's comment states survives: a test added to either target is reached without a count
+anywhere being edited.</p>
+<p><strong>It does not seed the table, though issue #123 asked it to.</strong> <code>BigQueryWarehouse::load_fixture</code>
+renders <code>CREATE OR REPLACE TABLE</code>, and replacing a table drops its row access policies - so the one
+loader this crate has would disarm the grant the cell asserts on, and the run after it would compare
+two identical row sets. There is no arbitrary-SQL entry point to reach for instead, deliberately.
+So the rows belong to whoever owns the policies: the predicate and the rows it selects are two halves
+of one grant, and splitting them across the stack and a test file is how they drift. The stack seeds
+one row per principal beside the two <code>RowAccessPolicy</code> resources, and the cell's non-emptiness
+assertion is what refuses to read an unseeded table as a pass.</p>
+<p><strong>The control leg accepts two outcomes and prints which it got.</strong> What the endpoint answers a
+principal no policy grants decides how strong that control is, and it is unmeasured: documented
+behaviour is no rows, the observable alternative is a refusal, and both are <em>not reading either
+principal's rows</em>. The first green run narrows it to one sentence; until then the test says so at the
+assertion rather than guessing.</p>
+<p><strong>Two outcomes is what the sentence said and fourteen is what the code accepted</strong>, which review
+found. <code>let Ok(rows) = ... else { return; }</code> took every <code>BigQueryError</code> variant as evidence of a
+refusal - and the sharpest of them are not refusals at all: <code>UnmappedType</code>, <code>NotAnInteger</code> and their
+siblings mean the endpoint answered and rows came back, so a deployment that had just read the
+policied table printed <em>the deployment's own identity was refused</em> and passed the control without
+looking at what it read. <code>Render</code> and <code>PresentedDisagreesWithPosture</code> are defects in the test file
+and were green; one <code>Endpoint</code> timeout left the cell with no control while both subject legs passed.
+It is an exhaustive <code>match</code> now, in <code>wire::tables::was_refused</code>'s shape and for its reason - a new
+variant is a compile error at that line rather than a new way to pass - accepting only a <code>403</code> that
+is not <code>rateLimitExceeded</code>/<code>quotaExceeded</code>. <strong><code>401</code> is deliberately refused too:</strong> a credential that
+cannot authenticate leaves the control unable to distinguish anything while reading as though it
+had. The limit that survives is on the page beside the claim: a <code>403</code> does not say WHICH grant was
+missing, so a missing row grant and a missing <code>bigquery.jobUser</code> are indistinguishable here.</p>
+<h3 id="the-measurement-that-closed-a-question-the-wrong-way">The measurement that closed a question the wrong way<a class="headerlink" href="#the-measurement-that-closed-a-question-the-wrong-way" title="Permanent link">&para;</a></h3>
+<p>The three behaviours the cell rests on were probed from a developer machine against the acceptance
+project, with the credential that machine holds. Creating a table, <code>INSERT</code>ing into it and reading it
+back all work. <strong>Creating a row access policy does not:</strong> the acceptance credential is refused
+<code>bigquery.rowAccessPolicies.create</code> - <code>Access Denied ... Permission bigquery.rowAccessPolicies.create
+denied on table</code> - so a policy cannot be created, replaced or inspected from a developer machine at
+all. Two consequences, and both are limits rather than defects:</p>
+<ul>
+<li><strong>whether <code>INSERT</code> works on a table that HAS row access policies was not measured</strong>, because no
+  policy could be created to try it against. The seeding decision above makes it the stack's problem
+  rather than the test leg's - but <strong>it does not close the question, and an earlier wording of this
+  bullet read as though it had.</strong> Review found the three resources unordered: the seed job and the
+  two policies each depended on the table alone and the policies were bound to no name, so pulumi
+  created all three concurrently and which path <code>up</code> took was the scheduler's choice. The ordering
+  is declared now - the job first, both policies <code>depends_on</code> it, and the principals' read grant
+  waits for both policies so a fresh <code>up</code> never leaves a principal able to read an unpolicied table.
+  <strong>What remains, stated rather than moved:</strong> the policies persist, so from the second apply onwards
+  a changed grouping value re-digests the job against a table that already carries them, and the
+  <code>INSERT</code> runs on a policied table deterministically. <code>just infra-up</code> after a config change is the
+  first place anyone can observe it. <strong>Whoever gets there: record the answer here.</strong> If it is
+  refused, <code>up</code> fails on the resource the whole fixture depends on; if it is accepted but filtered,
+  the cell reports <em>principal A read no rows at all</em> and points two steps from the cause;</li>
+<li><strong>the policied dataset is not listable from a developer machine either</strong>, so the cell's own
+  configuration cannot be discovered locally and no local run of it is possible. That is why the
+  venue page says the claim is not answered yet rather than that the run failed.</li>
+</ul>
+<h3 id="what-is-left-for-a-human-and-neither-is-code">What is left for a human, and neither is code<a class="headerlink" href="#what-is-left-for-a-human-and-neither-is-code" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>The <code>bq-test</code> environment has to carry five more values</strong> - the policied dataset and table, the
+   grouping column, and the grouping value each policy grants. <code>sync-bq-test-env.sh</code> exports them
+   from the stack now, so <code>just infra-set</code> is the mechanism; it needs the pulumi state, which lives
+   with whoever ran <code>just infra-up</code>.</li>
+<li><strong>The CI job has to run the leg, and that change is WRITTEN and must not merge yet.</strong> It is a
+   separate pull request stacked on this one rather than a future one - the sentence this item first
+   carried said it had not happened, and it had - and it stays in draft for the reason it was kept
+   separate: wiring a job to five variables that do not exist yet turns the <code>bigquery-acceptance</code> job
+   red on every push until somebody sets them, and a job that is red for a configuration reason is a
+   job people learn to ignore. The order is the environment first, the job second.</li>
+</ol>
+<p><strong>The cap decision this item used to carry has evaporated, and the sequence is worth recording
+   because it is the ordinary case rather than an accident.</strong> An earlier wording said
+   <code>.github/workflows/ci.yml</code> was <em>over</em> the 1000-line cap
+   <a href="https://github.com/telekom/sutura/issues/285">#285</a> is about, in the present tense, and paired
+   it with <code>987 → 1042</code>. Neither was true of any tree this record shipped in: measured with
+   <code>wc -l</code>, the file was <strong>999</strong> on <code>main</code> and at this record's own head, and this change touches no
+   workflow at all. Then <a href="https://github.com/telekom/sutura/pull/289">#289</a> landed and took it to
+   <strong>856</strong> - <code>wc -l .github/workflows/ci.yml</code> on <code>main</code> at <code>fd5959ea</code>, and on this branch after
+   carrying that merge in. So there is <strong>143 lines of headroom</strong> and no cap decision for the job
+   change to make: <code>devco/max-lines-ignore</code> needs no <code>[warn]</code> entry for this workflow, and one added
+   before #289 landed should come out. That file is for generated and vendored output, where length
+   is a function of what is described; a hand-written workflow in it is a promise to split, and a
+   promise nobody needs is worse than none.</p>
+<p><strong>The transferable half:</strong> a line count written in the present tense is a measurement with no
+   date, and nothing in this repository derives it. Write the command and the commit beside the
+   number, or the number is a claim that rots on somebody else's merge.</p>
+<h3 id="what-review-of-the-cell-found-recorded-because-each-was-a-claim-rather-than-a-bug">What review of the cell found, recorded because each was a claim rather than a bug<a class="headerlink" href="#what-review-of-the-cell-found-recorded-because-each-was-a-claim-rather-than-a-bug" title="Permanent link">&para;</a></h3>
+<p>Two rounds, and no count in this heading on purpose - it was <em>three</em> and then it was not. The second
+round's other findings are recorded where they belong rather than listed again here: the control leg
+accepting fourteen error variants is under <em>Three decisions</em> above, the seed job and the two policies
+being unordered is under <em>The measurement that closed a question the wrong way</em>, and four citations
+pointing at the seventh amendment when this one is the eighth were simply wrong and are corrected.</p>
+<p><strong>A verdict was carrying two states.</strong> The venue page's <code>can</code> meant <em>the venue is capable and the
+standing test lives somewhere else</em>, and this cell needed <em>the standing test lives here and nothing
+has run it</em>. Those are not the same and only the first is evidence, so <code>cargo xtask check-venues</code>
+grew a sixth verdict - <code>unrun</code> - which it refuses from a venue nothing reaches and which the venue's
+own section has to use in that word.</p>
+<p><strong>And the first version of those rules held a spelling rather than the transition, which review of
+this cell found.</strong> All three read the page: nothing read whether a run had happened, so the sentence
+<em>the change that carries the first green run moves that cell</em> was still a sentence nothing read -
+which is what it had just been criticised for being. The closure is a fourth rule with a mechanism:
+the venue's <code>Reached by</code> task is resolved against every <code>just &lt;task&gt;</code> and <code>nix run .#&lt;app&gt;</code> the
+workflows, the local composite actions and the shared <code>nix/</code> shell invoke - one walk, shared with
+<code>check-workflows</code>, because a step moving out of a workflow is the recorded way a reference leaves a
+gate's sight - and an <code>unrun</code> cell whose venue is among them is refused. Measured by wiring
+<code>nix run .#bigquery-two-principals</code> into <code>ci.yml</code> and re-running the gate: it fails naming this
+venue, and passes again with the line removed.</p>
+<p><strong>The rule is one-sided, and the side it does not hold is stated on the page beside the claim.</strong> An
+invocation is not a green run: a wired job that always skips reddens the cell, and a hand-run is
+invisible to it. The authority for <em>did this pass</em> is the GitHub API, unreachable from
+<code>checks.hygiene</code> for the same reason <code>nix eval</code> is unreachable from <code>check-workflows</code>. So moving the
+cell to <code>yes</code> stays review's, with the run named beside it; what stopped being possible is leaving
+it at <code>unrun</code> while a job runs it.</p>
+<p><strong>One assertion in the cell could not fail.</strong> With each answer asserted to be exactly its own
+principal's grouping value, and the fixture control already refusing a pair whose values are equal,
+disjointness followed. It is deleted rather than kept: an assertion that cannot go red reads as an
+independent check and is not one, and it made the page and this record advertise three where there
+are two.</p>
+<p><strong>The step this amendment asks for nearly broke the venue that HAS a green run.</strong> The two policied
+resource names were added to the masking step's emptiness guard, which exits non-zero and runs
+before the shared-key leg - so an unset value belonging to a venue with no run would have stopped
+the only BigQuery venue with evidence. Masked there, guarded in the cell's own step. <code>check-venues</code>
+was satisfied either way, which is why review and not the gate found it, and it is the sharpest
+example of this record's own warning about a job red for a configuration reason.</p>
+<h3 id="and-two-limits-this-cell-does-not-close-named-so-they-are-not-read-as-closed">And two limits this cell does not close, named so they are not read as closed<a class="headerlink" href="#and-two-limits-this-cell-does-not-close-named-so-they-are-not-read-as-closed" title="Permanent link">&para;</a></h3>
+<p><strong><code>check-venues</code> reads ONE credential path.</strong> It takes the job's <code>GOOGLE_APPLICATION_CREDENTIALS</code>,
+so <em>written under <code>$RUNNER_TEMP</code> and removed</em> and <em>the file is a second copy of the secret</em> are held
+for the CI key and by review for the two principal keys placed beside it. Deriving the credential set
+from the job is the fix; <code>xtask/src/venues/acceptance.rs</code> is at 991 lines, so it needs that file split
+first.</p>
+<p><strong>Nothing checks that the two nextest filters are complements.</strong> <code>binary(two_principals)</code> and
+<code>not binary(two_principals)</code> appear in two <code>just</code> recipes and two flake apps, and no gate reads a
+nextest filter expression - so renaming the target would silently un-filter the acceptance app.
+Two nextest profiles carrying the pair once, next to the tests, is the shape that would close it.</p>
 
 
 

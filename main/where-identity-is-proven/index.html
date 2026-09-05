@@ -971,6 +971,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-real-dataset-under-two-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A real dataset under two keys
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A real dataset under two keys">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-only-this-venue-can-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What only this venue can answer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cannot answer - read this before citing a green run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-real-enterprise-identity-provider" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2492,6 +2531,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-real-dataset-under-two-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A real dataset under two keys
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A real dataset under two keys">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-only-this-venue-can-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What only this venue can answer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cannot answer - read this before citing a green run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-real-enterprise-identity-provider" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2554,8 +2632,20 @@ can. So every venue below carries what it <strong>cannot</strong> answer, next t
 <p class="admonition-title">What this page is not</p>
 <p>It is a map of venues, not a coverage report. <strong>yes</strong> means a venue can answer the claim and a
 test in it does; <strong>can</strong> means the venue is capable and the standing test lives somewhere else,
-with the cell saying where. The test names in the venue sections are what has actually been
-written, and they are the list to check a claim against.</p>
+with the cell saying where; <strong>unrun</strong> means the standing test lives HERE and nothing has run it.
+The test names in the venue sections are what has actually been written, and they are the list
+to check a claim against.</p>
+<p><strong><code>unrun</code> is a token and not a caveat, and the difference is the point.</strong> A written test is not
+a green run, so a venue in that state may not be cited - and <code>cargo xtask check-venues</code> holds
+four things: only <code>yes</code> and <code>can</code> count as answering, an <code>unrun</code> cell is refused for a venue
+nothing reaches, the venue's own section has to use that word, and <strong>a venue whose <code>Reached by</code>
+task CI invokes may not say <code>unrun</code> at all</strong>. It exists because the two-keys venue below is at
+the wrong end of it today and saying so in prose put the difference where nothing read it.</p>
+<p><strong>What that fourth rule does not reach, said next to it:</strong> it reads an <em>invocation</em> in a
+workflow, a local composite action or the shared <code>nix/</code> shell - not a green run. A wired job
+that always skips reddens the cell too, and a run somebody did by hand is invisible to it. So
+<em><code>unrun</code> has stopped being honest</em> is mechanical; <em><code>yes</code> is earned</em> is review's, with the run
+named beside it.</p>
 </div>
 <h2 id="the-venues">The venues<a class="headerlink" href="#the-venues" title="Permanent link">&para;</a></h2>
 <table>
@@ -2587,6 +2677,12 @@ written, and they are the list to check a claim against.</p>
 <td><code>just bigquery-acceptance</code></td>
 </tr>
 <tr>
+<td><strong>A real dataset under two keys</strong></td>
+<td>a GitHub environment, on demand</td>
+<td>two more service-account keys, and a row access policy per principal</td>
+<td><code>just bigquery-two-principals</code></td>
+</tr>
+<tr>
 <td><strong>A real enterprise identity provider</strong></td>
 <td>nowhere yet</td>
 <td>a provider to configure and somebody to configure it</td>
@@ -2600,7 +2696,7 @@ written, and they are the list to check a claim against.</p>
 </tr>
 </tbody>
 </table>
-<p>The rule the middle row establishes: <strong>the mock issuer is the default venue, and it may never be cited
+<p>The rule the mock issuer's row establishes: <strong>the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.</strong> A real provider stops being a prerequisite for testing
 everything <em>around</em> it, and shrinks to the one job only it can do.</p>
 <div class="admonition warning">
@@ -2612,8 +2708,8 @@ shared identity, so those questions are answered as the deployment; and a pipe h
 could arrive in, so the agent surface grants every capability to whoever can launch the process and
 says so at startup.</p>
 <p>The exception is named rather than left to be found: two tests inside <code>just serve-e2e</code> spawn the
-binary over a <strong>mock issuer's</strong> published key set, and those two are this page's middle venue on a
-composed binary. <code>just mcp-e2e</code> has no such case and cannot have one.</p>
+binary over a <strong>mock issuer's</strong> published key set, and those two are this page's mock-issuer venue on
+a composed binary. <code>just mcp-e2e</code> has no such case and cannot have one.</p>
 <p>So a green <code>serve-e2e</code> is evidence for exactly two rows below, and they are named rather than left
 to be counted: <em>the composition root arms leg 1 over the governed routes, or does not start</em>, and
 <em>the caller a signature established reaches the answer's own record</em>. Nothing else in the table.</p>
@@ -2626,6 +2722,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <th>Fake at the port</th>
 <th>Mock issuer</th>
 <th>Real dataset, shared key</th>
+<th>Real dataset, two keys</th>
 <th>Real provider</th>
 <th>Real exchange</th>
 </tr>
@@ -2638,10 +2735,12 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>A caller cannot state its own identity</td>
 <td><strong>yes</strong> (a type with no <code>Deserialize</code>)</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -2652,6 +2751,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td><strong>yes</strong></td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -2659,6 +2759,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><code>kid</code> selection, and an unknown key id</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>redundant</td>
 <td>-</td>
@@ -2668,6 +2769,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td><strong>yes</strong></td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -2675,6 +2777,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Issuer, audience against this deployment's own resource identifier, expiry, <code>nbf</code></td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>redundant</td>
 <td>-</td>
@@ -2684,6 +2787,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td><strong>can</strong> - the builder takes several audiences; the standing test is at the gate</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -2691,6 +2795,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Token class: an ID token where an access token is required</td>
 <td>-</td>
 <td><strong>yes</strong>, that <em>we refuse one</em></td>
+<td>-</td>
 <td>-</td>
 <td>redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below</td>
 <td>-</td>
@@ -2700,6 +2805,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td><strong>can</strong> - the builder takes <code>iat</code> and <code>exp</code> separately for exactly this; the standing test is at the gate, over in-crate fixtures</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -2707,6 +2813,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Key rotation: a removed key stops verifying within the bound</td>
 <td>-</td>
 <td><strong>yes</strong>, and it is the only venue where a rotation is scriptable</td>
+<td>-</td>
 <td>-</td>
 <td>redundant - painful to script there, and the mock issuer is the only scriptable venue</td>
 <td>-</td>
@@ -2718,11 +2825,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td><code>credential_unavailable</code> through the request path</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -2732,12 +2841,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td><strong>yes</strong></td>
 <td>-</td>
+<td>no - two credentials reach the port here, and neither is a subject's</td>
 <td>-</td>
 <td>-</td>
 </tr>
 <tr>
 <td>The RFC 8693 request document a broker sends</td>
 <td><strong>yes</strong>, against a fake exchange</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -2749,6 +2860,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong>, over a fake exchange - the two halves were each green against their own fixture</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 </tr>
 <tr>
@@ -2758,11 +2870,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>The composition root arms leg 1 over the governed routes, or does not start</td>
 <td>-</td>
 <td><strong>yes</strong>, on the spawned binary</td>
+<td>-</td>
 <td>-</td>
 <td>redundant</td>
 <td>-</td>
@@ -2772,6 +2886,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td><strong>yes</strong>, on the spawned binary - the only venue that can see it</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -2779,6 +2894,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>Whether a real provider will mint an ID token whose <code>aud</code> is a third party's client id</strong></td>
 <td>no</td>
 <td><strong>no - and a mock answers <em>yes</em> by construction, which is worse than no test</strong></td>
+<td>no</td>
 <td>no</td>
 <td><strong>only here</strong></td>
 <td>no</td>
@@ -2788,6 +2904,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>redundant - the same endpoint, and the standing test is the shared-key leg</td>
 <td>-</td>
 <td>-</td>
 </tr>
@@ -2796,6 +2913,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>no</td>
 <td>-</td>
 <td><strong>only here</strong></td>
 </tr>
@@ -2804,8 +2922,18 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no</td>
 <td>no</td>
 <td>no - one key is one identity</td>
+<td>no - a key on disk is not an asking subject, which is this venue's whole exclusion</td>
 <td>no</td>
 <td><strong>only here</strong></td>
+</tr>
+<tr>
+<td><strong>Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets</strong></td>
+<td>no</td>
+<td>no</td>
+<td>no - one key is one identity, and it is the transport's own</td>
+<td><strong>unrun</strong> - the only venue that could, and nothing has run it</td>
+<td>no</td>
+<td>redundant</td>
 </tr>
 </tbody>
 </table>
@@ -2939,6 +3067,85 @@ it worth having: <strong>every token it mints is one an issuer could have minted
 <code>docs/adr/0019</code> are the records, and the sentence that matters here is short: <strong>a service-account key is
 one identity for everybody who asks</strong>, so what those legs establish is <em>accepted, and correct for that
 identity</em> - and nothing whatever about per-subject execution.</p>
+<h2 id="a-real-dataset-under-two-keys">A real dataset under two keys<a class="headerlink" href="#a-real-dataset-under-two-keys" title="Permanent link">&para;</a></h2>
+<p><code>just bigquery-two-principals</code>, against the same environment's project and a <strong>different dataset</strong>: the
+one whose table carries a <code>RowAccessPolicy</code> per principal, granting each of two service accounts a
+disjoint set of rows. <code>docs/adr/0017</code>'s eighth amendment is the record, and issue #123 is the cell.</p>
+<h3 id="what-only-this-venue-can-answer">What only this venue can answer<a class="headerlink" href="#what-only-this-venue-can-answer" title="Permanent link">&para;</a></h3>
+<p><strong>Whether the data system applies the row grant of the principal whose bearer the leg PRESENTED</strong>, rather
+than the one the transport holds. <code>each_principal_reads_exactly_the_rows_its_row_access_policy_grants_and_not_the_others</code>
+submits one statement twice - one <code>QueryPlan</code> value, borrowed twice, so it is the same statement and not
+two that resemble each other - and asserts that each answer is made of that principal's own grouping
+value and that <strong>neither is empty</strong>. The second is there because two vacuous greens over an unseeded
+table is the shape this cell would otherwise pass as.</p>
+<p><strong>There is no disjointness assertion, and its absence is a property rather than a gap.</strong> It could not
+fail once the two equalities passed - each answer is one grouping value, and the fixture control below
+has already refused a pair whose two values are equal - and an assertion that cannot go red reads as a
+third independent check while being none. That is why the refusal is a control with a test of its own.</p>
+<p><code>the_deployments_own_identity_reads_neither_principals_rows</code> is the control without which those two
+greens are satisfied by a coincidence: the same statement over the same table under the DEPLOYMENT's own
+credential, which holds no row grant on that table. If the rows a principal saw were really the
+transport's, this leg would see them too. The transport's own credential is present on every leg of this
+cell and read on none of them - <code>BigQueryWire::submit</code> decides which bearer authorizes the job once, and
+a leg carrying a subject's credential never reaches the credential source.</p>
+<p>Three tests here are <strong>not</strong> <code>#[ignore]</code>d, because they are controls on the fixture rather than on the
+endpoint, and a fixture defect should fail in the gate every change runs:
+<code>one_key_document_named_twice_is_refused_before_a_socket_is_opened</code> and
+<code>one_grant_described_twice_is_refused_because_disjointness_would_be_unassertable</code> refuse a pair that
+describes one principal twice - two environment variables pointing at one key document is one character
+in a workflow, and it would produce two equal row sets that read as <em>the policies are not enforced</em>. And
+<code>the_question_this_cell_asks_projects_the_column_the_policies_filter_on</code> holds that the question projects
+the grouping column: without it the answer is one number per month, and two principals reading different
+rows differ only by arithmetic.</p>
+<h3 id="what-it-cannot-answer-read-this-before-citing-a-green-run_1">What it cannot answer - read this before citing a green run<a class="headerlink" href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>That the row this venue answers has been answered.</strong> <em>Nothing has run it</em>, which the matrix says
+   in one word: <strong><code>unrun</code></strong>, not <code>yes</code> and not <code>can</code>. The five values the leg must be pointed at - the
+   policied dataset and table, the grouping column, and the value each policy grants - are not in the
+   environment that holds the two keys. <strong>The change that wires the job into CI is the change that
+   cannot leave this cell saying <code>unrun</code></strong>, and <code>cargo xtask check-venues</code> is what makes that a diff
+   rather than a promise: it resolves <code>just bigquery-two-principals</code> against every task and app the
+   workflows, the local composite actions and the shared <code>nix/</code> shell invoke, and refuses this cell
+   the moment one of them reaches it. It also refuses <code>unrun</code> from a venue nothing reaches, and an
+   <code>unrun</code> cell whose section does not use the word. Until then this venue is a capability with a
+   written test and no evidence.</li>
+</ol>
+<p><strong>The limit, and it is the half worth reading:</strong> what the gate resolves is an <em>invocation</em>, not a
+   green run. It cannot see a run's result - the authority for that is the GitHub API, which is
+   unreachable from the sandbox the gate runs in - so a job that always skips reddens this cell just
+   the same, and a hand-run does not redden it at all. Moving the cell to <strong><code>yes</code></strong> is therefore
+   review's judgement with the run named beside it; what is mechanical is that leaving it at <code>unrun</code>
+   once CI reaches it is no longer possible.
+2. <strong>Whether a deployment can OBTAIN such a credential for the caller who asked.</strong> Each bearer here is
+   minted from a service-account key <em>on disk</em>, through the crate's own <code>Credential</code>, so what a green run
+   establishes is that a source executes as the principal whose credential a leg carried. Nobody asked
+   and nothing was exchanged. <strong>This venue is leg 2's SOURCE half and not leg 2</strong>, and the last row of
+   the table is where the other half lives.
+3. <strong>Anything about a subject.</strong> A key a test holds is not an asking subject, which is why the <em>two
+   subjects read two different row sets</em> row stays <code>only here</code> on the exchange venue rather than moving
+   up to this one. Two principals is not two subjects, and eliding those is the overstatement this page
+   exists to prevent.
+4. <strong>Whether the grant survives what a deployment would do to the table.</strong> This leg deliberately loads
+   nothing: <code>BigQueryWarehouse::load_fixture</code> renders <code>CREATE OR REPLACE TABLE</code>, and replacing a table
+   drops its row access policies - so the one loader this crate has would disarm the grant the cell
+   asserts on, and there is no arbitrary-SQL path to reach for instead. The rows therefore belong beside
+   the policies, in the stack.
+5. <strong>What the endpoint answers a principal no policy grants</strong>, which decides how strong the control leg
+   is. Documented behaviour is no rows; the observable alternative is a refusal. Both are <em>not reading
+   either principal's rows</em>, so the control accepts either and prints which it got - and the first green
+   run is what narrows this to one sentence. <strong>The accepted set is exactly those two, held by an
+   exhaustive match rather than by a wildcard:</strong> review found the leg accepting every error the
+   adapter has, including the ones that mean <em>rows came back and one cell would not map</em> - so a
+   deployment that had just read the policied table was reported as having been refused, and the
+   control passed without looking. A new error variant is now a compile error at that line. <strong>What a
+   refusal still cannot tell apart:</strong> a <code>403</code> says this identity was refused, not which grant it was
+   missing, so <em>no row access policy grants it</em> and <em>it may not submit jobs in this project</em> look the
+   same here. Both satisfy the leg's assertion and neither is evidence about the policy.
+   <strong>MEASURED, and it is why this is still open:</strong> the
+   acceptance credential is refused <code>bigquery.rowAccessPolicies.create</code>, so a policy cannot be created,
+   replaced or inspected from a developer machine at all - the probe that would have answered this
+   returned <code>Access Denied ... Permission bigquery.rowAccessPolicies.create denied</code>. The policies are the
+   stack's, and this question has no venue but a CI run.</p>
 <h2 id="a-real-enterprise-identity-provider">A real enterprise identity provider<a class="headerlink" href="#a-real-enterprise-identity-provider" title="Permanent link">&para;</a></h2>
 <p>Not built. Its job is the one row above that only it can answer, and keeping it to that row is the point
 of this page.</p>
@@ -2948,9 +3155,12 @@ of this page.</p>
 reached <strong>through the transport</strong> with the caller's own verified token as the <code>subject_token</code>. What has
 never happened is an exchange against a real endpoint, and no answer any deployment has produced was
 evaluated under an asker.</p>
-<p>Two things would make it a venue: a workload-identity pool to exchange against, and two subjects whose
-access at the data system genuinely differs. The second is what makes <em>two subjects read two row sets</em> a
-claim rather than a hope - and until it exists, <code>AGENTS.md</code> keeps the shipped position:</p>
+<p>Two things would make it a venue, and <strong>one of them is now provisioned</strong>: two identities whose access
+at the data system genuinely differs exist, and the two-keys venue above is what they became. What is
+left is the exchange itself - a workload-identity pool to exchange against, and a caller whose own
+verified token is what a broker turns into one of those two identities. So <em>two subjects read two row
+sets</em> is still a claim rather than a hope, and the reason has narrowed from <em>no differing access</em> to <em>no
+subject bound to either grant</em>. Until that exists, <code>AGENTS.md</code> keeps the shipped position:</p>
 <blockquote>
 <p>no source a deployment SERVES executes as the asking subject.</p>
 </blockquote>
