@@ -5,8 +5,18 @@ clone to an answered question.
 
 **This page is the corpus's reference: what is in the directory, why each document is drawn the way
 it is, and what a test holds.** The guided path - install it, ask one question, read the provenance,
-be refused, write your own metric - is [getting started](../../docs/getting-started.md), and every
-command on either page is run by `crates/sutura-cli/tests/documented.rs`.
+be refused, write your own metric - is [getting started](../../docs/getting-started.md).
+
+`crates/sutura-cli/tests/documented.rs` runs every `sutura catalog`, `describe`, `compile` and
+`query` invocation on either page, and holds every refusal block and `-- definitions ` line they
+print as output against the output of the command in the fence above it. **The one command it does
+not run is `sutura mcp` below**, which speaks a protocol on its own pipes; `just mcp-e2e` drives
+that one with a client that answers. That is the whole of the exception, and it is not an honour
+rule: a page printing any other subcommand of this binary fails that suite by name rather than
+being skipped, and the subcommand list it classifies against is read out of the binary itself.
+`just documented` runs it. What it does **not** hold is any output line that is neither a refusal
+block nor a provenance stamp - a listing's rows and a compiled statement are pinned by
+`crates/sutura-cli/tests/example.rs`'s snapshots instead.
 
 ```bash
 cargo run -p sutura-cli -- \
@@ -304,41 +314,52 @@ example and the certified one were two directories that agreed only as long as s
 agreeing. There is now one, and this is it.
 
 ```bash
-cargo test -p sutura-cli --test example      # the narrow claim: the quickstart still answers
-cargo test -p sutura-cli --test documented   # the pages: every command, and every line of output
-cargo test -p sutura-app                     # the wide one: every adapter, every dialect
+just documented   # the pages: every command they print, and every line of output
+just test         # the whole workspace, the other two suites below included
 ```
 
-The first loads the catalog, pins the digest, re-runs every anchor, runs the whole corpus and
-snapshots the generated SQL and whatever came back - rows, a refusal reason, or the error chain
-of the one question that fails. It runs on the one pair the shipped binary composes: the local
-catalog adapter and the engine.
+`crates/sutura-cli/tests/example.rs` loads the catalog, pins the digest, re-runs every anchor, runs
+the whole corpus and snapshots the generated SQL and whatever came back - rows, a refusal reason, or
+the error chain of the one question that fails. It runs on the one pair the shipped binary composes:
+the local catalog adapter and the engine.
 
-The second expands this same corpus over a matrix - every registered catalog adapter, every dialect
-the compiler renders for, every registered data system - and compares the parsed definitions
-against a statement of them written out by hand in Rust, so two readers of these documents cannot
-agree by sharing a bug. Between them: an edit that changes what this example does shows up as a
-snapshot diff to review rather than as a README that used to be true.
+The golden suite under `crates/sutura-app/tests` expands this same corpus over a matrix - every
+registered catalog adapter, every dialect the compiler renders for, every registered data system -
+and compares the parsed definitions against a statement of them written out by hand in Rust, so two
+readers of these documents cannot agree by sharing a bug. Between them: an edit that changes what
+this example does shows up as a snapshot diff to review rather than as a README that used to be
+true.
 
-Two of the first test's assertions are not snapshots and are the reason a case cannot quietly
+Two of `example.rs`'s assertions are not snapshots and are the reason a case cannot quietly
 leave. The `refused-` prefix is read as a convention in both directions, so a refusal question that
 started answering and a plain question that started being refused are each a failure rather than a
 passing corpus. And the measure vocabulary is asserted as five exact sets - shapes, terms, the terms a
 ratio holds, the aggregates, and both meanings of a zero denominator - so this section's table cannot
 claim coverage the catalog has stopped carrying.
 
-The second test file is this page and `docs/getting-started.md`. It reads every `sutura`
-invocation out of both, runs it from a clone's working directory, and requires every line either
-page prints as output - a `refused:` header, a `-- definitions` stamp, a definitions digest - to be
-a line the binary actually printed. It exists because the refusal block in the *Refusals* section
-above had rotted into a `Debug` dump the binary stopped emitting, on the first page a reader is sent
-to. It does not assert a whole captured block: both pages elide and wrap on purpose, and the rows
-are what the first test's snapshots are for.
+`crates/sutura-cli/tests/documented.rs` reads this page and `docs/getting-started.md`. It runs every
+`sutura catalog`, `describe`, `compile` and `query` invocation out of both from a clone's working
+directory, and requires every refusal block and every `-- definitions ` stamp either page prints as
+output to be what the command in the fence above it printed - the whole block, from the `refused:`
+line to the end of its fence, because that is what one refusal is. A definitions digest is held
+wherever it appears in prose, this page and `docs/serving.md` included. It exists because the
+refusal block in the *Refusals* section above had rotted into a `Debug` dump the binary stopped
+emitting, on the first page a reader is sent to.
+
+**Three things it does not hold, next to the claim.** Not a whole captured block: both pages elide
+and wrap on purpose, and the rows are what `example.rs`'s snapshots are for - so an output line that
+is neither a refusal nor a provenance stamp is unheld. Not `sutura mcp`, which is why the exception
+is named at the top of this page. And not an invocation that sets an environment variable in front
+of the command, which it refuses rather than runs, because it strips every `SUTURA*` variable and so
+cannot be the deployment such a line describes.
 
 The served half of this catalog is pinned by `crates/sutura-serve/tests/served.rs` and by the
 in-process harness in `crates/sutura-http/src/harness.rs`: a refusal carries the status its reason
 maps to, with one test per status checking the `code` and that `reason.status` agrees with the
 status line, a missing token is a `401` carrying `code: unauthorized`, a body holding `sql` is a
 `400` naming the field, `/health` is those fifteen bytes exactly, and the interface description is
-served in development and not in production. What nothing pins is the JSON *formatting* of a
-response or the `detail` sentences beside the codes.
+served in development and not in production. That harness reaches ten reasons, not all seventeen -
+the exhaustive table is `crates/sutura-http/src/wire/refusal.rs`, where every variant's status and
+`code` are listed and the match assigning them has no wildcard arm, so a new refusal fails to
+compile until somebody decides. What nothing pins is the JSON *formatting* of a response or the
+`detail` sentences beside the codes.

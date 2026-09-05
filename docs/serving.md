@@ -915,7 +915,10 @@ verified and every forgery refused alike, and a published key set this deploymen
 stopping the process - `just serve-e2e` runs it. `crates/sutura-http/src/harness.rs` asserts the
 envelope one status at a time, in process and with no socket: the token gate, `sql` in a body as a
 `400` naming the field, the bounds, the rate-limit tiers, and the interface description served in
-development and not in production.
+development and not in production. It reaches ten of the seventeen refusal reasons; the exhaustive
+one is `crates/sutura-http/src/wire/refusal.rs`, which lists every variant's status and `code` and
+assigns them in a match with no wildcard arm, so a new refusal is a compile error until somebody
+decides what it is on the wire.
 
 **What neither asserts, next to the claim:** the startup banner's own wording. `announce_identity`
 in `crates/sutura-runtime/src/banner.rs` emits the `NO PER-CALLER IDENTITY` sentence from the

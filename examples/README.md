@@ -10,9 +10,13 @@ They are examples and tests at the same time, and that is the point rather than 
 convenience. `crates/sutura-cli/tests/example.rs` loads the `single-player/` catalog, pins its
 digest, re-executes every declared anchor and runs every question, so a quickstart that
 stopped working fails the build instead of failing the next person who tried it.
-`crates/sutura-cli/tests/documented.rs` closes the other half: it runs every `sutura` invocation
-these pages PRINT, and requires every line they print as output to be a line the binary printed.
-There is no separate copy of the commands below for CI to run.
+`crates/sutura-cli/tests/documented.rs` closes the other half over the two pages that print
+commands - `docs/getting-started.md` and `single-player/README.md`, not this one: it runs every
+`sutura catalog`, `describe`, `compile` and `query` invocation they PRINT, and requires every
+refusal block and provenance stamp they print as output to be what the command in the fence above it
+printed. `just documented` runs it. Its exception is `sutura mcp`, which `just mcp-e2e` drives
+instead, and a page printing any other subcommand of that binary fails it by name rather than being
+skipped. There is no separate copy of the commands below for CI to run.
 
 ## The two directories
 
@@ -80,8 +84,17 @@ The single-player catalog is also an input to `sutura-serve`, the second binary,
 surface has a threat model the command line does not: a token is required beyond loopback and
 it authenticates the deployment rather than the caller, a refusal carries an error status AND a
 machine-readable `code` AND a sentence, and the service refuses to start in a posture nobody chose.
-`docs/serving.md` is the configuration reference for all of that, and
-`crates/sutura-serve/tests/served.rs` is the same claims as a suite run against this directory -
-the token gate, the refusal statuses and the startup refusals, on a kernel-chosen port. A captured
-session in `single-player/README.md` used to stand in for both and is gone: it restated the
-reference and nothing held it true.
+`docs/serving.md` is the configuration reference for all of that, and two suites hold the halves of
+it. `crates/sutura-serve/tests/served.rs` runs **against this directory** on a kernel-chosen port:
+the token gate, a certified answer, a refusal arriving as its documented status, the catalog route,
+a caller's own token against every forgery, and a published key set this deployment cannot use
+stopping the process - `just serve-e2e` runs it. The **configuration** refusals are
+`crates/sutura-config/src/settings/tests.rs`, over `Settings::load` rather than over a port: a
+non-loopback bind with no TLS termination declared, a production deployment with no token, a source
+configured with no `security.identity`, and a misspelled key are each a case there.
+
+**What nothing covers, next to the claim.** Those four are asserted over the settings type, not over
+the composed binary - nothing asserts that `sutura-serve` itself exits `1` and never binds for any
+of them, and nothing asserts the `not fit to serve` message at all. `docs/serving.md` says the same
+of the startup banner's wording. A captured session in `single-player/README.md` used to stand in
+for all of it and is gone: it restated the reference and nothing held it true.
