@@ -743,6 +743,22 @@ doctor:
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
+# The Postgres tier, by hand: `just postgres-tier start|stop|status`.
+#
+# The same shape as `just keycloak-tier` and it exists for the same reason: a remedy that names the
+# venue for a missing service has to name a task a reader can type, and `nix/postgres-tier.nix` had
+# none - so `sutura_dev::provisioned` cited `just test` for every nix-native tier, which provisions
+# THIS one and no other. See that module; the correspondence is held by its recipe scan.
+#
+# NOT a step before committing. `just test` brings the tier up through `nix/with-tier.sh` and tears
+# down only what it started, so a tier started here survives a suite run - which is what makes the
+# remedy's second line (`just dev-endpoint postgres`) true afterwards.
+#
+# Straight to the script rather than through `nix run`: it is in the dev shell already, which is
+# where `nix/with-tier.sh` looks for it. `checks.nextest` runs the same one from the same file.
+postgres-tier *args:
+    sutura-postgres-tier {{ args }}
+
 # ------------------------------------------------------- the compose tier ---
 #
 # One independent service instance per worktree, provisioned through xtask rather than through the
