@@ -677,7 +677,39 @@ pub const fn tools(&self) -> &'a [Tool]
 
 `Clone`, `Copy`, `Debug`
 
-### `fn guidance`
+### `fn render`
+
+```rust
+pub fn render(pinned: &sutura_domain::pinned::PinnedDefinitions, inputs: &PromptInputs<'_>) -> String
+```
+
+The whole prompt, as markdown.
+
+Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `BTreeSet`, and
+the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
+what lets the rendering be pinned by a snapshot rather than described.
+
+### `use None`
+
+### Module `refusal`
+
+Everything about a refusal, in one file.
+
+The table, the total match that will not compile when the domain gains a variant, the accessor a
+composition root prints from, and the section the prompt renders.
+
+**Its own module because `prompt.rs` was two lines under the thousand-line limit
+`cargo xtask max-lines` enforces and cannot exempt**, at the cut `knowledge.rs` already made
+once, and the seam is not the line count: this is the one place `RefusalReason` is read. Nothing
+else in the prompt looks at a governance decision at all - the rest of the document is derived
+from the tool list and the pinned bundle - so the file that holds the refusal wording is the file
+that holds every reader of that enum, and a variant added to the domain lands here and nowhere
+else.
+
+Why the wording is strong, why an operator cannot replace it, and why a refusal lives inside the
+`Ok` at all are argued in `prompt.rs`'s own header.
+
+#### `fn guidance`
 
 ```rust
 pub const fn guidance(reason: &sutura_domain::query::RefusalReason) -> (&'static str, &'static str)
@@ -695,18 +727,6 @@ table rather than a third table.
 `&'static str` because `GUIDES` owns the wording: nothing here composes a message and nothing
 here reads the refusal's own fields. A caller that wants those still has the `RefusalReason` it
 passed in.
-
-### `fn render`
-
-```rust
-pub fn render(pinned: &sutura_domain::pinned::PinnedDefinitions, inputs: &PromptInputs<'_>) -> String
-```
-
-The whole prompt, as markdown.
-
-Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `BTreeSet`, and
-the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
-what lets the rendering be pinned by a snapshot rather than described.
 
 ## Module `untrusted`
 
