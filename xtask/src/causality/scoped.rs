@@ -307,8 +307,15 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// was driven through `Scan::of` over a wrapped `async fn` with a return type, and it named the
 /// function - but a test pinning behaviour this branch did not change passes against base too, which
 /// `AGENTS.md` calls worse than none because it looks like coverage. The gate said so out loud when
-/// one was tried here: *FAILED - green against base behaviour*. It belongs in a tests-only change,
-/// where *tests changed but no implementation did* is an honest verdict over it.
+/// one was tried here: *FAILED - green against base behaviour*.
+///
+/// **`github.com/telekom/sutura#347` owns it**, because a promised follow-up with no issue is the
+/// same shape of claim this module is about. Two honest shapes for it, and the issue carries both:
+/// a **tests-only change**, where *tests changed but no implementation did* is an honest verdict
+/// over a test for existing behaviour; or the test module of a file that ALSO carries an
+/// implementation change - [`Scan::of`] is `pub(crate)`, so the assertion can live there, `plan`
+/// holds such a file back, and the test then appears under `not measured:` in the verdict rather
+/// than becoming the verdict.
 fn function_name(line: &str) -> Option<Ident> {
     let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)

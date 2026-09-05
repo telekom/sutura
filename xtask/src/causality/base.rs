@@ -270,6 +270,12 @@ fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
 /// `retried` only changes what the operator is told: after a second attempt, "not separable at
 /// file level" is no longer the likely explanation, because the tree WAS coherently at base.
 ///
+/// **NO ARM HERE CITES ANOTHER ARM'S OUTPUT.** The retry branch used to say *the remedy is the same
+/// as for the harness move below*, and the harness-move paragraph is the `else if` this branch
+/// excludes - so the reader was pointed at lines that run never printed. It restates the remedy
+/// instead, which costs two lines and contains no fact no code produced. This module's whole subject
+/// is printed claims, so it is the last place to keep one.
+///
 /// The coverage sentence rides on the PASSING verdict specifically: that is the line a handoff
 /// cites, and it read as a statement about the change while the run covered a subset of the tests
 /// the branch added. [`earned`] decides which wording each outcome may print; `prove`'s own arms
@@ -340,9 +346,9 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, co
                 println!("build failure is in the changed tests themselves - they reference");
                 println!("something this branch introduced, which is usually a public signature");
                 println!("this change altered: a test file kept at HEAD cannot compile against the");
-                println!("base implementation. Nothing is wrong with the change and the remedy is");
-                println!("the same as for the harness move below - scope this gate PER COMMIT");
-                println!("against the commit before the signature change, or prove by MUTATION.");
+                println!("base implementation. Nothing is wrong with the change. Scope this gate");
+                println!("PER COMMIT against the commit before the signature change, or prove by");
+                println!("MUTATION.");
             } else if missing_module_file(output) {
                 println!("A `mod` here points at a file the base tree does not have, which is the");
                 println!("HARNESS MOVE shape and the EXPECTED answer to it: a file with no");

@@ -577,13 +577,21 @@ private to `causality::base` - so `base::earned` is the only place that can mint
 spell a non-zero measured numerator without a compile error; that it prints no measured sentence at
 all is a unit test. #331's body had to say in prose which numerator was which; there is one to say.
 
-**Which verdicts pass:** *red on base* and, without proving anything, "not separable" and "every
-added test is `#[ignore]`d" - the last two ask for evidence instead: the command you ran, the failure
-before, the pass after. **The two INCONCLUSIVE answers are neither** - "the base tree does not build"
-and "the base run named no failure" exit **3** since #307, which is not 0 and not 1: see the paragraph
-at the end of this section for what each venue does with it. Everything else fails, and the three
-that fail are the three where the gate has no answer rather than a bad one: green against base, red
-outside the diff, and the added tests not running at all.
+**Which verdicts pass.** One of them proved something: *ok - red on base, green on head*. **Five more
+pass having run NEITHER run** - `no changed tests`, *tests changed but no implementation did*,
+`EVERY ADDED TEST IS #[ignore]d`, `NO BASE BEHAVIOUR TO COMPARE AGAINST` and
+`NOT MECHANICALLY SEPARABLE` - and every one of them asks for evidence instead: the command you ran,
+the failure before, the pass after. Four of the five carry `0 of M` beside the prose; the paragraph
+on those five further down has the accounting and says which one prints no number. This list named
+two of the five, so an author whose verdict was *tests changed but no implementation did* did not
+find it and read that everything else fails. **The two INCONCLUSIVE answers are neither pass nor
+fail** - "the base tree does not build" and "the base run named no failure" exit **3** since #307,
+which is not 0 and not 1: see the paragraph at the end of this section for what each venue does with
+it. **Everything else fails**, on two sides. The base run produced an answer that is not evidence
+about the change: green against base, red outside the diff, or the added tests not running at all.
+Or the scan refused before either run: no added line named a test, a test attribute it could not read
+a NAME from, a declaration putting a module of tests this diff does not contain into the build, or a
+HEAD run that was not green.
 
 **Reconstructing that evidence for "not separable": restore the base's OUTPUT, not its code.** The
 obvious move - paste the base file's implementation half under the head file's tests - does not
