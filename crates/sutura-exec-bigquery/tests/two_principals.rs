@@ -106,9 +106,10 @@ mod tests {
     };
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::{ParamValue, RowSet, Value, Warehouse as _};
+    use sutura_exec_bigquery::BigQueryError;
     use sutura_exec_bigquery::transport::DatasetId;
     use sutura_exec_bigquery::wire::credential::{AccessTokens as _, Credential, CredentialFile};
-    use sutura_exec_bigquery::wire::{CallDeadline, WireAgent};
+    use sutura_exec_bigquery::wire::{CallDeadline, WireAgent, WireError};
 
     use crate::support::{Connection, Wired, bounds, named, opened, opened_as, presented};
 
@@ -469,24 +470,74 @@ mod tests {
         let principals = fixture.principals;
         let warehouse = opened(source(), fixture.connection, bounds());
 
-        let Ok(rows) = warehouse
-            .execute(Executable::Query(&plan), &presented())
-            .inspect_err(|refused| {
-                println!("bigquery-two-principals: the deployment's own identity was refused - {refused}");
-            })
-        else {
-            return;
+        let refused = match warehouse.execute(Executable::Query(&plan), &presented()) {
+            Ok(rows) => {
+                let saw = grants_in("the deployment's own identity", &rows);
+                println!(
+                    "bigquery-two-principals: the deployment's own identity read {} grant(s)",
+                    saw.len()
+                );
+                assert!(
+                    !saw.contains(&principals.a.grants) && !saw.contains(&principals.b.grants),
+                    "the deployment's own identity read a principal's rows, so the rows the cell \
+                     attributes to a presented bearer are the transport's"
+                );
+                return;
+            }
+            Err(refused) => refused,
         };
-        let saw = grants_in("the deployment's own identity", &rows);
-        println!(
-            "bigquery-two-principals: the deployment's own identity read {} grant(s)",
-            saw.len()
-        );
-        assert!(
-            !saw.contains(&principals.a.grants) && !saw.contains(&principals.b.grants),
-            "the deployment's own identity read a principal's rows, so the rows the cell \
-             attributes to a presented bearer are the transport's"
-        );
+
+        // **The accepted set is TWO outcomes, and this match is what holds it to two.** A review
+        // finding, and the sharpest case is not a permission failure: `UnmappedType`,
+        // `NotAnInteger` and their siblings mean the endpoint ANSWERED and rows came back, so a
+        // `let Ok(..) else { return }` here reported *this identity was refused* over a deployment
+        // that had just read the table - the exact coincidence this leg exists to exclude, printed
+        // as the control that excludes it. Exhaustive rather than a wildcard, in
+        // `crate::wire::tables::was_refused`'s shape and for its reason: a new `BigQueryError`
+        // variant is a compile error at this line instead of a new way to pass.
+        //
+        // Only a `403` that is not a rate or quota limit is accepted, on that function's own
+        // argument - `BigQuery` documents six reasons at that status and two of them are not a
+        // grant. **`401` is deliberately NOT accepted:** it means the deployment's credential could
+        // not authenticate at all, which leaves this control unable to distinguish anything while
+        // reading as though it had, because the subject legs never touch that credential.
+        //
+        // **The limit, next to the claim:** a `403` says the endpoint refused THIS identity and not
+        // which grant it was missing, so *no row access policy grants it* and *it may not submit
+        // jobs in this project* are indistinguishable here. Both satisfy the leg's own assertion -
+        // it read neither principal's rows - and neither is evidence about the policy. The first
+        // green run is what narrows exclusion 5 on the venue page to one sentence.
+        match &refused {
+            BigQueryError::Endpoint {
+                cause: WireError::Refused { status, named, .. },
+            } if *status == 403 && !matches!(named.as_str(), "rateLimitExceeded" | "quotaExceeded") => {
+                println!("bigquery-two-principals: the deployment's own identity was refused - {status}: {named}");
+            }
+            BigQueryError::UnmappedType { .. }
+            | BigQueryError::NotAnInteger { .. }
+            | BigQueryError::NotADouble { .. }
+            | BigQueryError::NotABool { .. }
+            | BigQueryError::NotFinite { .. }
+            | BigQueryError::NotADate { .. }
+            | BigQueryError::RowWidth { .. }
+            | BigQueryError::Incomplete { .. }
+            | BigQueryError::Shape { .. } => panic!(
+                "the endpoint answered and rows came back, so the deployment's own identity DID read the \
+                 policied table - a cell this adapter could not map is not a refusal, and accepting it \
+                 would report the control as passing over rows nothing looked at: {refused}"
+            ),
+            BigQueryError::Endpoint { .. } => panic!(
+                "the endpoint did not answer, which is not this identity being refused - one timeout here \
+                 leaves the cell with no control at all while both subject legs pass: {refused}"
+            ),
+            BigQueryError::Render { .. }
+            | BigQueryError::LegWithoutCombiner { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::PresentedDisagreesWithPosture { .. } => panic!(
+                "nothing reached a socket: this is a defect in this file - the plan, the posture or the \
+                 credential shape - and not an answer about the row grant: {refused}"
+            ),
+        }
     }
 
     #[test]

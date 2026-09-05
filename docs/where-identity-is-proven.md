@@ -17,10 +17,16 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 
     **`unrun` is a token and not a caveat, and the difference is the point.** A written test is not
     a green run, so a venue in that state may not be cited - and `cargo xtask check-venues` holds
-    it: only `yes` and `can` count as answering, an `unrun` cell is refused for a venue nothing
-    reaches, and the venue's own section has to use that word. It exists because the two-keys venue
-    below is at the wrong end of it today and saying so in prose put the difference where nothing
-    read it.
+    four things: only `yes` and `can` count as answering, an `unrun` cell is refused for a venue
+    nothing reaches, the venue's own section has to use that word, and **a venue whose `Reached by`
+    task CI invokes may not say `unrun` at all**. It exists because the two-keys venue below is at
+    the wrong end of it today and saying so in prose put the difference where nothing read it.
+
+    **What that fourth rule does not reach, said next to it:** it reads an *invocation* in a
+    workflow, a local composite action or the shared `nix/` shell - not a green run. A wired job
+    that always skips reddens the cell too, and a run somebody did by hand is invisible to it. So
+    *`unrun` has stopped being honest* is mechanical; *`yes` is earned* is review's, with the run
+    named beside it.
 
 ## The venues
 
@@ -233,7 +239,7 @@ identity* - and nothing whatever about per-subject execution.
 
 `just bigquery-two-principals`, against the same environment's project and a **different dataset**: the
 one whose table carries a `RowAccessPolicy` per principal, granting each of two service accounts a
-disjoint set of rows. `docs/adr/0017`'s seventh amendment is the record, and issue #123 is the cell.
+disjoint set of rows. `docs/adr/0017`'s eighth amendment is the record, and issue #123 is the cell.
 
 ### What only this venue can answer
 
@@ -271,11 +277,20 @@ rows differ only by arithmetic.
 1. **That the row this venue answers has been answered.** *Nothing has run it*, which the matrix says
    in one word: **`unrun`**, not `yes` and not `can`. The five values the leg must be pointed at - the
    policied dataset and table, the grouping column, and the value each policy grants - are not in the
-   environment that holds the two keys. **The change that carries the first green run is the change
-   that moves that cell to `yes`**, and `cargo xtask check-venues` is what makes that a diff rather
-   than a promise: it refuses `unrun` from a venue nothing reaches, and refuses an `unrun` cell whose
-   venue's section does not use the word. Until then this venue is a capability with a written test
-   and no evidence.
+   environment that holds the two keys. **The change that wires the job into CI is the change that
+   cannot leave this cell saying `unrun`**, and `cargo xtask check-venues` is what makes that a diff
+   rather than a promise: it resolves `just bigquery-two-principals` against every task and app the
+   workflows, the local composite actions and the shared `nix/` shell invoke, and refuses this cell
+   the moment one of them reaches it. It also refuses `unrun` from a venue nothing reaches, and an
+   `unrun` cell whose section does not use the word. Until then this venue is a capability with a
+   written test and no evidence.
+
+   **The limit, and it is the half worth reading:** what the gate resolves is an *invocation*, not a
+   green run. It cannot see a run's result - the authority for that is the GitHub API, which is
+   unreachable from the sandbox the gate runs in - so a job that always skips reddens this cell just
+   the same, and a hand-run does not redden it at all. Moving the cell to **`yes`** is therefore
+   review's judgement with the run named beside it; what is mechanical is that leaving it at `unrun`
+   once CI reaches it is no longer possible.
 2. **Whether a deployment can OBTAIN such a credential for the caller who asked.** Each bearer here is
    minted from a service-account key *on disk*, through the crate's own `Credential`, so what a green run
    establishes is that a source executes as the principal whose credential a leg carried. Nobody asked
@@ -293,7 +308,15 @@ rows differ only by arithmetic.
 5. **What the endpoint answers a principal no policy grants**, which decides how strong the control leg
    is. Documented behaviour is no rows; the observable alternative is a refusal. Both are *not reading
    either principal's rows*, so the control accepts either and prints which it got - and the first green
-   run is what narrows this to one sentence. **MEASURED, and it is why this is still open:** the
+   run is what narrows this to one sentence. **The accepted set is exactly those two, held by an
+   exhaustive match rather than by a wildcard:** review found the leg accepting every error the
+   adapter has, including the ones that mean *rows came back and one cell would not map* - so a
+   deployment that had just read the policied table was reported as having been refused, and the
+   control passed without looking. A new error variant is now a compile error at that line. **What a
+   refusal still cannot tell apart:** a `403` says this identity was refused, not which grant it was
+   missing, so *no row access policy grants it* and *it may not submit jobs in this project* look the
+   same here. Both satisfy the leg's assertion and neither is evidence about the policy.
+   **MEASURED, and it is why this is still open:** the
    acceptance credential is refused `bigquery.rowAccessPolicies.create`, so a policy cannot be created,
    replaced or inspected from a developer machine at all - the probe that would have answered this
    returned `Access Denied ... Permission bigquery.rowAccessPolicies.create denied`. The policies are the

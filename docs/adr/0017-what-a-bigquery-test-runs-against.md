@@ -1250,6 +1250,20 @@ behaviour is no rows, the observable alternative is a refusal, and both are *not
 principal's rows*. The first green run narrows it to one sentence; until then the test says so at the
 assertion rather than guessing.
 
+**Two outcomes is what the sentence said and fourteen is what the code accepted**, which review
+found. `let Ok(rows) = ... else { return; }` took every `BigQueryError` variant as evidence of a
+refusal - and the sharpest of them are not refusals at all: `UnmappedType`, `NotAnInteger` and their
+siblings mean the endpoint answered and rows came back, so a deployment that had just read the
+policied table printed *the deployment's own identity was refused* and passed the control without
+looking at what it read. `Render` and `PresentedDisagreesWithPosture` are defects in the test file
+and were green; one `Endpoint` timeout left the cell with no control while both subject legs passed.
+It is an exhaustive `match` now, in `wire::tables::was_refused`'s shape and for its reason - a new
+variant is a compile error at that line rather than a new way to pass - accepting only a `403` that
+is not `rateLimitExceeded`/`quotaExceeded`. **`401` is deliberately refused too:** a credential that
+cannot authenticate leaves the control unable to distinguish anything while reading as though it
+had. The limit that survives is on the page beside the claim: a `403` does not say WHICH grant was
+missing, so a missing row grant and a missing `bigquery.jobUser` are indistinguishable here.
+
 ### The measurement that closed a question the wrong way
 
 The three behaviours the cell rests on were probed from a developer machine against the acceptance
@@ -1261,7 +1275,18 @@ all. Two consequences, and both are limits rather than defects:
 
 - **whether `INSERT` works on a table that HAS row access policies was not measured**, because no
   policy could be created to try it against. The seeding decision above makes it the stack's problem
-  rather than this leg's, which is the direction that does not depend on the answer;
+  rather than the test leg's - but **it does not close the question, and an earlier wording of this
+  bullet read as though it had.** Review found the three resources unordered: the seed job and the
+  two policies each depended on the table alone and the policies were bound to no name, so pulumi
+  created all three concurrently and which path `up` took was the scheduler's choice. The ordering
+  is declared now - the job first, both policies `depends_on` it, and the principals' read grant
+  waits for both policies so a fresh `up` never leaves a principal able to read an unpolicied table.
+  **What remains, stated rather than moved:** the policies persist, so from the second apply onwards
+  a changed grouping value re-digests the job against a table that already carries them, and the
+  `INSERT` runs on a policied table deterministically. `just infra-up` after a config change is the
+  first place anyone can observe it. **Whoever gets there: record the answer here.** If it is
+  refused, `up` fails on the resource the whole fixture depends on; if it is accepted but filtered,
+  the cell reports *principal A read no rows at all* and points two steps from the cause;
 - **the policied dataset is not listable from a developer machine either**, so the cell's own
   configuration cannot be discovered locally and no local run of it is possible. That is why the
   venue page says the claim is not answered yet rather than that the run failed.
@@ -1278,19 +1303,50 @@ all. Two consequences, and both are limits rather than defects:
    separate: wiring a job to five variables that do not exist yet turns the `bigquery-acceptance` job
    red on every push until somebody sets them, and a job that is red for a configuration reason is a
    job people learn to ignore. The order is the environment first, the job second.
-   `.github/workflows/ci.yml` is also over the 1000-line cap that
-   [#285](https://github.com/telekom/sutura/issues/285) is about, so that change carries the cap
-   decision, and `devco/max-lines-ignore` records that **that change is what put the file over** -
-   987 lines to 1042 - rather than implying it was already there.
 
-### Three things review of the cell found, recorded because each was a claim rather than a bug
+   **The cap decision belongs to that change and not to this one**, which an earlier wording of this
+   item had in the present tense. Measured with `wc -l`: `.github/workflows/ci.yml` is **999** lines
+   on `main` and at this record's own head - at the 1000-line cap
+   [#285](https://github.com/telekom/sutura/issues/285) is about, not over it, and this change
+   touches no workflow. Adding the job's step is what would put it over, so whichever change does
+   that carries the cap decision and records its own measured pair in `devco/max-lines-ignore`; this
+   tree carries no `[warn]` entry. **And that decision may evaporate:**
+   [#289](https://github.com/telekom/sutura/pull/289) takes `ci.yml` to 856 lines, so if it lands
+   first there is no cap to decide and the `[warn]` entry should not be added at all - or should come
+   out if it already was. That file is for generated and vendored output; a hand-written workflow in
+   it is a promise to split, and a promise nobody needs is worse than none.
+
+### What review of the cell found, recorded because each was a claim rather than a bug
+
+Two rounds, and no count in this heading on purpose - it was *three* and then it was not. The second
+round's other findings are recorded where they belong rather than listed again here: the control leg
+accepting fourteen error variants is under *Three decisions* above, the seed job and the two policies
+being unordered is under *The measurement that closed a question the wrong way*, and four citations
+pointing at the seventh amendment when this one is the eighth were simply wrong and are corrected.
 
 **A verdict was carrying two states.** The venue page's `can` meant *the venue is capable and the
 standing test lives somewhere else*, and this cell needed *the standing test lives here and nothing
 has run it*. Those are not the same and only the first is evidence, so `cargo xtask check-venues`
 grew a sixth verdict - `unrun` - which it refuses from a venue nothing reaches and which the venue's
-own section has to use in that word. Before it, *the change that carries the first green run moves
-that cell* was a sentence nothing read.
+own section has to use in that word.
+
+**And the first version of those rules held a spelling rather than the transition, which review of
+this cell found.** All three read the page: nothing read whether a run had happened, so the sentence
+*the change that carries the first green run moves that cell* was still a sentence nothing read -
+which is what it had just been criticised for being. The closure is a fourth rule with a mechanism:
+the venue's `Reached by` task is resolved against every `just <task>` and `nix run .#<app>` the
+workflows, the local composite actions and the shared `nix/` shell invoke - one walk, shared with
+`check-workflows`, because a step moving out of a workflow is the recorded way a reference leaves a
+gate's sight - and an `unrun` cell whose venue is among them is refused. Measured by wiring
+`nix run .#bigquery-two-principals` into `ci.yml` and re-running the gate: it fails naming this
+venue, and passes again with the line removed.
+
+**The rule is one-sided, and the side it does not hold is stated on the page beside the claim.** An
+invocation is not a green run: a wired job that always skips reddens the cell, and a hand-run is
+invisible to it. The authority for *did this pass* is the GitHub API, unreachable from
+`checks.hygiene` for the same reason `nix eval` is unreachable from `check-workflows`. So moving the
+cell to `yes` stays review's, with the run named beside it; what stopped being possible is leaving
+it at `unrun` while a job runs it.
 
 **One assertion in the cell could not fail.** With each answer asserted to be exactly its own
 principal's grouping value, and the fixture control already refusing a pair whose values are equal,

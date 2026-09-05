@@ -814,7 +814,7 @@
               --run-ignored only -E 'not binary(two_principals)' "$@"
           '');
         };
-        # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s seventh
+        # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth
         # amendment and issue #123.
         #
         # Its own app for the reason the filter above gives, and everything the app beside it says

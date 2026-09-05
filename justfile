@@ -699,7 +699,7 @@ bigquery-acceptance:
     echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'not binary(two_principals)'
 
-# The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s seventh
+# The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
 # amendment and issue #123.
 #
 # **Its own task rather than a third leg above, and the reason is a developer's.** It needs five

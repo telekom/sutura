@@ -528,7 +528,7 @@ bullets down:
   on #221's own branch on 2026-09-02 and again on `main` at the commit that merged it on 2026-09-03 -
   and it keeps running there, because `--run-ignored only` reaches every `#[ignore]`d test in the
   targets that app runs rather than a set somebody has to remember to extend. **Narrowed by
-  `docs/adr/0017`'s seventh amendment**: the two-principal cell is a third target with its own app,
+  `docs/adr/0017`'s eighth amendment**: the two-principal cell is a third target with its own app,
   and this one filters that BINARY out - so the property survives per target and *every ignored test
   in the crate* stopped being the right sentence. An earlier version of this sentence
   also placed it in that run's test list by ORDINAL, and the ordinal was wrong: it is deleted rather
