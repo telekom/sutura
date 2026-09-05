@@ -55,10 +55,23 @@ proof of impersonation.
 - **`Expiry` used to be read by nothing; the FLOOR now lands it in the broker.** The domain reads no
   clock - `Expiry::passed_by` takes the instant as an argument and `Minted::agreeing_with` makes the
   already-dead check there. The FLOOR (`docs/adr/0008` part 6) - *is there enough life left for what
-  this query may take* - lives in the broker adapter, which is the component with both a clock and
-  the configured query timeout: `WorkloadIdentityBroker::with_floor` refuses an exchanged credential
-  already inside the floor rather than presenting it. The `sutura-serve` composition wires the floor
-  from `server.request_timeout_seconds`.
+  this query may take* - lives in the broker adapter, the component that has the configured query
+  timeout: `WorkloadIdentityBroker::with_floor` refuses an exchanged credential already inside the
+  floor rather than presenting it. The `sutura-serve` composition wires the floor from
+  `server.request_timeout_seconds`.
+- **The broker's clock is a port, not an ambient read**, and the reason is a measured one: while it
+  was `SystemTime::now()` inside `mint`, the broker suite minted a fixed 2027 expiry against the
+  live clock and was therefore *scheduled* to go red in early 2027 - a failure nobody would have
+  been looking for. `UnixClock` makes the instant an input (`SystemClock` ships, `measured_against`
+  is how a test names one), so the floor's decision is asserted at instants decades out. Two of its
+  three arms are that a mint *does not ask the time*: a purely shared mint and a zero floor. Those
+  are held by a clock that always fails, plus a third test firing the same clock through a floor
+  that can, so the pair cannot pass vacuously.
+- **A `floor_seconds` of zero is the floor DISABLED, not a floor of zero seconds.** Nothing is
+  refused by the adapter - not even an already-past expiry, which is left to the domain's
+  `Expiry::passed_by` at the leg. `clears_floor` holds that meaning, so the pure function and
+  `empty()`'s contract cannot disagree; a served deployment always has a positive floor, because it
+  comes from the request timeout.
 - **The caller's assertion is carried, and whether it is read depends on the broker.** `RequestContext`
   holds it as an `Option<Secret>`; `WorkloadIdentityBroker` exchanges it (a subject with none at an
   impersonating source is refused as `credential_unavailable`), while `StaticCredentialBroker` never

@@ -393,8 +393,8 @@ const fn clears_floor(not_after: Expiry, now_unix_seconds: u64, floor_seconds: u
 #[cfg(test)]
 mod tests {
     use sutura_domain::identity::{
-        Agreed, CredentialBroker as _, CredentialsDoNotFitTheRequest, Expiry, Minted, Presented, PrincipalChain,
-        RequestContext, Secret, SourceSet, Subject, SubjectId,
+        Agreed, CredentialBroker as _, CredentialsDoNotFitTheRequest, Expiry, Minted, Presented, PrincipalChain, RequestContext,
+        Secret, SourceSet, Subject, SubjectId,
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
@@ -411,8 +411,12 @@ mod tests {
     const A_FIXED_NOW: u64 = 4_000_000_000;
 
     /// How long the deployment says an answer may take, as a floor. Positive, so the floor CAN fire
-    /// and every test below actually consults the clock rather than skipping past it.
+    /// and a test using it actually consults the clock rather than skipping past it.
     const A_QUERY_BUDGET: u64 = 30;
+
+    /// A floor of zero, named for what zero MEANS: the floor DISABLED, not a floor of zero seconds.
+    /// It is `empty()`'s default, spelled out at each call site that turns on what it means.
+    const FLOOR_DISABLED: u64 = 0;
 
     /// A clock frozen at one instant - what the [`UnixClock`] port exists for.
     struct Frozen(u64);
@@ -507,12 +511,18 @@ mod tests {
         }
     }
 
-    /// One impersonating source, on a frozen clock and a positive floor - the served shape, minus
+    /// One impersonating source, on the floor and the clock a test names - the served shape, minus
     /// the network and the wall clock.
-    fn broker_over(exchange: FakeExchange, now: u64) -> WorkloadIdentityBroker<FakeExchange, Frozen> {
+    ///
+    /// Both are parameters because both are what the cases below differ by, and neither has a
+    /// sensible default in a suite whose whole point is that the instant is chosen.
+    fn impersonating_warehouse<C>(exchange: FakeExchange, floor_seconds: u64, clock: C) -> WorkloadIdentityBroker<FakeExchange, C>
+    where
+        C: UnixClock,
+    {
         WorkloadIdentityBroker::empty(exchange)
-            .with_floor(A_QUERY_BUDGET)
-            .measured_against(Frozen(now))
+            .with_floor(floor_seconds)
+            .measured_against(clock)
             .impersonating(
                 source("warehouse"),
                 WorkloadIdentity::of(
@@ -546,7 +556,7 @@ mod tests {
         // **Run at an instant seventy years past the date the old shape was scheduled to fail on**,
         // over a DATED credential and a positive floor, so the floor is genuinely consulted here
         // rather than made inert by a credential with no deadline.
-        let broker = broker_over(FakeExchange::minting_one_lasting(3_600), A_FIXED_NOW);
+        let broker = impersonating_warehouse(FakeExchange::minting_one_lasting(3_600), A_QUERY_BUDGET, Frozen(A_FIXED_NOW));
         let minted = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect("the exchange does not fail");
@@ -565,7 +575,11 @@ mod tests {
 
     #[test]
     fn an_impersonating_source_with_no_asker_token_is_refused_not_answered_as_the_process() {
-        let broker = broker_over(FakeExchange::minting_a_static_credential(), A_FIXED_NOW);
+        let broker = impersonating_warehouse(
+            FakeExchange::minting_a_static_credential(),
+            A_QUERY_BUDGET,
+            Frozen(A_FIXED_NOW),
+        );
         let minted = broker
             .mint(&caller(None), &SourceSet::of(source("warehouse")))
             .expect("a refusal is an Ok");
@@ -582,7 +596,7 @@ mod tests {
         // **The acceptance criterion, at the broker boundary.** Two askers, two tokens, two distinct
         // exchanged credentials - which is exactly what lets a dataset with row-level security read a
         // different row set for each. Also at [`A_FIXED_NOW`], for the same reason as above.
-        let broker = broker_over(FakeExchange::minting_one_lasting(3_600), A_FIXED_NOW);
+        let broker = impersonating_warehouse(FakeExchange::minting_one_lasting(3_600), A_QUERY_BUDGET, Frozen(A_FIXED_NOW));
         let ask = |token: &str| -> String {
             let minted = broker
                 .mint(&caller(Some(token)), &SourceSet::of(source("warehouse")))
@@ -630,7 +644,11 @@ mod tests {
         // short of the query budget is refused naming the source, rather than presented and left to
         // fail at the source mid-query. Deterministic because both the deadline and the instant it
         // is compared against come from this test.
-        let broker = broker_over(FakeExchange::minting_one_lasting(A_QUERY_BUDGET - 1), A_FIXED_NOW);
+        let broker = impersonating_warehouse(
+            FakeExchange::minting_one_lasting(A_QUERY_BUDGET - 1),
+            A_QUERY_BUDGET,
+            Frozen(A_FIXED_NOW),
+        );
         let minted = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect("a refusal is an Ok");
@@ -640,7 +658,11 @@ mod tests {
     #[test]
     fn a_positive_floor_grants_a_credential_that_clears_it_exactly() {
         // The other side of that boundary: exactly the budget left is enough.
-        let broker = broker_over(FakeExchange::minting_one_lasting(A_QUERY_BUDGET), A_FIXED_NOW);
+        let broker = impersonating_warehouse(
+            FakeExchange::minting_one_lasting(A_QUERY_BUDGET),
+            A_QUERY_BUDGET,
+            Frozen(A_FIXED_NOW),
+        );
         let minted = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect("the exchange does not fail");
@@ -652,12 +674,11 @@ mod tests {
         // **The `empty()` contract, and both halves of it.** With the floor disabled the adapter
         // grants an already-dead credential - and the domain then refuses it at `agreeing_with`, so
         // "left to the domain" is a handoff that arrives rather than a place the check is lost.
-        let broker = WorkloadIdentityBroker::empty(FakeExchange::minting(Expiry::At { unix_seconds: 1 }))
-            .measured_against(Frozen(A_FIXED_NOW))
-            .impersonating(
-                source("warehouse"),
-                WorkloadIdentity::of(String::from("audience"), String::from("scope")),
-            );
+        let broker = impersonating_warehouse(
+            FakeExchange::minting(Expiry::At { unix_seconds: 1 }),
+            FLOOR_DISABLED,
+            Frozen(A_FIXED_NOW),
+        );
         let minted = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect("the exchange does not fail");
@@ -697,12 +718,11 @@ mod tests {
     fn a_zero_floor_never_asks_what_time_it_is() {
         // The second guard, asserted the same way: the floor is disabled, so there is nothing for an
         // instant to be compared against even though an exchanged deadline exists.
-        let broker = WorkloadIdentityBroker::empty(FakeExchange::minting(Expiry::At { unix_seconds: 1 }))
-            .measured_against(NeverKnowsTheTime)
-            .impersonating(
-                source("warehouse"),
-                WorkloadIdentity::of(String::from("audience"), String::from("scope")),
-            );
+        let broker = impersonating_warehouse(
+            FakeExchange::minting(Expiry::At { unix_seconds: 1 }),
+            FLOOR_DISABLED,
+            NeverKnowsTheTime,
+        );
         let minted = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect("a zero-floor mint has no need of a clock");
@@ -715,13 +735,7 @@ mod tests {
         // one shape that DOES need an instant - a positive floor and an exchanged deadline - fails
         // the mint as `NoClock` rather than granting. Without this, a broker that had quietly stopped
         // consulting its clock at all would pass both of them.
-        let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
-            .with_floor(A_QUERY_BUDGET)
-            .measured_against(NeverKnowsTheTime)
-            .impersonating(
-                source("warehouse"),
-                WorkloadIdentity::of(String::from("audience"), String::from("scope")),
-            );
+        let broker = impersonating_warehouse(FakeExchange::minting_one_lasting(3_600), A_QUERY_BUDGET, NeverKnowsTheTime);
         let failure = broker
             .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
             .expect_err("a floor that can fire needs an instant to fire against");
