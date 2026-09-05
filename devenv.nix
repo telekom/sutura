@@ -331,8 +331,24 @@ in
     # It judges the COMMITTED branch diff, not the working tree: that is what a reviewer
     # will see. Hence the clean-tree requirement - a dirty tree means the thing being
     # checked is not the thing being proposed.
+    #
+    # AND IT SAYS WHAT IT DID NOT RUN. `prek` filters every hook by the changed file set, which
+    # is the whole reason this is fast enough to run before a push - and on a narrow diff it
+    # means almost nothing ran. Measured on a branch whose diff was one workflow file and one
+    # README: five of ten commit-stage hooks printed `(no files to check)Skipped` and the last
+    # line still said `green`. So both prek runs are captured and handed to
+    # `cargo xtask hook-coverage`, which derives the denominator from the hook config rather
+    # than from the rows - a hook silenced with `PREK_SKIP` prints no row at all.
+    #
+    # `--surface-tasks` FIRST, because one surface has no hook: the shell inside a composite
+    # action is invisible to `zizmor`, to `actionlint` and to a `*.sh` glob alike. The gate is
+    # asked which extra tasks this diff needs, they run, and it is told they did - so the gap is
+    # closed rather than reported.
+    #
+    # `-o pipefail` is not decoration: both prek runs go through `tee`, and without it the
+    # pipeline's status is `tee`'s and a red hook run would read as green.
     ship-check.exec = onStable ''
-      set -eu
+      set -euo pipefail
       base="''${SHIP_CHECK_BASE_REF:-origin/main}"
 
       if ! git rev-parse --verify --quiet "$base" >/dev/null; then
@@ -352,8 +368,17 @@ in
       merge_base="$(git merge-base "$base" HEAD)"
       echo "ship-check: $merge_base..HEAD"
 
+      logs="$(mktemp -d)"
+      trap 'rm -rf "$logs"' EXIT
+
+      # Which surfaces this diff touches that NO hook reaches. One owner: the table is in
+      # `xtask/src/hook_coverage.rs`, and this line executes what it is told rather than
+      # repeating the globs in shell.
+      cargo run -q -p xtask -- hook-coverage --since "$merge_base" --surface-tasks > "$logs/tasks"
+
       echo "== commit-stage hooks over the branch diff"
-      pixi run --frozen prek run --from-ref "$merge_base" --to-ref HEAD
+      # `--color never` so the captured log is the text the parser was measured against.
+      pixi run --frozen prek run --color never --from-ref "$merge_base" --to-ref HEAD 2>&1 | tee "$logs/pre-commit.log"
 
       echo "== the gates' own unit tests"
       # A gate with no test is a gate nobody has seen fail, and these are the checks
@@ -367,9 +392,23 @@ in
       cargo run -q -p xtask -- test-causality --since "$merge_base"
 
       echo "== pre-push hooks"
-      pixi run --frozen prek run --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD
+      pixi run --frozen prek run --color never --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD 2>&1 | tee "$logs/pre-push.log"
 
-      echo "ship-check: green"
+      ran=()
+      while read -r task; do
+        [ -n "$task" ] || continue
+        echo "== $task (no prek hook reaches every surface this diff touches)"
+        just "$task"
+        ran+=(--ran "$task")
+      done < "$logs/tasks"
+
+      echo "== what the hooks covered, and what they did not"
+      cargo run -q -p xtask -- hook-coverage --since "$merge_base" \
+        --log "pre-commit:$logs/pre-commit.log" \
+        --log "pre-push:$logs/pre-push.log" \
+        ''${ran[@]+"''${ran[@]}"}
+
+      echo "ship-check: green - the coverage lines above are what that covered"
     '';
 
     # Spelled out rather than calling `hygiene`, so this list does not depend on another

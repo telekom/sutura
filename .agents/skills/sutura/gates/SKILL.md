@@ -347,6 +347,20 @@ therefore does not see.
   deliberately one-sided, because an invocation is not a green run and the authority for *did this
   pass* is unreachable from the sandbox the gate runs in. A one-sided rule that names its side is
   worth more than a two-sided one nobody can implement.
+- **`just ship-check` is DIFF-SCOPED, and its green used to say nothing about that.** `prek` filters
+  every hook by the changed file set - which is what makes it fast enough to run before a push, and
+  is correct behaviour. Measured on a branch whose diff was one workflow file and one README: five
+  of ten commit-stage hooks printed `(no files to check)Skipped` - no format check, no clippy, no
+  `cargo check`, no shellcheck - and the last line still said `green`. Both numbers were available
+  and neither was printed. `cargo xtask hook-coverage` now prints them, and the recipe's own last
+  line points at them. **The half nobody would have guessed, measured on prek 0.4.14:** a hook
+  silenced with `PREK_SKIP` / `SKIP` prints **no row at all** rather than a skipped one, so a
+  verdict computed from the rows would report *8 of 8 ran* over a run with two gates switched off.
+  The denominator is derived from `.pre-commit-config.yaml`, and a declared hook with no row is a
+  FAILED verdict. **What no filter reaches:** the shell inside `.github/actions/*/action.yml` -
+  `zizmor` is pointed at `.github/workflows`, `actionlint` cannot read a composite action at the
+  pinned version, and a `run:` block is not a `.sh` file. `just lint-workflows` is the only task
+  that reads it, and `ship-check` runs it when the diff touches one rather than reporting the gap.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
