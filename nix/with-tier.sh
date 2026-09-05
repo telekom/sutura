@@ -120,10 +120,32 @@ sutura_tier_up() {
             # Single quotes on purpose: the trap body is evaluated at exit and takes nothing from
             # here that could go stale.
             #
-            # A `stop` that FAILS keeps the endpoint entry and says so on standard error - see
-            # `nix/postgres-tier.nix`. Its message is the whole signal, because an EXIT trap cannot
-            # change the exit status of the shell that is already exiting.
-            trap 'sutura-postgres-tier stop' EXIT
+            # **`|| true` is the load-bearing token here, and the sentence it replaced was false.**
+            # That sentence said an EXIT trap cannot change the exit status of a shell that is
+            # already exiting. It cannot in a plain shell; every venue that sources this file runs
+            # bash with ERREXIT - `justfile`'s `test`, `gates` and `causality` are `set -euo
+            # pipefail`, `nix/run-gate.sh` is `set -eu` - and under errexit a FAILING command in an
+            # EXIT trap REPLACES the status the shell was leaving with. Measured, bash 5.3.15:
+            #
+            #   trap <exits 1> EXIT; exit 42                     -> 42
+            #   set -euo pipefail; trap <exits 1> EXIT; exit 42   -> 1
+            #   set -euo pipefail; trap <exits 1> EXIT; true      -> 1
+            #
+            # So without this token a GREEN suite plus a failed teardown exits 1, and nextest's
+            # 100 - *some tests failed*, the one status the suite works to produce - is rewritten
+            # to that same 1. A teardown is not a test result and does not get to answer for one.
+            #
+            # Nothing is swallowed by it, because the failure's signal was never the exit status:
+            # `nix/postgres-tier.nix`'s `stop` keeps the endpoint entry over the live server and
+            # says so on standard error, naming the retry. The next run reads that entry, is told
+            # *already up*, and arms no teardown of its own. And the venue where a failed stop must
+            # fail a BUILD is unaffected: `checks.nextest` tears the tier down in `postCheck`,
+            # which calls `stop` directly rather than through this trap.
+            #
+            # `checks.postgres-tier` drives a failed stop THROUGH this trap and asserts the
+            # subshell keeps the status its body chose, so this is held rather than remembered -
+            # delete the `|| true` and that arm goes red.
+            trap 'sutura-postgres-tier stop || true' EXIT
             ;;
     esac
     export SUTURA_DEV_REQUIRE_TIER=1

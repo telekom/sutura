@@ -203,6 +203,11 @@ rec {
   # shell that sources it, and that trap firing (or not) is precisely what is under test: the
   # wrapper must tear down what it started and must not adopt a server it did not.
   #
+  # The subshell is also what makes the LAST arm possible, and that arm was missing while its
+  # posture was documented: a stop can fail inside that trap, and under the errexit every venue
+  # sources this file with, a failing trap command replaces the status the shell was leaving with.
+  # So the subshell's own exit status is asserted, not just the tier's state afterwards.
+  #
   # Declared in `flake.nix` as one line pointing here. That `checks = {` block is read TEXTUALLY by
   # two xtask gates so it cannot leave that file, and this body would put it over the 1000-line cap.
   check = pkgs.runCommand "postgres-tier"
@@ -321,6 +326,47 @@ rec {
       # fail-closed cell panic where the honest outcome is a skip.
       sutura-postgres-tier stop
       expect_entry absent "the withdrawal still happens when the stop succeeds"
+
+      # --- and a failed teardown does not answer for the suite it tore down ---
+      # The arm above calls `stop` directly, which is not the path a developer reaches it by:
+      # `just test` reaches it through `sutura_tier_up`'s EXIT trap, and every venue that sources
+      # that file runs bash with errexit, where a FAILING command in an EXIT trap REPLACES the
+      # status the shell was leaving with. The wrapper's `|| true` is what keeps a teardown from
+      # rewriting a test result, and this arm is the only thing holding that token: without it the
+      # subshell below answers 1.
+      #
+      # 100 on purpose, because the number that has to survive is the DISCRIMINATING one - it is
+      # nextest's *some tests failed*, and a teardown that turns it into 1 has not hidden a failure
+      # but has stopped saying which failure it was.
+      trap_status=0
+      ( set -euo pipefail
+        . ${./with-tier.sh}
+        sutura_tier_up
+        kill -STOP "$(head -1 "$pg/postmaster.pid")"
+        # Exported after `start`, so the budget applies to the trap's stop and not to the startup
+        # this arm depends on.
+        export PGCTLTIMEOUT=5
+        echo "--- the failed stop below is expected too, this one inside the wrapper's trap ---"
+        exit 100
+      ) || trap_status=$?
+      if [ "$trap_status" != 100 ]; then
+        echo "the wrapper's trap answered $trap_status for a body that chose 100: a failed" >&2
+        echo "teardown rewrote the run's exit status, which is what \`|| true\` is there for" >&2
+        exit 1
+      fi
+      expect_entry true "the failed teardown in the trap kept the claim over the live server"
+
+      # Resume it so the queued shutdown completes - the pid is read while it is still SIGSTOPped,
+      # because the postmaster takes its pid file with it on the way out.
+      postmaster="$(head -1 "$pg/postmaster.pid")"
+      kill -CONT "$postmaster"
+      for _ in $(seq 1 60); do
+        kill -0 "$postmaster" 2>/dev/null || break
+        sleep 1
+      done
+      # The remedy that message names, run: the retry withdraws what the failed teardown kept.
+      sutura-postgres-tier stop
+      expect_entry absent "the retried teardown withdraws the claim the failed one kept"
 
       touch $out
     '';
