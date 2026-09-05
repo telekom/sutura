@@ -281,7 +281,7 @@ where
     let mut token: Option<String> = None;
     for _ in 0..MAX_PAGES {
         let left = call.remaining().ok_or(WireError::DeadlineSpent {
-            budget_seconds: wire.agent.bounds().deadline().seconds,
+            budget_seconds: wire.agent.bounds().deadline().budget().as_secs(),
         })?;
         let mut sending = wire
             .agent

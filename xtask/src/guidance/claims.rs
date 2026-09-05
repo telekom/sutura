@@ -108,6 +108,25 @@ impl Contradicted {
 
 pub(super) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
+        // The wording is the one that was actually WRITTEN, in two documents, and not a paraphrase
+        // of the claim: the first draft of this entry registered `nothing runs it in CI yet`, which
+        // lives in a `.rs` file this check's scope never reaches, and a sentence nobody wrote. That
+        // is a rule against nothing plus a page permanently exempt from it - the pair
+        // `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` exists to refuse.
+        name: "the default-feature lane has no lint half in CI",
+        wordings: &["nothing at all for the lint half", "nothing for the lint half"],
+        evidence: &[Evidence {
+            path: ".github/workflows/ci.yml",
+            holds: "nix run .#default-features",
+        }],
+        instead: "the required `ci` job runs `nix run .#default-features` on every pull request that \
+                  touches Rust, so the lint half of that lane is a required check rather than the \
+                  four `cross` link builds alone",
+        only: &[],
+        // The record states the limit and amends it in place, which is what `except` is for.
+        except: &["docs/adr/0017-what-a-bigquery-test-runs-against.md"],
+    },
+    Contradicted {
         // RENAMED from "there is no HTTP surface". The entry always held both halves of one claim,
         // and a name that said only HTTP was the label version of the defect
         // `github.com/telekom/sutura#241` reports: this entry's own remedy went on saying the agent

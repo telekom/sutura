@@ -57,6 +57,29 @@ pub(crate) const WARM_PROFILE: &str = "ci";
 /// The gate that builds into it.
 const CONSUMER: &str = "xtask/src/causality.rs";
 
+/// The cargo profile to compile at, from the target directory alone.
+///
+/// HERE because this module owns both literals it reads and both facts that make reading them
+/// sound - [`stamped`] holds that the warmer writes the stamp into the directory it exports, and
+/// [`built_at_the_warm_profile`] that those artifacts carry this profile. Two gates derive it now
+/// (`check-default-features` and `check-default-feature-tests`), and a second copy of the
+/// derivation beside one of them is how they come to disagree while both stay green.
+///
+/// `None` is cargo's default and the developer's answer: `just gates` runs in an ordinary
+/// `target/`, where naming a profile would buy a second dependency build for a verdict that does
+/// not depend on the profile. Inside the warmed directory the answer is the profile those
+/// artifacts carry, because anything else silently reuses none of them.
+///
+/// The SIGNAL IS THE STAMP AND NOT THE DIRECTORY'S NAME, which is the distinction this module's
+/// header draws about its own readers: a name can be renamed while a matcher keeps passing,
+/// whereas the stamp exists if and only if the unpack happened.
+pub(crate) fn profile_for(target_dir: Option<&Path>) -> Option<&'static str> {
+    if target_dir.is_some_and(|dir| dir.join(STAMP).is_file()) {
+        return Some(WARM_PROFILE);
+    }
+    None
+}
+
 /// The apps that consume the warmed artifacts.
 const APPS: &str = "flake.nix";
 
@@ -337,9 +360,18 @@ fn profiled_consumers(text: &str) -> Result<usize, String> {
         } else {
             "--profile"
         };
-        if !words.windows(2).any(|pair| pair == [flag, WARM_PROFILE]) {
+        // CARGO'S SIDE OF `--` ONLY, and that is a fail-open this gate had rather than a
+        // refinement. Everything past `--` goes to the program cargo RUNS, so a `--profile ci`
+        // there selects no profile for the build - it reuses none of the 756 MB just unpacked,
+        // compiles the closure again, and reaches the same verdict several minutes later with
+        // nothing red anywhere. Scanning the whole line accepted exactly that line, which is the
+        // shape a flag gets moved into when a gate grows an argument of its own.
+        let cargo_side = words.split(|word| *word == "--").next().unwrap_or(&words);
+        if !cargo_side.windows(2).any(|pair| pair == [flag, WARM_PROFILE]) {
             return Err(format!(
-                "{APPS}:{} warms profile {WARM_PROFILE} but its cargo command does not pass `{flag} {WARM_PROFILE}`: {command}",
+                "{APPS}:{} warms profile {WARM_PROFILE} but its cargo command does not pass `{flag} {WARM_PROFILE}` \
+                 BEFORE `--`; everything after that separator goes to the program cargo runs, so a \
+                 profile there selects none for the build: {command}",
                 index.saturating_add(1)
             ));
         }
@@ -520,6 +552,28 @@ mod tests {
         assert_eq!(
             super::profiled_consumers(&apps.replace("nextest run --profile", "nextest run --cargo-profile")),
             Ok(2)
+        );
+    }
+
+    #[test]
+    fn a_profile_written_past_the_separator_is_not_cargos_profile() {
+        // The fail-open this reader had. `cargo run ... -- <gate> --profile ci` hands the flag to
+        // the GATE, so cargo builds at the developer default, reuses none of the 756 MB just
+        // unpacked, compiles the closure again and reaches the same verdict several minutes later.
+        // Scanning the whole line accepted it, and this is the shape a flag gets moved into when a
+        // gate grows a profile argument of its own - which `check-default-features` briefly did,
+        // and is the reason it now derives the profile from `profile_for` instead.
+        let past = concat!(
+            "            ${cargoWarmStart}\n",
+            "            exec cargo run -q -p xtask -- check-default-features --profile ci\n",
+            "          '');\n",
+        );
+        let error = super::profiled_consumers(past).expect_err("a profile past `--` selects none for the build");
+        assert!(error.contains("BEFORE `--`"), "{error}");
+        // Cargo's own side still passes with a tail beside it, so the fix is not a ban on `--`.
+        assert_eq!(
+            super::profiled_consumers(&past.replace("run -q -p xtask", "run -q --profile ci -p xtask")),
+            Ok(1)
         );
     }
 }

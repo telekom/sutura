@@ -228,7 +228,8 @@ const TASKS: &[Task] = &[
         // rather than hygiene for `check-attribution-current`'s reason: it invokes cargo, so it
         // needs a resolvable registry and a target directory the nix sandbox has not got, so `just
         // gates` is its caller. The lane it covers is the one every other compiling gate is blind
-        // to, and CI does not run it yet - the module's own header says what that costs.
+        // to; CI reaches it as `nix run .#default-features` inside the one required job, and it
+        // takes no argument there - the profile is derived, not passed. The module's header says why.
         name: "check-default-features",
         description: "every shipped package compiles and lints at cargo's default features",
         kind: Kind::Standalone,

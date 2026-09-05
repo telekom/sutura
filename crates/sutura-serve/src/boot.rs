@@ -42,11 +42,12 @@
 //! list out of `nix/shipped.nix` and both COMPILES and LINTS each one at cargo's default features -
 //! two things `just lint` and `just check-changed` cannot do, because both pass `--all-features`. It
 //! is in `gates` rather than `just hygiene` for `check-attribution-current`'s reason: it shells out
-//! to cargo, and the sandbox `hygiene` runs in has no registry. **The limit, and it is the reason
-//! this paragraph is not simply deleted:** nothing runs it in CI yet, so what CI has is still the
-//! four `cross` builds for the compile half and nothing at all for the lint half. Wiring it there
-//! wants a flake app sharing the warmed target directory, the way `apps.causality` does, which is a
-//! change to CI rather than to this crate.
+//! to cargo, and the sandbox `hygiene` runs in has no registry. **It runs in CI as well now**, as
+//! `nix run .#default-features` in the one required job, sharing the warmed target directory the way
+//! `apps.causality` does - so the lint half of this lane is a required check and not a developer
+//! courtesy. A step is deleted more easily than a job, and `ci` is the only required context here,
+//! so the step's own presence is asserted by
+//! `default_features::tests::both_lanes_still_invoke_this_gate` rather than left to review.
 
 use std::collections::BTreeSet;
 

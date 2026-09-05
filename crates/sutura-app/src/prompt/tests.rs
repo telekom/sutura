@@ -27,11 +27,13 @@ use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersio
 use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query};
 
 // `guide_for` is imported rather than declared here. It used to live in this file under
-// `#[cfg(test)]`; it moved to `prompt.rs` when `sutura-cli` needed the same table to print a refused
-// question with, and the mechanism is unchanged by the move - the match is still total and still the
-// only one, so a variant added to `RefusalReason` still fails to compile until somebody writes its
-// guidance. The eleven guide constants came with it, which is why they are no longer named here.
-use super::{CatalogProse, GUIDES, PromptInputs, Tool, WIDTH, guide_for, quote, render, wrap};
+// `#[cfg(test)]`; it moved to the prompt when `sutura-cli` needed the same table to print a refused
+// question with, and the mechanism is unchanged by either move - the match is still total and still
+// the only one, so a variant added to `RefusalReason` still fails to compile until somebody writes
+// its guidance. The guide constants came with it, which is why they are no longer named here; the
+// count is `GUIDES.len()` and the assertion below reads it rather than a number written down.
+use super::refusal::{GUIDES, guide_for};
+use super::{CatalogProse, PromptInputs, Tool, WIDTH, quote, render, wrap};
 use refusal_corpus::every_refusal;
 
 /// The structured names that must never reach the output.

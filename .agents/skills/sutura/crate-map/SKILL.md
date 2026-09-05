@@ -66,9 +66,9 @@ and `just gates` adds a DEFAULT-feature lane, because a `#[cfg(feature = ..)]` c
 the feature on is the shipped set's blind spot. **That lane's scope is the shipped set and no
 wider** - its package list is derived from the `binaries` list below, so a feature on a crate that
 does not ship is reached by the `--all-features` gates and by nothing at the default set - and its
-CI half is PARTIAL: the required `ci` job runs that lane's TESTS at the default set, while its
-compile and lint halves are `just gates`' alone, with the four `cross` builds for the first and
-nothing for the second.
+CI half is whole now, as two steps of the required `ci` job: `nix run .#default-features` for the
+compile and lint halves, `nix run .#default-feature-tests` for the tests. Neither LINKS, so the four
+`cross` builds are still the only thing that links the default set, on a release's own triples.
 
 **What makes that rule a gate rather than a wish** is `probeFeatures` in `nix/shipped.nix`: a
 feature named there gets a `<bin>-<feature>-<triple>-ci` package per release triple, and the `cross`
