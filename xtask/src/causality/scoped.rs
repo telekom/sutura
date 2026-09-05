@@ -302,6 +302,13 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// still carries `fn <name>(` and is still named. The shapes that occur are `fn`, `async fn` and a
 /// visibility in front of either. What is genuinely out of reach is an added line that is not a
 /// signature's first line: a body-only or def-interior edit.
+///
+/// **Recorded rather than asserted, and the reason is this gate's own rule.** The measurement above
+/// was driven through `Scan::of` over a wrapped `async fn` with a return type, and it named the
+/// function - but a test pinning behaviour this branch did not change passes against base too, which
+/// `AGENTS.md` calls worse than none because it looks like coverage. The gate said so out loud when
+/// one was tried here: *FAILED - green against base behaviour*. It belongs in a tests-only change,
+/// where *tests changed but no implementation did* is an honest verdict over it.
 fn function_name(line: &str) -> Option<Ident> {
     let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)
@@ -741,43 +748,6 @@ mod tests {
                 String::from("expose_secret_returns_the_value"),
                 String::from("reads_fine")
             ])
-        );
-    }
-
-    #[test]
-    fn a_signature_the_formatter_wrapped_is_named_off_its_first_line() {
-        // THE LIMIT THAT WAS OVERSTATED. `super::attributes` said the item under an attribute is
-        // read as one line, "so a `fn` signature the formatter had to wrap names nothing" -
-        // measured FALSE in `github.com/telekom/sutura#319` and asserted here, because the next
-        // extractor change would otherwise be judged against a limit that is wider than the code.
-        // rustfmt breaks a long signature AFTER the `(`, and the name is before it, so the first
-        // line still carries `fn <name>(`. `async` and a return type are in here because those are
-        // the shapes that actually wrap in this tree.
-        let file = concat!(
-            "#[test]\n",                                                    // 1
-            "async fn a_question_that_names_more_than_one_dimension_is(\n", // 2
-            "    refused_before_it_reaches_the_source: bool,\n",            // 3
-            ") -> Result<(), Box<dyn std::error::Error>> {\n",              // 4
-            "    Ok(())\n",                                                 // 5
-            "}\n",                                                          // 6
-        );
-        let files = vec![changed(
-            "crates/x/tests/t.rs",
-            1,
-            &[
-                "#[test]",
-                "async fn a_question_that_names_more_than_one_dimension_is(",
-                "    refused_before_it_reaches_the_source: bool,",
-                ") -> Result<(), Box<dyn std::error::Error>> {",
-                "    Ok(())",
-                "}",
-            ],
-        )];
-        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
-        assert_eq!(
-            runnable(&files, &["crates/x/tests/t.rs"], &read),
-            Some(vec![String::from("a_question_that_names_more_than_one_dimension_is")]),
-            "the name is read off the first signature line, which the formatter does not break"
         );
     }
 
