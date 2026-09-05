@@ -144,9 +144,10 @@ pub(crate) enum Scan {
     /// lines - so `super::plan` finds no changed test file at all, answers `Plan::NotRequired`, and
     /// the gate passes with *no changed tests - nothing to prove*. Reproduced through `plan`, and
     /// recorded rather than fixed: nothing here reads a manifest, and resolving which `cfg`
-    /// declarations a feature change activates is a different scan from this one. Filed on the
-    /// tracker; the honest statement until then is that a manifest-only diff is outside this
-    /// gate's reach, the same way a markdown-only one is.
+    /// declarations a feature change activates is a different scan from this one.
+    /// `github.com/telekom/sutura#343` carries the three candidate shapes; the honest statement
+    /// until then is that a manifest-only diff is outside this gate's reach, the same way a
+    /// markdown-only one is.
     Enabled(Vec<Enabled>),
     /// Every test the diff added is `#[ignore]`d. Named, and unreachable by any run here.
     OnlyIgnored(Vec<Ident>),

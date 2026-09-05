@@ -691,9 +691,9 @@ reads a `.rs` diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` 
 diff turns on compiles the same whole module of tests into the build with **zero added `.rs` lines** -
 so the plan finds no changed test file, answers `no changed tests - nothing to prove`, and passes.
 Reproduced through `plan`. **Strictly asymmetric: a `.rs` diff ADDING that `mod` refuses; a manifest
-diff ENABLING it passes.** Nothing in the gate reads a manifest, so this is stated rather than held;
-the general question it stands for is which *inputs a gate does not read at all* can change what the
-tree compiles.
+diff ENABLING it passes.** Nothing in the gate reads a manifest, so this is stated rather than held -
+#343 carries the shapes - and the general question it stands for is which *inputs a gate does not read
+at all* can change what the tree compiles.
 
 **A GATE THAT SCANS A LANGUAGE MUST LEX IT, and this one read an attribute as ONE line.** A
 continuation line starts with neither `#[` nor anything else the search skipped, so the downward
