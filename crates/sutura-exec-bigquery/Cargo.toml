@@ -84,6 +84,25 @@ name = "corpus"
 path = "tests/corpus.rs"
 required-features = ["wire", "fixtures"]
 
+# The CROSS-DATASET leg - the one that reads across two datasets in one statement.
+#
+# A fourth target rather than more of `tests/corpus.rs`, and **the reason is not the 1000-line cap
+# `cargo xtask max-lines` holds** - it is that this leg needs a SECOND dataset the credential can
+# write to. Folding it into `just bigquery-acceptance` would make that leg fail for every developer
+# and every CI run until the second dataset is provisioned, turning a leg somebody CAN run into one
+# they cannot. So it has its own task and its own app, and the acceptance app filters this BINARY
+# out - the same shape, for the same reason, as the two-principal cell above.
+#
+# `required-features` names both, because it loads tables (`fixtures`) and talks to the endpoint
+# (`wire`). What it shares with the corpus leg is the differential harness in
+# `tests/differential/mod.rs`: two legs comparing the same questions over two dataset layouts have
+# to decide agreement the same way, and a second copy of that decision is a second notion of
+# *correct* under one claim.
+[[test]]
+name = "two_datasets"
+path = "tests/two_datasets.rs"
+required-features = ["wire", "fixtures"]
+
 # The TWO-PRINCIPAL cell - the one leg here whose claim is about identity rather than about SQL.
 #
 # A third target rather than more of `acceptance.rs`, for the same two reasons the corpus leg is one:

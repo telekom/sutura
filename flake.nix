@@ -797,12 +797,14 @@
         # the `#[ignore]`d tests - every one in the targets this app runs, not a listed set, so a
         # test added there is reached without editing this comment; every other task skips them.
         #
-        # **The `two_principals` binary is filtered OUT here and run by its own app below.** The
-        # filter is on the BINARY and not on a test list, so the property the paragraph above
-        # states survives: a test added to either target is still reached without editing this
-        # comment. What it buys is that the two acceptance legs stay runnable by whoever holds one
-        # credential - the two-principal cell needs five more values and two more key documents,
-        # and one app demanding all of them would make the legs somebody CAN run unreachable.
+        # **Two binaries are filtered OUT here and each is run by its own app below** -
+        # `two_principals` and `two_datasets`. The filter is on the BINARY and not on a test list,
+        # so the property the paragraph above states survives: a test added to any of these targets
+        # is still reached without editing this comment. What it buys is that the two acceptance
+        # legs stay runnable by whoever holds one credential and one dataset - the two-principal
+        # cell needs five more values and two more key documents, and the cross-dataset leg needs a
+        # second dataset the credential can write to. One app demanding all of that would make the
+        # legs somebody CAN run unreachable.
         apps.bigquery-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''
@@ -811,7 +813,29 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(two_principals)' "$@"
+              --run-ignored only -E 'not (binary(two_principals) or binary(two_datasets))' "$@"
+          '');
+        };
+        # `nix run .#bigquery-two-datasets` - the cross-dataset leg, `docs/adr/0019`'s first
+        # amendment and issue #118.
+        #
+        # Its own app for the reason the filter above gives, and everything the app beside it says
+        # about being an app rather than a check applies unchanged: the sandbox has no network.
+        #
+        # **What it needs beyond that app's environment:** `SUTURA_BQ_SECOND_DATASET`, naming a
+        # second dataset in the same project and the same LOCATION, which the acceptance credential
+        # holds `dataEditor` on. `test-infra/pulumi/google` creates it and grants that, and
+        # `just infra-set` exports it. It fails loudly without it - `tests/two_datasets.rs` carries
+        # what it names and what a green run does and does not establish.
+        apps.bigquery-two-datasets = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-two-datasets" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'binary(two_datasets)' "$@"
           '');
         };
         # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s seventh
