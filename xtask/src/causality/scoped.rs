@@ -137,6 +137,16 @@ pub(crate) enum Scan {
     /// A provable file declares a test module whose own file is not in this diff, so a module of
     /// pre-existing tests becomes compiled and no added line names any of them. Refuses - the
     /// remedy is stated evidence, not an extractor fix, which is why it is its own answer.
+    ///
+    /// **ITS INVERSE IS UNREPORTED, and the asymmetry is strict.** This refusal reads a `.rs`
+    /// diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only**
+    /// diff turns on compiles the same whole module of tests into the build with ZERO added `.rs`
+    /// lines - so `super::plan` finds no changed test file at all, answers `Plan::NotRequired`, and
+    /// the gate passes with *no changed tests - nothing to prove*. Reproduced through `plan`, and
+    /// recorded rather than fixed: nothing here reads a manifest, and resolving which `cfg`
+    /// declarations a feature change activates is a different scan from this one. Filed on the
+    /// tracker; the honest statement until then is that a manifest-only diff is outside this
+    /// gate's reach, the same way a markdown-only one is.
     Enabled(Vec<Enabled>),
     /// Every test the diff added is `#[ignore]`d. Named, and unreachable by any run here.
     OnlyIgnored(Vec<Ident>),
@@ -284,8 +294,13 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 
 /// The name in `fn NAME(`, if this line declares a function.
 ///
-/// One line rather than a parser: a test's signature is written on one line in this tree, and the
-/// shapes that occur are `fn`, `async fn` and a visibility in front of either.
+/// One line rather than a parser, and it reaches further than "a test's signature is written on one
+/// line in this tree" - which is what this said, and what `super::attributes` overstated into *a
+/// wrapped signature names nothing*. The name sits before the `(`, and rustfmt breaks a signature
+/// too long for one line AFTER that `(`, so the FIRST line of a wrapped `async fn very_long_...(`
+/// still carries `fn <name>(` and is still named. The shapes that occur are `fn`, `async fn` and a
+/// visibility in front of either. What is genuinely out of reach is an added line that is not a
+/// signature's first line: a body-only or def-interior edit.
 fn function_name(line: &str) -> Option<Ident> {
     let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)
@@ -725,6 +740,43 @@ mod tests {
                 String::from("expose_secret_returns_the_value"),
                 String::from("reads_fine")
             ])
+        );
+    }
+
+    #[test]
+    fn a_signature_the_formatter_wrapped_is_named_off_its_first_line() {
+        // THE LIMIT THAT WAS OVERSTATED. `super::attributes` said the item under an attribute is
+        // read as one line, "so a `fn` signature the formatter had to wrap names nothing" -
+        // measured FALSE in `github.com/telekom/sutura#319` and asserted here, because the next
+        // extractor change would otherwise be judged against a limit that is wider than the code.
+        // rustfmt breaks a long signature AFTER the `(`, and the name is before it, so the first
+        // line still carries `fn <name>(`. `async` and a return type are in here because those are
+        // the shapes that actually wrap in this tree.
+        let file = concat!(
+            "#[test]\n",                                                    // 1
+            "async fn a_question_that_names_more_than_one_dimension_is(\n", // 2
+            "    refused_before_it_reaches_the_source: bool,\n",            // 3
+            ") -> Result<(), Box<dyn std::error::Error>> {\n",              // 4
+            "    Ok(())\n",                                                 // 5
+            "}\n",                                                          // 6
+        );
+        let files = vec![changed(
+            "crates/x/tests/t.rs",
+            1,
+            &[
+                "#[test]",
+                "async fn a_question_that_names_more_than_one_dimension_is(",
+                "    refused_before_it_reaches_the_source: bool,",
+                ") -> Result<(), Box<dyn std::error::Error>> {",
+                "    Ok(())",
+                "}",
+            ],
+        )];
+        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
+        assert_eq!(
+            runnable(&files, &["crates/x/tests/t.rs"], &read),
+            Some(vec![String::from("a_question_that_names_more_than_one_dimension_is")]),
+            "the name is read off the first signature line, which the formatter does not break"
         );
     }
 
