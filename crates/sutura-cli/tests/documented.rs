@@ -104,10 +104,13 @@ mod tests {
         out
     }
 
-    /// The subcommands this file runs, and the exit status the pages claim for each.
+    /// The subcommands this file runs. Every other documented invocation is skipped, for the
+    /// reasons at the head of this file.
     ///
-    /// A refusal is a RESULT: `docs/getting-started.md` says so where it prints one, and the
-    /// status is `0`. Every other documented invocation answers.
+    /// All four are required to exit `0`, the refusal among them: a refusal is a RESULT, and
+    /// `docs/getting-started.md` says so in the sentence above the one it prints. So there is no
+    /// per-subcommand status table to keep - there is one rule, and a command that started
+    /// erroring would break it.
     const RUNNABLE: &[&str] = &["catalog", "describe", "compile", "query"];
 
     /// One documented invocation: where it was written, and the arguments to pass.
