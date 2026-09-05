@@ -230,8 +230,11 @@ sutura mcp examples/single-player/catalog examples/single-player/data
 
 An agent client launches that process and speaks the protocol on its pipes - the same two tools this
 page describes, from the same `sutura_app::Capability` declaration. The command prints at startup, on
-standard error, that it grants every capability to whoever can reach the process: a pipe has no header
-a token could arrive in, which is the limit stated beside the mode rather than left as a default.
+standard error, that it grants every capability to whoever can reach the process and how many
+questions it will answer at once: a pipe has no header a token could arrive in, which is the limit
+stated beside the mode rather than left as a default, and the second number is
+[`runtime.max_concurrent_queries`](#capacity), which bounds that surface exactly as it bounds this
+one.
 
 ## The endpoints
 
@@ -423,6 +426,13 @@ The admission window is deliberately shorter than the request timeout. A caller 
 seconds for a slot is better served by a `503` they can retry than by a `408` twenty-five seconds
 later that says the same thing less clearly. Setting it *above* the request timeout is allowed and
 does nothing: the timeout layer answers first.
+
+**The bound is the process's and not this endpoint's**, which is why the same two keys bound the agent
+surface the `mcp` command serves. What differs is how a shed question comes back: there is no status
+code on a pipe, so it is a tool result marked as an error and saying to ask again shortly, with the two
+numbers going to the log rather than into a model's context. And `server.request_timeout_seconds` has
+no counterpart there - nothing on that surface bounds the wait except the admission window - so
+everything under *what it does not bound* is true of it and there is no `408` above it.
 
 ### What it does not bound
 

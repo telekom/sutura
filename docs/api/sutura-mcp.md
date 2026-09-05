@@ -26,7 +26,7 @@ are, so **the two transports cannot disagree about what this deployment offers**
 renders that source and each has a `both_transports_describe_the_same_tools` test asserting it did
 not deviate.
 
-Four properties are load-bearing and each has a test rather than a paragraph:
+Five properties are load-bearing and each has a test rather than a paragraph:
 
 * **The schema is generated.** `tool::input_schema` is `schemars::schema_for!` over a wire type
   in `wire` - there is no hand-written JSON object in this crate - and every tool's generated
@@ -43,6 +43,11 @@ Four properties are load-bearing and each has a test rather than a paragraph:
   three.
 * **`deny_unknown_fields` survives the transport.** An argument named `sql`, `table` or
   `predicate` is a named parse error, asserted through a real client rather than assumed.
+* **The configured number of questions execute at once, and no more.** The bound is
+  `sutura_runtime::Admission`, built by the composition root from
+  `runtime.max_concurrent_queries` rather than by this crate, and the permit belongs to the
+  blocking work rather than to the future waiting for it. `server` carries both halves of that
+  argument and the limit on how far the second is exercised over the wire.
 
 # Why the protocol comes from a dependency
 
@@ -70,6 +75,12 @@ this crate, and the handler is three methods written by hand.
   it is refused rather than truncated. Whether an agent surface wants a lower advisory cap - and
   what number - is a real question **nobody has measured**, so the bound is left exactly where it
   is rather than guessed at here.
+* **A bound on the SIZE of what arrives**, which is `#266`'s `H4` and is a different thing from
+  the admission bound this crate now applies. rmcp's stdio transport reads a line off the
+  process's own standard input with no cap, so one enormous line is read before anything parses
+  it. Nothing here can bound it: the reader is the SDK's, and the boundary is the process - a
+  peer that can write to this pipe can already launch the process. It stays named rather than
+  claimed as covered.
 * **Any notion of who is asking.** `crate::principal` still answers
   `sutura_domain::identity::Subject::TheDeploymentItself`, truthfully: this transport speaks over a
   pipe, where there is no header a token could arrive in. `sutura_http::inbound` is where leg 1
@@ -115,7 +126,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -139,10 +150,17 @@ composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::ever
 and prints that at startup - so the value lives next to the notice that states it rather than
 hidden in this function.
 
-rmcp serves requests concurrently - one task per request, unbounded - so several questions from
-one peer answer against the same `S` at once. The surface has no state a question mutates, so the
-concurrency is free; what it does mean is that the engine's working-set ceiling, not any
-transport bound, is what an agent flooding its one pipe cannot exceed.
+**`admission` is required for the same reason and answers a different question.** rmcp serves
+requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
+question a peer sends is executing at once. The surface has no state a question mutates, so the
+concurrency itself is free; what is not free is the blocking pool thread and the data system each
+question holds. `sutura_runtime::Admission` is the number of those that may be in flight, the
+composition root reads it from `runtime.max_concurrent_queries`, and one `Admission` bounds every
+transport a process serves because its clones share one permit set.
+
+**What that leaves to the engine, stated so the two are not confused:** the working-set ceiling
+bounds how large one answer may get, and the admission bound is how many answers may be being
+produced. Neither cancels a question already inside the pool - see `server` and #160.
 
 Returns when the peer closes or is cancelled.
 
@@ -167,6 +185,7 @@ apart.
 | The question was **refused** | a tool result, `isError` absent, `outcome: "refusal"` | it is a governance *result*, and nothing about it went wrong |
 | The arguments were not a question | a JSON-RPC error, `-32602` | a parse failure, named, before the service is reached |
 | The service could not answer | a tool result with `isError: true`, and no detail | something went wrong, and the detail is a path or a table |
+| Every execution slot was taken for the whole admission window | a tool result with `isError: true`, and a sentence saying to ask again | the question was never judged, so it is not a refusal - and unlike the row above, waiting is the fix |
 
 **A refusal is not an error and must not look like one.** `sutura_app::surface::Surface::answer`
 is where a transport inherits that, and its own doc comment says why: a caller must not be able to
@@ -192,6 +211,41 @@ as "the data system is down", and the first is fixable by the caller while the s
 runtime from within a runtime panics. So the call goes to the blocking pool through
 `sutura_runtime::spawn_carrying_span`, which is the one call `clippy.toml` permits for this,
 because a bare `spawn_blocking` loses the request's span on a pool thread.
+
+# How many questions may be executing, and where the permit lives
+
+**`sutura_runtime::Admission` and not a bound of this transport's own**, because the resource
+is the *process*: one blocking pool, one set of data systems, and two independently sized
+semaphores would be two controls each reporting a limit the other can exceed. So the value
+arrives at `AgentSurface::new` from a composition root that read
+`runtime.max_concurrent_queries`, and every clone of an `Admission` shares one permit set -
+which is what lets one process serve two transports under one number.
+
+**The slot is taken before the blocking task is spawned and released INSIDE it.** Taken inside
+would be a pool thread already occupied while waiting for permission to occupy one; released by
+the async worker would make it a bound on *starting* work rather than on running it, and
+`tokio` documents that a started blocking task cannot be aborted - so a caller that has gone
+away does not stop the question it asked. A permit handed back early is worse than no bound at
+all, because it reads as a control.
+
+**This defines the response to running out of admission and nothing about stopping work.** A
+shed call is answered on the third channel above, inside the bounded admission window. What
+neither this nor the bound does is cancel a question that is already executing: the `Warehouse`
+port is synchronous and carries no deadline, so a question inside the pool runs to completion
+whatever the peer is told - and it keeps its slot until it does, which is exactly why the
+backlog is a number somebody chose rather than memory. Making running work stoppable is #160's
+subject, on the port rather than on either transport.
+
+**What this transport still does not bound is the size of what it reads**, which is `#266`'s
+`H4`: `rmcp`'s stdio transport reads a line off the process's own input with no cap, and this
+change is about a different thing - how many questions execute at once.
+
+**The limit on how far the shedding is exercised, stated with it.** `rmcp` 3.1.4 answers a
+`notifications/cancelled` by cancelling a token this handler does not read, and it spawns each
+request as a detached task - so on that SDK a peer that cancels or disconnects does not drop the
+future that is waiting for the answer. The property that the permit belongs to the work rather
+than to that future is therefore asserted by dropping the future in a test, not by cancelling a
+call over the wire.
 
 # What this slice does NOT do, on purpose
 
@@ -240,7 +294,7 @@ port has to outlive the future that started the call.
 #### Methods
 
 ```rust
-pub const fn new(service: Arc<S>, permitted: Permitted, prose: sutura_app::prompt::CatalogProse) -> Self
+pub const fn new(service: Arc<S>, permitted: Permitted, prose: sutura_app::prompt::CatalogProse, admission: Admission) -> Self
 ```
 
 Wraps a service, and states what the peer may do and how catalog prose is treated.
@@ -257,6 +311,14 @@ root knows which it is building. See the module documentation for what the value
 **`prose` is required for the same reason, and it is a composition-root value.** `sutura`'s
 `mcp` subcommand passes what this deployment renders; a `CatalogProse` with no default keeps
 `quoted` from being a posture chosen here for a deployment that meant something else.
+
+**`admission` is required and is not built here, and that is the third instance of the same
+rule.** A bound this file constructed would be a number chosen for every deployment that
+links it, and - worse - a *second* permit set in any process that also serves HTTP, where
+two limits each reporting a bound the other can exceed is not a bound. So the composition
+root reads `runtime.max_concurrent_queries` and `runtime.admission_timeout_seconds` and
+hands one `Admission` to whatever serves. See the module documentation for where the
+permit then lives.
 
 #### Implements
 

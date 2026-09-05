@@ -10,16 +10,22 @@
 //! answer go through the real `sutura_app::LocalService`, and a service that exists is one whose
 //! anchor reproduced the number its author certified.
 //!
-//! [`FailingSurface`] is the exception, and it is a fake of the *driving* port rather than of a
-//! driven one. `SurfaceFailure` is what a transport must not confuse with a refusal, and the honest
-//! instrument for it is a surface that fails - not a warehouse that has to answer an anchor first and
-//! then stop, which would need interior mutability to say something a two-line fake says plainly.
+//! [`FailingSurface`] and [`HoldingSurface`] are the exceptions, and both are fakes of the *driving*
+//! port rather than of a driven one. `SurfaceFailure` is what a transport must not confuse with a
+//! refusal, and the honest instrument for it is a surface that fails - not a warehouse that has to
+//! answer an anchor first and then stop, which would need interior mutability to say something a
+//! two-line fake says plainly. [`HoldingSurface`] is there for the same reason one frame up: what the
+//! admission bound is about is how many callers are inside `Surface::answer`, so that is where the
+//! count belongs.
 //!
 //! This duplicates `sutura_http`'s own fixtures, and it is the same duplication `crate::wire`
 //! explains: `testing` there is `cfg(test)`, so there is nothing to share even if an adapter were
 //! allowed to reach into another adapter, which it is not.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
@@ -330,4 +336,112 @@ impl sutura_domain::audit::AuditSink for CountingSink {
     fn record(&self, _record: &sutura_domain::audit::CallRecord<'_>) {
         self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
+}
+
+/// A surface that answers, and can be made to stay inside [`Surface::answer`] while a test looks.
+///
+/// **The instrument F7 needs, and a fake of the DRIVING port on purpose.** The finding is about how
+/// many questions are inside `Surface::answer` at once, so the count is taken there. A real
+/// `LocalService` over a held warehouse would measure the same number one frame further down,
+/// through a bundle, a plan and an anchor check the bound is not about - and its anchor runs at
+/// startup, which is why `sutura_http`'s equivalent fixture has to arm its switch afterwards.
+///
+/// It records the PEAK occupancy and not the current one, because the assertion is *nine were asked
+/// and N were inside*: a number that is true for an instant and cannot be sampled afterwards.
+pub(crate) struct HoldingSurface {
+    definitions: PinnedDefinitions,
+    /// The answer this fake hands back, prepared at construction.
+    ///
+    /// Built here and not inside `answer`, because `answer` returns a `Result` and
+    /// `clippy::unwrap_in_result` is denied even in a fixture - which is the right way round: a
+    /// fallible construction inside the method would be a second failure mode the port's caller
+    /// cannot tell from the one under test.
+    rows: RowSet,
+    occupancy: Arc<Occupancy>,
+}
+
+/// The one cell the fake writes and the test reads.
+///
+/// The SAME `Arc` on both sides, which is the point of the pair [`surface_that_can_be_held`]
+/// returns: two cells compile and then nothing is ever held - the failure mode `sutura_http`'s own
+/// held fixture records, where the timeout test answered `200`.
+#[derive(Default)]
+struct Occupancy {
+    inside: AtomicUsize,
+    peak: AtomicUsize,
+    held: AtomicBool,
+}
+
+/// The longest a held answer is held, whatever the test does.
+///
+/// A bug guard rather than a timeout: it is what a forgotten `release` costs instead of hanging the
+/// suite.
+const HELD_AT_MOST: Duration = Duration::from_secs(20);
+
+impl Surface for HoldingSurface {
+    fn definitions(&self) -> &PinnedDefinitions {
+        &self.definitions
+    }
+
+    fn answer(&self, _context: &RequestContext, _query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
+        let inside = self.occupancy.inside.fetch_add(1, Ordering::SeqCst) + 1;
+        self.occupancy.peak.fetch_max(inside, Ordering::SeqCst);
+        // Held rather than slept, for the reason `sutura_http`'s fixture gives: a `spawn_blocking`
+        // task that sleeps keeps running after the assertion, and dropping a `tokio` runtime waits
+        // for the blocking pool - so a fixed sleep long enough to outrun an admission window would
+        // be added to the wall time of the whole suite.
+        let deadline = Instant::now() + HELD_AT_MOST;
+        while self.occupancy.held.load(Ordering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        self.occupancy.inside.fetch_sub(1, Ordering::SeqCst);
+        // A real answer, so a test can tell *this call got in and was answered* from *this call was
+        // shed at capacity* by the outcome rather than by a sentence.
+        Ok(ToolOutcome::Answer {
+            provenance: self.definitions.provenance(ran_shared()),
+            rows: self.rows.clone(),
+        })
+    }
+}
+
+/// Whether the fake is currently refusing to leave `answer`, and how many callers are inside it.
+///
+/// A separate handle because the surface itself is moved into the served [`crate::AgentSurface`],
+/// and what a test needs to hold is the switch rather than the port.
+pub(crate) struct Holding(Arc<Occupancy>);
+
+impl Holding {
+    /// From here on, an answer does not come back.
+    pub(crate) fn arm(&self) {
+        self.0.held.store(true, Ordering::SeqCst);
+    }
+
+    /// Let whatever is inside finish, so the blocking pool drains with the test.
+    pub(crate) fn release(&self) {
+        self.0.held.store(false, Ordering::SeqCst);
+    }
+
+    /// How many callers are inside `answer` right now.
+    pub(crate) fn inside(&self) -> usize {
+        self.0.inside.load(Ordering::SeqCst)
+    }
+
+    /// The most that were ever inside `answer` at once.
+    pub(crate) fn peak(&self) -> usize {
+        self.0.peak.load(Ordering::SeqCst)
+    }
+}
+
+/// A surface that answers, with the switch that keeps a question inside it.
+pub(crate) fn surface_that_can_be_held() -> (HoldingSurface, Holding) {
+    let occupancy = Arc::new(Occupancy::default());
+    (
+        HoldingSurface {
+            definitions: bundle(),
+            rows: RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(ANCHORED_VALUE)]])
+                .expect("a one-cell result is a result set"),
+            occupancy: Arc::clone(&occupancy),
+        },
+        Holding(occupancy),
+    )
 }
