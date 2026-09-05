@@ -135,10 +135,18 @@ markdown_extensions:
 # They stay under `docs/` rather than moving out of it so that every path citation in the
 # repository - ADRs, doc comments, `xtask`'s own gates, the `docs/**` globs `check-guidance`
 # counts and pins against - keeps naming the file it names today. `cargo xtask check-docs` reads
-# this list and holds four things: no pattern here names a page that does not exist, no excluded
-# page is also in `nav`, no published page LINKS to one, and a page in neither state is the orphan
-# it always was. Each line must name one page literally: a glob or a negation is refused, because
-# a pattern that gate cannot resolve to a file is an exclusion nothing checks.
+# this list and holds five things: every pattern here reaches exactly one page that exists, no
+# excluded page is also in `nav`, no published page LINKS to one, every published page was
+# actually read in order to say so, and a page in neither state is the orphan it always was. Each
+# line must name a page literally - a glob or a negation is refused, because a pattern that gate
+# cannot resolve is an exclusion nothing checks.
+#
+# A LINE WITH NO `/` IN IT MATCHES A BASENAME AT EVERY DEPTH, because `exclude_docs` is gitignore
+# syntax and mkdocs matches it with `pathspec`. The gate matches it the same way now and says so
+# when one line reaches two pages, which was a real difference rather than a nicety: while it
+# compared these lines against docs-relative paths, a page one level down was dropped by mkdocs
+# and published by the gate's model of it, so a nav entry to nothing and a dead link on a
+# published page were both green.
 #
 # THE LINK RULE IS OURS BECAUSE `--strict` DOES NOT HAVE IT, and this comment said the opposite
 # first. Measured: with an ADR linking one of these pages, `mkdocs build --strict` printed
