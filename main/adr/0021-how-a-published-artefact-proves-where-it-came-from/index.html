@@ -1851,10 +1851,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#why-the-check-lives-in-ciyml-as-well" class="md-nav__link">
+  <a href="#why-the-check-lives-on-the-pull-request-as-well" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why the check lives in ci.yml as well
+        Why the check lives on the pull request as well
       
     </span>
   </a>
@@ -2782,10 +2782,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#why-the-check-lives-in-ciyml-as-well" class="md-nav__link">
+  <a href="#why-the-check-lives-on-the-pull-request-as-well" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why the check lives in ci.yml as well
+        Why the check lives on the pull request as well
       
     </span>
   </a>
@@ -3227,11 +3227,12 @@ into a workflow comment, this record and a pull request body before the real cou
   of the measurement. Reading upstream source confirmed that the explanation <em>could</em> be true; it
   could not confirm that it <em>was</em>.</li>
 </ul>
-<h3 id="why-the-check-lives-in-ciyml-as-well">Why the check lives in <code>ci.yml</code> as well<a class="headerlink" href="#why-the-check-lives-in-ciyml-as-well" title="Permanent link">&para;</a></h3>
-<p><code>ci.yml</code>'s <code>cross</code> job runs both readers over each of the four shipped binaries on every pull
-request. <strong>It earned its place immediately: it is what caught the broken assertion</strong>, on the pull
-request, before a release depended on it - and <code>release.yml</code>'s own version of that check would have
-failed every release with the counting bug in it.</p>
+<h3 id="why-the-check-lives-on-the-pull-request-as-well">Why the check lives on the pull request as well<a class="headerlink" href="#why-the-check-lives-on-the-pull-request-as-well" title="Permanent link">&para;</a></h3>
+<p><code>.github/workflows/cross-link.yml</code>'s link matrix - <code>ci.yml</code>'s <code>cross</code> job is the caller that gates
+it - runs both readers over each of the four shipped binaries on every pull request. <strong>It earned its
+place immediately: it is what caught the broken assertion</strong>, on the pull request, before a release
+depended on it - and <code>release.yml</code>'s own version of that check would have failed every release with
+the counting bug in it.</p>
 <p>Two readers rather than one, because they answer different questions: <code>rust-audit-info</code> says <em>is the
 section there</em>, <code>syft</code> says <em>can the release path's reader turn it into an inventory</em>. The run where
 the first passes and the second fails is the interesting one, and without both it is
