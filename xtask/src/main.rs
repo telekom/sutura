@@ -157,7 +157,7 @@ const TASKS: &[Task] = &[
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
         // rather than evaluated, one value that has to be the same in both.
         name: "check-warm-start",
-        description: "the warmed target directory, its stamp and its profile are what reads them expect",
+        description: "the warm start's directory, stamp and profile agree with what reads them",
         kind: Kind::Hygiene(Reads::Code),
         run: warm_start::run,
     },
