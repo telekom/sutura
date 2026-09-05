@@ -59,20 +59,30 @@ pub(super) fn report_coverage(coverage: &Coverage) {
 /// added, so a scan that names none has two possible fallbacks: run nothing, or run everything.
 /// Running everything is the unfiltered run whose verdict was a property of the suite - the defect
 /// this scoping removes - and running nothing is a green gate over zero measurements. An empty
-/// scan is therefore a refusal, and the fix is the extractor rather than the run.
+/// scan is therefore a refusal.
+///
+/// **WHAT REACHES HERE IS NARROWER THAN IT WAS, and the printed cause had to narrow with it.** A
+/// `#[cfg(test)]` item that is not a module is test-only code and never enters the proof; an
+/// attribute whose name could not be read has [`report_unreadable`]. What is left is a diff whose
+/// every provable file declares a test MODULE and nothing else - so the remedy names that, and no
+/// longer offers two causes this branch can no longer have. The reason it is worth the words: the
+/// two causes it USED to print were both wrong for the shape that reached it most often, which is
+/// how a reader was sent to fix an extractor that was working.
 pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
     eprintln!("xtask test-causality: FAILED - the added tests could not be NAMED");
     for f in test_files {
-        eprintln!("  {f} adds a test whose name this gate could not read");
+        eprintln!("  {f} declares a test module and names no test");
     }
     eprintln!();
     eprintln!("Both runs are scoped to the tests the diff added, so naming none of them would");
     eprintln!("leave the gate measuring the whole suite and reading any failure in it as evidence");
-    eprintln!("about this change. Three causes: an attribute `causality::attributes` does not");
-    eprintln!("recognise, a file no `Cargo.toml` above it declares a package for, or a");
-    eprintln!("`#[cfg(test)] mod ..` declaration whose module's own file is not in this diff. Fix");
-    eprintln!("the extractor rather than widening the run. A `#[cfg(test)]` item that is NOT a");
-    eprintln!("module cannot reach here: it is test-only code, and it is held rather than named.");
+    eprintln!("about this change. What reaches here is narrow, so the cause is too: every one of");
+    eprintln!("those files declares a test MODULE and nothing else, and the module's own file is");
+    eprintln!("not in this diff - so its tests are not added lines and this cannot read a name.");
+    eprintln!("Usually that means a module that was never declared is now compiled, which enables");
+    eprintln!("tests rather than adding them: state the evidence in the handoff. A `#[cfg(test)]`");
+    eprintln!("item that is NOT a module never reaches here - it is test-only code and is held -");
+    eprintln!("and an attribute whose NAME could not be read is its own verdict above.");
     Verdict::Fail
 }
 

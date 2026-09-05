@@ -37,6 +37,14 @@
 //! non-empty set is a TYPE rather than a check somebody remembers to write at the call site:
 //! [`Scan::of`] answers [`Scan::Unnamed`], and the gate refuses instead of measuring the suite.
 //!
+//! FAIL CLOSED ON A PARTIAL ONE TOO, which took longer to see because the scan is AGGREGATE: it
+//! answered `Runnable` the moment ONE provable file named a test, so a second provable file whose
+//! added `#[test]` yielded no name rode along unmeasured and unmentioned - the common shape, not a
+//! corner. [`Scan::Unreadable`] is that case and it refuses AHEAD of `Runnable`. The
+//! `#[cfg(test)] mod ..` form is deliberately not the same case: it names nothing by design and
+//! its module's own file names the tests, so refusing per file would redden the ordinary way a
+//! test module is added - it is [`Scoped::silent`], and the gate prints it.
+//!
 //! AN `#[ignore]`d TEST IS NAMED AND DROPPED, because a filterset naming only ignored tests
 //! matches nothing and nextest exits 4 with *error: no tests to run* - a false RED on legitimate
 //! work, and the acceptance suites here are full of them
@@ -54,12 +62,12 @@
 //! WHAT IT DOES NOT REACH. A name is read from an ADDED test attribute and the function under
 //! it, so a body-only edit inside an existing `#[test]` names nothing here. `super::attributes`
 //! also accepts an added `#[cfg(test)] mod ..` or `mod tests {` marker, which names no function -
-//! so a diff adding only a marker is a file the plan calls a test file and this cannot name. That
-//! is the empty scan, and it is a refusal rather than a wider run. **A `#[cfg(test)]` item that is
-//! not a module is NOT such a marker**, and treating it as one was a refusal no author could act
-//! on; that module's header carries the reasoning. Both attribute lists live THERE, in one file,
-//! because a name this cannot extract from a marker it accepts is exactly the disagreement that
-//! would reopen the unfiltered run.
+//! so a diff whose ONLY test signal is such a marker is a file the plan calls a test file and this
+//! cannot name. That is the empty scan, and it is a refusal rather than a wider run. **A
+//! `#[cfg(test)]` item that is not a module is NOT such a marker**, and treating it as one was a
+//! refusal no author could act on; that module's header carries the reasoning. Both attribute
+//! lists live THERE, in one file, because a name this cannot extract from a marker it accepts is
+//! exactly the disagreement that would reopen the unfiltered run.
 
 use crate::causality::attributes::{declares_a_test, sits_between};
 use crate::causality::diff::ChangedFile;
