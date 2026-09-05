@@ -348,21 +348,72 @@ case, since a helper usually exists because a new test needed it.
 **A VERDICT IS OVER A SUBSET whenever anything is held back, and it now says which.** A file
 carrying an implementation change and a test together is held, and its own tests are deliberately
 outside the proof - so `ok - red on base, green on head` was a statement about a subset while
-reading as one about the change. Every verdict carries `N of M added tests measured` and NAMES the
-ones it left out, `NOT MECHANICALLY SEPARABLE` included, where the honest number is `0 of M`. It
-STATES rather than FAILS on purpose: a unit test beside the code it tests IS the held-back shape, so
-failing would redden most branches here and a gate that reddens correct work gets disabled. **What
-it therefore is not:** nothing forces the remainder to be proven. `7 of 8` is an instruction to run
-a mutation by hand, not a mechanism.
+reading as one about the change. A verdict that ran both runs carries `N of M added tests measured`
+and NAMES the ones it left out, `NOT MECHANICALLY SEPARABLE` included, where the honest number is
+`0 of M`. It STATES rather than FAILS on purpose, and **that decision is measured rather than
+argued: replayed over thirteen recent branch diffs, twelve reached a verdict and ALL TWELVE had
+`measured < M`** - seven at zero, three partial, two on arms that measure nothing at all. A
+fail-on-mismatch rule would have reddened every branch in the sample, and a gate that reddens
+correct work gets disabled. **What it therefore is not:** nothing forces the remainder to be
+proven. `7 of 8` is an instruction to run a mutation by hand, not a mechanism.
+
+**Four passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
+which is the same defect class one level up, so it is worth the row. `no changed tests`,
+*tests changed but no implementation did*, `EVERY ADDED TEST IS #[ignore]d` and
+`NO BASE BEHAVIOUR TO COMPARE AGAINST` all return exit 0 without either run having happened, and two
+of the thirteen replayed branches landed on one of them with 3 and 7 added tests. They print a
+ZERO-numerator line now (`0 of 3`), because the numerator is what the filterset NAMES and that
+equals what was measured only once both runs are done. **So the citable claim is: a branch that ran
+the two runs prints the ratio, and a branch that did not says instead that it measured nothing.**
+
+**`N of N` WAS MANUFACTURED OUT OF AN INPUT THE GATE COULD NOT READ, and that is the one wording
+that asserts complete coverage.** The denominator comes from a second scan over the whole diff; when
+that scan refused, the added set collapsed to empty and the ratio printed `N of N` - or `0 of 0`
+beside `NOT MECHANICALLY SEPARABLE`, which reads as *the diff added no tests*. Two live routes,
+both measured: the whole-diff scan had **no `is_compiled_rust` filter**, so a changed PROSE page
+whose line begins `#[test]` was scanned as a test file (three pages under `.agents/skills/` carry
+such a line); and a changed file whose added `#[test]` the extractor could not name did the same
+with no prose involved, on a diff of the shape this very branch had. An unestablished denominator
+is its own state now and says so. **The transferable question: for every ratio a gate prints, ask
+what it prints when the denominator's source answered "I do not know".**
 
 **THE SCAN IS AGGREGATE, and that is how a subset hid.** `Scan::of` answered `Runnable` the
 moment ONE provable file named a test, so a second provable file whose added `#[test]` yielded no
 name rode along unmeasured with nothing in the output naming it - the common case, not a corner. It
 refuses now, ahead of `Runnable`, when a file added an attribute that DECLARES a test and no name
-came out. The other unnameable shape is not the same and must not refuse: a
-`#[cfg(test)] mod tests;` names nothing by design and its module's own file names the tests, so that
-one is PRINTED (`named no test: <file>`). **The question to ask of any aggregate answer: which input
-did it not need in order to say yes?**
+came out, and it counts PER ATTRIBUTE rather than per file: `named > 0` ended the file's inspection,
+so a second unnameable attribute BESIDE a nameable one survived the first fix one level down.
+**The precision cost of going per-attribute was measured before it was taken** - every `.rs` file
+under `crates/`, `xtask/` and `dev/` walked through the extractor, and ZERO test-declaring
+attributes fail to name a function - so it refuses nothing this tree writes. **The question to ask
+of any aggregate answer: which input did it not need in order to say yes?** And of any per-file
+one: what does a SECOND occurrence inside the file do.
+
+**AN EXEMPTION THAT ASSERTS ITS OWN JUSTIFICATION IS NOT AN EXEMPTION.** The other unnameable shape
+must not refuse - a `#[cfg(test)] mod tests;` names nothing by design and its module's own file
+names the tests - so it was PRINTED as *a test module arrived here; its own file names the tests*.
+Nothing read whether that file was in the diff. **A `#[cfg(test)] mod legacy;` added while
+`legacy.rs` sits untouched compiles a whole pre-existing module of tests, no added line names any of
+them, and the declaring file is held at HEAD so they are in BOTH trees and cannot be red on base
+either** - and it passed with `1 of 1`. The refusal for exactly that cause was already in the file
+and fired only when no sibling named a test, so one input had two remedies and the one that fired
+was the pass. The declaration is RESOLVED now - the module's own file, `#[path]` included - and a
+module this diff does not contain is its own refusal with its own remedy (state the evidence; the
+extractor is not at fault). **The tell to look for: a printed sentence containing a fact, and no
+code that reads it.**
+
+**A GATE THAT SCANS A LANGUAGE MUST LEX IT, and this one read an attribute as ONE line.** A
+continuation line starts with neither `#[` nor anything else the search skipped, so the downward
+walk from `#[test]` stopped on `clippy::disallowed_methods,` and no name came out. **Measured over
+`crates/`, `xtask/` and `dev/` on 2026-09-05: ten sites**, eight a `#[test]` over a wrapped `#[expect(..)]` and
+two a wrapped `#[ignore = ".."]` reason string - and the second pair is worse, because
+`OnlyIgnored`'s loud PASS was unreachable for them and they entered the filterset as runnable. It
+was survivable only while the aggregate scan skipped such a file in silence; the moment `Unreadable`
+refused ahead of `Runnable` it became a hard red sending the author of an unrelated change to fix
+`xtask`. The bracket balancer is the same lexer that finds where a `{ .. }` item ends, and an
+unclosed attribute is an ERROR rather than an answer. **This is the third time in this file that a
+scan counted where it should have lexed** - `check-workflows`' braces, `check-docs`' fences, and now
+this - so the pattern is the rule, not the instance.
 
 **A GREEN CAUSALITY STEP CAN BE AN INCONCLUSIVE ONE, and a required CI job cannot tell.** Both
 `INCONCLUSIVE` arms return `Verdict::Pass`, so `base did not compile` and `the base run named no

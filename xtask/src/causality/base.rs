@@ -30,7 +30,7 @@
 //! about a tree that built fine, which is how a missing status word turned into a wrong sentence.
 
 use crate::Verdict;
-use crate::causality::scoped::AddedTest;
+use crate::causality::place::AddedTest;
 
 /// What the base run actually told us.
 #[derive(Debug, PartialEq, Eq)]
@@ -323,7 +323,8 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 mod tests {
     use super::{BaseOutcome, classify_base, missing_module_file, names_no_tests, tail};
     use crate::causality::fixtures::{changed, manifest, tree};
-    use crate::causality::scoped::{AddedTest, Scan};
+    use crate::causality::place::AddedTest;
+    use crate::causality::scoped::Scan;
 
     /// The tests under test, as if one file in `package` had added each of `names`.
     ///

@@ -7,7 +7,7 @@
 
 /// One Rust identifier: a test function's name, or one segment of a module path.
 ///
-/// A newtype that PARSES, and [`AddedTest::term`] is the reason: this reaches nextest inside a
+/// A newtype that PARSES, and `super::scoped::AddedTest::term` is the reason: this reaches nextest inside a
 /// regular expression, so one carrying a metacharacter would widen the filter or break it rather
 /// than fail visibly. A Rust identifier cannot carry one; anything that is not one does not get
 /// through this constructor.

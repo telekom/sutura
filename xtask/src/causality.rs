@@ -71,10 +71,11 @@ mod coverage;
 mod diff;
 #[cfg(test)]
 mod fixtures;
+mod names;
+mod place;
 // `pub(crate)` rather than private: `crate::refusals` reads the same test regions this gate does,
 // because "which lines of this file are test code" is one question and a second implementation of
 // it would be a second thing to keep in step. Nothing else about the module moved.
-mod names;
 pub(crate) mod regions;
 mod remedies;
 mod runner;
@@ -87,7 +88,8 @@ use coverage::{Coverage, Scope};
 use diff::{ChangedFile, changed_with_additions};
 use regions::{PostImage, has_non_test_additions, scope};
 use remedies::{
-    report_coverage, report_head_failure, report_not_separable, report_only_ignored, report_unnamed_tests, report_unreadable,
+    report_coverage, report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable,
+    report_nothing_to_revert, report_only_ignored, report_silent, report_unnamed_tests, report_unreadable,
 };
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
@@ -228,17 +230,7 @@ fn prove(root: &Path, base: &str, separable: &Separable, scoped: &Scoped, covera
     let held = base_state(root, base, &holding);
 
     if first.restore.is_empty() {
-        println!("xtask test-causality: NO BASE BEHAVIOUR TO COMPARE AGAINST");
-        for f in &first.remove {
-            println!("  {f} does not exist at {base}");
-        }
-        println!();
-        println!("Every changed implementation file is new here, so there is no old behaviour");
-        println!("for a test to be red against. Reverting them would leave a tree that does not");
-        println!("compile, and a test that fails to compile proves nothing about behaviour.");
-        println!("This gate has NOT verified causality for this change - state the evidence in");
-        println!("the handoff if it is a bug fix.");
-        return Verdict::Pass;
+        return report_no_base_behaviour(base, &first.remove, coverage);
     }
 
     println!("xtask test-causality: proving red-before-green");
@@ -270,9 +262,7 @@ fn prove(root: &Path, base: &str, separable: &Separable, scoped: &Scoped, covera
     let shared_target = root.join("target").join("causality-target");
     let only = scoped.filterset();
     println!("  filter:    {only}");
-    for f in scoped.silent() {
-        println!("  named no test: {f}  (a test module arrived here; its own file names the tests)");
-    }
+    report_silent(scoped.silent());
     report_coverage(coverage);
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
@@ -407,11 +397,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
         Plan::Separable(separable) => {
             if separable.revert.is_empty() {
-                println!("xtask test-causality: tests changed but no implementation did");
-                println!("  Nothing to revert, so there is no old behaviour to be red against.");
-                println!("  If this is a new test for existing behaviour, say so; it is not a");
-                println!("  regression test and this gate cannot prove it is causal.");
-                return Verdict::Pass;
+                return report_nothing_to_revert(&Coverage::of(&[], &files, &working_tree));
             }
             match Scan::of(&files, &separable.test_files, &working_tree) {
                 Scan::Runnable(scoped) => {
@@ -419,6 +405,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                     prove(&root, &base, &separable, &scoped, &coverage)
                 }
                 Scan::Unreadable(files) => report_unreadable(&files),
+                Scan::Enabled(refused) => report_enabled_tests(&refused),
                 Scan::OnlyIgnored(names) => report_only_ignored(&names),
                 Scan::Unnamed => report_unnamed_tests(&separable.test_files),
             }
@@ -794,8 +781,14 @@ mod tests {
     fn a_test_module_declaration_still_refuses_when_it_names_no_test() {
         // The arm that must STILL fire, and the reason the split is on `mod` rather than on
         // `#[cfg(test)]`. A file gaining `#[cfg(test)] mod tests;` gained a test MODULE, so a test
-        // the extractor could not read is plausible there: the file stays in the proof, the scan's
-        // refusal stays reachable, and the extractor is the fix. The helper case widens nothing.
+        // the extractor could not read is plausible there: the file stays in the proof and the
+        // scan's refusal stays reachable. The helper case widens nothing.
+        //
+        // WHICH refusal moved, and it is the whole point of the second finding. `tests.rs` is not
+        // in this diff, so the declaration compiles a module of tests that arrived with no added
+        // line naming any of them - `Scan::Enabled`, whose remedy is stated evidence rather than
+        // an extractor fix. It used to be `Unnamed` here and the passing `silent` arm as soon as
+        // any sibling named a test, which is the one input that had two remedies.
         let files = vec![
             changed("crates/x/src/lib.rs", 2, &["#[cfg(test)]", "mod tests;"]),
             changed("crates/x/src/other.rs", 1, &["fn changed() {}"]),
@@ -810,7 +803,27 @@ mod tests {
             panic!("a test module declaration is a test file, got {planned:?}");
         };
         assert_eq!(one.test_files, vec![String::from("crates/x/src/lib.rs")]);
-        assert!(matches!(Scan::of(&files, &one.test_files, &read), Scan::Unnamed));
+        match Scan::of(&files, &one.test_files, &read) {
+            Scan::Enabled(ref refused) => {
+                assert_eq!(refused.len(), 1);
+                assert_eq!(
+                    refused.first().map(|only| only.module.as_str()),
+                    Some("crates/x/src/tests.rs")
+                );
+            }
+            other => panic!("a declaration this diff cannot account for refuses, got {other:?}"),
+        }
+        // And with the module's own file in the diff it is `Unnamed` instead: the declaration is
+        // accounted for, and no added line named a test anywhere.
+        let mut accounted = files;
+        accounted.push(changed("crates/x/src/tests.rs", 1, &["use super::f;"]));
+        let read = tree(&[
+            ("crates/x/src/lib.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("crates/x/src/other.rs", "fn changed() {}\n"),
+            ("crates/x/src/tests.rs", "use super::f;\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        assert!(matches!(Scan::of(&accounted, &one.test_files, &read), Scan::Unnamed));
     }
 
     #[test]
