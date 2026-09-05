@@ -167,18 +167,14 @@
         # the same tree.
         #
         # That mattered because a build script may bake an absolute path into generated code, and
-        # one here does: `utoipa-swagger-ui` unzips its asset bundle into `$OUT_DIR` and writes a
-        # `rust-embed` `#[folder = "/build/source/target/ci/build/.../dist/"]`. `target/` arrives
-        # in these checks by decompressing `sutura-deps`, which was built under `/build/source`, so
-        # in a check rooted anywhere else that folder does not exist - and the derive then expands
-        # to a `SwaggerUiDist` with no `Embed` impl. **Measured rather than reasoned:**
-        # `checks.nextest` failed with `E0599: no associated function named get found for struct
-        # SwaggerUiDist`, in a THIRD-PARTY crate, while `checks.clippy` compiled the same tree
-        # cleanly on the filtered source - the difference being only which `/build/...` it sat in.
+        # one here does - `utoipa-swagger-ui`, whose generated `rust-embed` `#[folder]` names its
+        # own `$OUT_DIR`, which arrives in these checks by decompressing `sutura-deps`. Under one
+        # source-root name a linux check reuses that literal successfully; under two it did not,
+        # and `checks.nextest` failed in a THIRD-PARTY crate while `checks.clippy` passed on the
+        # same tree. `nix/purge-baked-out-dirs.sh` carries the whole failure and both build roots.
         #
-        # So this is not tidiness: the two source roots have to agree, and the cheapest way to keep
-        # them agreeing is for there to be one place that says so. `filter` is the trivial one, so
-        # nothing is dropped - the whole point of these four is that nothing is.
+        # `filter` is the trivial one, so nothing is dropped - the whole point of these four is
+        # that nothing is. But **agreement is no longer the mechanism**: see the two limits.
         #
         # **TWO LIMITS, and the first is the one to read before believing this bought anything
         # else.** It is NOT what makes these four checks reuse `sutura-deps`: they decompress that
@@ -187,10 +183,13 @@
         # `/build/source`. Whatever discards the artifact is something else and is untouched here,
         # so the `nextest spent 57 minutes compiling` note further down is NOT explained by this.
         # What changed is only that a recompile of a crate with a baked path now succeeds.
-        # **Second:** a darwin build directory is `/nix/var/nix/builds/nix-<pid>-<random>/`, unique
-        # per derivation, so the roots cannot be made to agree there at all - the local
-        # `nix build .#checks.aarch64-darwin.nextest` fails identically before and after, measured
-        # both ways. Linux is `/build` for every derivation, which is where the gate runs.
+        # **Second, and it is why the name stopped being load-bearing:** a darwin build directory
+        # is `/nix/var/nix/builds/nix-<pid>-<random>/`, unique per derivation, so the roots cannot
+        # be made to agree there AT ALL - and while agreement WAS the mechanism, `just validate`
+        # exited 1 at `checks.aarch64-darwin.nextest` on an unmodified tree, before a single test
+        # ran. That is #325's F9, and `inheritedArtifacts` below is what fixes it: whatever baked a
+        # build root is regenerated rather than required. The `name` stays because it costs nothing
+        # and changing it would rehash every check for no gain.
         wholeTree = pkgs.lib.cleanSourceWith {
           src = ./.;
           name = "source";
@@ -319,6 +318,20 @@
         ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
         ciArtifacts = craneLib.buildDepsOnly ciArgs;
 
+        # ARTIFACTS BUILT IN ANOTHER DERIVATION, AND THE ONE THING THAT MAKES THEM SAFE TO INHERIT,
+        # as a single attrset - so a consumer cannot take the artifacts without the regeneration.
+        # A build script in this closure bakes the absolute `$OUT_DIR` it ran in into the code it
+        # generates, and a darwin build directory is per-derivation, so the inherited literal names
+        # nothing. `nix/purge-baked-out-dirs.sh` carries the measured failure - `just validate` red
+        # at `checks.nextest` on an unmodified tree - the detector, its cost and what it misses; it
+        # is a tracked `.sh` rather than a string here so `just lint-workflows` shellchecks it.
+        # NOT folded into `commonArgs`: `buildDepsOnly` inherits nothing, so the sweep would be a
+        # no-op in the producer while moving `sutura-deps`' hash and rebuilding ~80 crates for it.
+        inheritedArtifacts = artifacts: {
+          cargoArtifacts = artifacts;
+          preBuild = builtins.readFile ./nix/purge-baked-out-dirs.sh;
+        };
+
         # What a BARE cargo needs before it can build this workspace, as shell lines: the linker
         # and the libraries an app inherits from nothing, plus the warm start that lets it reuse
         # the dependency closure the checks already built. In `nix/cargo-env.nix` because this
@@ -353,7 +366,7 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay rustToolchainFile craneLib commonArgs
-            auditable mimallocFor optLevelFor;
+            inheritedArtifacts auditable mimallocFor optLevelFor;
           inherit (commonArgs) version;
         };
 
@@ -392,8 +405,7 @@
           # critical path before the pipeline can decide what to run. That step was 23.9 minutes
           # on the push that added the engine. At opt-level 0 it is a fraction of that, and it is
           # the same closure every gate uses rather than a second one.
-          xtask = craneLib.buildPackage (ciArgs // {
-            cargoArtifacts = ciArtifacts;
+          xtask = craneLib.buildPackage (ciArgs // inheritedArtifacts ciArtifacts // {
             pname = "xtask";
             cargoExtraArgs = "--package xtask";
             doCheck = false;
@@ -412,13 +424,11 @@
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and
           # would still report success.
-          clippy = craneLib.cargoClippy (ciArgs // {
-            cargoArtifacts = ciArtifacts;
+          clippy = craneLib.cargoClippy (ciArgs // inheritedArtifacts ciArtifacts // {
             cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
           });
 
-          nextest = craneLib.cargoNextest ((ciArgs // {
-            cargoArtifacts = ciArtifacts;
+          nextest = craneLib.cargoNextest ((ciArgs // inheritedArtifacts ciArtifacts // {
             # THE UNFILTERED TREE, and this is what ends a bug class rather than patching its
             # fourth instance. `xtask` is a repo-inspection tool, so its tests read repo files
             # BY DESIGN - `nix/crap.nix` against `docs/crap.md`, `devco/max-lines-ignore`, the
@@ -480,8 +490,7 @@
 
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
-          doctest = craneLib.mkCargoDerivation (ciArgs // {
-            cargoArtifacts = ciArtifacts;
+          doctest = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
             pnameSuffix = "-doctest";
             doCheck = false;
             buildPhaseCargoCommand = "cargo test --doc --workspace --all-features --profile \"$CARGO_PROFILE\"";
@@ -516,8 +525,7 @@
           # paid the same tax more quietly. The derivation graph showed one shared closure the
           # whole time - `nix eval` agreed - because sharing an input is not the same as
           # compiling into it.
-          hygiene = craneLib.mkCargoDerivation (ciArgs // {
-            cargoArtifacts = ciArtifacts;
+          hygiene = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
             src = wholeTree;
             pnameSuffix = "-hygiene";
             doCheck = false;
@@ -564,8 +572,7 @@
           # --profile ci -Z unstable-options --unit-graph` reports, summed over the ten documented
           # libs and deduplicated on (package, target, mode): 482 units, of which 291 are `check`
           # and exactly 10 are the `doc` units themselves.
-          api-docs = craneLib.mkCargoDerivation (ciArgs // {
-            cargoArtifacts = ciArtifacts;
+          api-docs = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
             src = wholeTree;
             pnameSuffix = "-api-docs";
             doCheck = false;
@@ -609,8 +616,7 @@
           #
           # `HOME` because cargo-llvm-cov writes there and a build sandbox has no home directory -
           # without it the run fails on a path it cannot create.
-          crap = craneLib.mkCargoDerivation (ciArgs // {
-            cargoArtifacts = ciArtifacts;
+          crap = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
             src = wholeTree;
             pnameSuffix = "-crap";
             doCheck = false;
@@ -691,17 +697,14 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            # `utoipa-swagger-ui`'s build script embeds an ABSOLUTE `OUT_DIR` path into the
-            # rust-embed `#[folder]` attribute it generates
-            # (`target/ci/build/utoipa-swagger-ui-*/out/embed.rs`). When the warmed closure is
-            # unpacked here from a sandbox build (whose source root is `/build/source`) and cargo
-            # recompiles the crate under `--all-features`, it reuses that stale `embed.rs` and
-            # fails with `#[derive(RustEmbed)] folder ... does not exist`. Purging the crate's
-            # build output after the warm start forces `build.rs` to rerun and regenerate
-            # `embed.rs` against the current source root.
-            rm -rf -- "''${CARGO_TARGET_DIR:-target}/ci/build/utoipa-swagger-ui-"* \
-                      "''${CARGO_TARGET_DIR:-target}/ci/.fingerprint/utoipa-swagger-ui-"* \
-                      2>/dev/null || true
+            # The warm start unpacks a closure built in another derivation, so it lands here with
+            # whatever absolute build directory a build script baked into what it generated - the
+            # same defect `inheritedArtifacts` handles for the checks, reached by a different
+            # route. THE SAME SCRIPT, so the two cannot drift, and it is still needed here after
+            # the checks stopped needing a crate name: `tar -x` over an existing warm target
+            # OVERWRITES rather than clears, so a directory warmed by an earlier closure keeps its
+            # stale path even once the artifact no longer carries one.
+            ${builtins.readFile ./nix/purge-baked-out-dirs.sh}
             exec cargo run -q --profile ci -p xtask -- test-causality "$@"
           '');
         };
