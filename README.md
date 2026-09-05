@@ -14,7 +14,7 @@
 (Italian) sutura is a surgical stitching technique to bring wound edges together.
 
 sutura:
-- is a MCP server
+- is an MCP server
 - to answer questions about data **as the person or agent asking** using metadata; strong metadata like blessed metrics are preferred.
 - can connect systems across boundaries.
 - has a strong focus on security and E2E impersonation
