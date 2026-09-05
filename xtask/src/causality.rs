@@ -378,6 +378,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
+    // WHICH BASE, named before any branch runs, so every verdict below is qualified by it. The
+    // verdict is a FUNCTION of this ref and one of the ways it can be wrong is not visible in the
+    // output otherwise: on the second branch of a stack the default pairs this branch's tests with
+    // the parent branch's implementation, reverts that, finds the tests green and fails - a defect
+    // that does not exist, reported about two halves that do not read each other. Naming the ref
+    // is not a fix for that, and stating a limit is not the same as reaching it.
+    println!("xtask test-causality: measuring the diff against `{base}`");
+
     // The POST-IMAGE of a changed file is what says which of its lines are test code, and
     // `git diff <base> --` compares base against the WORKING TREE - so the working tree is the
     // post-image, and reading it needs no second git call.
