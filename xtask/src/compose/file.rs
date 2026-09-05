@@ -332,12 +332,25 @@ fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
     // `apps.<service>-tier` alone - the `just` task, which is a person typing a command and not a
     // venue - so the gate would pass a tier CI never runs while its message said the opposite.
     //
+    // **The name comes from the PARSER and only the binding from the text, because a comment
+    // satisfied both earlier forms of this gate.** The first looked for the script's name anywhere
+    // in the block; an exact declaration is strictly more than that, and it was still raw text -
+    // `block_source` hands back the block's source, so `# postgres-tier = postgresTier.check;`
+    // passed a `contains`. Measured on the head this was reviewed on. Masked for postgres by two
+    // accidents (`just ci` names it, `ci.yml` has a step for it) and not masked at all for the next
+    // tier: a commented declaration is not a declared name to `declared_block` either, so
+    // `every_nix_check_is_named_by_the_task_that_runs_them` below would not require it in the
+    // `just ci` loop, and a tier could arrive with both gates green and nothing ever running it.
+    // Both gates read the block through the same parser now - the one whose own tests at
+    // `crate::workflows` assert a `checks = {` inside a `#` comment is skipped.
+    //
     // **What this does NOT hold, and did not before either:** that the check STARTS the tier
-    // rather than mentioning it. The previous form looked for the script's name anywhere in the
-    // block, which a comment satisfies; an exact declaration is strictly more than that, and the
-    // remaining half needs the check to be RUN, which `just ci` and CI do.
+    // rather than declaring it. No textual reading of nix can reach that; what closes it is the
+    // check being RUN, which `just ci` and CI do.
     let Some(root) = crate::repo::root() else { return };
     let Some(flake) = flake_text() else { return };
+    let declared = crate::workflows::declared_block(&flake, "checks = {")
+        .expect("flake.nix's `checks = {` block must close, or this gate is reading nothing");
     let checks = crate::workflows::block_source(&flake, "checks = {")
         .expect("flake.nix's `checks = {` block must close, or this gate is reading nothing");
     let tiers = nix_tier_modules(&root);
@@ -359,12 +372,22 @@ fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
                  it - wire it into a check, or delete the module"
             )
         };
-        let declaration = format!("{service}-tier = {binding}.check;");
+        let name = format!("{service}-tier");
+        let declaration = format!("{name} = {binding}.check;");
         assert!(
-            checks.contains(declaration.as_str()),
+            declared.contains(&name),
             "flake.nix imports `{module}` as `{binding}` and `checks = {{` does not declare \
              `{declaration}`, so the tier is built and never started. A tier only `just` runs is \
-             a command a person types, not a CI venue"
+             a command a person types, not a CI venue - and a commented-out declaration is not one"
+        );
+        // The parser above answers *is `<service>-tier` an attribute of this block*; it does not
+        // hand back the right-hand side, so the declaring LINE is what says the check is the
+        // module's. `starts_with` on the trimmed line rather than `contains` on the block: a `#`
+        // comment cannot start with the declaration, which is the whole point of this pair.
+        assert!(
+            checks.lines().any(|line| line.trim().starts_with(declaration.as_str())),
+            "`checks.{name}` is declared in flake.nix and not as `{declaration}`, so it does not \
+             point at the check `{module}` defines"
         );
 
         let text = std::fs::read_to_string(root.join("nix").join(format!("{service}-tier.nix")))
