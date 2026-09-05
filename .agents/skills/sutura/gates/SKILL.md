@@ -331,6 +331,41 @@ the change. **The false green was reachable from the one venue a person runs by 
 The base run drops that variable now, in the gate, because only the thing that provisioned a tier
 may declare one.
 
+**A `#[cfg(test)]` ITEM IS NOT A TEST, and one attribute was the whole difference between a hard
+refusal and a silent pass.** The classifier read a bare added `#[cfg(test)]` as *this file adds a
+test* whatever sat beneath it, so a diff adding a test-only HELPER entered the proof and then failed
+to name a test that was never there - a refusal no author could act on, since no extractor
+improvement reads a name off an item that is not a test. **Measured on #271's head, same tree, same
+base:** with the attribute the gate exited 1 (*the added tests could not be NAMED*); with that one
+line deleted it exited 0 (*NOT MECHANICALLY SEPARABLE*) over the same ten added tests. So *fix the
+failure* was the wrong repair - it would have traded a loud wrong answer for a quiet one.
+`causality::attributes` answers four ways now: a named test, a `mod` marker, a `#[cfg(test)]` item
+that is NOT a module, or nothing. The first two are still asked to name a test, so the marker
+refusal is intact; a non-module item is held at HEAD and asked for nothing, because reverting a
+helper the held tests call is `DidNotCompile` and then a pass that proves nothing - over the common
+case, since a helper usually exists because a new test needed it.
+
+**A VERDICT IS OVER A SUBSET whenever anything is held back, and it now says which.** A file
+carrying an implementation change and a test together is held, and its own tests are deliberately
+outside the proof - so `ok - red on base, green on head` was a statement about a subset while
+reading as one about the change. Every verdict carries `N of M added tests measured` and NAMES the
+ones it left out, `NOT MECHANICALLY SEPARABLE` included, where the honest number is `0 of M`. It
+STATES rather than FAILS on purpose: a unit test beside the code it tests IS the held-back shape, so
+failing would redden most branches here and a gate that reddens correct work gets disabled. **What
+it therefore is not:** nothing forces the remainder to be proven. `7 of 8` is an instruction to run
+a mutation by hand, not a mechanism.
+
+**THE BASE IS THE OTHER WAY IT LIES, and the failing direction is the default one.** `ship-check`
+defaults to `origin/main`, so on the second PR of a stack the diff carries the PARENT branch's
+implementation: the gate reverts that and finds this branch's tests green, then reports
+`FAILED - green against base behaviour` about two halves that do not read each other. The same
+commit is green with the stack parent as the base, and `SHIP_CHECK_BASE_REF` is the lever - so a
+verdict from this gate is a function of the base ref until you have said which one. Both halves
+follow from the same shape: the diff is one revert-set, and nothing asks whether a test's package
+could depend on what was reverted. **And the classification is over `.rs` only**, so a test whose
+subject is a markdown page has nothing the gate can revert - it reads as *tests changed but no
+implementation did*, which passes and proves nothing.
+
 **The hole that remains is the shared target directory.** Both runs use one; cargo treats the two
 trees as one unit and decides freshness by mtime, so a build in either overwrites the other's
 binaries and the next run silently executes them - reverted source and `env!("CARGO_MANIFEST_DIR")`
