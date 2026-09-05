@@ -3303,8 +3303,9 @@ inside a composite action either. <code>actionlint</code> is the tool that would
 each workflow's <code>run:</code> block out to <code>shellcheck</code> itself - and it <strong>cannot read a composite action at
 all</strong>: measured against the pinned 1.7.12, handed <code>.github/actions/attest-and-sign/action.yml</code> it
 reports <code>"jobs" section is missing in workflow</code> and <code>unexpected key "runs" for "workflow" section</code>,
-because it parses the file as a workflow. <code>ci.yml</code>'s own <code>shellcheck</code> pass globs <code>*.sh</code>, and a
-<code>run:</code> block is not one. So the release path's <code>cosign</code> invocations were shell nothing had ever read.</p>
+because it parses the file as a workflow. And the shellcheck list <code>nix/lint-workflows.sh</code> builds
+from tracked files holds no <code>run:</code> block, because a <code>run:</code> block is not a file. So the release
+path's <code>cosign</code> invocations were shell nothing had ever read.</p>
 <p><code>cargo xtask action-shell</code> extracts each block into a real file carrying a pointer back to its
 source line, and <code>just lint-actions</code> plus <code>ci.yml</code>'s workflow-analysis step pair it with the pinned
 <code>shellcheck</code>. <strong>Extraction rather than moving the shell into <code>.sh</code> files</strong>, which would have needed

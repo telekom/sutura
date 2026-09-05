@@ -3104,8 +3104,12 @@ authenticates is somebody else's decision. So <code>AccessTokens</code> is those
 transport is generic in it.</p>
 <p>It is a port on the first day rather than a <code>String</code> field, so <em>which</em> credential shape a
 deployment holds is a choice of implementor. <code>Bearer</code> carries the deadline because a minted token
-has one, and <code>crate::BigQueryWarehouse</code>'s <code>IMPERSONATION</code> still says <code>NoPlaceForASubject</code> because
-nothing mints one.</p>
+has one, and whether this adapter has anywhere for a subject's own credential to arrive is
+declared by <code>crate::BigQueryWarehouse</code>'s <code>IMPERSONATION</code> rather than by anything this port
+decides - and that declaration is deliberately the only copy of the value. This sentence used to
+carry a second copy and stated the OPPOSITE of it for three commits, on a published page;
+<code>check-guidance</code> refuses the shape now, so the correction is to stop encoding the value rather
+than to keep two copies in step.</p>
 <p><strong>What this is NOT, and the correction is review's rather than a hedge:</strong> this port is not yet the
 seam at which per-subject execution arrives as <em>merely another implementor</em>. Three signatures say
 so - <code>Warehouse::execute</code> takes a <code>&amp;Presented</code> and <code>BigQueryWarehouse</code> reads it only to call
