@@ -84,6 +84,10 @@ runs:
       RESULT_PREFIX: ${{ inputs.result-prefix }}
     run: |
       set -eu
+      # An EMPTY set is zero iterations and exit 0, so this step would report a readable
+      # dependency list having read no binary at all - the shape the floor above exists to stop,
+      # one level up. `set -u` covers UNSET only, and the value arrives as an expression.
+      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would inspect no binary"; exit 1; }
       for bin in $BINARIES; do
         embedded="${RESULT_PREFIX}${bin}/bin/${bin}"
 

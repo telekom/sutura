@@ -20,6 +20,15 @@
 # The write is atomic - a temporary file in the same directory and a `mv` - because a harness can be
 # reading while a tier is starting, and half a JSON document is a malformed-file error attributed to
 # whatever ran next.
+#
+# **It is also the READER, and that half arrived late enough to cost a suite run.** A tier used to
+# answer *am I up* from its own process - `pg_ctl status` - while the harness answered it from this
+# file, which is two statements about one fact. They came apart in the direction that blocks work
+# (`github.com/telekom/sutura#298`): a postmaster outlived a teardown that had already withdrawn its
+# entry, so the wrapper skipped `start` and every fail-closed cell found nothing. `published` is
+# here so a tier's `status` can be DERIVED from the document the harness reads rather than be a
+# second opinion about it, and it takes `publish`'s own argument list on purpose - the question a
+# caller has is *does the claim I made still stand*.
 { pkgs }:
 {
   script = pkgs.writeShellApplication {
@@ -30,6 +39,7 @@
 
       usage() {
         echo "usage: $0 publish <worktree> <service> <host> <port>" >&2
+        echo "       $0 published <worktree> <service> <host> <port>" >&2
         echo "       $0 withdraw <worktree> <service>" >&2
         exit 2
       }
@@ -50,6 +60,21 @@
         mv "$file.new" "$file"
       }
 
+      # Does the document still carry exactly what `publish` was last given for this service? The
+      # answer is the exit code, and it is deliberately fail-closed toward *no*: a missing file, a
+      # missing entry, a different address and a document that does not parse are one answer, which
+      # is that nothing a harness can reach is published here.
+      published() {
+        root="$1"; service="$2"; host="$3"; port="$4"
+        file="$root/.sutura-dev/endpoints.json"
+        [ -f "$file" ] || return 1
+        # `// empty` rather than a null comparison: `--exit-status` over no output is what makes an
+        # absent entry non-zero without a second branch to keep in step with this one.
+        jq --exit-status --arg service "$service" --arg host "$host" --argjson port "$port" \
+          '.services[$service] // empty | .host == $host and .port == $port' \
+          "$file" >/dev/null 2>&1 || return 1
+      }
+
       withdraw() {
         root="$1"; service="$2"
         file="$root/.sutura-dev/endpoints.json"
@@ -66,6 +91,7 @@
 
       case "''${1:-}" in
         publish) [ "$#" -eq 5 ] || usage; publish "$2" "$3" "$4" "$5" ;;
+        published) [ "$#" -eq 5 ] || usage; published "$2" "$3" "$4" "$5" ;;
         withdraw) [ "$#" -eq 3 ] || usage; withdraw "$2" "$3" ;;
         *) usage ;;
       esac

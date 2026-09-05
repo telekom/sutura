@@ -267,7 +267,7 @@ ci:
     # byte-compared and no test covers them, so four stale-page incidents were invisible locally
     # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
     # along - but this loop names its checks, so a name left out is a check nobody ran.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L \
             || nix build ".#checks.$system.$check" -L --offline
@@ -845,11 +845,13 @@ dev-up-datahub:
 # `nix/tier-endpoints.nix`, which MERGES its own service into the file, so `sutura-postgres-tier
 # start` no longer leaves `postgres` as the only entry. The other half stands - `xtask dev-up` goes
 # through `sutura_dev::discovery::publish`, which serialises the whole document from the docker
-# services it just read, so a `dev-up` after a nix tier still drops the nix entry. A docker service
-# is therefore still invisible for the whole of `just test` when the order runs that way, which
-# also sets the fail-closed direction, and a cell over one would be unconditionally red there. The
-# remaining half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than
-# papered over here.
+# services it just read, so a `dev-up` after a nix tier still drops the nix entry and the server it
+# named goes on running unnamed. For POSTGRES that no longer blocks a suite run: `nix/with-tier.sh`
+# reads a running-but-unpublished tier as its own state and republishes the entry (#298), which
+# `checks.postgres-tier` holds. For any other nix tier it stands whole, because nothing sources a
+# wrapper for one - and the wholesale write itself is gated by nothing either way. The remaining
+# half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than papered over
+# here.
 #
 # It brings the profile up first, because a task that asked for the fail-closed direction against a
 # tier nobody started would just be a confusing way to spell an error.
