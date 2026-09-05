@@ -181,9 +181,70 @@ therefore does not see.
   either.
 - **`check-guidance` reads prose and cannot catch a paraphrase.** It holds forbidden phrases, a
   version pin that must agree wherever it is written, claims known false in each recorded wording,
-  and two gated counts. It fails a cited `just` task that does not exist and a cited `cargo` line
-  missing `--all-features`. Its own stated blind spot: a comment marker is not stripped, so a claim
-  wrapping inside a `#` block is not found.
+  and the gated counts - `cargo xtask --help` and the tables themselves are the authority for how
+  many, and a number here would be a second thing to keep true. It fails a cited `just` task that
+  does not exist and a cited `cargo` line missing `--all-features`. Its own stated blind spot: a
+  comment marker is not stripped, so a claim wrapping inside a `#` block is not found.
+- **A fail-closed arm can cover *cannot say which* and leave *cannot look at all* open, and the
+  second is the cheaper defect to ship.** `check-shipped-binaries` gained a refusal over a page
+  whose fence never closes, and the read one line above it still said `continue`: measured in
+  review, a **non-UTF-8** page under `docs/` documenting a feature `nix/shipped.nix` does not probe
+  left the gate at `ok` and **exit 0**, because the other pages kept the reconciled count non-empty.
+  Same shape as the unreadable page `check-docs` dropped in silence eight lines above its own
+  `FAIL CLOSED` comment. **The question that catches it: for every file a gate is meant to read, is
+  the ANSWER over the tree the verdict names?** Both arms are one rule now, and the read guard is
+  scoped rather than blanket - a PNG inside a `docs/**` glob is out of SCOPE, not unreadable, and a
+  guard that failed on it is one somebody switches off. The test that mirrors the production file
+  filter is what keeps those two apart; the first version of it reported `docs/assets/favicon.png`.
+- **A lexer's declared divergence has to name BOTH ends of the thing it diverges on.**
+  `markdown::opens` declared that an opening fence's indentation is unrestricted, for
+  mkdocs-material's admonitions; `closes` diverges identically and said nothing, so a reviewer read
+  it as a bug. It is not - a fence opened four columns in is closed four columns in - but the
+  omission cost a review round. And the reason was overstated in the other direction: measured
+  2026-09-05, `grep -rnE '^\s{4,}```' docs` matches NOTHING, so both divergences are for a shape
+  mkdocs renders and this tree does not yet write. **The related loss is real and is not the one the
+  limit list named:** a build instruction written as a four-column INDENTED code block is neither
+  fenced nor inline, and the fenced reader dropped it silently. Changing the lexer is the wrong fix
+  here, because an admonition body IS four columns in and treating it as code would blank every
+  admonition `check-docs` reads links out of - so what closes it is a refusal keyed on the full
+  instruction shape, read off the PROSE half, where an inline mention is already blanked as a code
+  span. It fires on nothing in the tree, which is what a refusal over a shape nobody writes should
+  do.
+- **A citation that RESOLVES says nothing about the cited file's contents, and that is how four
+  comments named `ci.yml` as holding things it never held** - a caller of the image smoke test, the
+  command building the `shellcheck` list, the reason a floor of 100 is a floor. None of them was
+  falsified by a change; they were false when written. `claims/remedies.rs` deliberately does not
+  path-check a bare filename with no slash, because which of eight workflows a sentence meant would
+  be a guess - and a path check would have passed anyway, since `ci.yml` exists. So the answer is
+  the one #289 took for its printed remedies, applied to prose: **derive the file that holds the
+  mechanism and compare it against what the sentence names.** `HOSTED` fails four ways, each
+  measured by mutation - the wrong file named, the mechanism moved out of the tree, TWO files
+  holding it (two copies to keep in step, and a sentence naming a list orients nobody), and nothing
+  attributing it at all, which is the gate-over-silence direction its two siblings each got wrong
+  first. **It is a REGISTERED attribution, and that is the limit:** a false pointer nobody has
+  registered is invisible, exactly as an unregistered wording is invisible to `CONTRADICTED`. The
+  general rule was costed in #289 and refused - a backticked file plus a backticked identifier in
+  one sentence caught two of six, and missed the reachable one structurally, because a caller keeps
+  the job NAME after the body moves. **The prose discipline that does generalise: name the anchor a
+  reader can grep, not the file you believe holds it.**
+- **A phrase rule cannot hold a sentence that was TRUE when it was written**, and that is the whole
+  argument for the constant check. A published page said an adapter's `IMPERSONATION` was
+  `NoPlaceForASubject` while the constant declared `PerSubjectCredential`; the sentence went false
+  when a constant three commits away in another file changed, so no recorded wording could have
+  forbidden it, and `just api` then regenerated the page from the doc comment faithfully -
+  **regeneration is not verification.** What holds it now RESOLVES rather than matches: for a
+  sentence naming a constant by intra-doc link and a sibling variant of that constant's enum, the
+  declaration is read out of the tree and the sentence has to name the variant it holds. **The
+  instance was fixed by deleting the value from the prose, not by correcting it** - where a reader
+  can be sent to the declaration, one copy beats two in step - so what keeps the check from passing
+  over silence is a FLOOR: at least one doc comment in the tree must be read as stating a value
+  correctly, or the verdict is about nothing. Measured when it landed: 6 resolvable pairs in the
+  workspace, one of them stating a value, and one contradiction - the reported instance and no
+  false positive. **What it does not reach:** a value the compiler resolves and a text scan does not
+  (an alias, a `const fn`, a re-export), a description that gets the value wrong without naming a
+  sibling variant, and a claim written across two sentences - the window is one sentence, because a
+  window of the doc BLOCK reports `sutura-exec-bigquery`'s own module header, which states the value
+  correctly and discusses the other variant fourteen lines down.
 - **A `just` task cited in a printed Rust string is checked; a raw command line there is not.**
   The scope split is deliberate and was measured before it was taken. What judges a SENTENCE stays
   on prose files, because a rule table written in Rust holds the phrases it forbids and a scan over
