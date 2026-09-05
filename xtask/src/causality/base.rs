@@ -46,8 +46,23 @@
 //! place and pure, because it was made at the call site and pinned by review only.
 
 use crate::Verdict;
-use crate::causality::coverage::Coverage;
+use crate::causality::coverage::{Attributed, Coverage};
 use crate::causality::place::AddedTest;
+
+/// Evidence that a base run REPORTED PER-TEST RESULTS, and therefore that the filterset's names
+/// are also what was measured.
+///
+/// **A sealed witness: the field is private to this module, so nothing outside it can build one.**
+/// That is the mechanism, and #307's fix did not have it. [`earned`] was pure, in one place and
+/// under test - and none of that reached `super::prove`, which prints before either run and had
+/// `Coverage::ratio` in reach, so an inconclusive run carried `N of N added tests measured` twenty
+/// lines above its own `0 of N`. A non-zero measured numerator now requires one of these, this
+/// module is the only place that mints one, and it mints one from two of six [`BaseOutcome`]
+/// variants - both of which exist only after a base run has been classified. **So the overstating
+/// direction does not compile**; the understating one - printing the zero numerator before the runs
+/// - is held by `super::remedies`' `the_line_printed_before_either_run_claims_no_measurement`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PerTestResults(());
 
 /// What the base run actually told us.
 #[derive(Debug, PartialEq, Eq)]
@@ -232,17 +247,22 @@ fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 /// Three of the six print it: [`BaseOutcome::RedByAssertion`] in its verdict line and both
 /// inconclusive arms in theirs. The other three are asserted anyway, because the mapping is what a
 /// mutation moves and an arm that starts printing must not have to re-derive it.
+///
+/// **AND IT IS NOW THE ONLY PLACE THAT CAN MINT [`PerTestResults`]**, which is the half review found
+/// missing: being pure and in one place did not stop a caller with no outcome at all printing the
+/// ratio, and `super::prove` did, ahead of the head run. `Coverage`'s measured wording takes the
+/// evidence rather than a preference, so a numerator no run earned does not compile.
 fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
-    match *outcome {
+    coverage.measured(match *outcome {
         // Both runs happened and reported per-test results, so the filterset's names are also
-        // what was measured.
-        BaseOutcome::Green | BaseOutcome::RedByAssertion { .. } => coverage.ratio(),
+        // what was measured. `PerTestResults(())` is spellable here and nowhere else.
+        BaseOutcome::Green | BaseOutcome::RedByAssertion { .. } => Attributed::PerTest(PerTestResults(())),
         // Nothing this diff added was measured on base: the tree did not build, the filter matched
         // none of them, no failure was attributable, or the run stopped on something else.
         BaseOutcome::RedOutsideTheDiff { .. } | BaseOutcome::NotRun | BaseOutcome::Unattributed | BaseOutcome::DidNotCompile => {
-            coverage.nothing_measured()
+            Attributed::Nothing
         }
-    }
+    })
 }
 
 /// Turn a base run into the gate's verdict.

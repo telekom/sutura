@@ -563,9 +563,19 @@ which is the one that yields a real `ok - red on base, green on head`, or **prov
 above.
 
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
-INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. The gate
-prints the zero numerator on those arms since #307, so a current run says `0 of N` there - but the
-sentence is the same shape as the honest ratio and #331's body had to say in prose which one it was.
+INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. #307
+made those arms print `0 of N`; that fixed the verdict and not the line above it - `prove` printed
+the ratio BEFORE the head run, so an inconclusive run carried `measured:  N of N added tests
+measured` about twenty lines above its own corrected `0 of N`, one output, one sentence, two
+numerators. **What a run prints now, in order:** `filter:` with the filterset, then
+`scope:     N of M added tests named`, then the verdict carrying `(X of M added tests measured)`. So
+**exactly one line per run carries `added tests measured`, and it is the verdict's** - which is what
+makes grepping for that sentence safe. **Held by the compiler, not by the wording:** the measured
+sentence takes an `Attributed`, whose `PerTest` carries a `PerTestResults` witness whose field is
+private to `causality::base` - so `base::earned` is the only place that can mint one, from two of six
+`BaseOutcome` variants that exist only after a base run has been classified. A pre-run caller cannot
+spell a non-zero measured numerator without a compile error; that it prints no measured sentence at
+all is a unit test. #331's body had to say in prose which numerator was which; there is one to say.
 
 **Which verdicts pass:** *red on base* and, without proving anything, "not separable" and "every
 added test is `#[ignore]`d" - the last two ask for evidence instead: the command you ran, the failure

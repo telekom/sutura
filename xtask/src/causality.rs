@@ -88,8 +88,8 @@ use coverage::{Coverage, Scope};
 use diff::{ChangedFile, changed_with_additions};
 use regions::{PostImage, has_non_test_additions, scope};
 use remedies::{
-    report_coverage, report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable,
-    report_nothing_to_revert, report_only_ignored, report_silent, report_unnamed_tests, report_unreadable,
+    report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable, report_nothing_to_revert,
+    report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unreadable,
 };
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
@@ -263,7 +263,12 @@ fn prove(root: &Path, base: &str, separable: &Separable, scoped: &Scoped, covera
     let only = scoped.filterset();
     println!("  filter:    {only}");
     report_silent(scoped.silent());
-    report_coverage(coverage);
+    // THE SCOPE, NOT A MEASUREMENT, and it printed the ratio here until review reproduced what
+    // that costs: on a run that ends INCONCLUSIVE the honest `0 of M` lands twenty lines below
+    // `measured:  M of M added tests measured`, one output, one sentence, two numerators. Nothing
+    // has run yet, so `base::earned` cannot be consulted and there is no outcome to earn a
+    // numerator from - `causality::coverage` makes that a compile-time fact rather than a wording.
+    report_scope(coverage);
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
         return report_head_failure(&head_out, &only);
@@ -416,7 +421,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 #[cfg(test)]
 mod tests {
     use super::base::BaseOutcome;
-    use super::coverage::Coverage;
+    use super::coverage::{Attributed, Coverage};
     use super::fixtures::{changed, manifest, tree};
     use super::scoped::Scan;
     use super::{BaseState, Plan, plan, retry_with_held_back};
@@ -771,7 +776,10 @@ mod tests {
             }
         );
         // The pass carries its own limit rather than reading as a verdict about the change.
-        assert_eq!(Coverage::of(&[], &with_helper, &read).ratio(), "0 of 1 added tests measured");
+        assert_eq!(
+            Coverage::of(&[], &with_helper, &read).measured(Attributed::Nothing),
+            "0 of 1 added tests measured"
+        );
         // And the answer does not depend on the helper being there, which is the property that
         // was missing: the same diff without it plans identically.
         assert_eq!(plan(&[added(&hunk)], &read), Plan::NotSeparable { files: inseparable });
