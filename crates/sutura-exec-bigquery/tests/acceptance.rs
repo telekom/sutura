@@ -33,6 +33,14 @@
 //! reach: no second dataset and no second project, because the acceptance credential's IAM refuses
 //! `datasets.create`.
 //!
+//! **And since `telekom/sutura#325`'s F2, one more thing nothing local can reach: a digit-leading
+//! quoted ALIAS is accepted and answered under that name.** The internal federation labels are a
+//! namespace no question can name precisely because every one of them starts with the character the
+//! identifier parser refuses for portability - so the scheme depends on each target accepting it as a
+//! select alias, which `every_leg_statement_parses_here` asks four PARSERS and no service.
+//! [`an_internal_label_survives_as_an_alias_at_the_service`] asks the one target whose documentation
+//! restricts a column NAME to a letter or an underscore first. Same table, same numbers, two labels.
+//!
 //! **The leg the records ask for is a different piece of work, and it is now BUILT - in
 //! `tests/corpus.rs`, beside this one.** It is #78's importer shape pointed at a dataset: the example
 //! fixtures loaded into four tables, the corpus questions run, the rows compared against the engine's.
@@ -157,6 +165,7 @@ mod tests {
     use sutura_domain::model::{DatasetName, ModelName, QualifiedTable, SourceName, TableQualifier};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::Executable;
+    use sutura_domain::plan::federated::InternalLabel;
     use sutura_domain::warehouse::preflight::TablesPresent;
     use sutura_domain::warehouse::{PreFlight, Warehouse};
 
@@ -173,7 +182,7 @@ mod tests {
     use sutura_exec_bigquery::transport::{DatasetAddress, JobTransport as _, ListingTotal};
     use sutura_exec_bigquery::wire::{BigQueryWire, StsOverHttp, WireAgent, WireError};
 
-    use crate::fixture::{Fixture, NO_SUCH_TABLE, absent_table, no_such_table, plan, source};
+    use crate::fixture::{Fixture, NO_SUCH_TABLE, absent_table, no_such_table, plan, plan_in_the_internal_namespace, source};
     use crate::support::{Wired, bounds, opened, presented};
 
     /// The model the seam leg's bundles declare over the table the dataset really holds.
@@ -280,7 +289,41 @@ mod tests {
             "the projected labels are the plan's"
         );
 
-        assert_the_fixtures_numbers("the unqualified read", &rows);
+        assert_the_fixtures_numbers("the unqualified read", ["period", "total_amount"], &rows);
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn an_internal_label_survives_as_an_alias_at_the_service() {
+        // **The half of `telekom/sutura#325`'s F2 that no parse check can reach.** The internal
+        // federation labels are a namespace no question can name because every one of them starts
+        // with a digit - the character `InvalidIdentifier::BadFirstCharacter` refuses *because* it is
+        // "legal in some dialects and not others, so accepting it would make a model portable by
+        // luck". So the whole namespace rests on every target accepting that character in the one
+        // position the generator puts it: a quoted select alias.
+        //
+        // `every_leg_statement_parses_here` asks `polyglot_sql` and its own doc says what that is
+        // worth - a failure at the service "is otherwise only discoverable by running it". This is
+        // the running of it, and BigQuery is the target that had to be asked rather than reasoned
+        // about, because it is the one whose documentation restricts a COLUMN NAME to a letter or an
+        // underscore first. Asked by hand first, 2026-09-05, twice - bare aliases and then this
+        // statement's own shape, each as a dry run and as a real job: accepted, and the result schema
+        // comes back with the field names the statement asked for. This cell is what keeps that true;
+        // `label.rs` carries the transcripts and the two targets still asserted at the parser only.
+        //
+        // Read back rather than merely accepted: a service that had silently renamed the columns
+        // would satisfy an acceptance-only assertion, and the combiner reads leg results BY LABEL.
+        let fixture = Fixture::required();
+        let table = fixture.unqualified();
+        let warehouse = warehouse(fixture);
+        let plan = plan_in_the_internal_namespace(&table);
+        let link = InternalLabel::Link.label();
+        let leaf = InternalLabel::Leaf(0).label();
+
+        let rows = warehouse
+            .execute(Executable::Query(&plan), &presented())
+            .expect("the endpoint accepted a digit-leading quoted alias");
+        assert_the_fixtures_numbers("the internal namespace", [link.as_str(), leaf.as_str()], &rows);
     }
 
     /// The fixture's own numbers, whichever way its table was named.
@@ -294,12 +337,11 @@ mod tests {
     /// anything:** what they claim is that a fully qualified read returns *the same* numbers as the
     /// unqualified one, and three separately written expectations could drift into three different
     /// claims. `named` says which leg is speaking, because a failure has to name the path shape.
-    fn assert_the_fixtures_numbers(named: &str, rows: &sutura_domain::warehouse::RowSet) {
-        assert_eq!(
-            rows.columns(),
-            ["period", "total_amount"],
-            "{named}: the projected labels are the plan's"
-        );
+    /// `labels` is a parameter rather than a constant because one leg projects the same numbers under
+    /// the internal federation namespace's labels - the point of that leg is the alias, so the labels
+    /// it expects are the assertion and cannot be hard-coded here.
+    fn assert_the_fixtures_numbers(named: &str, labels: [&str; 2], rows: &sutura_domain::warehouse::RowSet) {
+        assert_eq!(rows.columns(), labels, "{named}: the projected labels are the plan's");
         let mut answered: Vec<(String, String)> = Vec::new();
         for row in rows.rows() {
             assert_eq!(row.len(), 2, "{named}: a row is as wide as the schema");
@@ -354,7 +396,7 @@ mod tests {
             let rows = warehouse
                 .execute(Executable::Query(&plan), &presented())
                 .unwrap_or_else(|e| panic!("{named}: the endpoint did not answer: {e:?}"));
-            assert_the_fixtures_numbers(named, &rows);
+            assert_the_fixtures_numbers(named, ["period", "total_amount"], &rows);
         }
     }
 

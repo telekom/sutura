@@ -279,7 +279,7 @@ mod tests {
         use sutura_domain::measure::{AggregatedColumn, Measure, Term};
         use sutura_domain::model::Aggregate;
         use sutura_domain::model::{ColumnName, TableName};
-        use sutura_domain::plan::{AnswerKey, LegPlan, PlanBucket, PlanColumn, PlanKey, StatementTables};
+        use sutura_domain::plan::{AnswerKey, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, StatementTables};
 
         let fact_source = SourceName::parse("facts").expect("a test source");
         let lookup_source = SourceName::parse("geo").expect("a test source");
@@ -287,6 +287,9 @@ mod tests {
         let column = |n: &str| ColumnName::parse(n).expect("a test column");
         let tablecol = |n: &str| PlanColumn::new(table.clone(), column(n));
         let key = |n: &str| PlanKey::new(String::from(n), tablecol(n));
+        // The link column, under the reserved label both legs project it as. The splitter names it
+        // from `InternalLabel` and this fake does too, so the shape stays the shape it emits.
+        let link = || PlanKey::new(InternalLabel::Link.label(), tablecol("customer_key"));
         let bucket = |c: &str| {
             PlanBucket::new(
                 String::from(TIME_BUCKET_LABEL),
@@ -300,7 +303,7 @@ mod tests {
             metric: metric(),
             tables: StatementTables::only(table.clone()),
             bucket: bucket("month"),
-            keys: vec![key("product_family"), key("customer_key")],
+            keys: vec![key("product_family"), link()],
             terms: Vec::new(),
             filters: Vec::new(),
             params: Vec::new(),
@@ -309,7 +312,7 @@ mod tests {
         let lookup = LegPlan::Lookup {
             source: lookup_source,
             table: table.clone().into(),
-            keys: vec![key("customer_key"), key("region")],
+            keys: vec![link(), key("region")],
             filters: Vec::new(),
             params: Vec::new(),
         };
@@ -320,8 +323,6 @@ mod tests {
             bucket("month"),
             fact,
             lookup,
-            String::from("customer_key"),
-            String::from("customer_key"),
             true,
             sutura_domain::federation::Federation::of(&sum),
             vec![
@@ -333,12 +334,13 @@ mod tests {
     }
 
     fn federated_fact_rows() -> RowSet {
+        use sutura_domain::plan::InternalLabel;
         RowSet::new(
             vec![
                 String::from("product_family"),
-                String::from("customer_key"),
+                InternalLabel::Link.label(),
                 String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-                String::from("revenue"),
+                InternalLabel::Leaf(0).label(),
             ],
             vec![
                 vec![
@@ -365,8 +367,9 @@ mod tests {
     }
 
     fn federated_lookup_rows() -> RowSet {
+        use sutura_domain::plan::InternalLabel;
         RowSet::new(
-            vec![String::from("customer_key"), String::from("region")],
+            vec![InternalLabel::Link.label(), String::from("region")],
             vec![
                 vec![Value::Text("c1".into()), Value::Text("north".into())],
                 vec![Value::Text("c2".into()), Value::Text("north".into())],

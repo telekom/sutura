@@ -14,7 +14,7 @@ fact:
       table: fct_subscription_monthly
       column: month
   keys:
-    - label: customer_key
+    - label: 0_link
       column:
         table: fct_subscription_monthly
         column: customer_key

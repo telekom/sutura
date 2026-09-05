@@ -49,6 +49,14 @@ use super::{column, dimension, source, version};
 /// model whose dimension is reached `via` a relationship whose target sits ELSEWHERE. The
 /// definitional filter the real `recurring_revenue` declares is left off for the same reason - it
 /// changes no plan that is refused before planning finishes.
+///
+/// **The metric declares a second, LOCAL dimension whose name is the remote join column's**, and
+/// that one literal is the whole of `telekom/sutura#325`'s F2 shape. `customer_key` is a legal
+/// dimension name backed by a different column (`subscription_key`), and the splitter used to label
+/// the link with the physical join column's text beside the public dimension labels - so a legal
+/// question produced two fact columns under one label and the combiner refused the answer it could
+/// not disambiguate. The dimension stays legal and the internal label moved:
+/// `a_dimension_named_like_the_remote_join_column_still_answers` is where that is provoked.
 pub(crate) fn two_source_catalog() -> TwoSourceCatalog {
     TwoSourceCatalog
 }
@@ -120,7 +128,10 @@ impl SemanticCatalog for TwoSourceCatalog {
             Vec::new(),
             column("month"),
             BTreeSet::from([Grain::Month]),
-            vec![dimension("region", "region", Some("subscription_customer"), None)],
+            vec![
+                dimension("region", "region", Some("subscription_customer"), None),
+                dimension("customer_key", "subscription_key", None, None),
+            ],
             None,
             Description::default(),
         )

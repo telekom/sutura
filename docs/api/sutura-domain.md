@@ -4935,6 +4935,8 @@ one place: the caller owns the order, which is what the placeholder-position con
 
 ### `use None`
 
+### `use None`
+
 ### `constant MAX_ROWS`
 
 The most rows any plan may return.
@@ -4974,6 +4976,11 @@ mistake this design refuses to make is the two halves agreeing by review. `label
 function: the splitter names the fact leg's terms with it and the combiner re-derives the same
 names from the same `Federation` and looks them up in the fact leg's result. There is no second
 copy of the naming rule to drift.
+
+**Those labels live in a namespace a question cannot reach, which is `label`'s job.** A leg's
+result carries public dimension labels beside the internal ones, so an internal label spelled as
+an identifier is a label a legal dimension name can collide with - reproduced. `InternalLabel`
+is the type that cannot be spelled by one.
 
 **The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
 happens instead.** The [`Above`](crate::federation::Above) tree already carries the only
@@ -5062,7 +5069,7 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, fact_join: String, lookup_join: String, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
 Constructs a federated plan from its two legs and the answer's key order.
@@ -5070,6 +5077,13 @@ Constructs a federated plan from its two legs and the answer's key order.
 A `Result` constructor is this workspace's convention for a value with an invariant: a plan
 that is not a fact leg beside a lookup leg, or that names one data system on both legs, is not
 a plan and cannot be built.
+
+**There is no link-label parameter, and that is the F2 fix's structural half.** The label the
+legs are joined under used to be two `String` arguments, and the splitter filled both with the
+physical remote join column's text - which is a legal dimension name, so a legal question
+produced two fact columns under one label. It is now `InternalLabel::Link`, a constant of
+the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
+for the two legs to disagree about, and the constructor requires both legs to project it.
 
 ```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
@@ -5187,10 +5201,137 @@ value for.
 
 `Clone`, `Debug`, `Display`, `Error`, `PartialEq`
 
-#### `fn labels`
+#### `use None`
+
+#### `use None`
+
+#### Module `label`
+
+The reserved label namespace, and the one function that assigns it.
+
+Its own module because it is what the splitter, the combiner and the leg goldens all read the
+spelling from, and because a namespace is a thing to reason about on its own. It declares no test
+module: a test module declared from a file `test-causality` reverts is never compiled, and the
+proof it then reports is vacuous - every assertion about it is in `tests.rs`.
+The label namespace a question cannot reach, and the one function that assigns it.
+
+##### `enum InternalLabel`
 
 ```rust
-pub fn labels(federation: &crate::federation::Federation, metric: &crate::model::MetricName) -> Vec<String>
+pub enum InternalLabel
+```
+
+A column label the splitter and the combiner agree on, in a namespace no question can name.
+
+**Why a type rather than a convention.** A federated fact leg's result carries public dimension
+labels beside internal ones - the column the legs are joined on, and one per carried leaf of the
+measure. The splitter spelled the first with the physical remote join COLUMN's text and the
+second as `metric__{n}`, and both of those are legal identifiers: a metric with a legal dimension
+named `customer_key`, backed by a different column, projected two fact columns under one label
+and the combiner refused the answer it could not disambiguate. A dimension is free to be named
+anything [`DimensionName`](crate::model::DimensionName) accepts, so the internal labels are what
+has to move - keeping a legal question legal is the constraint, not a naming rule for authors.
+
+**What makes the two namespaces disjoint, and it is one character.** Every rendering here starts
+with a digit, which `crate::model`'s identifier parser refuses as a FIRST character - a leading
+digit is legal in some dialects and not others, so it was already refused for portability. No
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can therefore spell one of these, for
+any spelling and any length. `federated/tests.rs` asserts that by parsing every constructible
+label as each of those names and requiring the refusal, rather than leaving it to this paragraph.
+
+**The disjointness has a second half, and it is the one a parse check cannot answer: every target
+has to ACCEPT the label as a quoted alias.** The character this scheme is built on is the one
+[`BadFirstCharacter`](crate::model::InvalidIdentifier::BadFirstCharacter) refuses because it is
+*"legal in some dialects and not others, so accepting it would make a model portable by luck"* -
+so the same sentence that justifies the namespace is the reason to doubt it. Two different
+questions live under it: whether a target accepts a digit-leading string as an **identifier**,
+which is what that refusal is about and where the targets do differ, and whether it accepts one
+as a **quoted select alias**, which is the only position this scheme puts it in.
+`sutura_sql::generate`'s `aliased` quotes every alias or refuses to render, and `GROUP BY` and
+`ORDER BY` carry the EXPRESSION rather than the alias, so a leg's statement spells an internal
+label in exactly one place.
+
+What is established, and by what:
+
+| Claim | Venue | Mechanism |
+| --- | --- | --- |
+| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
+| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+
+`BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
+whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
+2026-09-05, as a dry run and as a real job each time: bare aliases
+(``SELECT 1 AS `0_link`, 2 AS `0_leaf_0`, 3 AS `0_leaf_26` ``), and then a statement in the shape
+the generator actually emits - a `CAST(DATE_TRUNC(..) AS DATE)` bucket and a `sum(..)` measure
+aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over the expressions.
+Both are accepted and both come back with the field names the statement asked for. So the
+documented restriction is on a **declared column** and not on a quoted alias.
+
+**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
+Neither has an execution venue for a LEG - the whole federated path is gated by a
+defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle sets - so what stands
+for them is a quoted-identifier argument rather than a run. Read the row above for what each one
+is worth.
+
+**Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
+range is a wiring defect the combiner reports as a missing column, not a label this type could
+have refused - which is why the variants carry their data in the open and no constructor is
+fallible. What the type buys is that the TEXT can only come from here.
+
+**The other half of the namespace is held elsewhere, and this is the whole of it in one place.**
+The labels a result carries besides these are public: the answer's dimension labels, the time
+bucket's [`TIME_BUCKET_LABEL`](crate::catalog::TIME_BUCKET_LABEL) and the measure's metric name.
+Those are held against each other at load by
+[`Definitions::assemble`](crate::catalog::Definitions::assemble) -
+`DimensionShadowsTimeBucket`, `DimensionShadowsMeasure`, `TwoDimensionsOneLabel` and
+`LabelShadowsTable`, each case-folded to the coarsest dialect rule. So a public label collides
+with another public label at load, and cannot collide with an internal one at all. **The limit:**
+nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
+is the property the test asserts, and the thing to re-establish if this spelling ever changes.
+
+**And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
+This half is a type. The public half is not: [`PlanKey`](crate::plan::PlanKey) and
+[`LegTerm`](crate::plan::LegTerm) carry their labels as `String`, so what keeps a public label out
+of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
+`DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
+test: the test above asks the four name parsers to refuse these spellings, which is a property of
+`parse_identifier`, not of any plan. A computed public label landing on `0_leaf_{n}` would be
+refused by `distinct_columns` as `DuplicateLabels`, so the failure direction is a refusal rather
+than a wrong number - which is why the `String`s are still here. `telekom/sutura#337` is the
+typed-label remedy that would make the comparison impossible rather than unnecessary.
+
+**Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
+is 63 characters because that is the tightest among the data systems targeted, and it is a
+*silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
+columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
+scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
+`usize` can index is 27 characters.
+
+###### Variants
+
+- `Link` - The column the two legs are joined on, in either leg's result.
+- `Leaf` - One carried leaf of the measure, by its position in carried order.
+
+###### Methods
+
+```rust
+pub fn label(self) -> String
+```
+
+The text this label carries in a leg's result.
+
+The one place the reserved namespace is spelled. A caller that needs it as a column name
+takes it from here, so no call site holds a second copy of the spelling.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+##### `fn labels`
+
+```rust
+pub fn labels(federation: &crate::federation::Federation) -> Vec<InternalLabel>
 ```
 
 The one definition of what a carried leaf is projected under.
@@ -5198,13 +5339,11 @@ The one definition of what a carried leaf is projected under.
 The splitter and the combiner both call this, so the column the combiner reads a leaf from and
 the label the splitter projected it under cannot disagree - there is no second copy of the rule.
 
-**A single leaf is the answer's own name; several leaves disambiguate by position.** A plain sum
-travels as the metric's own label, and the halves of a decomposition travel as `metric__{n}`,
-where `n` is the leaf's position in carried order. Position cannot collide: a ratio of two sums -
-`sum(a) / sum(b)` - is one aggregating function twice, so naming by aggregate would give both
-leaves the same label and a combine that divides a column by itself. Whatever makes the labels
-unique within one plan is enough - the final measure comes back under the metric's own name - and
-this rule is that minimum.
+**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
+function twice, so naming by aggregate would give both leaves one label and a combine that
+divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
+metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
+under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
 
 ### Module `leg`
 

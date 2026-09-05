@@ -32,8 +32,8 @@ use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-    StatementTables, labels, plan_measure, plan_required_filter,
+    FederatedPlan, InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm,
+    PredicateOrigin, QueryPlan, StatementTables, labels, plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -222,7 +222,12 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         }
     }
 
-    let link_label = String::from(relationship.target_column().as_str());
+    // **The link's label is reserved, and it used to be the physical join column's text.** That text
+    // is a legal dimension name, and it sat in the same result namespace as the public dimension
+    // labels beside it - so a metric with a legal dimension named `customer_key`, backed by a
+    // different column, produced two fact columns under one label and the combiner refused the
+    // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
+    let link_label = InternalLabel::Link.label();
 
     // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
     // joined to it above.
@@ -241,7 +246,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     // The lookup leg projects the join target plus the remote dimension keys.
     let mut lookup_keys: Vec<PlanKey> = Vec::new();
     lookup_keys.push(PlanKey::new(
-        link_label.clone(),
+        link_label,
         PlanColumn::new(remote_table.clone(), relationship.target_column().clone()),
     ));
     for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
@@ -267,8 +272,11 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     let (fact_filters, fact_params) = predicates_and_params(resolution, &local_filters, own_table, &time_column);
     let (lookup_filters, lookup_params) = requested_for(&remote_filters, remote_table);
 
-    // The fact leg's terms, projected under the one labelling rule the combiner reads back.
-    let leaf_labels = labels(&federation, metric.name());
+    // The fact leg's terms, projected under the one labelling rule the combiner reads back - in the
+    // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
+    // name too, and over a 63-character metric name it also crossed the identifier limit a data
+    // system truncates silently.
+    let leaf_labels: Vec<String> = labels(&federation).into_iter().map(InternalLabel::label).collect();
     let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
     for (leaf, label) in federation.carried().iter().zip(leaf_labels.iter()) {
         let plan_term = match **leaf {
@@ -370,15 +378,23 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         bucket,
         fact,
         lookup,
-        link_label.clone(),
-        link_label,
         // LEFT when the lookup carries no filter (an unmatched fact row survives), INNER when it
         // does. `docs/adr/0009` decides the direction.
         remote_filters.is_empty(),
         federation,
         answer_keys,
     )
-    .map_err(|_never| RefusalReason::FederationNotExecutable)
+    // **The cause is erased here, and the binding no longer claims otherwise.** It was `_never`,
+    // which asserted the arm was unreachable; `NotFact`, `NotLookup` and `SameSource` are indeed
+    // structurally impossible from this call site, but `KeyNotOnLeg { side, label }` is not - it
+    // fires if a change above stops projecting `InternalLabel::Link` onto one of the two legs it
+    // builds. Flattened into `FederationNotExecutable`, which is ALSO the refusal every federated
+    // question already gets from a shipped binary (`EXECUTES_LEGS` is defaulted-`false`), such a
+    // wiring defect would be indistinguishable from the ordinary refusal: no side, no label, no log.
+    // `telekom/sutura#338` carries the two remedies and why neither is a line - one needs a new
+    // `RefusalReason` and everything downstream of the vocabulary, the other a `tracing` edge on a
+    // crate whose two dependencies `cargo xtask check-boundaries` holds.
+    .map_err(|_unassemblable| RefusalReason::FederationNotExecutable)
 }
 
 /// The predicates a statement carries, paired with the parameters they bind.
