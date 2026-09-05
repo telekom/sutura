@@ -5599,7 +5599,7 @@ function: the splitter names the fact leg's terms with it and the combiner re-de
 names from the same <code>Federation</code> and looks them up in the fact leg's result. There is no second
 copy of the naming rule to drift.</p>
 <p><strong>The division cannot happen in a leg, and <a href="FederatedPlan::combine"><code>combine</code></a> is where it
-happens instead.</strong> The <code>Above</code> tree already carries the only
+happens instead.</strong> The <a href="crate::federation::Above"><code>Above</code></a> tree already carries the only
 <a href="crate::measure::ZeroDenominator"><code>ZeroDenominator</code></a> in the federated path; this module walks it
 above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
 the wrong number this shape exists to prevent.</p>
@@ -5632,8 +5632,10 @@ be reconstructed from its serialized form and no field here is a request a calle
 <p>Turns one result per leg into one answer's rows.</p>
 <p>The fact and lookup results are joined on the recorded link column, grouped by the answer's
 keys - in the order the question asked them, matching the mono path - and the bucket,
-re-aggregated by each leaf's own <code>Carried::combine</code>, and only then divided through the
-<code>Above</code> tree.</p>
+re-aggregated by each leaf's own <a href="crate::federation::Carried::combine"><code>Carried::combine</code></a>,
+and only then divided through the <a href="crate::federation::Above"><code>Above</code></a> tree. Those last two
+steps belong to <code>reaggregate</code>, reached as <code>Leaves::of</code> and <code>Leaves::measure</code>; the join, the
+grouping and the budget are this file's.</p>
 <p><code>byte_budget</code> is the working-set ceiling <code>docs/adr/0009</code> applies at the conversion boundary:
 the answer materialised here is counted as it is built, and a question that would cross it is
 refused as <code>FederatedFailure::ResourcesExhausted</code> rather than truncated, so a caller never
