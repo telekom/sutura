@@ -1181,7 +1181,7 @@ pub const fn name(&self) -> &MetricName
 pub fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
 ```
 
-A certified metric, refused if it declares one dimension twice.
+A certified metric, or a refusal if two of its dimensions answer to one label.
 
 **Takes a `Vec<Dimension>` and returns a `Result`, and the argument for that is already
 written one level up.** `Definitions::assemble`: *"Takes vectors rather than maps so the
@@ -1199,6 +1199,39 @@ pair before this point any more, because there is nowhere earlier for it to coll
 field stays a `BTreeMap` - the digest is taken over the serialized form and every reader
 looks a dimension up by name - so the difference between the parameter and the field is the
 whole mechanism.
+
+**One scan and two refusals, because a duplicate and a folded pair are one rule.** The
+comparison is `IdentifierCase::COARSEST`, which is true of two identical spellings too, so
+an exact repeat is the special case and is named as one:
+`InconsistentDefinitions::DuplicateDimension` says *declares dimension `region` twice*,
+which is what an author needs to read, and
+`InconsistentDefinitions::TwoDimensionsOneLabel` carries the pair. Asking it here rather
+than in `Definitions::assemble` is what makes this a parse: after `Ok`, no two of a
+metric's dimensions name one label and nothing downstream re-asks. `assemble` could not have
+asked - by the time a `Metric` reaches it the map has collapsed an exact pair - and the
+DECLARED order is here and nowhere later, so the refusal names the two spellings in the
+order the file wrote them. Same shape, and the same argument, as
+[`StatementTables::parse`](crate::plan::StatementTables::parse).
+
+**What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+(`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
+`IdentifierCase::InsensitiveAscii`:
+`SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
+column's value - in a result column named `region`, and raises no ambiguity error.
+`SELECT *` over the same subquery projects `region, Region_1`, so the second label a caller
+was told to expect is not in the result at all. A wrong number and a missing column, from a
+catalog that loaded. Folded under `COARSEST` and not under the serving target's rule for the
+reason that constant carries: a bundle is dialect-agnostic, so the coarsest rule is the only
+one that cannot be wrong in the direction that returns a number.
+
+**Quadratic, and nothing caps how many dimensions a metric may declare**, so the limit is
+stated rather than implied: there is a cap on a dimension's VALUES
+(`MAX_VALUES_PER_DIMENSION`) and on the group-by keys one question may ask for
+(`crate::query::MAX_DIMENSIONS`), and neither is this. What makes it affordable anyway is
+position rather than size - it runs once per metric while a document that was read whole is
+being converted, and `Definitions`'s own `check_labels_against_table` is already the same shape
+over the same list. A cap on declared dimensions is worth having on its own merits and is not
+this constructor's to add.
 
 The refusal is an `InconsistentDefinitions` rather than an error of this constructor's own,
 so both adapters map it through the variant they already have for that type and neither

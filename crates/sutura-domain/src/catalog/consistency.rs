@@ -43,9 +43,10 @@ pub struct Definitions {
 /// branch on the query path, and the failure surfaces as a data system error rather than as a
 /// refusal.
 ///
-/// **One variant is raised by [`Metric::new`] and not by [`Definitions::assemble`]** -
-/// [`Self::DuplicateDimension`], about a pair the constructor is the last place that can see. It is
-/// in this enum anyway, so an adapter maps one type from both seams.
+/// **Two variants are raised by [`Metric::new`] and not by [`Definitions::assemble`]** -
+/// [`Self::DuplicateDimension`] and [`Self::TwoDimensionsOneLabel`], both about a pair the
+/// constructor is the last place that can see. They are in this enum anyway, so an adapter maps one
+/// type from both seams.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InconsistentDefinitions {
     #[error("model {model} is declared twice")]
@@ -153,6 +154,23 @@ pub enum InconsistentDefinitions {
         "dimension {dimension} of metric {metric} has the metric's own name, which is the label the measure is projected under"
     )]
     DimensionShadowsMeasure { metric: MetricName, dimension: DimensionName },
+    /// Two dimensions of one metric whose labels fold together.
+    ///
+    /// **The pair the two variants above could not see**, and the last of the label collisions to be
+    /// closed: a dimension was folded against the time bucket and against the measure, and every
+    /// label was folded against every table, while two dimensions were compared by nothing at all.
+    ///
+    /// Raised by [`Metric::new`], which is where the measured cost of a folded pair and the argument
+    /// for asking before the keying both live. `first` and `second` are in the order the document
+    /// declared them, which is what makes the message tell an author which of the two to rename.
+    /// Both are the DECLARED spellings and neither is normalised: the folded form is what collided,
+    /// and the unfolded ones are what is written in the file.
+    #[error("metric {metric} declares dimensions {first} and {second}, which are one label once case is folded")]
+    TwoDimensionsOneLabel {
+        metric: MetricName,
+        first: DimensionName,
+        second: DimensionName,
+    },
     /// A label this metric projects is spelled the same as a table its statement reads.
     ///
     /// **This one is a wrong-answer report rather than a hypothetical, and it was found by a live

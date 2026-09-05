@@ -325,7 +325,10 @@ fn a_dimension_may_not_take_a_label_the_projection_already_uses() {
 /// adapter answered the question for itself - the markdown one refused, the `DataHub` one kept the
 /// last. Taking a `Vec` makes the collapse unrepresentable rather than forbidden: there is nowhere
 /// earlier for a caller to key the dimensions, so both adapters now get this same value.
-
+///
+/// An exact repeat rather than the folded pair below, and the two are one scan: the comparison is
+/// `IdentifierCase::COARSEST`, which is true of two identical spellings, so this variant exists to
+/// say the more useful thing about the case an author hits most.
 #[test]
 fn a_metric_declaring_one_dimension_twice_is_refused_by_the_constructor() {
     let twice = vec![
@@ -337,6 +340,33 @@ fn a_metric_declaring_one_dimension_twice_is_refused_by_the_constructor() {
         InconsistentDefinitions::DuplicateDimension {
             metric: metric_name("revenue"),
             dimension: dimension_name("region"),
+        }
+    );
+}
+
+/// #266's D5: two dimension labels that fold together, which nothing compared.
+///
+/// A dimension was folded against the time bucket, against the measure and against every table, and
+/// against another dimension by nothing at all - `dimensions` is keyed byte-wise, so `region` and
+/// `Region` were two entries and two projected columns. `Metric::new`'s own note carries the
+/// `DuckDB` 1.5.5 run that says what the engine does with the pair.
+///
+/// **The DECLARED order is what the refusal names**, and that is the reason the scan is in the
+/// constructor rather than in `assemble`: `first` is `region` because the fixture writes `region`
+/// first, where a scan over the keyed field would report `Region` first - `BTreeMap` order, which is
+/// nothing an author wrote. The message tells them which of the two to rename only here.
+#[test]
+fn two_dimensions_that_differ_only_in_case_are_one_label_and_are_refused() {
+    let folded = vec![
+        dimension("region", "region_code", None, None),
+        dimension("Region", "amount_cents", None, None),
+    ];
+    assert_eq!(
+        declaring("revenue", folded).unwrap_err(),
+        InconsistentDefinitions::TwoDimensionsOneLabel {
+            metric: metric_name("revenue"),
+            first: dimension_name("region"),
+            second: dimension_name("Region"),
         }
     );
 }

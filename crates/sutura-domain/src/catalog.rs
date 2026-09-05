@@ -29,7 +29,8 @@ pub use consistency::{Definitions, InconsistentDefinitions};
 use crate::calendar::TimeRange;
 use crate::measure::{Measure, RequiredFilter};
 use crate::model::{
-    ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName, TableName,
+    ColumnName, DimensionName, Grain, IdentifierCase, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName,
+    SourceName, TableName,
 };
 
 /// The label a generated projection gives the truncated time column.
@@ -348,14 +349,15 @@ pub struct Metric {
     time_column: ColumnName,
     grains: BTreeSet<Grain>,
     /// Keyed, because every reader asks it "is this dimension declared, and what is it". The
-    /// CONSTRUCTOR takes a vector - see [`Metric::new`] for why the two differ.
+    /// CONSTRUCTOR takes a vector - see [`Metric::new`] for why the two differ, and for the two
+    /// refusals that are only askable before the keying.
     dimensions: BTreeMap<DimensionName, Dimension>,
     anchor: Option<Anchor>,
     description: Description,
 }
 
 impl Metric {
-    /// A certified metric, refused if it declares one dimension twice.
+    /// A certified metric, or a refusal if two of its dimensions answer to one label.
     ///
     /// **Takes a `Vec<Dimension>` and returns a `Result`, and the argument for that is already
     /// written one level up.** [`Definitions::assemble`]: *"Takes vectors rather than maps so the
@@ -374,6 +376,39 @@ impl Metric {
     /// looks a dimension up by name - so the difference between the parameter and the field is the
     /// whole mechanism.
     ///
+    /// **One scan and two refusals, because a duplicate and a folded pair are one rule.** The
+    /// comparison is [`IdentifierCase::COARSEST`], which is true of two identical spellings too, so
+    /// an exact repeat is the special case and is named as one:
+    /// [`InconsistentDefinitions::DuplicateDimension`] says *declares dimension `region` twice*,
+    /// which is what an author needs to read, and
+    /// [`InconsistentDefinitions::TwoDimensionsOneLabel`] carries the pair. Asking it here rather
+    /// than in [`Definitions::assemble`] is what makes this a parse: after `Ok`, no two of a
+    /// metric's dimensions name one label and nothing downstream re-asks. `assemble` could not have
+    /// asked - by the time a [`Metric`] reaches it the map has collapsed an exact pair - and the
+    /// DECLARED order is here and nowhere later, so the refusal names the two spellings in the
+    /// order the file wrote them. Same shape, and the same argument, as
+    /// [`StatementTables::parse`](crate::plan::StatementTables::parse).
+    ///
+    /// **What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+    /// (`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
+    /// [`IdentifierCase::InsensitiveAscii`]:
+    /// `SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
+    /// column's value - in a result column named `region`, and raises no ambiguity error.
+    /// `SELECT *` over the same subquery projects `region, Region_1`, so the second label a caller
+    /// was told to expect is not in the result at all. A wrong number and a missing column, from a
+    /// catalog that loaded. Folded under `COARSEST` and not under the serving target's rule for the
+    /// reason that constant carries: a bundle is dialect-agnostic, so the coarsest rule is the only
+    /// one that cannot be wrong in the direction that returns a number.
+    ///
+    /// **Quadratic, and nothing caps how many dimensions a metric may declare**, so the limit is
+    /// stated rather than implied: there is a cap on a dimension's VALUES
+    /// ([`MAX_VALUES_PER_DIMENSION`]) and on the group-by keys one question may ask for
+    /// (`crate::query::MAX_DIMENSIONS`), and neither is this. What makes it affordable anyway is
+    /// position rather than size - it runs once per metric while a document that was read whole is
+    /// being converted, and `Definitions`'s own `check_labels_against_table` is already the same shape
+    /// over the same list. A cap on declared dimensions is worth having on its own merits and is not
+    /// this constructor's to add.
+    ///
     /// The refusal is an [`InconsistentDefinitions`] rather than an error of this constructor's own,
     /// so both adapters map it through the variant they already have for that type and neither
     /// grows a second one.
@@ -390,12 +425,26 @@ impl Metric {
     ) -> Result<Self, InconsistentDefinitions> {
         let mut declared: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
         for dimension in dimensions {
-            if let Some(existing) = declared.insert(dimension.name.clone(), dimension) {
-                return Err(InconsistentDefinitions::DuplicateDimension {
-                    metric: name,
-                    dimension: existing.name,
+            let collision = declared
+                .keys()
+                .find(|earlier| IdentifierCase::COARSEST.names_one_thing(earlier.as_str(), dimension.name.as_str()))
+                .cloned();
+            if let Some(first) = collision {
+                let second = dimension.name;
+                return Err(if first == second {
+                    InconsistentDefinitions::DuplicateDimension {
+                        metric: name,
+                        dimension: second,
+                    }
+                } else {
+                    InconsistentDefinitions::TwoDimensionsOneLabel {
+                        metric: name,
+                        first,
+                        second,
+                    }
                 });
             }
+            drop(declared.insert(dimension.name.clone(), dimension));
         }
         Ok(Self {
             name,
