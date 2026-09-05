@@ -28,22 +28,22 @@
 //!   complained. [`shape::PRINTS`] plus [`shape::redirects_to_file`] is the fix, and `printenv` has
 //!   to be in the list *because* the same verb with a redirect is how the key is stored;
 //! * `set -eux` contains no `-x` substring, so tracing was invisible to any naive test. See
-//!   [`traces`];
+//!   [`shape::traces`];
 //! * `exit 1` was searched for over the WHOLE job, so a guard downgraded from an exit to a
 //!   `continue` was clean as long as some other guard still exited - and *unset configuration
 //!   fails rather than skips* is the property telekom/sutura#81 states most exactly. Each guard now
-//!   has to reach one within [`GUARD_WINDOW`] lines.
+//!   has to reach one within [`properties::GUARD_WINDOW`] lines.
 //!
 //! # And three found by review of the draft above, which is the same list one round later
 //!
 //! * **the expiry signal was the proxy this whole record exists to retire.** `federated` read
 //!   `id-token: write`, narrowed from *any workflow* to *this job* - which retires the one false
 //!   positive and keeps the class, because that permission granted here for any other keyless
-//!   exchange would report a half-finished GOOGLE migration that does not exist. [`FEDERATION`] is
+//!   exchange would report a half-finished GOOGLE migration that does not exist. [`properties::FEDERATION`] is
 //!   what `docs/adr/0017` actually names;
 //! * **`!` before the rule and `!` anywhere are different questions.** `!line.contains('!')`
 //!   refuses a correct condition strengthened with `!cancelled()` or a `!=`, and a gate that fails
-//!   correct configuration is one somebody deletes. See [`states_fork_rule`];
+//!   correct configuration is one somebody deletes. See [`shape::states_fork_rule`];
 //! * **`/dev/null` is a redirect to a path and is not storage.** `printenv "$KEY" 2>/dev/null`
 //!   had a file redirect on the line and was therefore exempt from the print check while stdout
 //!   went to a public log. This job already writes `2>/dev/null` elsewhere, so the shape is live.
@@ -71,7 +71,7 @@
 //!   root of `$RUNNER_TEMP`. [`shape::under_runner_temp`] parses the expression;
 //! * **tracing is configured by two keys no body holds.** `shell: bash -x {0}` and
 //!   `SHELLOPTS: xtrace` never appear in a `run:` body, and a one-line body puts the command on
-//!   the `run:` key itself. See [`shape::configures_tracing`] and [`traces`];
+//!   the `run:` key itself. See [`shape::configures_tracing`] and [`shape::traces`];
 //! * **the print check read the secret's NAME, and the key has a second copy.** `cat` of the
 //!   credential file spells no name, so the one line that puts the whole key in a public log was
 //!   clean. [`shape::emits_file`] reads the verb's ARGUMENT, because this job legitimately prints
@@ -86,7 +86,7 @@
 //! * **a redirect to a device path IS the log, and the exemption was a negation.** Only `&` and
 //!   `/dev/null` were exempt, so every other device path read as storage:
 //!   `echo "$SUTURA_BQ_KEY" > /dev/stderr` is the destination `>&2` is pinned as, spelled as a
-//!   path. And [`prints`] gates [`emits_file`], so one `>` silenced both log channels - a `cat` of
+//!   path. And [`shape::prints`] gates [`shape::emits_file`], so one `>` silenced both log channels - a `cat` of
 //!   the key file to `/dev/stdout` passed too. Storage is the recognised side now, and an
 //!   unrecognised target reads as the log: [`shape::redirects_to_file`];
 //! * **an ARGUMENT LIST, not the token after the verb.** `cat -v <the key file>`, `cat -- <it>` and
@@ -96,7 +96,7 @@
 //! * **both tracing keys are legal one scope up.** A workflow-level `defaults:` with
 //!   `shell: bash -x {0}`, or an `env:` with `SHELLOPTS: xtrace`, turns tracing on for this job
 //!   from outside the lines [`job`] returns - so a property claimed *for the whole job* was
-//!   defeated by writing the same key two lines higher. [`WORKFLOW_SCOPE`] is read beside the
+//!   defeated by writing the same key two lines higher. [`properties::WORKFLOW_SCOPE`] is read beside the
 //!   block; and a command no longer has to BEGIN its segment, because `then set -x` and `(set -x)`
 //!   are commands too. See [`shape::traces`];
 //! * **a comment is a claim, and it answered in both directions.** [`shape::shell`] keeps comments
@@ -119,22 +119,25 @@
 //! | A workflow-level `permissions:` | [`job`] returns the job's own lines, so a grant made once for the whole file is invisible here |
 //! | `>> "$GITHUB_OUTPUT"`, `\| tee`, `base64`, `jq` over the key file | [`shape::redirects_to_file`] judges the target's SHAPE, not whether it is published, and [`shape::PRINTS`] is a vocabulary. A `cat` of the credential file IS now caught, by [`shape::emits_file`]; a `base64` of it is not |
 //! | The key one hop from its name | `K="$SUTURA_BQ_KEY"` and then `echo "$K"` needs data flow, and nothing here has any. Both the name check and [`shape::emits_file`] read one line |
-//! | A guard whose `exit` is in the NEXT step | The job's shell is one flat line list, so [`GUARD_WINDOW`] can cross a step boundary. Strictly stronger than the whole-job search it replaced, not airtight |
+//! | A guard whose `exit` is in the NEXT step | The job's shell is one flat line list, so [`properties::GUARD_WINDOW`] can cross a step boundary. Strictly stronger than the whole-job search it replaced, not airtight |
 //! | Whether the name a guard mentions is the name it TESTS | `guarded` is a bag of environment-shaped words off any guard line, so a name merely appearing near one counts as tested |
-//! | A lower-case environment name | [`env_name_shaped`] requires upper case, so `bq_key: ${{ secrets.x }}` is read by neither the emptiness check nor the print check |
+//! | A lower-case environment name | [`shape::env_name_shaped`] requires upper case, so `bq_key: ${{ secrets.x }}` is read by neither the emptiness check nor the print check |
 //! | A file that lives under a device tree | [`shape::CHANNELS`] is a prefix, so `> /dev/shm/key` reads as the LOG and is reported. Over-permissive is the direction that reports compliance over a leak, so this one is deliberate |
 //! | A backquoted substitution | [`shape::emits_file`] subtracts `$( )` and not `` ` ` ``, so a byte count taken the old way is reported. Same direction, same reason |
 //! | The credential's PATH on a printing line | `echo "placed at $RUNNER_TEMP/<file>"` names the file outside a substitution and is reported, though only the path reaches the log. The vocabulary cannot tell a verb that reads the file from one that prints its name |
-//! | `::add-mask::` | The job's own comments call masking the mechanism that keeps a project, dataset and table out of a public log. Nothing here holds it - and the cheap form would be a `contains` over the job, which is the exact shape every entry in the lists above was found to be. It needs the guard-to-value reasoning [`unset_configuration_fails`] has, per masked name |
+//! | `::add-mask::` | The job's own comments call masking the mechanism that keeps a project, dataset and table out of a public log. Nothing here holds it - and the cheap form would be a `contains` over the job, which is the exact shape every entry in the lists above was found to be. It needs the guard-to-value reasoning [`properties::unset_configuration_fails`] has, per masked name |
 //! | An `environment:` written as a mapping | The exclusivity count compares the key's inline value, so `environment:` with `name:` below it is read as declared and not counted |
 //! | Whether `environment: bq-test` withholds anything | That is a repository setting no file in this tree states. The key is necessary and is not sufficient |
-
-use std::collections::{BTreeMap, BTreeSet};
 
 // What a LINE of that workflow is, as against what the job must hold. Every predicate there was
 // found green for the wrong reason at least once, so each one is stated where its own escape can be
 // written beside it.
 mod shape;
+
+// What the JOB must hold - the other side of that same distinction, and one function per property.
+// Moved out when this file reached the unexemptable 1000-line gate; nothing there composes, and
+// every assertion stayed here because the causality gate never reverts a file that adds a `#[test]`.
+mod properties;
 
 /// The workflow the suite below perturbs, and the perturbations more than one test makes.
 ///
@@ -144,46 +147,14 @@ mod shape;
 #[cfg(test)]
 mod tests_support;
 
-use shape::{
-    FORK_RULE, Source, configured, configures_tracing, downgrades_failure, emits_file, env_name_shaped, exits_non_zero,
-    is_comment, job, keyed_block, prints, shell, states_fork_rule, step_key, traces, under_runner_temp, waits_for,
-};
+use properties::{credential_placement, one_credential_mechanism, unset_configuration_fails, what_reaches_the_log, who_may_run};
+use shape::{configured, is_comment, job, shell, under_runner_temp};
 
 /// The workflow that holds the acceptance venue's limit.
 pub(super) const WORKFLOW: &str = ".github/workflows/ci.yml";
 
 /// The job, at two spaces of indentation like every other job in that file.
 pub(super) const JOB: &str = "bigquery-acceptance";
-
-/// The job this one waits for, so a cloud request is not spent on a tree the lints refuse.
-const NEEDS: &str = "ci";
-
-/// What a Google token exchange looks like in a workflow.
-///
-/// **The signal `docs/adr/0017` names, rather than the one it used to name.** `id-token: write` is
-/// not on this list and must not be: that permission has been in `release.yml` since keyless
-/// signing landed, so its presence says nothing about Google. Any one of these is a workload-identity
-/// exchange - the action that performs it, the pool it names, or the endpoint it calls.
-const FEDERATION: &[&str] = &[
-    "google-github-actions/auth",
-    "workload_identity_provider",
-    "sts.googleapis.com",
-];
-
-/// The workflow's own mappings that decide how this job's shells start.
-///
-/// `defaults:` -> `run:` -> `shell: bash -x {0}` and `env:` -> `SHELLOPTS: xtrace` are the two
-/// tracing keys written at column zero, where they apply to every job including this one and sit
-/// outside the lines [`job`] returns. Read here because the alternative was a limits row: a
-/// property claimed *for the whole job* that one scope up could contradict.
-const WORKFLOW_SCOPE: &[&str] = &["defaults", "env"];
-
-/// How far after a guard a non-zero `exit` may sit.
-///
-/// The shape in this job is three lines - the test, a message, the exit - and a `for` wrapping one
-/// adds two. Deliberately a window rather than the whole job: `exit 1` ANYWHERE used to satisfy
-/// this, so a guard downgraded to a `continue` beside an unrelated exit was invisible.
-const GUARD_WINDOW: usize = 6;
 
 /// Everything wrong with the acceptance job.
 ///
@@ -235,303 +206,13 @@ pub(super) fn problems(text: &str) -> Vec<String> {
     problems
 }
 
-/// Who may run this job, and whether a failure in it counts.
-///
-/// The four properties that decide whether the leg happens at all under an identity that could see
-/// the key - so a wrong answer here is not a weaker gate, it is a green run that proves nothing.
-fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
-    let mut problems = Vec::new();
-
-    // Property 1's other half. The file's own comment says this job waits for `ci` so a red local
-    // gate spends no cloud request; nothing read it.
-    if !waits_for(block, NEEDS) {
-        problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job waits for no `{NEEDS}` - it is the one job here that calls \
-             a cloud provider, so running it beside the lints spends a request on a tree they were \
-             about to refuse, and its own comment says it waits"
-        ));
-    }
-
-    // `environment:` is the mechanism, and its EXCLUSIVITY is half of the mechanism: `job` reads
-    // one block, so a second job naming the same environment holds the same secret while
-    // answering none of the properties here and being invisible to all of them.
-    match block
-        .iter()
-        .find_map(|line| step_key(line).strip_prefix("environment:"))
-        .map(str::trim)
-    {
-        None => problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job declares no `environment:` - that is the mechanism that \
-             withholds the key from a fork's pull request, and `docs/adr/0017` refused CI over \
-             exactly the exposure it prevents"
-        )),
-        // The mapping form, `environment:` with a `name:` below it. Declared, and this comparison
-        // cannot say by whom - see the limits table.
-        Some("") => {}
-        Some(name) => {
-            let holders = text
-                .lines()
-                .filter(|line| {
-                    step_key(line)
-                        .strip_prefix("environment:")
-                        .is_some_and(|value| value.trim() == name)
-                })
-                .count();
-            if holders > 1 {
-                problems.push(format!(
-                    "{WORKFLOW}: {holders} jobs declare `environment: {name}` - every one of them \
-                     can read that environment's secret, and the properties here are asserted of \
-                     `{JOB}` alone. A second holder is a second answer to who may see the key"
-                ));
-            }
-        }
-    }
-
-    // `continue-on-error` and a `continue` in a guard are one defect at two altitudes.
-    if let Some(line) = block.iter().find(|line| downgrades_failure(line)) {
-        problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job holds `{}` - a job or a step that continues on error \
-             turns every guard below it into a warning, so unset configuration SKIPS and the run \
-             reports a pass. Only `false` is a value this job may give that key",
-            line.trim()
-        ));
-    }
-
-    // The JOB's own condition, at four spaces. A STEP's `if:` sits deeper and skips one step, so
-    // the job still runs on a fork and reports a pass for a leg that never happened - a `!` states
-    // the rule backwards while satisfying any test that only looks for the text, and a `||` beside
-    // it answers for a fork on its own.
-    match block.iter().find_map(|line| {
-        line.strip_prefix("    ")?
-            .strip_prefix("if:")
-            .map(|condition| (line, condition))
-    }) {
-        Some((_, condition)) if states_fork_rule(condition) => {}
-        Some((line, _)) => problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job's own condition is `{}`, which has to test `{FORK_RULE}` \
-             and may not negate it - skip where the runner had no choice, run where somebody in \
-             this repository pushed. An event-name test answers both with one verdict, a `!` \
-             answers both backwards, and a `||` beside the rule makes its own answer sufficient, \
-             so only an `==` against an event no fork's pull request arrives as may stand there",
-            line.trim()
-        )),
-        None => problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job has no condition of its own, so it runs on a fork's pull \
-             request - the `environment:` still withholds the key, but the leg then fails for want \
-             of a secret or skips one step and reports a pass. A step's `if:` is not this rule"
-        )),
-    }
-    problems
-}
-
-/// Where the credential is written, and that the leg reads that same file.
-fn credential_placement(commands: &[&str], credential: Option<&str>, file: Option<&str>) -> Vec<String> {
-    match (credential, file) {
-        (None, _) => vec![format!(
-            "{WORKFLOW}: the `{JOB}` job points no `GOOGLE_APPLICATION_CREDENTIALS` at anything - \
-             the leg would then read whatever credential the runner happens to have"
-        )],
-        (Some(path), None) => vec![format!(
-            "{WORKFLOW}: the `{JOB}` job's credential path is `{path}`, which is not under \
-             `${{{{ runner.temp }}}}/` - a key inside the checkout is one `git add .` from a public \
-             leak, the secret sweep does not honour `.gitignore`, and a DIRECTORY named \
-             `runner.temp` in the tree satisfies any test that reads this value as a haystack"
-        )],
-        (Some(_), Some(file)) => [
-            ("written", format!("> \"$RUNNER_TEMP/{file}\"")),
-            ("removed", format!("rm -f \"$RUNNER_TEMP/{file}\"")),
-        ]
-        .into_iter()
-        // Per line, because neither form can span one - which is what the joined copy of every
-        // body was for. The WHOLE path below `$RUNNER_TEMP` and not its basename: one answer, or
-        // the message below is describing two.
-        .filter(|(_, form)| !commands.iter().any(|line| line.contains(form)))
-        .map(|(what, form)| {
-            format!(
-                "{WORKFLOW}: the `{JOB}` job never has the credential {what} as `{form}` - the \
-                 path the leg reads and the path the job writes and deletes are one path or they \
-                 are two answers"
-            )
-        })
-        .collect(),
-    }
-}
-
-/// Every value the leg is pointed at, tested for emptiness by a guard that exits.
-///
-/// *Unset configuration FAILS rather than skips* is the property telekom/sutura#81 states most
-/// exactly, and it is two questions: does a guard mention the name, and does that guard reach an
-/// exit. `exit 1` ANYWHERE in the job satisfied the second for a while.
-fn unset_configuration_fails(commands: &[&str], config: &BTreeMap<&str, Source>) -> Vec<String> {
-    let mut problems = Vec::new();
-    let mut guarded = BTreeSet::new();
-    for (at, line) in commands.iter().enumerate() {
-        // Two shapes, and both are guards: a `-z` emptiness test, and a `for name in A B` that
-        // tests each of several in turn.
-        if !(line.contains("-z ") || (line.contains("for ") && line.contains(" in "))) {
-            continue;
-        }
-        // Only words shaped like an environment name, through the SAME predicate `configured`
-        // reads - so what a guard is credited with testing and what the job declares cannot
-        // disagree. A `word.len() > 2` filter stood here and was wrong in both directions: it
-        // admitted `then`, `printenv` and `name`, and it dropped a one-character name, of which
-        // this job already has one.
-        guarded.extend(
-            line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|word| env_name_shaped(word)),
-        );
-        if !commands
-            .iter()
-            .skip(at.saturating_add(1))
-            .take(GUARD_WINDOW)
-            .copied()
-            .any(exits_non_zero)
-        {
-            problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job's guard `{}` reaches no non-zero `exit` within \
-                 {GUARD_WINDOW} lines - unset configuration has to FAIL rather than skip, and a \
-                 guard that warns and carries on is a skip that reads as a pass on an in-repo run",
-                line.trim()
-            ));
-        }
-    }
-    for (name, source) in config {
-        if !guarded.contains(name) {
-            problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job reads `{name}` from `{}` and never tests it for \
-                 emptiness - unset configuration has to FAIL rather than skip, because the fixture \
-                 once reported three passes against no project",
-                source.named()
-            ));
-        }
-    }
-    problems
-}
-
-/// What of this job could reach a workflow log, which on this repository is public.
-///
-/// Three channels, and the third is the one that reaches the other two's blind spots: an
-/// interpolation puts the value in the file, a print verb puts it on a line, and tracing puts
-/// every argument of every command there without any of them being written down.
-///
-/// The first channel reads every body line and the other two read only the commands, which is what
-/// [`shape::is_comment`] is for: an expression in a comment is still in the file, a print in one is
-/// not a print.
-fn what_reaches_the_log(
-    text: &str,
-    block: &[&str],
-    bodies: &[&str],
-    commands: &[&str],
-    config: &BTreeMap<&str, Source>,
-    credential_file: Option<&str>,
-) -> Vec<String> {
-    let mut problems = Vec::new();
-    for line in bodies.iter().filter(|line| line.contains("${{")) {
-        problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job interpolates into a shell body - `{}`. A multi-line JSON \
-             key is the shape that defeats naive log masking, so a value reaches this shell \
-             through `env:` or not at all",
-            line.trim()
-        ));
-    }
-    // Per LINE and not per name, because whether a line prints is a property of the line: the
-    // predicate was inside the loop above, asked once per configured value and asked at all for a
-    // `vars.` entry, which this branch can never fire for.
-    for line in commands.iter().filter(|line| prints(line)) {
-        for name in config
-            .iter()
-            .filter(|(_, source)| **source == Source::Secret)
-            .map(|(name, _)| name)
-        {
-            if line.contains(*name) {
-                problems.push(format!(
-                    "{WORKFLOW}: the `{JOB}` job puts `{name}` on a line that prints - `{}`. A \
-                     workflow log on a public repository is public, and the only reason a print \
-                     verb may name the key at all is a redirect INTO a file",
-                    line.trim()
-                ));
-            }
-        }
-        // The FILE is the second copy of the secret, and it spells no name the loop above reads.
-        if let Some(file) = credential_file.filter(|file| emits_file(line, file)) {
-            problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job hands the credential file to a print verb - `{}`. \
-                 `$RUNNER_TEMP/{file}` holds the same key `secrets` does, and the check above \
-                 reads a secret's NAME, which a `cat` of that path never spells",
-                line.trim()
-            ));
-        }
-    }
-    // The command first, so the message quotes it where there is one; the two keys second, because
-    // neither can appear in a body at all - and over the WORKFLOW's own scope as well as the
-    // job's, because a key written at column zero decides how this job's shells start while
-    // sitting outside the lines `job` returns. Lazily, so a body that already traces spends
-    // neither scan.
-    if let Some(line) = commands.iter().copied().find(|line| traces(line)).or_else(|| {
-        block
-            .iter()
-            .copied()
-            .chain(WORKFLOW_SCOPE.iter().filter_map(|name| keyed_block(text, "", name)).flatten())
-            .find(|line| configures_tracing(line))
-    }) {
-        problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job turns shell tracing on - `{}`. Every command in that body \
-             then reaches the log with its arguments, which is the channel this job's own comments \
-             say `python3 -c` and `printenv` exist to avoid - and a `shell:` or a `SHELLOPTS:` does \
-             it for a body nobody has written yet",
-            line.trim()
-        ));
-    }
-    problems
-}
-
-/// The key's expiry, read out of the job rather than remembered.
-///
-/// `docs/adr/0017` accepts a long-lived key as the *for now* and names what ends it: federation,
-/// where the runner mints an OIDC token and **there is no key at all**. They are alternatives, so
-/// this job holds exactly one - and holding both is the migration that stopped half way, where a
-/// key nobody rotates outlives the paragraph that justified it.
-///
-/// **It reads a GOOGLE exchange and deliberately not `id-token: write`**, because the record's own
-/// signal was that permission arriving and `release.yml` had granted it for keyless signing two
-/// hours earlier. An earlier draft of this function narrowed that proxy to this job instead of
-/// replacing it, which retired the one false positive and kept the class: `id-token: write` granted
-/// here for any other keyless exchange would have reported a half-finished GOOGLE migration that
-/// does not exist. What [`FEDERATION`] holds is what `docs/adr/0017` actually names as greenfield -
-/// no Google auth action, no workload pool, no STS endpoint.
-fn one_credential_mechanism(block: &[&str], config: &BTreeMap<&str, Source>) -> Option<String> {
-    let federated = block.iter().any(|line| FEDERATION.iter().any(|marker| line.contains(marker)));
-    let keyed = config.values().any(|source| *source == Source::Secret);
-    match (federated, keyed) {
-        (true, true) => Some(format!(
-            "{WORKFLOW}: the `{JOB}` job exchanges for a Google credential AND places a secret - \
-             those are the two alternatives `docs/adr/0017` prices against each other, so holding \
-             both is a half-finished migration and the key is the half nobody will notice is still \
-             there"
-        )),
-        (false, false) => Some(format!(
-            "{WORKFLOW}: the `{JOB}` job authenticates with neither an environment secret nor a \
-             Google token exchange, so it cannot be reaching the endpoint at all - a leg that \
-             authenticates with nothing and passes is the fixture that once reported three passes \
-             against no project"
-        )),
-        (true, false) => Some(format!(
-            "{WORKFLOW}: the `{JOB}` job exchanges for a Google credential and holds no key, which \
-             is the state `docs/adr/0017`'s expiry paragraph describes as the end of the \
-             service-account key. That record still says a key is the cost of the evidence - amend \
-             it, then delete this arm, because a gate whose failure is GOOD NEWS is one somebody \
-             will silence"
-        )),
-        (false, true) => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::shape::FORK_RULE;
     use super::tests_support::{
         CI, KEY_ENV, beside_the_write, condition, instead_of_the_write, with_google_exchange, with_id_token, with_nameless_step,
     };
-    use super::{FORK_RULE, JOB, WORKFLOW, problems};
+    use super::{JOB, WORKFLOW, problems};
 
     #[test]
     fn the_acceptance_job_as_it_stands_passes() {
