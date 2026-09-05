@@ -137,6 +137,23 @@ rec {
 
       # Is the server up? The answer is the exit code and nothing is changed, so a wrapper can tear
       # down only what it brought up - `nix/postgres-tier.nix` explains why that distinction exists.
+      #
+      # **Answered from the PROCESS on purpose, which is the opposite of what that file now
+      # argues**, so the reason is here rather than left for the next reader to reconstruct. There,
+      # answering *am I up* from `pg_ctl` while the suite answered from `endpoints.json` IS
+      # `github.com/telekom/sutura#298`, and `status` is derived from the file now.
+      #
+      # It does not transfer, because `start`'s guard goes THROUGH this function and `start` is not
+      # idempotent over a live server: on the not-running path it `rm -rf`s the home. Derive this
+      # answer from the endpoint file and a running JVM whose entry something else dropped reads as
+      # DOWN - the guard goes false, the home is deleted under the live server, and the outcome is
+      # two JVMs on two OS-chosen ports sharing one realm file, where postgres gets a republished
+      # entry. Two servers is a worse state than the one being fixed.
+      #
+      # The shape does transfer after the split postgres made - a process-only guard for `start`,
+      # and `status` free to derive - and that is a change to the start path, not to this function:
+      # `github.com/telekom/sutura#324`. What it costs meanwhile is that `start` is not the remedy
+      # for a dropped entry either - it returns 0 here, having published nothing.
       status() {
         [ -f "$pidfile" ] || return 1
         kill -0 -- "-$(cat "$pidfile")" 2>/dev/null

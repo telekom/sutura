@@ -69,10 +69,22 @@ and the postmaster survives unnamed - which used to be a `just test` whose postg
 closed, because the wrapper asked `sutura-postgres-tier status` (the process) while the cells asked
 the file (`github.com/telekom/sutura#298`). That answer is derived from the file now: the state
 reads as *unclaimed*, `just test` republishes the entry and leaves the server running, and
-`checks.postgres-tier` holds all three arms. What is NOT healed is any other nix tier - nothing
-sources a wrapper for `just keycloak-tier`, so its entry stays dropped until `just keycloak-tier
-start` runs again - and a `just dev-endpoint postgres` between the `dev-up` and the next `just test`
-still answers nothing.
+`checks.postgres-tier` holds all three arms. A `just dev-endpoint postgres` between the `dev-up` and
+the next `just test` still answers nothing.
+
+**No other nix tier is healed, and for keycloak `start` is NOT the remedy** - it returns 0 having
+published nothing. Its guard is `status`, which is the process there and deliberately so (see that
+file), so over the surviving JVM it prints *already up* and returns before the `publish` on the
+other path. `just keycloak-tier stop` then `start` is what works, and it is not free: `start`
+`rm -rf`s the home, so the realm, the client secret and the OS-chosen port are all new and anything
+holding the old realm file has to re-read it. The split that would let it heal like postgres is
+`github.com/telekom/sutura#324`.
+
+**And a GREEN `just test` no longer means the tier it started came down.** A `stop` that fails keeps
+its endpoint entry and says so on standard error; the trap in `nix/with-tier.sh` runs it under
+`|| true`, because under the errexit every venue sources that file with, a failing trap command
+would rewrite the run's status - including nextest's 100. So the message and the retained claim are
+the signal there, never the exit code, and the retry is `just postgres-tier stop`.
 
 Held the same way as the sentence above it, and worth the same suspicion: `with_endpoints_forgotten`
 covers everything inside it by construction, but a third tier-changing path would have to be routed
