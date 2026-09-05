@@ -1117,10 +1117,17 @@ The value is text rather than a float on purpose. It is compared against the can
 of what the data system returned, and a float would make the comparison depend on how two
 languages happen to print the same bits.
 
+**Text, and now parsed text.** It was a `String` behind a `const` constructor written by both
+catalog adapters, which made it the one authored scalar that entered this crate with no character
+rule on it - see `AnchorValue` for the channel that closes and what it deliberately still does
+not check. No `Deserialize`: nothing deserializes an `Anchor`, because each adapter deserializes
+its own document shape and converts, so the derive was a public surface with no caller and one
+more path into a private field.
+
 #### Methods
 
 ```rust
-pub const fn new(range: TimeRange, value: String) -> Self
+pub const fn new(range: TimeRange, value: AnchorValue) -> Self
 ```
 
 ```rust
@@ -1131,9 +1138,16 @@ pub const fn range(&self) -> TimeRange
 pub fn value(&self) -> &str
 ```
 
+The certified number as text.
+
+A `&str` rather than a `&AnchorValue`, because every caller either compares it against a
+rendered cell or prints it - and both want the text. **Whoever prints it uses `{:?}`**, for
+the reason `RequiredFilter`'s `Display` gives: quoting is what makes spacing visible in a
+line a person reads to decide whether a metric still means what it claimed.
+
 #### Implements
 
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct Metric`
 
@@ -1254,6 +1268,8 @@ pub const fn time_column(&self) -> &ColumnName
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `use None`
 
 ### `use None`
 
@@ -4063,7 +4079,7 @@ Why a bundle is not validated.
 
 #### Variants
 
-- `AnchorMismatch`
+- `AnchorMismatch` - The declared number and the produced one, both quoted.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
 - `UnknownMetricChecked`

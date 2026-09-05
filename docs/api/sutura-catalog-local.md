@@ -217,6 +217,25 @@ with "invalid type: integer, expected a string", which is a true statement about
 looks correct to whoever wrote it. Everything becomes text either way, because that is what an
 anchor comparison uses.
 
+**The quoted arm stays a `String` and the parse happens in `Self::into_value`, which is a
+measured decision rather than the obvious one.** Making it an `AnchorValue` and letting its
+`serde(try_from)` do the work - the arrangement `values:` above uses, and the first thing tried
+here - puts the check inside deserialization, where `untagged` throws the cause away: the refusal
+reaches an author as `data did not match any variant of untagged enum AnchorLiteral at line 10
+column 3`, naming neither the character nor the rule. `untagged` reports that a set of attempts
+all failed and cannot report why any one of them did. So the parse is one step later, where
+`InvalidMetricDocument::AnchorValue` names the metric and carries the character fault as its
+`source`.
+
+**What that costs, stated rather than left to be discovered.** `values:` above refuses inside
+serde and so reports the LINE AND COLUMN of the offending scalar; this field refuses after the
+document is decoded and names the metric instead. And `cargo xtask check-serde-parse` cannot see
+this route at all - it keys on an associated function returning `Result<Self, ..>`, which
+`Self::into_value` is not - so for this one field, in the one adapter whose input is a file on
+disk, parse-at-the-edge is held by review. The route that keeps both would be a local newtype
+carrying `#[serde(try_from = "AnchorLiteral")]`, paying a third type in this module and a serde
+error in place of a typed cause.
+
 #### Variants
 
 - `Integer`
@@ -333,6 +352,7 @@ happened.
 #### Variants
 
 - `Inconsistent` - The domain refused the metric this document describes.
+- `AnchorValue` - The anchor's `value:` is not text a number can be checked against.
 
 #### Implements
 

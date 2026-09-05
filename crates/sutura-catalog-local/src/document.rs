@@ -19,7 +19,8 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{
-    Anchor, Description, Dimension, DimensionValue, InconsistentDefinitions, Metric, Model, Relationship,
+    Anchor, AnchorValue, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, Metric, Model,
+    Relationship,
 };
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
@@ -105,6 +106,25 @@ impl KindProbe {
 /// with "invalid type: integer, expected a string", which is a true statement about a file that
 /// looks correct to whoever wrote it. Everything becomes text either way, because that is what an
 /// anchor comparison uses.
+///
+/// **The quoted arm stays a `String` and the parse happens in [`Self::into_value`], which is a
+/// measured decision rather than the obvious one.** Making it an [`AnchorValue`] and letting its
+/// `serde(try_from)` do the work - the arrangement `values:` above uses, and the first thing tried
+/// here - puts the check inside deserialization, where `untagged` throws the cause away: the refusal
+/// reaches an author as `data did not match any variant of untagged enum AnchorLiteral at line 10
+/// column 3`, naming neither the character nor the rule. `untagged` reports that a set of attempts
+/// all failed and cannot report why any one of them did. So the parse is one step later, where
+/// [`InvalidMetricDocument::AnchorValue`] names the metric and carries the character fault as its
+/// `source`.
+///
+/// **What that costs, stated rather than left to be discovered.** `values:` above refuses inside
+/// serde and so reports the LINE AND COLUMN of the offending scalar; this field refuses after the
+/// document is decoded and names the metric instead. And `cargo xtask check-serde-parse` cannot see
+/// this route at all - it keys on an associated function returning `Result<Self, ..>`, which
+/// [`Self::into_value`] is not - so for this one field, in the one adapter whose input is a file on
+/// disk, parse-at-the-edge is held by review. The route that keeps both would be a local newtype
+/// carrying `#[serde(try_from = "AnchorLiteral")]`, paying a third type in this module and a serde
+/// error in place of a typed cause.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(untagged)]
 pub enum AnchorLiteral {
@@ -113,10 +133,16 @@ pub enum AnchorLiteral {
 }
 
 impl AnchorLiteral {
-    fn into_text(self) -> String {
+    /// The value as the domain holds it, parsed.
+    ///
+    /// Both arms go through the one constructor, and the integer arm cannot fail there: an `i64`
+    /// renders as at most twenty ASCII digits and a sign. It is written as the same call rather than
+    /// a shortcut for that arm, because a second construction path is a second thing that can stop
+    /// agreeing with the rule.
+    fn into_value(self) -> Result<AnchorValue, InvalidDimensionValue> {
         match self {
-            Self::Integer(v) => v.to_string(),
-            Self::Text(v) => v,
+            Self::Integer(v) => AnchorValue::parse(v.to_string()),
+            Self::Text(v) => AnchorValue::parse(v),
         }
     }
 }
@@ -211,6 +237,13 @@ pub struct DimensionDoc {
 pub struct AnchorDoc {
     range: TimeRange,
     value: AnchorLiteral,
+}
+
+impl AnchorDoc {
+    /// Into the domain type a metric carries. Same shape as `SuturaAnchor::into_domain`.
+    fn into_domain(self) -> Result<Anchor, InvalidDimensionValue> {
+        Ok(Anchor::new(self.range, self.value.into_value()?))
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -309,6 +342,18 @@ pub enum InvalidMetricDocument {
     /// separates this from a `Box<dyn Error>`.
     #[error(transparent)]
     Inconsistent(Box<InconsistentDefinitions>),
+    /// The anchor's `value:` is not text a number can be checked against.
+    ///
+    /// The metric is named here and the character fault is the `source`, which is the arrangement
+    /// `sutura_domain::pinned::NotValidated::AnchorNotExecuted` already uses: this variant says
+    /// which document to open, and whoever renders it walks the chain for which character to look
+    /// for. Reported per metric rather than per field because a metric document declares one anchor.
+    #[error("metric {metric}'s anchor value is not usable as one")]
+    AnchorValue {
+        metric: MetricName,
+        #[source]
+        cause: InvalidDimensionValue,
+    },
 }
 
 impl MetricDoc {
@@ -320,6 +365,14 @@ impl MetricDoc {
             .into_iter()
             .map(|doc| Dimension::new(doc.name, doc.column, doc.via, doc.values, doc.description))
             .collect();
+        let anchor = self
+            .anchor
+            .map(AnchorDoc::into_domain)
+            .transpose()
+            .map_err(|cause| InvalidMetricDocument::AnchorValue {
+                metric: self.name.clone(),
+                cause,
+            })?;
         Metric::new(
             self.name,
             self.model,
@@ -328,7 +381,7 @@ impl MetricDoc {
             self.time_column,
             self.grains,
             dimensions,
-            self.anchor.map(|a| Anchor::new(a.range, a.value.into_text())),
+            anchor,
             description,
         )
         .map_err(|cause| InvalidMetricDocument::Inconsistent(Box::new(cause)))
@@ -338,7 +391,7 @@ impl MetricDoc {
 #[cfg(test)]
 mod tests {
     use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
-    use sutura_domain::catalog::{DimensionValue, InconsistentDefinitions};
+    use sutura_domain::catalog::{DimensionValue, InconsistentDefinitions, InvalidDimensionValue};
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
@@ -772,6 +825,35 @@ colums: [amount_cents]
             let anchor = metric.anchor().expect("the document declared one");
             assert_eq!(anchor.value(), "197122");
         }
+    }
+
+    /// An anchor value a reader could not read is refused, and the refusal says which metric.
+    ///
+    /// The value `1971<U+200F>22` renders as an ordinary number in every terminal and every diff,
+    /// and reaches the operator who decides whether a metric still means what it claimed. It used to
+    /// load: `Anchor::new` took a `String` and nothing on the path looked at it.
+    ///
+    /// **The typed cause is what this asserts, and it is why the parse is not in the serde path.**
+    /// `AnchorLiteral` is `untagged`, so a `try_from` on the field would collapse this to *data did
+    /// not match any variant*. Here the author gets the metric, the rule and the code point.
+    #[test]
+    fn an_anchor_value_a_reader_could_not_read_is_refused() {
+        let yaml =
+            format!("{MINIMAL_METRIC}anchor:\n  range: {{ start: 2026-06-01, end: 2026-07-01 }}\n  value: \"1971\u{200F}22\"\n");
+        let refusal = metric_doc(&yaml)
+            .expect("the document is well-formed YAML")
+            .into_domain(Description::default())
+            .expect_err("a direction-changing character is not an anchor value");
+        assert_eq!(
+            refusal,
+            InvalidMetricDocument::AnchorValue {
+                metric: MetricName::parse("revenue").expect("a name"),
+                cause: InvalidDimensionValue::InvisibleCharacter {
+                    value: String::from("1971\u{200F}22"),
+                    code: 0x200F,
+                },
+            }
+        );
     }
 
     #[test]

@@ -16,7 +16,7 @@ use super::{
     DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities, UnfaithfulDeclaration, carried, recorded,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use crate::knowledge::{Capability, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent};
 use crate::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use crate::model::{
@@ -177,7 +177,8 @@ fn metric(carrying: Carrying<'_>) -> Metric {
         column("order_date"),
         BTreeSet::from([Grain::Month]),
         dimensions,
-        asked_for(carrying, DefinitionKind::Anchors).then(|| Anchor::new(june(), String::from("62"))),
+        asked_for(carrying, DefinitionKind::Anchors)
+            .then(|| Anchor::new(june(), AnchorValue::parse("62").expect("a test anchor value is a value"))),
         prose(carrying, "revenue, in minor units"),
     )
     .expect("these fixture dimensions are distinct")

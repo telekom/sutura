@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::knowledge::{
     Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
     Phrase, Referent,
@@ -162,7 +162,10 @@ fn definitions() -> Definitions {
         column(TIME_COLUMN),
         BTreeSet::from([Grain::Month, Grain::Day]),
         vec![region, tariff],
-        Some(Anchor::new(range, String::from("4711"))),
+        Some(Anchor::new(
+            range,
+            AnchorValue::parse("4711").expect("a test anchor value is a value"),
+        )),
         description(HOSTILE),
     )
     .expect("these fixture dimensions are distinct");

@@ -21,8 +21,8 @@ mod authored;
 mod consistency;
 
 pub use authored::{
-    Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES,
-    MAX_DIMENSION_VALUE_CHARS,
+    AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
+    MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 pub use consistency::{Definitions, InconsistentDefinitions};
 
@@ -313,14 +313,21 @@ impl Dimension {
 /// The value is text rather than a float on purpose. It is compared against the canonical rendering
 /// of what the data system returned, and a float would make the comparison depend on how two
 /// languages happen to print the same bits.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+///
+/// **Text, and now parsed text.** It was a `String` behind a `const` constructor written by both
+/// catalog adapters, which made it the one authored scalar that entered this crate with no character
+/// rule on it - see [`AnchorValue`] for the channel that closes and what it deliberately still does
+/// not check. No `Deserialize`: nothing deserializes an `Anchor`, because each adapter deserializes
+/// its own document shape and converts, so the derive was a public surface with no caller and one
+/// more path into a private field.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Anchor {
     range: TimeRange,
-    value: String,
+    value: AnchorValue,
 }
 
 impl Anchor {
-    pub const fn new(range: TimeRange, value: String) -> Self {
+    pub const fn new(range: TimeRange, value: AnchorValue) -> Self {
         Self { range, value }
     }
 
@@ -329,9 +336,15 @@ impl Anchor {
         self.range
     }
 
+    /// The certified number as text.
+    ///
+    /// A `&str` rather than a `&AnchorValue`, because every caller either compares it against a
+    /// rendered cell or prints it - and both want the text. **Whoever prints it uses `{:?}`**, for
+    /// the reason [`RequiredFilter`]'s `Display` gives: quoting is what makes spacing visible in a
+    /// line a person reads to decide whether a metric still means what it claimed.
     #[inline]
     pub fn value(&self) -> &str {
-        &self.value
+        self.value.as_str()
     }
 }
 

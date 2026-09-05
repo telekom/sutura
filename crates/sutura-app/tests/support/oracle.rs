@@ -55,7 +55,9 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
@@ -92,6 +94,11 @@ fn june() -> TimeRange {
         Date::parse("2026-07-01").expect("a corpus date is a date"),
     )
     .expect("June is a range")
+}
+
+/// The anchor every bundle below is certified with: one range, one parsed value.
+fn anchor(value: &str) -> Anchor {
+    Anchor::new(june(), AnchorValue::parse(value).expect("a corpus anchor value is a value"))
 }
 
 fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>) -> Dimension {
@@ -291,7 +298,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("62"))),
+        Some(anchor("62")),
         Description::default(),
     )
     .expect("the corpus declares each dimension once");
@@ -312,7 +319,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         vec![segment(), region(), product_family(), contract_term()],
-        Some(Anchor::new(june(), String::from("62"))),
+        Some(anchor("62")),
         Description::default(),
     )
     .expect("the corpus declares each dimension once");
@@ -372,7 +379,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         vec![segment(), region(), product_family(), product_name(), contract_term()],
-        Some(Anchor::new(june(), String::from("202121"))),
+        Some(anchor("202121")),
         Description::default(),
     )
     .expect("the corpus declares each dimension once");
@@ -394,7 +401,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("59"))),
+        Some(anchor("59")),
         Description::default(),
     )
     .expect("the corpus declares each dimension once");
@@ -433,7 +440,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("3"))),
+        Some(anchor("3")),
         Description::default(),
     )
     .expect("the corpus declares each dimension once");
@@ -477,7 +484,7 @@ fn the_ratios() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("0.04838709677419355"))),
+        Some(anchor("0.04838709677419355")),
         Description::default(),
     )
     .expect("the corpus declares each dimension once");

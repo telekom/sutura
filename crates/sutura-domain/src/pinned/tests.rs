@@ -13,7 +13,7 @@ use super::{
     NotExecutedReason, NotValidated, PinnedDefinitions,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, Definitions, Description, Metric, Model};
+use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
 use crate::definitions::DefinitionDigest;
 use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use crate::measure::{AggregatedColumn, Measure, Term};
@@ -88,6 +88,11 @@ fn june() -> TimeRange {
         Date::parse("2026-07-01").expect("a test date is a date"),
     )
     .expect("June is a range")
+}
+
+/// The anchor every bundle below is certified with: one range, one parsed value.
+fn anchor(value: &str) -> Anchor {
+    Anchor::new(june(), AnchorValue::parse(value).expect("a test anchor value is a value"))
 }
 
 #[test]
@@ -170,7 +175,7 @@ fn an_anchored_metric_with_no_recorded_check_does_not_validate() {
     // anchor fails the verdict. What says the checks in a report actually ran is that the report
     // cannot become a servable bundle here at all - `sutura_app::verify_and_validate` is the
     // only thing that mints one, and it calls a `Warehouse`.
-    let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
+    let anchored = bundle(Some(anchor("197122")));
     assert_eq!(
         AnchorReport::new().verdict(&anchored).unwrap_err(),
         NotValidated::AnchorUnchecked {
@@ -189,7 +194,7 @@ fn a_mismatched_anchor_does_not_validate() {
             actual: String::from("197100"),
         },
     );
-    let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
+    let anchored = bundle(Some(anchor("197122")));
     assert_eq!(
         report.verdict(&anchored).unwrap_err(),
         NotValidated::AnchorMismatch {
@@ -211,7 +216,7 @@ fn an_anchor_that_could_not_run_is_not_the_same_as_a_wrong_one() {
         chain: Vec::new(),
     };
     report.record(metric_name("revenue"), AnchorCheck::NotExecuted { reason: reason.clone() });
-    let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
+    let anchored = bundle(Some(anchor("197122")));
     assert_eq!(
         report.verdict(&anchored).unwrap_err(),
         NotValidated::AnchorNotExecuted {
@@ -242,7 +247,7 @@ fn a_failed_check_carries_its_causes_all_the_way_out() {
             },
         },
     );
-    let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
+    let anchored = bundle(Some(anchor("197122")));
     let error = report.verdict(&anchored).unwrap_err();
     let cause = core::error::Error::source(&error).expect("the reason is the source, not the message");
     let rendered = cause.to_string();
@@ -291,7 +296,7 @@ fn a_report_about_a_different_bundle_does_not_validate_this_one() {
 fn a_matched_anchor_passes_the_verdict_and_the_bundle_is_untouched() {
     let mut report = AnchorReport::new();
     report.record(metric_name("revenue"), AnchorCheck::Matched);
-    let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
+    let anchored = bundle(Some(anchor("197122")));
     // The execution record is a required argument, so a `Provenance` cannot be built without
     // saying which posture ran - see `PinnedDefinitions::provenance`. One leg, because the test
     // bundle reads one source.
@@ -334,7 +339,7 @@ fn the_digest_a_bundle_carries_is_computed_from_the_definitions_it_holds() {
         "the same definitions must pin to the same digest, or provenance is not reproducible"
     );
 
-    let anchored = pin(definitions(Some(Anchor::new(june(), String::from("197122")))));
+    let anchored = pin(definitions(Some(anchor("197122"))));
     assert_ne!(
         pinned.digest(),
         anchored.digest(),
@@ -430,7 +435,7 @@ fn the_knowledge_is_under_the_digest_too() {
 fn anchored_metrics_lists_only_the_metrics_that_declare_one() {
     let plain = bundle(None);
     assert_eq!(plain.anchored_metrics().count(), 0);
-    let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
+    let anchored = bundle(Some(anchor("197122")));
     let listed: Vec<&MetricName> = anchored.anchored_metrics().map(|(name, _)| name).collect();
     assert_eq!(listed, vec![&metric_name("revenue")]);
 }
