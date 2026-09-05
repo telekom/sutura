@@ -9,8 +9,10 @@ fixture rather than an input directory - its own section below says which is whi
 They are examples and tests at the same time, and that is the point rather than a
 convenience. `crates/sutura-cli/tests/example.rs` loads the `single-player/` catalog, pins its
 digest, re-executes every declared anchor and runs every question, so a quickstart that
-stopped working fails the build instead of failing the next person who tried it. There is
-no separate copy of the commands below for CI to run.
+stopped working fails the build instead of failing the next person who tried it.
+`crates/sutura-cli/tests/documented.rs` closes the other half: it runs every `sutura` invocation
+these pages PRINT, and requires every line they print as output to be a line the binary printed.
+There is no separate copy of the commands below for CI to run.
 
 ## The two directories
 

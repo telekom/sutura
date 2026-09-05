@@ -248,9 +248,9 @@ cannot use stopping the process. `just serve-e2e` runs it, and `docs/serving.md`
 those claims nothing asserts.
 
 **A captured session used to sit here instead, and deleting it is the point rather than a tidy-up.**
-Four hundred lines of terminal output - a startup, two `curl` calls, the token gate, the liveness
-probe, the generated interface description and a refusal to start - restating a reference page that
-owns all of it, with nothing holding a byte of it true. It had already rotted: the refusal block
+This section was 392 lines and is 27. What went was terminal output - a startup, two `curl` calls,
+the token gate, the liveness probe, the generated interface description and a refusal to start -
+restating a reference page that owns all of it, with nothing holding a byte of it true. It had already rotted: the refusal block
 higher up this page printed a `Debug` dump the binary stopped emitting when `render_refusal` landed,
 and `crates/sutura-cli/tests/documented.rs` exists because of it. A session nothing runs is a
 promise about a program, and this repository's rule for those is that a test makes them or they are
