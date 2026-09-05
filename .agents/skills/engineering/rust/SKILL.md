@@ -179,10 +179,13 @@ See `sutura/crate-map` for why an adapter is behind a default-off feature at all
 **Two limits on that lane, because a green run invites the wider reading.** Its package list is
 DERIVED from `nix/shipped.nix`'s `binaries`, so it reaches the binaries a release publishes and
 nothing else - a feature on a crate that does not ship is compiled by the `--all-features` gates
-only, and by nothing at the default set. And it is a DEVELOPER lane: `ci.yml` reaches gates as nix
-builds, so what CI has for this is the four `cross` link builds for the compile half and **nothing
-at all for the lint half**. `xtask/src/default_features.rs` states both as its own limits. So run
-`just gates` when you touch a `#[cfg(feature = ..)]`, and do not read a green pull request as cover.
+only, and by nothing at the default set. And the lane's CI half is PARTIAL, which is the row to read
+before believing a green pull request: the required `ci` job runs `nix run .#default-feature-tests`,
+so the shipped set's TESTS are gated on every change the classification marks as Rust, while the
+COMPILE and LINT halves reach `just gates` alone - what CI has for those is the four `cross` link
+builds and, for the lint half, **nothing at all**. `xtask/src/default_features.rs` and
+`xtask/src/default_feature_tests.rs` each state their own. So run `just gates` when you touch a
+`#[cfg(feature = ..)]`: a green pull request is cover for the half it runs and for no other.
 
 The inner loop is deliberately narrow:
 

@@ -412,6 +412,34 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
         // an exemption is also a blind spot, so it has to keep earning itself.
         except: &["docs/adr/0017-what-a-bigquery-test-runs-against.md"],
     },
+    Contradicted {
+        // The TEST half of the default-feature lane, whose CI venue arrived with
+        // `check-default-feature-tests`. Registered rather than only corrected in place, because
+        // the wording was in FOUR documents by the time it stopped being true - two manifests and
+        // two skill pages - and one file fixed while its siblings were not is the whole reason this
+        // table judges a CLAIM instead of a line.
+        //
+        // The scope reaches all four of those documents, manifests included - `run`'s filter is
+        // `md`, `nix`, `yml`, `yaml`, `toml`, `sh`. **What it does not reach is the argument
+        // itself:** `.rs` is deliberately outside that filter, so the module headers in
+        // `default_features.rs` and `default_feature_tests.rs` are where this claim is stated at
+        // length and are held by review, for the reason `run`'s own comment gives.
+        name: "the shipped feature set's lane is a developer lane with no CI venue",
+        wordings: &["it is a DEVELOPER lane", "it is a developer lane"],
+        evidence: &[Evidence {
+            path: ".github/workflows/ci.yml",
+            holds: "nix run .#default-feature-tests",
+        }],
+        instead: "one half of that lane is a required check. The `ci` job runs \
+                  `nix run .#default-feature-tests` on every change the classification marks as \
+                  Rust, so the shipped set's TESTS are gated in CI as well as in `just gates`, and \
+                  `xtask/src/default_feature_tests.rs` carries the measurement and every limit. \
+                  What reaches `just gates` alone is the COMPILE and LINT halves - \
+                  `cargo xtask check-default-features` - for which CI still has the four `cross` \
+                  link builds and, for the lint half, nothing",
+        only: &[],
+        except: &[],
+    },
 ];
 
 /// A file's text with every run of whitespace collapsed to one space, plus the line each byte
