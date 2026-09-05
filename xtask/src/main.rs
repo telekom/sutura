@@ -29,6 +29,7 @@ mod gate_classification;
 mod guidance;
 mod hook_coverage;
 mod hooks;
+mod inconclusive;
 mod line_endings;
 mod markdown;
 mod max_lines;
@@ -335,6 +336,16 @@ const TASKS: &[Task] = &[
         description: "a narrowed just recipe prints the scope it covered",
         kind: Kind::Hygiene(Reads::Code),
         run: tasks::run,
+    },
+    Task {
+        // Beside `check-scope` because it is the same shape as `check-boot-order`: a small DECLARED
+        // list of sites, refusing a site the scan finds that the list does not name. What it holds
+        // is `Verdict::Inconclusive`'s own argument - the default is closed only while no venue
+        // suppresses exit 3, which was a fact about the tree and held by nothing.
+        name: "check-inconclusive",
+        description: "every venue invoking a gate that can answer INCONCLUSIVE handles exit 3",
+        kind: Kind::Hygiene(Reads::Code),
+        run: inconclusive::run,
     },
     Task {
         // Beside `check-scope` for the same reason it sits beside `check-guidance`: a claim
