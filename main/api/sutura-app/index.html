@@ -2917,8 +2917,29 @@ loud failure. A configured-and-missing file silently omitted would be exactly th
 </span></code></pre></div>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
-<h3 id="fn-guidance"><code>fn guidance</code><a class="headerlink" href="#fn-guidance" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">guidance</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">query</span><span class="p">::</span><span class="n">RefusalReason</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="o">&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">)</span>
+<h3 id="fn-render"><code>fn render</code><a class="headerlink" href="#fn-render" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PromptInputs</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>The whole prompt, as markdown.</p>
+<p>Deterministic in its inputs: every collection walked here is a <code>BTreeMap</code> or a <code>BTreeSet</code>, and
+the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
+what lets the rendering be pinned by a snapshot rather than described.</p>
+<h3 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h3>
+<h3 id="module-refusal">Module <code>refusal</code><a class="headerlink" href="#module-refusal" title="Permanent link">&para;</a></h3>
+<p>Everything about a refusal, in one file.</p>
+<p>The table, the total match that will not compile when the domain gains a variant, the accessor a
+composition root prints from, and the section the prompt renders.</p>
+<p><strong>Its own module because <code>prompt.rs</code> was two lines under the thousand-line limit
+<code>cargo xtask max-lines</code> enforces and cannot exempt</strong>, at the cut <code>knowledge.rs</code> already made
+once, and the seam is not the line count: this is the one place <code>RefusalReason</code> is read. Nothing
+else in the prompt looks at a governance decision at all - the rest of the document is derived
+from the tool list and the pinned bundle - so the file that holds the refusal wording is the file
+that holds every reader of that enum, and a variant added to the domain lands here and nowhere
+else.</p>
+<p>Why the wording is strong, why an operator cannot replace it, and why a refusal lives inside the
+<code>Ok</code> at all are argued in <code>prompt.rs</code>'s own header.</p>
+<h4 id="fn-guidance"><code>fn guidance</code><a class="headerlink" href="#fn-guidance" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">guidance</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">query</span><span class="p">::</span><span class="n">RefusalReason</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="o">&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">)</span>
 </span></code></pre></div>
 <p>What a refusal means and what to do about it: <code>(meaning, remedy)</code>, in the order the prompt renders
 them.</p>
@@ -2930,13 +2951,6 @@ table rather than a third table.</p>
 <p><code>&amp;'static str</code> because <code>GUIDES</code> owns the wording: nothing here composes a message and nothing
 here reads the refusal's own fields. A caller that wants those still has the <code>RefusalReason</code> it
 passed in.</p>
-<h3 id="fn-render"><code>fn render</code><a class="headerlink" href="#fn-render" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PromptInputs</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
-</span></code></pre></div>
-<p>The whole prompt, as markdown.</p>
-<p>Deterministic in its inputs: every collection walked here is a <code>BTreeMap</code> or a <code>BTreeSet</code>, and
-the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
-what lets the rendering be pinned by a snapshot rather than described.</p>
 <h2 id="module-untrusted">Module <code>untrusted</code><a class="headerlink" href="#module-untrusted" title="Permanent link">&para;</a></h2>
 <p>The shared prompt-injection corpus every surface walks.</p>
 <p><code>#128</code>'s two forgeries are the same defect twice: a value that enters a rendering

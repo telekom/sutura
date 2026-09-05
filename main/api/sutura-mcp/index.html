@@ -2721,26 +2721,41 @@ becomes somebody else's input.</p>
 <p>The sentence. A test asserts it is not empty; nothing asserts its wording.</p>
 <h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Serialize</code></p>
-<h3 id="struct-describecatalogargs"><code>struct DescribeCatalogArgs</code><a class="headerlink" href="#struct-describecatalogargs" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h3>
+<h3 id="module-catalog">Module <code>catalog</code><a class="headerlink" href="#module-catalog" title="Permanent link">&para;</a></h3>
+<p>The catalog tool's wire shape: what <code>describe_catalog</code> takes, what it answers, and the text half
+of that answer.</p>
+<p><strong>Its own module because <code>wire.rs</code> was twenty-one lines under the thousand-line limit
+<code>cargo xtask max-lines</code> enforces and cannot exempt</strong>, at the banner that file already carried -
+and the seam is one whole TOOL rather than a share of lines. <code>wire.rs</code> keeps the question and the
+answer of <code>ask</code>; everything here belongs to the other tool a caller can reach, and the two share
+nothing but <code>prose</code>, which is where the <code>Option</code> behind a description stays private.</p>
+<p>Why the arguments type has braces and no fields, and why the reasoning about a wire type is a
+plain comment rather than a doc comment, are both stated at <code>DescribeCatalogArgs</code> - <code>schemars</code>
+puts a root doc comment into the schema's <code>description</code>, which is text a MODEL reads.</p>
+<h4 id="struct-describecatalogargs"><code>struct DescribeCatalogArgs</code><a class="headerlink" href="#struct-describecatalogargs" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DescribeCatalogArgs</span>
 </span></code></pre></div>
 <p>This tool takes no arguments. It returns the whole of what this deployment measures, and there is
 nothing to filter or select: send an empty object.</p>
-<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<h5 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
-<h3 id="struct-catalogcontent"><code>struct CatalogContent</code><a class="headerlink" href="#struct-catalogcontent" title="Permanent link">&para;</a></h3>
+<h4 id="struct-catalogcontent"><code>struct CatalogContent</code><a class="headerlink" href="#struct-catalogcontent" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogContent</span>
 </span></code></pre></div>
 <p>What this deployment measures, as the catalog tool's structured content.</p>
 <p><strong>A second wire type beside <code>sutura_http::wire::CatalogBody</code>, with the same fields, and that is
-the same deliberate cost <code>AskArgs</code> already pays.</strong> An adapter never calls another adapter, so
+the same deliberate cost <code>super::AskArgs</code> already pays.</strong> An adapter never calls another adapter, so
 this crate cannot import that shape; what keeps the two equal is review plus the fact that both
 are built from the one <code>sutura_domain::pinned::PinnedDefinitions</code> accessor set, which is where a
 missing field would show up as a missing call rather than as a silent divergence.</p>
 <p>Descriptive content only. <code>sutura_domain::pinned::SemanticCatalog::load</code> takes no request context
 and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
 returns: it is the <em>pinned</em> bundle, the same one every answer is computed from.</p>
-<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<h5 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The reader's view of a pinned bundle, under the prose setting this deployment was started
@@ -2753,19 +2768,19 @@ here. A second argument cannot be left out.</p>
 crate's only two readers of it, so this builder cannot fill a <code>description</code> or pick a notice
 without the operator's decision, and a third <code>CatalogProse</code> spelling is a compile error in
 both rather than an <code>else</code> arm here.</p>
-<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<h5 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
-<h3 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h3>
+<h4 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
 </span></code></pre></div>
 <p>One metric, as much of it as a caller needs to ask a valid question.</p>
-<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<h5 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
-<h3 id="struct-dimensioncontent"><code>struct DimensionContent</code><a class="headerlink" href="#struct-dimensioncontent" title="Permanent link">&para;</a></h3>
+<h4 id="struct-dimensioncontent"><code>struct DimensionContent</code><a class="headerlink" href="#struct-dimensioncontent" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
-<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 
 
