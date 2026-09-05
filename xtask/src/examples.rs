@@ -62,9 +62,14 @@ fn is_rust(rel: &str) -> bool {
 }
 
 /// Is this a line of code rather than a comment? See the module doc for why it matters.
+///
+/// Only `//`, which covers `///` and `//!` too. **Not `#`**, which opens a comment in a shell and
+/// an ATTRIBUTE in Rust - and this reads Rust, so treating `#[path = "../../examples/x/mod.rs"]` as
+/// a comment would have made a real reach invisible and reddened a variant that is reached. A
+/// mention inside a `/* */` block counts as code, which is the permissive direction: this gate's
+/// failure mode should be a variant nobody reaches, not a false accusation.
 fn is_code(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    !trimmed.starts_with("//") && !trimmed.starts_with('#')
+    !line.trim_start().starts_with("//")
 }
 
 /// Is this file test code, by the rule the module doc states?
@@ -222,11 +227,13 @@ mod tests {
     }
 
     #[test]
-    fn a_comment_is_not_code_and_a_path_is() {
+    fn a_comment_is_not_code_and_an_attribute_is() {
         assert!(!is_code("// examples/x"));
         assert!(!is_code("    //! examples/x"));
-        assert!(!is_code("# examples/x"));
+        assert!(!is_code("    /// examples/x"));
         assert!(is_code("    let p = \"examples/x\";"));
+        // `#` opens a comment in a shell and an attribute in Rust. This reads Rust.
+        assert!(is_code("#[path = \"../../examples/x/mod.rs\"]"));
     }
 
     #[test]
