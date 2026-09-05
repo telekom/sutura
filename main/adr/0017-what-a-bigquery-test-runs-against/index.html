@@ -4214,8 +4214,8 @@ example of this record's own warning about a job red for a configuration reason.
 <p><strong><code>check-venues</code> reads ONE credential path.</strong> It takes the job's <code>GOOGLE_APPLICATION_CREDENTIALS</code>,
 so <em>written under <code>$RUNNER_TEMP</code> and removed</em> and <em>the file is a second copy of the secret</em> are held
 for the CI key and by review for the two principal keys placed beside it. Deriving the credential set
-from the job is the fix; <code>xtask/src/venues/acceptance.rs</code> is at 991 lines, so it needs that file split
-first.</p>
+from the job is the fix, and the split it was waiting on has landed: <code>xtask/src/venues/acceptance.rs</code>
+is 672 lines now, with the five properties in <code>acceptance/properties.rs</code> (#323).</p>
 <p><strong>Nothing checks that the two nextest filters are complements.</strong> <code>binary(two_principals)</code> and
 <code>not binary(two_principals)</code> appear in two <code>just</code> recipes and two flake apps, and no gate reads a
 nextest filter expression - so renaming the target would silently un-filter the acceptance app.
