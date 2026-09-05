@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
 };
@@ -97,13 +97,14 @@ pub(crate) fn described_bundle(metric_prose: &str, dimension_prose: &str) -> Pin
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::from([(
-            DimensionName::parse("region").expect("a test dimension is a dimension"),
-            region,
-        )]),
-        Some(Anchor::new(june(), ANCHORED_VALUE.to_string())),
+        vec![region],
+        Some(Anchor::new(
+            june(),
+            AnchorValue::parse(ANCHORED_VALUE.to_string()).expect("a test anchor value is a value"),
+        )),
         description(metric_prose),
-    );
+    )
+    .expect("one dimension cannot duplicate another");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),

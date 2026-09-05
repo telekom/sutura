@@ -31,7 +31,7 @@
 use serde::Deserialize;
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Anchor, Description, Dimension, DimensionValue};
+use sutura_domain::catalog::{Anchor, AnchorValue, Description, Dimension, DimensionValue};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{ColumnName, DimensionName, Grain, RelationshipName};
 
@@ -537,13 +537,18 @@ impl SuturaDimension {
 pub struct SuturaAnchor {
     range: TimeRange,
     /// The certified value, read as text whatever the deployment wrote - the anchor comparison is
-    /// over text (`sutura_domain::catalog::Anchor` stores the value as `String`).
-    value: String,
+    /// over text.
+    ///
+    /// An [`AnchorValue`] rather than a `String`, so the deployment-defined property is held to the
+    /// domain's character rule where it is deserialized rather than after conversion. A property
+    /// carrying an unparseable value therefore fails as a `DataHubError::Sutura` naming the metric,
+    /// which is the same refusal an unparseable `DimensionValue` in the same property already gives.
+    value: AnchorValue,
 }
 
 impl SuturaAnchor {
     /// An anchor.
-    pub const fn new(range: TimeRange, value: String) -> Self {
+    pub const fn new(range: TimeRange, value: AnchorValue) -> Self {
         Self { range, value }
     }
 
@@ -554,7 +559,7 @@ impl SuturaAnchor {
 
     #[inline]
     pub fn value(&self) -> &str {
-        &self.value
+        self.value.as_str()
     }
 
     /// Into the domain type `Definitions::assemble` holds.
