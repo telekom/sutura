@@ -20,11 +20,16 @@
 #      build that answered `200` to everything would pass - and a refusal is a RESULT here rather
 #      than an error, so that it is served at all is part of the surface #111 publishes.
 #
-# ONE SCRIPT, called by `.github/actions/build-artefacts` (per target, at release and on a dispatch)
-# and by `ci.yml`'s trunk-only image step. Not inlined in either: it was written twice and the two
-# copies had already drifted on the catalog version before this file existed. A `.sh` also lands in
-# the `shellcheck` list `ci.yml` builds with `find . -name '*.sh'`, which an `action.yml` body does
-# not.
+# ONE SCRIPT, and `.github/actions/build-artefacts/action.yml` invokes the image smoke test - per
+# target, at release and on a dispatch, and it is the only caller in the tree. Not inlined there: it
+# was written twice and the two copies had already drifted on the catalog version before this file
+# existed. A `.sh` also lands in the shellcheck list `nix/lint-workflows.sh` builds from tracked
+# files, which an `action.yml` body does not.
+#
+# BOTH POINTERS ARE DERIVED NOW rather than written down - `cargo xtask check-guidance` resolves the
+# file holding each mechanism and fails if a sentence names a different one. They used to name
+# `ci.yml`, which has no image step and does not build that list, and nothing could see it: a bare
+# filename with no slash is deliberately not path-checked, and `ci.yml` resolves anyway.
 #
 # `--network host` RATHER THAN `-p`, and it is a startup refusal that decides it. The default bind
 # is loopback, and inside a container loopback is the container - so a published port reaches

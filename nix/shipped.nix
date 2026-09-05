@@ -593,8 +593,9 @@ let
           echo "shipped-features: ${b.bin}"
           rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
           crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
-          # A FLOOR, for the reason `ci.yml` gives at its own copy of this number: the exact
-          # count moves with every dependency bump, and what is checked is the difference
+          # A FLOOR, and the argument is not repeated here. It is what
+          # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number:
+          # the exact count moves with every dependency bump, and what is checked is the difference
           # between a list of crates and no list at all. `grep -o | wc -l`, never `grep -c`,
           # because the document is one line.
           if [ "''${crates:-0}" -lt 100 ]; then

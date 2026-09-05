@@ -178,6 +178,23 @@ therefore does not see.
   many, and a number here would be a second thing to keep true. It fails a cited `just` task that
   does not exist and a cited `cargo` line missing `--all-features`. Its own stated blind spot: a
   comment marker is not stripped, so a claim wrapping inside a `#` block is not found.
+- **A citation that RESOLVES says nothing about the cited file's contents, and that is how four
+  comments named `ci.yml` as holding things it never held** - a caller of the image smoke test, the
+  command building the `shellcheck` list, the reason a floor of 100 is a floor. None of them was
+  falsified by a change; they were false when written. `claims/remedies.rs` deliberately does not
+  path-check a bare filename with no slash, because which of eight workflows a sentence meant would
+  be a guess - and a path check would have passed anyway, since `ci.yml` exists. So the answer is
+  the one #289 took for its printed remedies, applied to prose: **derive the file that holds the
+  mechanism and compare it against what the sentence names.** `HOSTED` fails four ways, each
+  measured by mutation - the wrong file named, the mechanism moved out of the tree, TWO files
+  holding it (two copies to keep in step, and a sentence naming a list orients nobody), and nothing
+  attributing it at all, which is the gate-over-silence direction its two siblings each got wrong
+  first. **It is a REGISTERED attribution, and that is the limit:** a false pointer nobody has
+  registered is invisible, exactly as an unregistered wording is invisible to `CONTRADICTED`. The
+  general rule was costed in #289 and refused - a backticked file plus a backticked identifier in
+  one sentence caught two of six, and missed the reachable one structurally, because a caller keeps
+  the job NAME after the body moves. **The prose discipline that does generalise: name the anchor a
+  reader can grep, not the file you believe holds it.**
 - **A phrase rule cannot hold a sentence that was TRUE when it was written**, and that is the whole
   argument for the constant check. A published page said an adapter's `IMPERSONATION` was
   `NoPlaceForASubject` while the constant declared `PerSubjectCredential`; the sentence went false

@@ -10,7 +10,7 @@
 //! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
 //! than read.
 //!
-//! Eight checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Nine checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
@@ -20,8 +20,10 @@
 //! * `remedies` - the correction a failure prints, held to the standard of the prose it corrects
 //! * `advice` - a task a failure prints must exist, over every `.rs` file this repository publishes
 //! * `constants` - a doc comment naming a variant of a constant it links must name the one it holds
+//! * `hosts` - the file a sentence names as holding a mechanism must be the file that holds it
 //!
-//! The last three are the ones that read Rust rather than prose. `remedies` is here because of
+//! `remedies`, `advice` and `constants` are the three that read Rust rather than prose;
+//! `hosts` reads prose and derives its answer from anywhere. `remedies` is here because of
 //! `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface was absent for as
 //! long as it took a person to read it, because the prose scope below never reached this binary's
 //! own source. `advice` is here because of `github.com/telekom/sutura#243`, which is the same hole
@@ -64,9 +66,13 @@ mod advice;
 // which none of the tables above can express - a forbidden wording is a ratchet on a sentence
 // somebody has already got wrong, and that one was true when it was written.
 mod constants;
+// `github.com/telekom/sutura#297`. Prose again, so it could have been lines here - it is a module
+// because it grows by ENTRY like the tables above and this file is what has to have room for those.
+mod hosts;
 
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 use constants::constant_problems;
+use hosts::{HOSTED, host_mismatches};
 
 /// A phrase that should not appear, and what to write instead.
 struct Forbidden {
@@ -462,6 +468,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     problems.extend(contradicted_claims(&root, &text_files));
     problems.extend(count_mismatches(&root, &files, &text_files));
     problems.extend(bad_task_references(&root, &text_files));
+    // `all` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
+    // the scope limit is about where a claim may be made rather than about what may be read.
+    problems.extend(host_mismatches(&root, &files, &text_files));
     problems.extend(dead_paths(&root, &text_files));
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
@@ -487,12 +496,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if problems.is_empty() {
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed",
             text_files.len(),
             FORBIDDEN.len(),
             PINS.len(),
             CONTRADICTED.len(),
-            COUNTS.len()
+            COUNTS.len(),
+            HOSTED.len()
         );
         return Verdict::Pass;
     }
