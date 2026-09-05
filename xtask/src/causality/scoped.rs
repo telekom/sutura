@@ -63,66 +63,9 @@
 
 use crate::causality::attributes::{declares_a_test, sits_between};
 use crate::causality::diff::ChangedFile;
+use crate::causality::names::{CargoName, Ident};
 use crate::causality::regions::{AddedLine, PostImage};
 use crate::changes::package_name;
-
-/// One Rust identifier: a test function's name, or one segment of a module path.
-///
-/// A newtype that PARSES, and [`AddedTest::term`] is the reason: this reaches nextest inside a
-/// regular expression, so one carrying a metacharacter would widen the filter or break it rather
-/// than fail visibly. A Rust identifier cannot carry one; anything that is not one does not get
-/// through this constructor.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Ident(String);
-
-impl Ident {
-    /// The identifier, if `raw` is an ASCII Rust one.
-    pub(crate) fn parse(raw: &str) -> Option<Self> {
-        let mut chars = raw.chars();
-        let leading = chars.next()?;
-        if !leading.is_ascii_alphabetic() && leading != '_' {
-            return None;
-        }
-        if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return None;
-        }
-        Some(Self(String::from(raw)))
-    }
-
-    /// The identifier as written.
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// A cargo package or target name.
-///
-/// Parses for the same reason [`Ident`] does - it reaches nextest inside a filter expression -
-/// but it is a different alphabet: cargo allows `-`, which Rust does not, and `sutura-domain` and
-/// `multi_player` are both real names here. It is NOT a superset of `Ident` in intent, so the two
-/// stay separate types rather than one lenient one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CargoName(String);
-
-impl CargoName {
-    /// The name, if `raw` is one cargo could have accepted.
-    fn parse(raw: &str) -> Option<Self> {
-        let mut chars = raw.chars();
-        let leading = chars.next()?;
-        if !leading.is_ascii_alphanumeric() && leading != '_' {
-            return None;
-        }
-        if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-            return None;
-        }
-        Some(Self(String::from(raw)))
-    }
-
-    /// The name as written.
-    fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 /// Which test binary a test compiles into - the coarsest half of the key.
 ///
@@ -264,17 +207,31 @@ impl AddedTest {
 
 /// The tests a diff added: at least one, by construction.
 #[derive(Debug)]
-pub(crate) struct Scoped(Vec<AddedTest>);
+pub(crate) struct Scoped {
+    tests: Vec<AddedTest>,
+    /// Provable files that named no test and added no attribute that should have named one.
+    ///
+    /// A test-MODULE declaration, in practice: it holds the file at HEAD and names nothing, by
+    /// design. Carried because this scan is AGGREGATE, so a file it could not name is otherwise
+    /// invisible whenever a sibling could. Stated rather than refused: in the legitimate shape the
+    /// module's own file is in the same diff and names the tests.
+    silent: Vec<String>,
+}
 
 impl Scoped {
     /// The keys, for comparing a failure against the set under test.
     pub(crate) fn tests(&self) -> &[AddedTest] {
-        &self.0
+        &self.tests
+    }
+
+    /// Provable files this named no test in.
+    pub(crate) fn silent(&self) -> &[String] {
+        &self.silent
     }
 
     /// The nextest filter expression that runs exactly these tests.
     pub(crate) fn filterset(&self) -> String {
-        self.0.iter().map(AddedTest::term).collect::<Vec<String>>().join(" + ")
+        self.tests.iter().map(AddedTest::term).collect::<Vec<String>>().join(" + ")
     }
 }
 
@@ -283,6 +240,12 @@ impl Scoped {
 pub(crate) enum Scan {
     /// Tests this venue can run, so there is something to measure.
     Runnable(Scoped),
+    /// A provable file added an attribute that DECLARES a test and no name came out of it.
+    /// Refuses, and refuses ahead of [`Self::Runnable`], which is the point: this scan is
+    /// aggregate, so one nameable test elsewhere in the diff used to mask the file completely and
+    /// the run measured a subset with nothing saying so. The other unnameable shape - a
+    /// test-module declaration, expected to name nothing - is [`Scoped::silent`], and is stated.
+    Unreadable(Vec<String>),
     /// Every test the diff added is `#[ignore]`d. Named, and unreachable by any run here.
     OnlyIgnored(Vec<Ident>),
     /// No test could be named at all.
@@ -298,36 +261,55 @@ impl Scan {
     pub(crate) fn of(files: &[ChangedFile], provable: &[String], read: &PostImage<'_>) -> Self {
         let mut runnable: Vec<AddedTest> = Vec::new();
         let mut ignored: Vec<Ident> = Vec::new();
+        let mut silent: Vec<String> = Vec::new();
+        let mut unreadable: Vec<String> = Vec::new();
         for file in files.iter().filter(|file| provable.contains(&file.path)) {
-            let Some(text) = read(&file.path) else {
-                continue;
-            };
-            let Some(place) = place(&file.path, read) else {
-                continue;
-            };
-            let lines: Vec<&str> = text.lines().collect();
-            for declared in file.added.iter().filter_map(|added| declared_under(&lines, added)) {
-                match declared {
-                    Declared::Ignored(name) => {
-                        if !ignored.contains(&name) {
-                            ignored.push(name);
+            let mut named = 0_usize;
+            if let Some(text) = read(&file.path)
+                && let Some(place) = place(&file.path, read)
+            {
+                let lines: Vec<&str> = text.lines().collect();
+                for declared in file.added.iter().filter_map(|added| declared_under(&lines, added)) {
+                    named += 1;
+                    match declared {
+                        Declared::Ignored(name) => {
+                            if !ignored.contains(&name) {
+                                ignored.push(name);
+                            }
                         }
-                    }
-                    Declared::Runs(name) => {
-                        let one = AddedTest {
-                            binary: place.binary.clone(),
-                            within: place.within.clone(),
-                            name,
-                        };
-                        if !runnable.contains(&one) {
-                            runnable.push(one);
+                        Declared::Runs(name) => {
+                            let one = AddedTest {
+                                binary: place.binary.clone(),
+                                within: place.within.clone(),
+                                name,
+                            };
+                            if !runnable.contains(&one) {
+                                runnable.push(one);
+                            }
                         }
                     }
                 }
             }
+            if named > 0 {
+                continue;
+            }
+            // WHICH kind of unnameable, because they ask for different things. An added attribute
+            // that declares a test and yields no name is an extractor failure or a file no
+            // `Cargo.toml` owns - the fix is here. No such attribute means a test module arrived
+            // and named nothing, which is what that form does.
+            if file.added.iter().any(|line| declares_a_test(line.text.trim())) {
+                unreadable.push(file.path.clone());
+            } else {
+                silent.push(file.path.clone());
+            }
+        }
+        // Ahead of `Runnable`: a subset the caller cannot see is the defect, and one sibling that
+        // names a test is exactly what used to hide it.
+        if !unreadable.is_empty() {
+            return Self::Unreadable(unreadable);
         }
         if !runnable.is_empty() {
-            return Self::Runnable(Scoped(runnable));
+            return Self::Runnable(Scoped { tests: runnable, silent });
         }
         if ignored.is_empty() {
             Self::Unnamed
@@ -521,9 +503,10 @@ fn function_name(line: &str) -> Option<Ident> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddedTest, CargoName, Ident, Scan, place};
+    use super::{AddedTest, Scan, place};
     use crate::causality::diff::ChangedFile;
     use crate::causality::fixtures::{changed, manifest, tree};
+    use crate::causality::names::Ident;
     use crate::causality::regions::PostImage;
 
     /// The names `Scan::of` found runnable, as plain strings.
@@ -727,15 +710,66 @@ mod tests {
     }
 
     #[test]
-    fn a_path_no_package_owns_is_not_scanned() {
+    fn a_path_no_package_owns_is_refused_rather_than_skipped() {
         // Nothing compiles it, so it has no test to run - and inventing a package name for it
-        // would put a name nextest does not know into the filter.
+        // would put a name nextest does not know into the filter. A REFUSAL rather than a skip,
+        // which is the change: the file is part of the proof, and skipping it measures a subset.
         let files = vec![changed("stray/a.rs", 1, &["#[test]", "fn sums() {}"])];
         let read = tree(&[("stray/a.rs", "#[test]\nfn sums() {}\n")]);
-        assert!(matches!(
-            Scan::of(&files, &[String::from("stray/a.rs")], &read),
-            Scan::Unnamed
-        ));
+        match Scan::of(&files, &[String::from("stray/a.rs")], &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("stray/a.rs")]),
+            other => panic!("expected Unreadable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn one_nameable_test_does_not_mask_a_file_this_could_not_name() {
+        // THE MASKING. This scan is aggregate - one nameable test anywhere made the whole answer
+        // `Runnable` - so a provable file whose added `#[test]` yielded no name rode along
+        // unmeasured, unmentioned. `b.rs` adds the attribute over a line no function name comes
+        // out of, and `a.rs` naming its test fine is what used to hide it.
+        let files = vec![
+            changed("crates/x/src/a.rs", 1, &["#[test]", "fn reads_fine() {}"]),
+            changed("crates/x/src/b.rs", 1, &["#[test]", "let _ = 1;"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/a.rs", "#[test]\nfn reads_fine() {}\n"),
+            ("crates/x/src/b.rs", "#[test]\nlet _ = 1;\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let provable = vec![String::from("crates/x/src/a.rs"), String::from("crates/x/src/b.rs")];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("crates/x/src/b.rs")]),
+            other => panic!("expected Unreadable ahead of Runnable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_test_module_that_names_nothing_is_stated_rather_than_refused() {
+        // The other unnameable shape, and it must NOT refuse: `lib.rs` gains
+        // `#[cfg(test)] mod tests;` and the module's own file arrives in the same diff naming the
+        // tests. That is the ordinary way a test module is added, so refusing per file would
+        // redden a correct change - the declaration is carried as `silent` and printed instead.
+        let files = vec![
+            changed("crates/x/src/lib.rs", 2, &["#[cfg(test)]", "mod tests;"]),
+            changed("crates/x/src/tests.rs", 1, &["#[test]", "fn added() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/lib.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("crates/x/src/tests.rs", "#[test]\nfn added() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let provable = vec![String::from("crates/x/src/lib.rs"), String::from("crates/x/src/tests.rs")];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Runnable(ref scoped) => {
+                assert_eq!(
+                    scoped.tests().iter().map(AddedTest::name).collect::<Vec<&str>>(),
+                    vec!["added"]
+                );
+                assert_eq!(scoped.silent(), [String::from("crates/x/src/lib.rs")]);
+            }
+            other => panic!("expected Runnable with the declaration stated, got {other:?}"),
+        }
     }
 
     #[test]
@@ -813,22 +847,6 @@ mod tests {
             }
             other => panic!("an ignored test is named, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn a_name_that_is_not_an_identifier_is_refused() {
-        // What keeps a regular expression out of the filter expression.
-        assert!(Ident::parse("sums_by_month").is_some());
-        assert!(Ident::parse("_private").is_some());
-        assert!(Ident::parse("").is_none());
-        assert!(Ident::parse("9lives").is_none());
-        assert!(Ident::parse("sums|.*").is_none());
-        assert!(Ident::parse("two words").is_none());
-        // A cargo name is a different alphabet: `-` is legal there and not in Rust.
-        assert!(CargoName::parse("sutura-domain").is_some());
-        assert!(CargoName::parse("multi_player").is_some());
-        assert!(CargoName::parse("bad)name").is_none());
-        assert!(CargoName::parse("has space").is_none());
     }
 
     #[test]

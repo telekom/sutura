@@ -21,7 +21,7 @@
 use crate::Verdict;
 use crate::causality::base::{names_no_tests, tail};
 use crate::causality::coverage::Coverage;
-use crate::causality::scoped::Ident;
+use crate::causality::names::Ident;
 
 /// Explain the inseparable case. Loud, and deliberately not a failure: the change may be
 /// entirely legitimate, but the gate has not verified it and must not read as green.
@@ -73,6 +73,27 @@ pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
     eprintln!("`#[cfg(test)] mod ..` declaration whose module's own file is not in this diff. Fix");
     eprintln!("the extractor rather than widening the run. A `#[cfg(test)]` item that is NOT a");
     eprintln!("module cannot reach here: it is test-only code, and it is held rather than named.");
+    Verdict::Fail
+}
+
+/// A provable file added a test ATTRIBUTE and the scan could not read a name from it.
+///
+/// FAILS, and it fails even when other files in the diff named tests fine - which is the whole
+/// difference from [`report_unnamed_tests`]. `Scan::of` is aggregate: one nameable test anywhere
+/// used to make the answer `Runnable` and carry this file along unmeasured and unmentioned, so the
+/// verdict was over a subset and nothing said which. The two printed causes here are the real ones
+/// for this shape, and neither is "your change".
+pub(super) fn report_unreadable(files: &[String]) -> Verdict {
+    eprintln!("xtask test-causality: FAILED - a test attribute this gate could not read a NAME from");
+    for f in files {
+        eprintln!("  {f} adds a test attribute and no name came out of it");
+    }
+    eprintln!();
+    eprintln!("This file is part of the proof, so a run that skipped it would measure a subset -");
+    eprintln!("and other files in this diff DID name tests, which is exactly how that used to go");
+    eprintln!("unnoticed. Two causes: the function under the attribute is spelled in a way");
+    eprintln!("`causality::scoped` cannot read, or no `Cargo.toml` above the file declares a");
+    eprintln!("package. Fix the extractor rather than widening the run.");
     Verdict::Fail
 }
 

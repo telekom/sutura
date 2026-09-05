@@ -49,7 +49,7 @@ impl Coverage {
         let scan = Scan::of(files, &every, read);
         let added: &[AddedTest] = match scan {
             Scan::Runnable(ref all) => all.tests(),
-            Scan::OnlyIgnored(_) | Scan::Unnamed => &[],
+            Scan::Unreadable(_) | Scan::OnlyIgnored(_) | Scan::Unnamed => &[],
         };
         Self {
             measured: measured.len(),

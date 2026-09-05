@@ -355,6 +355,26 @@ failing would redden most branches here and a gate that reddens correct work get
 it therefore is not:** nothing forces the remainder to be proven. `7 of 8` is an instruction to run
 a mutation by hand, not a mechanism.
 
+**THE SCAN IS AGGREGATE, and that is how a subset hid.** `Scan::of` answered `Runnable` the
+moment ONE provable file named a test, so a second provable file whose added `#[test]` yielded no
+name rode along unmeasured with nothing in the output naming it - the common case, not a corner. It
+refuses now, ahead of `Runnable`, when a file added an attribute that DECLARES a test and no name
+came out. The other unnameable shape is not the same and must not refuse: a
+`#[cfg(test)] mod tests;` names nothing by design and its module's own file names the tests, so that
+one is PRINTED (`named no test: <file>`). **The question to ask of any aggregate answer: which input
+did it not need in order to say yes?**
+
+**A GREEN CAUSALITY STEP CAN BE AN INCONCLUSIVE ONE, and a required CI job cannot tell.** Both
+`INCONCLUSIVE` arms return `Verdict::Pass`, so `base did not compile` and `the base run named no
+failure` are exit 0 - and that is deliberate, because the HARNESS MOVE lands on the first of them
+every time and a gate that reddens correct work gets disabled. **Measured, on a finished branch:**
+its `ci` causality step was green off `INCONCLUSIVE - the base tree does not build` (a `-D dead-code`
+error, because a `#[cfg(test)]` helper was held at HEAD while its only caller was removed at base),
+while the same commit refused locally. So the branch had red-before-green evidence in neither venue
+and its author had a green check. Both arms now print *this exit PASSES and N of M added tests
+measured*; the exit code itself is an open decision. **When citing this gate, cite the VERDICT LINE,
+never the step's colour.**
+
 **THE BASE IS THE OTHER WAY IT LIES, and the failing direction is the default one.** `ship-check`
 defaults to `origin/main`, so on the second PR of a stack the diff carries the PARENT branch's
 implementation: the gate reverts that and finds this branch's tests green, then reports

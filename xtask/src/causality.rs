@@ -74,6 +74,7 @@ mod fixtures;
 // `pub(crate)` rather than private: `crate::refusals` reads the same test regions this gate does,
 // because "which lines of this file are test code" is one question and a second implementation of
 // it would be a second thing to keep in step. Nothing else about the module moved.
+mod names;
 pub(crate) mod regions;
 mod remedies;
 mod runner;
@@ -85,7 +86,9 @@ use base::{BaseOutcome, classify_base, report_base, tail};
 use coverage::{Coverage, Scope};
 use diff::{ChangedFile, changed_with_additions};
 use regions::{PostImage, has_non_test_additions, scope};
-use remedies::{report_coverage, report_head_failure, report_not_separable, report_only_ignored, report_unnamed_tests};
+use remedies::{
+    report_coverage, report_head_failure, report_not_separable, report_only_ignored, report_unnamed_tests, report_unreadable,
+};
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
 use worktree::{BaseState, add_worktree, apply, base_state, remove_worktree};
@@ -267,6 +270,9 @@ fn prove(root: &Path, base: &str, separable: &Separable, scoped: &Scoped, covera
     let shared_target = root.join("target").join("causality-target");
     let only = scoped.filterset();
     println!("  filter:    {only}");
+    for f in scoped.silent() {
+        println!("  named no test: {f}  (a test module arrived here; its own file names the tests)");
+    }
     report_coverage(coverage);
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
@@ -412,6 +418,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                     let coverage = Coverage::of(scoped.tests(), &files, &working_tree);
                     prove(&root, &base, &separable, &scoped, &coverage)
                 }
+                Scan::Unreadable(files) => report_unreadable(&files),
                 Scan::OnlyIgnored(names) => report_only_ignored(&names),
                 Scan::Unnamed => report_unnamed_tests(&separable.test_files),
             }

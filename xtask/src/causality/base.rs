@@ -262,6 +262,7 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, me
             println!("It got past the compiler, so this is not a build failure: a runner that died");
             println!("before reporting, a linker signal, or a status this gate does not recognise.");
             println!("Nothing is proven either way - state the evidence in the handoff.");
+            println!("This exit PASSES and {measured}, so a green step over it is not coverage.");
             Verdict::Pass
         }
         BaseOutcome::DidNotCompile => {
@@ -287,6 +288,13 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, me
                 println!("Usually it means the change is not separable at file level: the test and");
                 println!("what it needs arrived together. State the evidence in the handoff.");
             }
+            // WHY THIS SAYS SO OUT LOUD. The arm returns `Verdict::Pass`, which is exit 0, and a
+            // required CI step reads the exit code and nothing else - so this shape has been
+            // cited as red-before-green evidence on a finished branch that had none. Making it
+            // FAIL instead is an architecture decision with a real cost, because the HARNESS MOVE
+            // above is a legitimate change that lands here every time; until that is decided, the
+            // sentence is what a reader gets.
+            println!("This exit PASSES and {measured}, so a green step over it is not coverage.");
             Verdict::Pass
         }
     }
