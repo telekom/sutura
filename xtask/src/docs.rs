@@ -522,7 +522,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // nothing about WHICH row.
     if sweep.scanned != published.len() {
         found.push(format!(
-            "scanned {} of {} published page(s) - the pages this could not read are named above, and a page nothing scanned is a page nothing checked",
+            "scanned {} of {} published page(s) - a page nothing scanned is a page nothing checked, so the link rule is silently false for the rest. Any page this could not read is named above",
             sweep.scanned,
             published.len()
         ));

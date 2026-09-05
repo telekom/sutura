@@ -145,6 +145,28 @@ therefore does not see.
   to run `just docs` rather than a gate encoding a boundary nobody measured. It is not in `validate`
   because that recipe would then fail on a clone whose pixi docs environment is not installed, and
   **a gate that fails for an environment reason gets disabled.**
+- **The file a gate reads is not always the file that ships, and that defeated the rule the gate
+  was added for.** `docs/contributing.md` and `docs/changelog.md` are `pymdownx.snippets` stubs -
+  their published body is `CONTRIBUTING.md` / `CHANGELOG.md` at the repo root - so `check-docs`
+  read a sixteen-line include directive and counted it as a page. Measured: a link into an
+  excluded page written in `CONTRIBUTING.md` left the gate green with the link total unmoved. It
+  follows `--8<--` now and resolves a relative target inside an included file against the
+  INCLUDING page, the way mkdocs does. **The transferable question: for every file a gate reads,
+  ask whether that file is what a reader gets.**
+- **Three more ways that one gate read less than its verdict said, found in one review, and each
+  is a shape already in this file.** (1) A fence tracker toggling a boolean on any three-backtick
+  line inverted on the first NESTED fence and read no link below it - the `check-workflows` rule
+  a second time, so `xtask/src/markdown.rs` records the delimiter and its length and makes an
+  unclosed block an error rather than an answer. (2) `exclude_docs` was compared as a
+  docs-relative path while mkdocs matches it with `pathspec` gitignore semantics, where a pattern
+  containing no `/` matches at ANY depth: the pages mkdocs dropped and the pages the gate believed
+  were dropped were different sets, and both of that gate's new rules were bypassed on the
+  difference. **A gate re-implementing part of a tool has to be measured against the tool, not
+  against its documentation.** (3) The only floor was a repo-wide link total, and `.take(1)` on
+  the page loop satisfied it with 51 of 52 pages unscanned - *at least one row* again, so the
+  floor is per page now. An unreadable page was also dropped in silence eight lines above a
+  `FAIL CLOSED` comment, which is the reminder that **a comment is not the direction; the code at
+  the decision is.**
 - **Prose in `AGENTS.md` and under `.agents/skills/` is gated, which surprises people editing it.**
   `check-guidance` scans both, and `xtask`'s own unit tests assert literal phrases out of `AGENTS.md`
   as the evidence anchoring a rule - so rewording its opening sentence turns a gate's test red rather
