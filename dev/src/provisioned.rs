@@ -238,10 +238,8 @@ impl Absent {
         &self.0.reason
     }
 
-    /// The line naming the task that starts the service this was raised about.
-    ///
-    /// Every arm of [`Absent::remedy`] that names one calls THIS, so the venue and the service it
-    /// is read for cannot come apart.
+    /// The line naming the task that starts the service this was raised about - called by every
+    /// arm of [`Absent::remedy`] that names one, so the venue and the service cannot come apart.
     fn venue_advice(&self) -> String {
         venue(self.0.worktree.as_deref(), &self.0.service).advice(&self.0.service)
     }
@@ -481,9 +479,8 @@ mod tests {
         dir
     }
 
-    /// The backtick span a nix tier's remedy has to carry, spelled from the service - ONE
-    /// derivation for the three assertions that read one, because a literal is what pinned
-    /// `just test` as the task for every tier.
+    /// The backtick span a nix tier's remedy has to carry, spelled from the service - one
+    /// derivation for the three assertions that read one, because a literal pinned the wrong task.
     fn tier_task(service: &str) -> String {
         format!("`just {service}-tier start`")
     }
@@ -915,8 +912,7 @@ mod tests {
                 // as whichever existing branch happened to be closest.
                 match venue {
                     Venue::NixTier { ref module } => {
-                        // DERIVED, never a literal - a literal is what pinned the wrong task for
-                        // every tier here. What holds the name: see `Venue::advice`.
+                        // DERIVED, never a literal - `Venue::advice` records which one pinned what.
                         assert!(
                             remedy.contains(&tier_task(&service)),
                             "{arm} does not name the task that starts `{service}`'s own tier: {remedy}"

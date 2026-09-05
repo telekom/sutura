@@ -272,6 +272,15 @@ the last three ask for evidence instead: the command you ran, the failure before
 Everything else fails, and the three that fail are the three where the gate has no answer rather
 than a bad one: green against base, red outside the diff, and the added tests not running at all.
 
+**Reconstructing that evidence for "not separable": restore the base's OUTPUT, not its code.** The
+obvious move - paste the base file's implementation half under the head file's tests - does not
+compile whenever the base spells its private items differently, which is usual for a change that
+introduced one. Measured on #268: the base module had no `Venue::advice` for the tests to call. What
+is behaviourally the base is the STRING each arm produced, so put those back into the head
+structure, `git checkout <base> -- <the non-test files the diff also touched>`, and run `just test`:
+the failures name themselves and an unrelated red is visible as one. Revert nothing and the run
+over-reports green - a justfile recipe the head added is what one of the assertions reads.
+
 **What it could not tell apart until #278.** The base run was the whole suite and any assertion
 failure counted, so with fail-fast one unrelated cell was the entire verdict and the tests under
 test never ran - `ok - red on base` about something else. Both runs are scoped to the tests the diff
