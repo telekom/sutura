@@ -879,36 +879,41 @@ mod tests {
     }
 
     #[test]
-    fn both_arms_that_name_a_task_derive_it_from_the_venue_and_not_from_the_reason() {
+    fn every_arm_that_names_a_task_derives_it_from_the_venue_and_not_from_the_reason() {
         // THE DEFECT CLASS, held across arms instead of once per arm - which is what the two tests
-        // above cannot do, because each provokes one reason over a synthetic fixture.
-        // `github.com/telekom/sutura#243` made `UnknownService` derive its venue and left
-        // `NotProvisioned`, four lines above it, printing a constant `just dev-up`: right for one of
-        // the services below and wrong for the other three. A per-arm test passes on the arm it was
-        // written for while its sibling says something else about the same service.
+        // above cannot do, because each provokes one reason over a synthetic fixture: a per-arm test
+        // passes on the arm it was written for while its sibling says something else about the same
+        // service. `Venue::advice` records the constant each arm carried.
         //
-        // Over the REAL tree's services, so a service that gains a tier or a profile is covered by
-        // the walk rather than by somebody remembering this test. Both reasons are CONSTRUCTED
-        // rather than provoked, which is what lets one root cover both: provoking `NotProvisioned`
-        // means having no discovery file and provoking `UnknownService` means having one.
+        // EVERY reason, not the two the defect was in - the third task-naming arm was found on
+        // review of that fix, still sending a reader to the compose tier for a nix-native service.
+        // Over the REAL tree's services, so one that gains a tier or a profile is covered by the walk
+        // rather than by somebody remembering this test, and CONSTRUCTED rather than provoked, which
+        // is what lets one root cover reasons whose fixtures contradict each other.
         let root = worktree_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("this crate is inside a checkout");
 
         for service in every_service_under_both_venues(&root) {
-            for reason in [
-                Reason::NotDiscovered(DiscoveryError::NotProvisioned {
-                    path: PathBuf::from("endpoints.json"),
-                }),
-                Reason::NotDiscovered(DiscoveryError::UnknownService {
-                    service: service.clone(),
-                    known: Vec::new(),
-                }),
-            ] {
+            let venue = super::venue(Some(&root), &service);
+            let advice = venue.advice(&service);
+            for reason in every_reason(&service) {
                 let arm = label(&reason);
+                // The two reasons with no worktree to read a venue from name no task. EVERY OTHER
+                // ARM carries the derivation verbatim, and a new `Reason` is held in the failing
+                // direction: absent from this pair, it has to match.
+                let venue_free = matches!(reason, Reason::NoWorktree { .. } | Reason::NoScope(_));
                 let remedy = Absent::new(&service, Some(root.clone()), None, reason).remedy().join("\n");
+                assert_eq!(
+                    remedy.contains(&advice),
+                    !venue_free,
+                    "{arm} and the derivation for `{service}` disagree: {remedy}"
+                );
+                if venue_free {
+                    continue;
+                }
 
                 // NO wildcard arm: a fifth venue fails to compile here rather than reaching a reader
                 // as whichever existing branch happened to be closest.
-                match super::venue(Some(&root), &service) {
+                match venue {
                     Venue::NixTier { ref module } => {
                         // DERIVED, never a literal - a literal is what pinned the wrong task for
                         // every tier here. What holds the name: see `Venue::advice`.
@@ -936,9 +941,7 @@ mod tests {
                         remedy.contains("`just dev-up`"),
                         "{arm} names no task for the default service `{service}`: {remedy}"
                     ),
-                    Venue::Undeclared => {
-                        panic!("`{service}` came out of a walk over both venues and declares neither - the walk is broken")
-                    }
+                    Venue::Undeclared => panic!("`{service}` came out of the walk and declares no venue: it is broken"),
                 }
             }
         }
@@ -947,9 +950,8 @@ mod tests {
     #[test]
     fn the_harness_has_no_fallback_port_to_offer() {
         // The mechanism that stops this eroding one pull request at a time. `Endpoint`'s private
-        // fields are what make a constant unconstructible; this reads THIS module for the softer
-        // failure - a helper that "helpfully" reached for the declaration when discovery came up
-        // empty. Neither half is the claim alone.
+        // fields make a constant unconstructible; this reads THIS module for the softer failure - a
+        // helper that "helpfully" reached for the declaration when discovery came up empty.
         let source = include_str!("provisioned.rs");
         let body = source
             .split("mod tests")
