@@ -394,13 +394,18 @@ in
       echo "== pre-push hooks"
       pixi run --frozen prek run --color never --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD 2>&1 | tee "$logs/pre-push.log"
 
+      # READ INTO AN ARRAY FIRST, never `while read ... done < file`: the loop body invokes a
+      # `just` task, and a task that reads standard input would consume the rest of the list -
+      # leaving a surface uncovered and, worse, unmentioned, since the gate below is told only
+      # about the tasks this loop actually announced.
+      mapfile -t extra < "$logs/tasks"
       ran=()
-      while read -r task; do
+      for task in ''${extra[@]+"''${extra[@]}"}; do
         [ -n "$task" ] || continue
         echo "== $task (no prek hook reaches every surface this diff touches)"
         just "$task"
         ran+=(--ran "$task")
-      done < "$logs/tasks"
+      done
 
       echo "== what the hooks covered, and what they did not"
       cargo run -q -p xtask -- hook-coverage --since "$merge_base" \
