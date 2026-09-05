@@ -14,6 +14,20 @@
 # What cannot be listed here at all: anything under `crates/` or `xtask/`. The gate
 # rejects such a pattern and fails, because an exemption list that can swallow first-party
 # source is a gate that has quietly stopped gating. Split the file instead.
+#
+# AN EXEMPTION THAT EXEMPTS NOTHING FAILS THE GATE, and it is a rule rather than a request here
+# because this file is a list of CLAIMS: the paragraph beside an entry is the only thing a reviewer
+# reads to decide whether it is still earned, and it is the paragraph that rots. Two shapes are
+# refused, both scoped to entries with no `*` or `?` - a glob over a generated tree legitimately
+# covers files that may or may not be long today:
+#
+#   * a literal path naming no file in the tree - renamed or deleted, exemption outlived it;
+#   * a `[warn]` literal whose file is back UNDER the cap - the promise was kept, so the entry
+#     stopped printing and stopped being a promise. Delete it and its argument together.
+#
+# A `[silent]` literal under the cap is NOT refused, and that is measured rather than lenient:
+# `devenv.lock` is 86 lines and `flake.lock` 98, and both are right - a lockfile's length is a
+# function of the dependency graph and may cross the cap on any day.
 
 [silent]
 
