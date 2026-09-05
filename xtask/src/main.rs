@@ -22,6 +22,7 @@ mod compose;
 mod crap;
 mod default_features;
 mod docs;
+mod examples;
 mod fmt;
 mod gate_classification;
 mod guidance;
@@ -339,6 +340,14 @@ const TASKS: &[Task] = &[
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene(Reads::Prose),
         run: docs::run,
+    },
+    Task {
+        // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the
+        // Rust that reaches for them. A `docs/*.md`-only diff can change neither.
+        name: "check-examples",
+        description: "every directory under examples/ is reached by a test",
+        kind: Kind::Hygiene(Reads::Code),
+        run: examples::run,
     },
     Task {
         // `Reads::Prose`, and it has to be: the page it reads is a `docs/*.md` one, so the
