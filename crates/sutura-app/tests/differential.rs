@@ -95,8 +95,17 @@ mod tests {
     /// results - so the property is checked on every `just test` rather than only where an adapter is
     /// available. Against the comparator this replaced, both of these PASSED: `Value::render` answers
     /// `"null"` for a null and for the word, so the two compared equal.
+    ///
+    /// **The `expected` string names the CONTENT diagnosis, and it has to.** It stopped at *the
+    /// engine and a data system* first, which is a prefix of both panics [`agreement_between`] can
+    /// raise - so with `agree_on_content` made vacuous these two cells stayed green on the order
+    /// panic while five of `sutura_domain::warehouse::agreement`'s own tests reddened. A cell that
+    /// passes for the wrong reason reads as coverage.
     #[test]
-    #[should_panic(expected = "a-null-is-not-the-word-null: the engine and a data system")]
+    #[should_panic(
+        expected = "a-null-is-not-the-word-null: the engine and a data system returned different rows \
+                    - one side answered a row 1 time(s) and the other 0 time(s)"
+    )]
     fn a_null_and_the_word_null_do_not_agree_in_this_leg_s_comparison() {
         agreement_between(
             "a-null-is-not-the-word-null",
@@ -108,7 +117,10 @@ mod tests {
 
     /// The other half of the same hole: a count and the text of that count.
     #[test]
-    #[should_panic(expected = "an-integer-is-not-its-text: the engine and a data system")]
+    #[should_panic(
+        expected = "an-integer-is-not-its-text: the engine and a data system returned different rows \
+                    - one side answered a row 1 time(s) and the other 0 time(s)"
+    )]
     fn an_integer_and_its_own_text_do_not_agree_in_this_leg_s_comparison() {
         agreement_between(
             "an-integer-is-not-its-text",

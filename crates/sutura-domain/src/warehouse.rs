@@ -40,6 +40,11 @@ pub mod preflight;
 /// the shape `sutura_runtime::testing`'s `test-capture` established. It is here rather than in each
 /// test target because two copies of a comparison policy is how both of them came to erase the cell
 /// type; its own module header carries that story and the limits.
+///
+/// **That header links the module's OWN items by absolute `crate::` path, and that is not style.**
+/// rustc merges this `///` block with the module's `//!` one and resolves the merged block in THIS
+/// scope, where `agreement`'s items are not - so a bare-name link there resolves to nothing, and no
+/// gate in this repository reads a rustdoc warning (#321). Four of them were shipped that way.
 #[cfg(any(test, feature = "agreement"))]
 pub mod agreement;
 

@@ -65,13 +65,22 @@
 //! used to be asserted here (*at least one question diverges on null placement*) is gone rather than
 //! relaxed: a divergence in either now fails.
 //!
-//! **Measured in CI on 2026-08-31 with the exact comparison in place**, and the five questions above
-//! are the five that moved into the first number:
+//! **Measured in CI on 2026-08-31**, and the five questions above are the five that moved into the
+//! first number:
 //!
 //! ```text
 //! bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agreed, 1 excluded,
 //!                  31 in the corpus
 //! ```
+//!
+//! **What `exactly` meant on that run is NOT what it means above, and the difference is this
+//! branch.** That tally was produced by the render-based comparison, which could not tell
+//! `Value::Null` from `Value::Text("null")` or `Value::Integer(1)` from `Value::Text("1")` - so a
+//! cell-type divergence on any of the 21 was counted as agreement. Read it as evidence about
+//! acceptance, about rendered row content and about ORDER, and about nothing else. **No live number
+//! is claimed for the typed policy**: nothing has run this leg against a real dataset since, so what
+//! is measured for it is `sutura_domain::warehouse::agreement`'s own suite plus the two cells at the
+//! bottom of this file, and the next live run is what would restate the tally.
 //!
 //! `docs/adr/0017`'s THIRD amendment records the finding and its FOURTH records this closure. The
 //! numbering is worth getting right rather than approximating: the constant deleted from this file
@@ -507,8 +516,17 @@ mod tests {
     /// a pure function of two results, so the property is checked on every `just test` with no
     /// credential, no dataset and no network. Against the comparator this replaced both of these
     /// PASSED - which is what made the finding worth a fix rather than a note.
+    ///
+    /// **The `expected` string names the CONTENT diagnosis, and it has to.** It stopped at *the
+    /// engine and `BigQuery`* first, which is a prefix of both panics [`agreement_between`] can
+    /// raise - so with `agree_on_content` made vacuous these two cells stayed green on the order
+    /// panic while five of `sutura_domain::warehouse::agreement`'s own tests reddened. That is the
+    /// same shape one file over: a cell passing for the wrong reason reads as coverage.
     #[test]
-    #[should_panic(expected = "a-null-is-not-the-word-null: the engine and BigQuery")]
+    #[should_panic(
+        expected = "a-null-is-not-the-word-null: the engine and BigQuery returned different rows - one \
+                    side answered a row 1 time(s) and the other 0 time(s)"
+    )]
     fn a_null_and_the_word_null_do_not_agree_in_this_leg_s_comparison() {
         agreement_between(
             "a-null-is-not-the-word-null",
@@ -519,7 +537,10 @@ mod tests {
 
     /// The other half of the same hole: a count and the text of that count.
     #[test]
-    #[should_panic(expected = "an-integer-is-not-its-text: the engine and BigQuery")]
+    #[should_panic(
+        expected = "an-integer-is-not-its-text: the engine and BigQuery returned different rows - one \
+                    side answered a row 1 time(s) and the other 0 time(s)"
+    )]
     fn an_integer_and_its_own_text_do_not_agree_in_this_leg_s_comparison() {
         agreement_between(
             "an-integer-is-not-its-text",

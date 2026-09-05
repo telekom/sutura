@@ -809,6 +809,16 @@ mod tests {
                     },
                 )
                 .expect("the endpoint answered the query");
+            // **This cell compares the DISPLAY form, and it is deliberately not under
+            // `sutura_domain::warehouse::agreement`'s policy - the feature is on in this crate, so
+            // that is a decision rather than an absence.** The claim here is that two answers
+            // DIFFER, and for that direction the display form is the CONSERVATIVE comparison:
+            // erasing the variant can only make two row sets compare more equal, so it can only
+            // make `assert_ne!` and the one-row-only-on-A check below harder to satisfy, never
+            // easier. A type-aware comparison would accept a cell-type-only difference as evidence
+            // of a grant difference, which is not what a grant difference is. Both assertions fail
+            // CLOSED, which is why the erasure F4 removes from the two row-agreement legs is left
+            // standing here: there it manufactured agreement, here it can only withhold it.
             let mut answered: Vec<(String, String)> = Vec::new();
             for row in rows.rows() {
                 let (Some(period), Some(total)) = (row.first(), row.get(1)) else {

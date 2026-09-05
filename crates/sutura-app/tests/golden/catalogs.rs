@@ -115,8 +115,13 @@ where
 /// **Its cell was called `reformatting_a_document_does_not_move_the_digest` and could not see a
 /// reformat at all.** Reformatting is a claim about two DIFFERENT inputs; this compares one input
 /// with itself, and would pass for an adapter that hashed raw source bytes - the one shape the claim
-/// rules out. Both mutations below `A_DIFFERENT_MEANING` leave this cell GREEN, which is the
-/// measurement rather than the argument. That name now belongs to
+/// rules out. **The two mutations that measure it, both of which leave this cell GREEN while
+/// reddening the cell that took the name:** `Description::parse` in
+/// `crates/sutura-domain/src/catalog/authored.rs` no longer trimming its input, and
+/// `frontmatter::split` in `crates/sutura-catalog-local/src/frontmatter.rs` handing the whole
+/// document to the body. Naming them here is the point - a sentence citing a measurement a reader
+/// cannot replay from the file that makes it is the shape `.agents/skills/sutura/gates` records
+/// twice. That name now belongs to
 /// [`reformatting_a_document_does_not_move_the_digest`], off the axis, which writes the same
 /// definitions twice with different layout and puts both through the parser; the other direction is
 /// [`changing_what_a_definition_means_moves_the_digest`] and `dropping_prose_moves_the_digest`

@@ -423,7 +423,7 @@ than by an intention.
 | Bullet | Where it stands |
 | --- | --- |
 | the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison. Measured: **22 accepted, 9 refused by the compiler before a statement existed** |
-| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
+| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT - *exactly* in the sense the **ninth amendment** narrows, which is rendered content and not cell type - with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
 | the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
 | the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
 | *(not one of the four)* the **anchors** hold | Measured: **6 anchors reproduced by the endpoint**, the same verdict the engine reaches |
@@ -657,6 +657,10 @@ place**, and the tally is the one predicted to the number:
 bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agreed, 1 excluded,
                  31 in the corpus
 ```
+
+**Read `exactly` as the ninth amendment narrows it.** The comparison behind this tally was
+render-based, so it establishes acceptance, rendered row content and ORDER - and says nothing about
+cell type. No number is restated for the typed policy that replaced it.
 
 All five questions the third amendment named now agree **exactly** - `recurring-revenue-by-region-and-family`
 at 19 rows, `recurring-revenue-by-region` at 6, `recurring-revenue-by-segment` at 4,
@@ -1384,3 +1388,31 @@ is 672 lines now, with the five properties in `acceptance/properties.rs` (#323).
 `not binary(two_principals)` appear in two `just` recipes and two flake apps, and no gate reads a
 nextest filter expression - so renaming the target would silently un-filter the acceptance app.
 Two nextest profiles carrying the pair once, next to the tests, is the shape that would close it.
+
+## Ninth amendment, 2026-09-05: what *exactly* meant on the measured run, and what it did not
+
+**Status of the amendment: accepted; it corrects a published claim and carries no live run.** The
+fourth amendment above records `21 answers agreed exactly on content AND order`, and the third
+amendment's status cell read *Answered for CONTENT, exactly*. Both are narrowed here, because the
+comparison that produced them was not exact in the sense either sentence invites.
+
+**The comparator of that day compared cells through `Value::render`, which is a display form.**
+`Value::Null` and `Value::Text("null")` both render `null`; `Value::Integer(1)` and `Value::Text("1")`
+both render `1`. A cell the endpoint answered as text where the engine answered a number - or as the
+word `null` where the engine answered nothing at all - was therefore counted as agreement on that
+run. The 21 are evidence about **acceptance**, about **rendered row content** and about **ORDER**,
+and about nothing else. The status cell's *exactly* has to be read that way, which is why it now says
+so at the cell rather than here alone.
+
+**Both legs share one typed policy now.** `sutura_domain::warehouse::agreement`, behind a default-off
+feature and `cfg(test)`: the variant is part of the comparison key, and the one approximation is
+named and scoped - `RealTolerance::DIFFERENTIAL`, thirteen significant digits, reaching `Value::Real`
+and no other variant.
+
+**No number is restated for it, deliberately.** Nothing has run the corpus leg against the real
+dataset since the policy changed, so the tally above stays as the transcript of the run that made it
+and this amendment corrects the reading rather than replacing the measurement. What is measured for
+the typed policy is that module's own suite plus two cells per leg asserting that a null and the word
+`null`, and an integer and its own text, are refused **by the content comparison** - the diagnosis
+named in the expected panic, not merely that some panic fired. The next `bigquery-acceptance` run is
+what would restate the number with *exactly* meaning what it says.
