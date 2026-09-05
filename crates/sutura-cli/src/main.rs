@@ -61,6 +61,10 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
     "system"
 };
 
+// Test-only, and its own file rather than a `mod tests` inside `commands.rs`: the module header
+// says why the causality gate needs the proof and the fix in two files.
+#[cfg(test)]
+mod audit;
 mod commands;
 mod mcp;
 mod sources;

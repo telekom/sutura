@@ -140,45 +140,41 @@
 #[cfg(test)]
 mod support;
 
+// The names, the environment fixture and the plan this leg asks - `tests/fixture/mod.rs`.
+//
+// Split out when a merge took this file past the 1000-line ceiling `cargo xtask max-lines`
+// enforces, which is the gate's own instruction rather than a judgement about cohesion: nothing
+// under `crates/` can be listed in `devco/max-lines-ignore`. Declared HERE ONLY, unlike `support`:
+// `dead_code` is `deny` per target, so an item the corpus leg had no use for would fail THAT
+// target's build - the same reason `SUTURA_BQ_TABLE` is read on this side of the split.
+#[cfg(test)]
+mod fixture;
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
-    use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::model::{
-        Aggregate, ColumnName, DatasetName, Grain, MetricName, ModelName, ProjectName, QualifiedTable, SourceName, TableName,
-        TableQualifier,
-    };
+    use sutura_domain::model::{DatasetName, ModelName, QualifiedTable, SourceName, TableQualifier};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
-    use sutura_domain::plan::{
-        Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-        StatementTables,
-    };
+    use sutura_domain::plan::Executable;
     use sutura_domain::warehouse::preflight::TablesPresent;
-    use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse};
+    use sutura_domain::warehouse::{PreFlight, Warehouse};
 
     use sutura_domain::identity::{
         Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
     };
     use sutura_domain::source::SourcePosture;
-    use sutura_exec_bigquery::wire::{BigQueryWire, StsOverHttp, WireAgent};
     use sutura_exec_bigquery::{BigQueryWarehouse, WorkloadIdentity, WorkloadIdentityBroker};
 
     use sutura_app::Warehouses;
     use sutura_app::preflight::{Verdict, ask};
     use sutura_catalog_local::LocalCatalog;
     use sutura_exec_bigquery::BigQueryError;
-    use sutura_exec_bigquery::wire::WireError;
+    use sutura_exec_bigquery::transport::{DatasetAddress, JobTransport as _, ListingTotal};
+    use sutura_exec_bigquery::wire::{BigQueryWire, StsOverHttp, WireAgent, WireError};
 
-    use crate::support::{Connection, Wired, bounds, named, opened, presented};
-
-    /// A table name no dataset holds, and the one name in this file that needs no masking.
-    ///
-    /// **A constant rather than four literals**, because four legs ask the same question - *what does
-    /// this dataset do with a name it does not hold* - and a copy that drifted by a character would be
-    /// a leg passing for the wrong reason: `preflight` reports an unknown name absent whatever it is,
-    /// so nothing here would go red.
-    const NO_SUCH_TABLE: &str = "sutura_acceptance_no_such_table";
+    use crate::fixture::{Fixture, NO_SUCH_TABLE, absent_table, no_such_table, plan, source};
+    use crate::support::{Wired, bounds, opened, presented};
 
     /// The model the seam leg's bundles declare over the table the dataset really holds.
     const MODEL_ON_A_HELD_TABLE: &str = "held_here";
@@ -186,82 +182,6 @@ mod tests {
     /// The model the seam leg's bundle declares over [`NO_SUCH_TABLE`] - the name a refusal has to
     /// print, because an operator fixes a `table:` by opening the model that wrote it.
     const MODEL_ON_AN_ABSENT_TABLE: &str = "not_here";
-
-    /// What this leg needs from the environment: the shared [`Connection`], plus the one variable only
-    /// this leg reads.
-    ///
-    /// **The environment reading itself moved to `tests/support/mod.rs` when the corpus leg arrived**,
-    /// and the argument for FAILING rather than skipping moved with it - it applies to both legs
-    /// identically and there must be one copy of it. `SUTURA_BQ_TABLE` stayed here, because the corpus
-    /// leg creates its own tables and has no use for it: a shared module is compiled once per target,
-    /// and `dead_code` is `deny`.
-    struct Fixture {
-        connection: Connection,
-        table: TableName,
-    }
-
-    impl Fixture {
-        /// The credential and the three names, or a panic saying exactly what is missing.
-        fn required() -> Self {
-            Self {
-                connection: Connection::required(),
-                table: TableName::parse(named(
-                    "SUTURA_BQ_TABLE",
-                    "a table with a DATE column `day` and an INT64 column `amount`",
-                ))
-                .expect("a table name parses"),
-            }
-        }
-
-        /// The table as an unqualified name, resolved by the job's `defaultDataset`.
-        ///
-        /// The shape every leg in this file used before qualification existed, kept so the qualified
-        /// legs have something to be COMPARED against: a qualified read that returns the right numbers
-        /// is only evidence beside an unqualified read that returns the same ones.
-        fn unqualified(&self) -> QualifiedTable {
-            QualifiedTable::from(self.table.clone())
-        }
-
-        /// `dataset.table` - the same table, named without relying on the job's default.
-        fn in_dataset(&self) -> QualifiedTable {
-            QualifiedTable::new(
-                Some(TableQualifier::in_dataset(
-                    DatasetName::parse(self.connection.dataset.as_str()).expect("a dataset id is also a dataset name"),
-                )),
-                self.table.clone(),
-            )
-        }
-
-        /// `project.dataset.table` - the same table, fully qualified.
-        ///
-        /// **The claim this file was extended for.** The path is built from the fixture's OWN project
-        /// and dataset, so no value here is written into the repository - which is the same rule the
-        /// two variables above are read under.
-        fn in_project(&self) -> QualifiedTable {
-            self.qualified_in_project(self.connection.dataset.as_str(), self.table.clone())
-        }
-
-        /// `project.dataset.table` in the fixture's OWN project, for any dataset and table.
-        ///
-        /// **One place parses the project id, which is why this is a method and not a second literal
-        /// in a test body.** [`Self::in_project`] asks it about the real dataset; the soft-edge leg
-        /// asks it about one the project does not hold. Two copies of the same
-        /// `ProjectName::parse(billing_project)` would be two answers to *which project pays*, which
-        /// is the live bug `x-goog-user-project` already cost this adapter once.
-        fn qualified_in_project(&self, dataset: &str, table: TableName) -> QualifiedTable {
-            QualifiedTable::new(
-                Some(TableQualifier::in_project(
-                    ProjectName::parse(self.connection.billing_project.as_str()).expect("a project id is also a project name"),
-                    DatasetName::parse(dataset).expect("a dataset id is also a dataset name"),
-                )),
-                table,
-            )
-        }
-    }
-
-    fn source() -> SourceName {
-        SourceName::parse("warehouse").expect("a source name is a source name")
-    }
 
     /// The two-principal leg's own environment: the two subjects' tokens and the provider to exchange
     /// them against, or `None` when none of it is set.
@@ -301,72 +221,6 @@ mod tests {
         subject_b: String,
         audience: String,
         scope: String,
-    }
-
-    /// [`NO_SUCH_TABLE`], parsed - the bare name, for a caller that qualifies it itself.
-    fn no_such_table() -> TableName {
-        TableName::parse(NO_SUCH_TABLE).expect("a table name parses")
-    }
-
-    /// [`NO_SUCH_TABLE`] as an unqualified path, which is the shape four legs ask about.
-    ///
-    /// **Unqualified on purpose, in every one of them.** `preflight` partitions an unaddressable path
-    /// into the absent set BEFORE anything is listed, so a name qualified into a dataset that is not
-    /// there could answer *absent* without a call ever being made. Resolved by the source's own
-    /// default dataset, the answer comes back from a real listing.
-    fn absent_table() -> QualifiedTable {
-        QualifiedTable::from(no_such_table())
-    }
-
-    /// A plan over the developer's table, built the way the compiler builds one.
-    ///
-    /// One bucket, one measure, and the two range bounds as predicates - because a `TimeRange` has no
-    /// unbounded form, so every real plan carries them and the generator refuses one with no
-    /// predicate.
-    fn plan(table: &QualifiedTable) -> QueryPlan {
-        // Every column is qualified by the table's BARE name, because `FROM a.b.c` gives the reference
-        // an implicit alias of `c`. That is a claim about GoogleSQL that no local test can check, and
-        // `the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers` is what checks it.
-        let column = |name: &str| PlanColumn::new(table.name().clone(), ColumnName::parse(name).expect("a column name parses"));
-        // **Under `MAX_RANGE_DAYS`, which the previous version was not.** A hundred-year span is a
-        // question this surface REFUSES as `TimeRangeTooLong` before an adapter ever sees it, so
-        // asking a real endpoint one was asking something no caller could ask - which made
-        // "a statement this repository generated" generous. Ten years less a day is the widest a
-        // question can legitimately be.
-        let from = Date::parse("2016-09-01").expect("an ISO date parses");
-        let until = Date::parse("2026-08-30").expect("an ISO date parses");
-        QueryPlan::new(
-            source(),
-            MetricName::parse("total_amount").expect("a metric name parses"),
-            StatementTables::only(table.clone()),
-            PlanBucket::new(String::from("period"), Grain::Month, column("day")),
-            Vec::new(),
-            PlanMeasure::Simple {
-                term: PlanTerm::Aggregate {
-                    aggregate: Aggregate::Sum,
-                    column: column("amount"),
-                },
-            },
-            String::from("total_amount"),
-            vec![
-                PlanFilter::new(
-                    PredicateOrigin::Definition,
-                    PlanPredicate::AtOrAfter {
-                        column: column("day"),
-                        param: 0,
-                    },
-                ),
-                PlanFilter::new(
-                    PredicateOrigin::Definition,
-                    PlanPredicate::Before {
-                        column: column("day"),
-                        param: 1,
-                    },
-                ),
-            ],
-            vec![ParamValue::Date(from), ParamValue::Date(until)],
-            TimeRange::new(from, until).expect("a bounded range is a range"),
-        )
     }
 
     /// The adapter, wired to the endpoint through the credential the environment supplied.
@@ -988,5 +842,80 @@ mod tests {
             from_a.iter().any(|row| !from_b.contains(row)),
             "the grant difference must be visible in the rows themselves, not an accident of the answer's shape"
         );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried() {
+        // **The measurement `docs/adr/0018` deferred to a run that could not make it**, which is
+        // issue #263: the record said a `totalItems` cross-check would tell an empty dataset from a
+        // document whose shape the service changed, and deferred the question to the listing leg
+        // above - which asserts on `TablesPresent` while the decoder read no such field, so no value
+        // reached an assertion, a panic message or a log line in either direction.
+        //
+        // **Below the domain port on purpose, and that is a finding rather than a shortcut.**
+        // `TablesPresent` carries no count and should not: the number is a fact about one service's
+        // document. So the total is observable only where the transport answers, which is also where
+        // the decision that reads it will have to live.
+        //
+        // **What it costs, stated rather than rounded to nothing:** one more `tables.list` - a
+        // metadata read, billed for nothing - plus a second credential file read and **a second
+        // token exchange**, because `Credential::bearer` caches nothing and mints per call. A leg of
+        // its own rather than a fold into the one above, because that one holds a `Warehouse` and
+        // this question is a rung below it, and because two independently named legs is what lets a
+        // reader see which claim a red run broke.
+        //
+        // **The cost that is not wall clock: this is a THIRD composition, where
+        // `tests/support/mod.rs` states that having one is the point** - agent, credential,
+        // transport and warehouse assembled once so both legs are evidence for the same composition
+        // rather than for two that resemble each other. It cannot reuse `opened`:
+        // `BigQueryWarehouse` exposes no transport accessor, and a `wire(connection)` helper in
+        // `support` would be an item `corpus.rs` never calls, which `dead_code = "deny"` fails. So
+        // the exception is real, and so is its price - a change to HOW the wire is composed leaves
+        // this leg green against the shape it hard-codes. Only `bounds()` is shared, which is the
+        // one that spends money.
+        let fixture = Fixture::required();
+        // The same project in both roles, which mirrors `BigQueryWarehouse::addressed`'s unqualified
+        // branch - the rule that carried a live quota-project bug, so it is named rather than
+        // re-derived: `billed_to` differs from `project` only where a path names another project.
+        let at = DatasetAddress::of(
+            fixture.connection.billing_project.clone(),
+            fixture.connection.billing_project,
+            fixture.connection.dataset,
+        );
+        let wire = BigQueryWire::new(WireAgent::pinned(bounds()), fixture.connection.credentials);
+        let held = wire
+            .list_tables(&at)
+            .expect("the dataset answered the listing - a refusal here is a grant, not a missing table");
+
+        // Printed so the run's own output IS the measurement rather than a claim about it - a fixed
+        // word from a closed match plus two counts, never a resource name. What a green run says is
+        // that this service populates the field at all, which nothing here had seen until the
+        // `bigquery-acceptance` job answered `Accounted` on 2026-09-04.
+        println!(
+            "bigquery-acceptance: tables.list answered {:?} over {} usable table id(s)",
+            held.total(),
+            held.named().len()
+        );
+
+        // The control, and it is what stops the assertion below being satisfied by a listing that
+        // named nothing: a total reported beside no readable id is the shape change itself.
+        assert!(
+            held.holds(fixture.table.as_str()),
+            "the listing named the fixture table, so this is a real listing of a real dataset"
+        );
+        // **The claim this leg exists to settle**, and it is red rather than silent if the service
+        // does not populate the field: a cross-check whose input is never sent has no teeth, and a
+        // log line nobody reads is how that would go unnoticed for a release.
+        assert!(
+            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable),
+            "the service reported no total this crate could read, so the cross-check has no input: {:?}",
+            held.total()
+        );
+        // **Not asserted: that the total is EXACT.** A dataset being written to while it is listed
+        // moves the number, and this dataset is written to by the corpus leg beside this one - so
+        // requiring `Accounted` would be a leg that fails for a reason outside the diff. What is
+        // required is that the two are comparable at all; `wire::tables`' own suite holds what each
+        // verdict means, against documents rather than against a race.
     }
 }
