@@ -590,11 +590,41 @@ jobs:
           fi
           nix run .#causality -- --since "$BASE"
 
-      # THE ONLY STEP HERE THAT RUNS A TEST AT CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
-      # publishes and no other venue uses, so a `#[cfg(not(feature = ..))]` test was COMPILED by a
-      # gate and executed by nothing. An app because it shells out to cargo; after `Test causality`
-      # to reuse its warmed closure at the `ci` profile, measured at 2m18s. The argument, the
-      # measurement and every limit are in `xtask/src/default_feature_tests.rs`.
+      # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
+      # publishes and no other venue in this job uses. Every compiling gate above passes
+      # `--all-features`, `Clippy` and `Tests` included, so a `#[cfg(feature = ..)]` arm only ever
+      # compiled with the feature ON was a hard error in the exact configuration a release builds
+      # while every step here was green. That shipped once, and its `cfg(not(..))` TEST was compiled
+      # by the gate below and executed by nothing at all.
+      #
+      # Apps rather than checks for `Supply chain`'s reason: both shell out to cargo, which needs a
+      # registry and a writable target directory the sandbox has not got.
+      #
+      # ADJACENT, AND THAT IS THE ONE THING THE ORDER DECIDES. The two ask cargo the SAME narrow
+      # question - one shipped package, no feature flags - which the v2 resolver gives a narrower
+      # feature set than the workspace-wide union `craneLib.buildDepsOnly` warmed, so about a third
+      # of each dependency graph is compiled again. Whichever runs first pays that; the second
+      # reuses it. `xtask/src/default_features.rs` carries the measurement and says why the
+      # recompile is the price of the question rather than a defect. Neither position makes the warm
+      # start possible: `Structural gates` puts the closure in the store before any of these steps.
+      #
+      # AFTER `Test causality`, which is a correctness order rather than a cost one: that step
+      # regenerates build script output whose baked `OUT_DIR` did not survive the unpack. Both apps
+      # below carry `nix/purge-baked-out-dirs.sh` themselves where they need it, so this is which
+      # step pays for it and not whether it happens.
+      #
+      # `rust` and not a narrower classification, for both: the package list is derived from
+      # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
+      #
+      # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
+      # so the four `cross` jobs stay the authority on a musl LINK - and nothing here reaches a
+      # feature no shipped binary enables, which is what the `--all-features` gates are for.
+      - name: The shipped feature set compiles and lints
+        if: steps.classify.outputs.rust == 'true'
+        run: nix run .#default-features
+
+      # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
+      # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
       - name: The shipped feature set runs its tests
         if: steps.classify.outputs.rust == 'true'
         run: nix run .#default-feature-tests

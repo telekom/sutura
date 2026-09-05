@@ -60,7 +60,7 @@
 //! nobody attributes the minutes to it. A flag would be one more thing to get wrong in a place where
 //! being wrong is silent - `check-warm-start` holds that same seam for the flake apps, and its own
 //! test records nextest's `--profile` being taken for cargo's as a measured failure rather than a
-//! hypothetical one. So [`profile_for`] reads the stamp `cargoWarmStart` leaves behind - the
+//! hypothetical one. So [`crate::warm_start::profile_for`] reads the stamp it leaves behind - the
 //! mechanism, not the directory's name - and `just gates` stays on the developer's default profile
 //! with no argument at all.
 //!
@@ -70,7 +70,8 @@
 //! artifacts at that profile. Both were `contains` assertions in this module's test module, where a
 //! commented-out write satisfied one and a stamp moved out of the exported directory satisfied it
 //! anyway; they are a hygiene gate now, which is a venue `just validate` reaches and a unit test
-//! here is not.
+//! here is not. The derivation itself lives there as well, for the same single-owner reason, now
+//! that `check-default-features` beside this one derives its profile the same way.
 //!
 //! **What it does NOT reach**, and the first one is the limit to read before trusting this. It holds
 //! *the shipped lane's tests run*, NOT *the feature-off refusals are tested*: deleting both of them
@@ -94,26 +95,15 @@ use std::path::Path;
 
 use crate::Verdict;
 use crate::default_features::{SOURCE, Shipped, shipped_or_fail};
-// Both from their owner. `warm_start` is the module that already FAILS THE BUILD when a
-// `${cargoWarmStart}` consumer in `flake.nix` compiles at the wrong profile, so a second spelling of
-// either literal here would be a copy that can go stale while that gate stays green. The signal is
-// the STAMP and not the directory's NAME, which is the distinction `check-warm-start`'s header draws
-// about its own readers: a name can be renamed while a gate matching it keeps passing, whereas the
-// stamp exists if and only if the unpack happened.
-use crate::warm_start::{STAMP, WARM_PROFILE};
-
-/// The cargo profile to compile at, from the target directory alone.
-///
-/// `None` is cargo's default and the developer's answer: `just gates` runs in an ordinary `target/`,
-/// where a second profile would be a second dependency build bought for a verdict that does not
-/// depend on the profile. Inside the warmed directory the answer is the profile the artifacts in it
-/// carry, because anything else silently reuses none of them.
-fn profile_for(target_dir: Option<&Path>) -> Option<&'static str> {
-    if target_dir.is_some_and(|dir| dir.join(STAMP).is_file()) {
-        return Some(WARM_PROFILE);
-    }
-    None
-}
+// From its owner, and the DERIVATION rather than the two literals it reads. `warm_start` is the
+// module that already FAILS THE BUILD when a `${cargoWarmStart}` consumer in `flake.nix` compiles at
+// the wrong profile, and it holds the pair of facts that makes deriving anything from the stamp
+// sound. It moved there when `check-default-features` came to need the same answer: one gate
+// deriving a profile is a helper, two deriving it separately is how they disagree while both stay
+// green. The signal is the STAMP and not the directory's NAME, which is the distinction that gate's
+// header draws about its own readers - a name can be renamed while a matcher keeps passing, whereas
+// the stamp exists if and only if the unpack happened.
+use crate::warm_start::profile_for;
 
 /// The words this gate hands cargo, for one package, at one profile.
 ///
@@ -189,7 +179,8 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{STAMP, WARM_PROFILE, invocation, profile_for};
+    use super::{invocation, profile_for};
+    use crate::warm_start::{STAMP, WARM_PROFILE};
 
     /// The flake output CI reaches this gate through.
     const APP: &str = "default-feature-tests";

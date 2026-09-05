@@ -49,9 +49,9 @@ path = "src/main.rs"
 # `cargo check` cannot see a lint. **Neither of them RUNS anything**, both stopping at metadata, so
 # the `cfg(not(feature = "bigquery"))` TEST in `src/sources/bigquery.rs` was compiled by that gate
 # and executed by no venue at all until `cargo xtask check-default-feature-tests` - same package
-# list, same set, and it links and runs. The CI split is worth reading exactly: that one has a
-# `ci.yml` step of its own, `check-default-features` has none, so what CI has for the COMPILE half
-# is still the four `cross` link builds and for the LINT half nothing.
+# list, same set, and it links and runs. Both reach CI now, as `nix run .#default-features` and
+# `nix run .#default-feature-tests` in the required `ci` job, so this lane's lint half is a required
+# check rather than the four `cross` link builds and a developer's memory.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
 [dependencies]

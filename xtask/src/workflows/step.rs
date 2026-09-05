@@ -55,11 +55,13 @@ pub(crate) fn keyed_block<'a>(text: &'a str, indent: &str, name: &str) -> Option
 /// not inside a step this can delimit - each of which is a caller's failure rather than its pass,
 /// for the reason [`super::declared_block`] gives about a parse that has desynchronised.
 ///
-/// `#[cfg(test)]` for `crate::tasks::recipe_body`'s reason, stated there: today the property is
-/// asserted for ONE gate, and the general form wants a payload on `Kind::Standalone` naming the
-/// lane so the registry makes every new gate declare its wiring. Widen this attribute when that
-/// lands - a run-time gate holding *every standalone gate is invoked by the lane it declares* is
-/// the same shape as `check-workflows` reading this file already.
+/// `#[cfg(test)]` for `crate::tasks::recipe_body`'s reason, stated there: the property is asserted
+/// per gate - TWO of them now, the two halves of the default-feature lane, which is the second
+/// copy of one assertion and therefore the argument for generalising it. The general form wants a
+/// payload on `Kind::Standalone` naming the lane so the registry makes every new gate declare its
+/// wiring. Widen this attribute when that lands - a run-time gate holding *every standalone gate is
+/// invoked by the lane it declares* is the same shape as `check-workflows` reading this file
+/// already.
 #[cfg(test)]
 pub(crate) fn app_step<'a>(text: &'a str, job_name: &str, app: &str) -> Option<Vec<&'a str>> {
     let lines = job(text, job_name)?;
