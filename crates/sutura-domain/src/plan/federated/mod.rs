@@ -14,7 +14,7 @@
 //! copy of the naming rule to drift.
 //!
 //! **The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
-//! happens instead.** The [`Above`] tree already carries the only
+//! happens instead.** The [`Above`](crate::federation::Above) tree already carries the only
 //! [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path; this module walks it
 //! above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
 //! the wrong number this shape exists to prevent.
@@ -27,15 +27,24 @@
 //! slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
 //! have to re-count. The refusal names the aggregate.
 
-use std::cmp::Ordering;
+/// Everything above the legs: how a leaf column is re-aggregated, and the division that follows.
+///
+/// Split out when this file reached the unexemptable 1000-line gate, along the seam the module
+/// already had rather than wherever the counter fell. It declares no test module of its own and
+/// took none with it - every assertion this module ever made is still in `tests.rs` - because a
+/// test module declared from a file `test-causality` reverts is never compiled, and the proof it
+/// then reports is vacuous.
+mod reaggregate;
+
 use std::collections::BTreeMap;
 
-use crate::federation::{Above, Federation};
-use crate::measure::ZeroDenominator;
+use crate::federation::Federation;
 use crate::model::{Aggregate, MetricName, SourceName};
 use crate::plan::PlanBucket;
 use crate::plan::leg::LegPlan;
-use crate::warehouse::{Real, RowSet, Value};
+use crate::warehouse::{RowSet, Value};
+
+use reaggregate::{Leaves, reaggregates};
 
 /// The one definition of what a carried leaf is projected under.
 ///
@@ -208,7 +217,7 @@ impl FederatedPlan {
         }
         for leaf in federation.carried() {
             let aggregate = leaf.combine();
-            if Reduction::of(aggregate).is_none() {
+            if !reaggregates(aggregate) {
                 return Err(FederatedPlanError::LeafDoesNotReaggregate { aggregate });
             }
         }
@@ -340,8 +349,10 @@ pub enum FederatedFailure {
     /// An aggregate the combiner does not know how to re-aggregate with.
     ///
     /// Unreachable through a plan [`FederatedPlan::new`] built, which refuses such a federation
-    /// before any leg runs. **The limit:** that guarantee is module-scoped - code in this file can
-    /// write the struct literal - so this stays a refusal rather than becoming a panic.
+    /// before any leg runs - it asks `reaggregate::reaggregates` the one question that decides it.
+    /// **The limit, restated for the split:** that guarantee is scoped to this module, and this
+    /// module is now two files - `mod.rs` and `reaggregate.rs` - either of which can write the
+    /// struct literal past the constructor. So this stays a refusal rather than becoming a panic.
     #[error("the combiner does not re-aggregate with `{aggregate:?}`")]
     UnsupportedAggregate { aggregate: Aggregate },
     /// Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion
@@ -499,8 +510,10 @@ impl FederatedPlan {
     ///
     /// The fact and lookup results are joined on the recorded link column, grouped by the answer's
     /// keys - in the order the question asked them, matching the mono path - and the bucket,
-    /// re-aggregated by each leaf's own [`Carried::combine`], and only then divided through the
-    /// [`Above`] tree.
+    /// re-aggregated by each leaf's own [`Carried::combine`](crate::federation::Carried::combine),
+    /// and only then divided through the [`Above`](crate::federation::Above) tree. Those last two
+    /// steps belong to `reaggregate`, reached as `Leaves::of` and `Leaves::measure`; the join, the
+    /// grouping and the budget are this file's.
     ///
     /// `byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
     /// the answer materialised here is counted as it is built, and a question that would cross it is
@@ -525,8 +538,8 @@ impl FederatedPlan {
         // Re-aggregate each leaf across its group, then walk the divide tree.
         let mut rows: Vec<Vec<Value>> = Vec::with_capacity(groups.len());
         for group in groups.into_values() {
-            let aggregated = leaf_values(&self.federation, &group.leaves, &self.metric)?;
-            let measure = apply_above(self.federation.above(), &aggregated, &mut 0, &self.metric)?;
+            let leaves = Leaves::of(&self.federation, &group.leaves, &self.metric)?;
+            let measure = leaves.measure(self.federation.above(), &self.metric)?;
             let measure_bytes = value_bytes(&measure);
             let mut row = group.cells;
             row.push(measure);
@@ -754,240 +767,6 @@ fn compare_cells(a: &Value, b: &Value) -> std::cmp::Ordering {
         (Value::Text(x), Value::Text(y)) => x.cmp(y),
         // The sole same-rank pair not caught above is Null/Null, and different ranks returned early.
         _ => Equal,
-    }
-}
-
-/// Re-aggregates every leaf in carried order, one value per leaf.
-fn leaf_values(federation: &Federation, leaf_rows: &[Vec<Value>], metric: &MetricName) -> Result<Vec<Value>, FederatedFailure> {
-    federation
-        .carried()
-        .iter()
-        .enumerate()
-        .map(|(column, leaf)| aggregate(leaf.combine(), leaf_rows.iter().filter_map(|row| row.get(column)), metric))
-        .collect()
-}
-
-/// Re-aggregates one leaf's already-aggregated values across a group.
-///
-/// **The only aggregates that arrive here are the ones a decomposable measure re-aggregates with.** A
-/// `Count` leaf re-aggregates with a sum and is itself an integer; the splitter refuses a `Carried::Keys`
-/// leaf entirely, so `combine` is a total, minimum or maximum over a list of numbers. A group with no
-/// non-null value contributes null; a cell that is not a number, a column that is not one kind of
-/// number, an overflow, or a non-finite total is a refusal, never a silent zero or null.
-///
-/// **The column is read before the aggregate is applied**, so each reduction below sees one numeric
-/// type - see [`LeafColumn`], which is where that decision and its reason live.
-fn aggregate<'a>(
-    aggregate: Aggregate,
-    values: impl Iterator<Item = &'a Value>,
-    metric: &MetricName,
-) -> Result<Value, FederatedFailure> {
-    let reduction = Reduction::of(aggregate).ok_or(FederatedFailure::UnsupportedAggregate { aggregate })?;
-    let Some(column) = LeafColumn::parse(values, aggregate)? else {
-        return Ok(Value::Null);
-    };
-    match reduction {
-        Reduction::Total => column.total(metric),
-        Reduction::Least => Ok(column.extreme(Ordering::Less)),
-        Reduction::Greatest => Ok(column.extreme(Ordering::Greater)),
-    }
-}
-
-/// What a leaf column is reduced to, named rather than left as the aggregate it came from.
-///
-/// [`Reduction::of`] is the one definition of which aggregates the combine re-aggregates with, and
-/// [`FederatedPlan::new`] is where a leaf naming any other one is refused - so which reduction a
-/// column gets is settled by the plan, before a single cell of it is read.
-#[derive(Clone, Copy)]
-enum Reduction {
-    /// [`Aggregate::Sum`], which a `Count` leaf also re-aggregates with.
-    Total,
-    /// [`Aggregate::Min`].
-    Least,
-    /// [`Aggregate::Max`].
-    Greatest,
-}
-
-impl Reduction {
-    /// The reduction an aggregate re-aggregates with, or `None` for one that has none.
-    ///
-    /// Named arms rather than a wildcard, so a seventh [`Aggregate`] has to answer here.
-    const fn of(aggregate: Aggregate) -> Option<Self> {
-        match aggregate {
-            Aggregate::Sum => Some(Self::Total),
-            Aggregate::Min => Some(Self::Least),
-            Aggregate::Max => Some(Self::Greatest),
-            Aggregate::Count | Aggregate::Avg | Aggregate::CountDistinct => None,
-        }
-    }
-}
-
-/// One leaf column's non-null cells, once their single numeric type is established.
-///
-/// **Reading the whole column before any aggregate touches it is what makes the arithmetic exact
-/// rather than checked**, and it removes two wrong numbers at once: `Sum` accumulated an integer
-/// subtotal and a real one and returned only the real one, and `Min`/`Max` compared every cell as an
-/// `f64`, so two integers a data system tells apart read as equal above `2^53` and the answer was
-/// whichever arrived first. Now each aggregate sees one type and nothing widens an `i64` to add it or
-/// to compare it.
-///
-/// A cell that is no kind of number is refused for **every** aggregate rather than inside two of
-/// them: a lone `Text` cell used to be accepted as its own minimum without being read as a number,
-/// and `DuckDB` returns a `DECIMAL` money column as one. A column carrying both numeric types is
-/// [`FederatedFailure::MixedNumericLeaf`], which carries that reasoning.
-///
-/// Both variants are non-empty by construction: [`parse`](LeafColumn::parse) answers `None` for a
-/// column with no non-null cell, because a group contributing nothing is a null and not a zero.
-enum LeafColumn {
-    /// Every non-null cell was a [`Value::Integer`].
-    Integers(Vec<i64>),
-    /// Every non-null cell was a [`Value::Real`], and so is already finite.
-    Reals(Vec<Real>),
-}
-
-impl LeafColumn {
-    /// One leaf column's cells, `None` for a column of nulls, or the reason it is neither.
-    fn parse<'a>(values: impl Iterator<Item = &'a Value>, aggregate: Aggregate) -> Result<Option<Self>, FederatedFailure> {
-        let mut integers: Vec<i64> = Vec::new();
-        let mut reals: Vec<Real> = Vec::new();
-        for value in values {
-            match *value {
-                Value::Null => {}
-                Value::Integer(cell) => integers.push(cell),
-                Value::Real(cell) => reals.push(cell),
-                Value::Text(_) => {
-                    return Err(FederatedFailure::NonNumericLeaf {
-                        aggregate,
-                        value: value.clone(),
-                    });
-                }
-            }
-        }
-        match (integers.is_empty(), reals.is_empty()) {
-            (false, true) => Ok(Some(Self::Integers(integers))),
-            (true, false) => Ok(Some(Self::Reals(reals))),
-            (true, true) => Ok(None),
-            (false, false) => Err(FederatedFailure::MixedNumericLeaf { aggregate }),
-        }
-    }
-
-    /// The column's total, in the column's own type.
-    ///
-    /// An integer column totals as `i64` and overflow is a refusal; a real column totals as `f64`,
-    /// which is the float addition the mono path's own `SUM` performs, and a total that leaves the
-    /// finite range is a refusal because [`Real`] cannot hold it.
-    #[expect(
-        clippy::float_arithmetic,
-        reason = "the re-aggregation of a real-valued leg column sums real numbers by design"
-    )]
-    fn total(&self, metric: &MetricName) -> Result<Value, FederatedFailure> {
-        match *self {
-            Self::Integers(ref cells) => cells
-                .iter()
-                .try_fold(0_i64, |total, cell| total.checked_add(*cell))
-                .map(Value::Integer)
-                .ok_or(FederatedFailure::Overflow {
-                    aggregate: Aggregate::Sum,
-                }),
-            Self::Reals(ref cells) => Real::parse(cells.iter().fold(0.0_f64, |total, cell| total + cell.get()))
-                .map(Value::Real)
-                .map_err(|_not_finite| FederatedFailure::NonFinite { metric: metric.clone() }),
-        }
-    }
-
-    /// The column's least or greatest cell, in the column's own type.
-    ///
-    /// `wanted` is the ordering a cell must have against the incumbent to replace it: [`Ordering::Less`]
-    /// for a minimum, [`Ordering::Greater`] for a maximum. Both comparisons are exact - an `i64` against
-    /// an `i64`, and `total_cmp` over reals that [`Real`] has already established are finite.
-    ///
-    /// `reduce` answers `None` only for an empty column, which [`parse`](LeafColumn::parse) answers
-    /// `None` for instead - so the `Value::Null` below is unreachable rather than a case.
-    fn extreme(&self, wanted: Ordering) -> Value {
-        match *self {
-            Self::Integers(ref cells) => cells
-                .iter()
-                .copied()
-                .reduce(|best, cell| if cell.cmp(&best) == wanted { cell } else { best })
-                .map_or(Value::Null, Value::Integer),
-            Self::Reals(ref cells) => cells
-                .iter()
-                .copied()
-                .reduce(|best, cell| {
-                    if cell.get().total_cmp(&best.get()) == wanted {
-                        cell
-                    } else {
-                        best
-                    }
-                })
-                .map_or(Value::Null, Value::Real),
-        }
-    }
-}
-
-/// Applies the divide tree above a group's re-aggregated leaves, returning the measure.
-///
-/// `cursor` walks the tree in the same order [`Federation::carried`] collects its leaves, so each
-/// [`Above::Total`] node reads the leaf [`leaf_values`] aggregated for it.
-fn apply_above(above: &Above, aggregated: &[Value], cursor: &mut usize, metric: &MetricName) -> Result<Value, FederatedFailure> {
-    match *above {
-        Above::Total(_) => {
-            let value = aggregated.get(*cursor).cloned();
-            *cursor = cursor.saturating_add(1);
-            Ok(value.unwrap_or(Value::Null))
-        }
-        Above::Quotient {
-            ref numerator,
-            ref denominator,
-            zero_denominator,
-        } => {
-            let numerator = apply_above(numerator, aggregated, cursor, metric)?;
-            let denominator = apply_above(denominator, aggregated, cursor, metric)?;
-            divide(&numerator, &denominator, zero_denominator, metric)
-        }
-    }
-}
-
-/// One division, with the guard the definition asked for applied to the final denominator.
-#[expect(clippy::float_arithmetic, reason = "a division of leg totals is float arithmetic by design")]
-fn divide(
-    numerator: &Value,
-    denominator: &Value,
-    zero_denominator: ZeroDenominator,
-    metric: &MetricName,
-) -> Result<Value, FederatedFailure> {
-    let Some(num) = to_f64(numerator) else {
-        return Ok(Value::Null);
-    };
-    let Some(den) = to_f64(denominator) else {
-        return Ok(Value::Null);
-    };
-    if den == 0.0 {
-        return match zero_denominator {
-            ZeroDenominator::Null => Ok(Value::Null),
-            ZeroDenominator::Fail => Err(FederatedFailure::NonFinite { metric: metric.clone() }),
-        };
-    }
-    let real = Real::parse(num / den).map_err(|_not_finite| FederatedFailure::NonFinite { metric: metric.clone() })?;
-    Ok(Value::Real(real))
-}
-
-/// A numeric cell as `f64`, or `None` for a cell no ratio can be taken over.
-///
-/// [`expect`](macro@expect)-bounded: casting a wide integer to `f64` loses precision above `2^53`,
-/// which is accepted **here and only here** because a ratio over leg totals is inherently
-/// floating-point and [`divide`] is the one caller. It is not accepted for a total or a comparison -
-/// see [`FederatedFailure::MixedNumericLeaf`] for the widening this path refuses instead.
-///
-/// Every variant is named rather than left to a wildcard, so a fifth [`Value`] has to answer here.
-/// [`Value::Text`] is one of the two `None`s and is unreachable through [`apply_above`]: every value
-/// it reads came from [`aggregate`], which refuses a text cell as [`FederatedFailure::NonNumericLeaf`].
-#[expect(clippy::cast_precision_loss, reason = "a division reads leg totals as f64 by design")]
-const fn to_f64(value: &Value) -> Option<f64> {
-    match value {
-        Value::Integer(cell) => Some(*cell as f64),
-        Value::Real(cell) => Some(cell.get()),
-        Value::Null | Value::Text(_) => None,
     }
 }
 
