@@ -29,6 +29,23 @@
 //! carries that, and `--surface-tasks` is how `ship-check` learns which extra task a diff needs
 //! BEFORE it can be judged - so the gap is closed rather than described.
 //!
+//! # Three ways a row said more than it knew, and all three printed a full house
+//!
+//! Every one of these produced output a reader could not tell from a real run, which is this
+//! module's own subject turned on itself.
+//!
+//! * **A stage handed no `--log` was neither measured nor mentioned.** The loop was over the logs
+//!   it was GIVEN, so `hook-coverage --since HEAD` printed `ok` having read no prek output at all.
+//!   The stage denominator is derived from the config now, the way the hook denominator already
+//!   was: see [`MEASURED_STAGES`].
+//! * **`Dry Run` counted as *inspected this diff*.** Measured: both stage logs captured with
+//!   `prek run --dry-run` printed `pre-commit - 8 of 10 declared hook(s) ran`, `pre-push - 4 of 4`,
+//!   every surface covered and `ok`, exit 0 - **character for character** the lines this branch's
+//!   real `ship-check` run printed, with not one hook having executed. It is its own
+//!   [`Coverage::DryRun`] and a FAILED verdict now: a dry run is neither *ran* nor *filtered out*.
+//! * **A hook that decides for itself not to run prints `Passed`.** Eight of the fifteen do.
+//!   [`abstain`] carries that, the measurement, and why the notice cannot be the mechanism.
+//!
 //! # What this does NOT reach
 //!
 //! * **Whether a hook that ran was RIGHT.** It reads prek's status column; `Failed` counts as
@@ -44,12 +61,14 @@
 //!   example. Absent from [`SURFACES`] on purpose: a row with no covering task would fail every
 //!   diff that touched it, and a gate that fails a correct tree is one somebody disables.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::Verdict;
 use crate::changes;
 use crate::hooks;
 use crate::repo;
+
+mod abstain;
 
 /// What a declared hook contributed to one run.
 ///
@@ -58,13 +77,20 @@ use crate::repo;
 /// neither - it is the state a count of output rows cannot see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Coverage {
-    /// A row said `Passed`, `Failed` or `Dry Run`: the hook inspected this diff.
+    /// A row said `Passed` or `Failed` and the hook could have run here: it inspected this diff.
     Ran,
     /// A row said `Skipped`: prek's `files:` filter matched nothing in the diff.
     NoMatchingFiles,
     /// Declared for this stage and ABSENT from the output. `SKIP` / `PREK_SKIP` removes the row
     /// entirely - measured, see the module header - so this is the silencing a row count misses.
     Unreported,
+    /// A row said `Dry Run`: prek listed the hook and executed nothing. **Neither *ran* nor
+    /// *filtered out*** - a third thing, and the one that printed a full house over a run in which
+    /// nothing happened.
+    DryRun,
+    /// A row said `Passed` and the hook's own shell could not have reached its tool on this host,
+    /// so what it printed was its skip notice. See [`abstain`].
+    SelfSkipped,
 }
 
 impl Coverage {
@@ -82,9 +108,24 @@ impl Coverage {
 const STATUSES: &[(&str, Coverage)] = &[
     ("Passed", Coverage::Ran),
     ("Failed", Coverage::Ran),
-    ("Dry Run", Coverage::Ran),
+    ("Dry Run", Coverage::DryRun),
     ("Skipped", Coverage::NoMatchingFiles),
 ];
+
+/// The stages a diff-scoped prek run covers, each of which needs a `--log`.
+///
+/// **DERIVED IN BOTH DIRECTIONS, which is the half that was missing.** A stage named here with no
+/// log handed to this run is a FAILED verdict, and a stage the config declares that is in neither
+/// this list nor [`UNMEASURED_STAGES`] is one too - so a new tier is a decision rather than a
+/// silence. The hook denominator already worked this way; the stage list did not exist at all.
+const MEASURED_STAGES: &[&str] = &[hooks::COMMIT, hooks::PUSH];
+
+/// Stages a diff-scoped run cannot be asked about, with the reason each is out of scope.
+///
+/// `commit-msg` inspects the commit MESSAGE. It reads no file, so it covers no surface and a log
+/// of it would measure nothing about a diff - and `ship-check` judges a committed range rather
+/// than writing a commit, so there is no message for it to run against.
+const UNMEASURED_STAGES: &[&str] = &["commit-msg"];
 
 /// A kind of file a change can touch, and what inspects it.
 struct Surface {
@@ -188,7 +229,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
         return Verdict::Pass;
     }
-    decide(&invocation, &declared, &changed)
+    decide(&root, &invocation, &declared, &changed)
 }
 
 /// Arguments, or the sentence to print instead.
@@ -304,6 +345,7 @@ fn touched<'a>(surfaces: &'a [Surface], changed: &[String]) -> Vec<&'a Surface> 
 /// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
 /// is right to for `crate::shipped::Reconciliation`'s reason: three fields side by side say nothing
 /// about which is the key, which is the display name and which is the verdict.
+#[derive(Debug)]
 struct Inspected {
     /// The hook's id, which is what a reader edits in the config.
     id: String,
@@ -315,25 +357,53 @@ struct Inspected {
 
 /// What one stage's run covered: the declared hooks for that stage, paired with what its output
 /// said about each.
-fn coverage_of(declared: &[hooks::Hook], stage: &str, rows: &[Row]) -> Vec<Inspected> {
+fn coverage_of(declared: &[hooks::Hook], stage: &str, rows: &[Row], unavailable: &BTreeSet<String>) -> Vec<Inspected> {
     declared
         .iter()
         .filter(|hook| hook.runs_at(stage))
-        .map(|hook| Inspected {
-            id: hook.id.clone(),
-            name: hook.name.clone(),
-            coverage: rows
+        .map(|hook| {
+            let reported = rows
                 .iter()
                 .find(|row| row.name == hook.name)
-                .map_or(Coverage::Unreported, |row| row.coverage),
+                .map_or(Coverage::Unreported, |row| row.coverage);
+            // A HOOK THAT COULD NOT HAVE RUN HERE DID NOT INSPECT THE DIFF, whatever its row said.
+            // Downgrading rather than trusting the column is the whole of the eight-hook finding:
+            // a self-skip exits 0 and prek prints `Passed`.
+            let coverage = if reported.inspected() && unavailable.contains(&hook.id) {
+                Coverage::SelfSkipped
+            } else {
+                reported
+            };
+            Inspected {
+                id: hook.id.clone(),
+                name: hook.name.clone(),
+                coverage,
+            }
         })
         .collect()
 }
 
 /// Every stage's verdict, then every touched surface's, then the line a reader quotes.
-fn decide(invocation: &Invocation, declared: &[hooks::Hook], changed: &[String]) -> Verdict {
+fn decide(root: &std::path::Path, invocation: &Invocation, declared: &[hooks::Hook], changed: &[String]) -> Verdict {
     let mut failures: Vec<String> = Vec::new();
     let mut inspected: Vec<String> = Vec::new();
+
+    let abstentions = match abstain::over(root, declared) {
+        Ok(abstentions) => abstentions,
+        Err(message) => {
+            eprintln!("xtask hook-coverage: {message}");
+            return Verdict::Fail;
+        }
+    };
+    failures.extend(abstentions.unreadable.iter().cloned());
+    if abstentions.deciding == 0 {
+        // FAIL CLOSED, and this rule's own floor: no declared hook decides for itself whether to
+        // run, so every pass reads as coverage again and nothing here would ever fire.
+        failures.push(String::from(
+            "no declared hook was read as deciding for itself whether to run - the authorities for that are the hook entries and nix/run-gate.sh, and this reader matched neither",
+        ));
+    }
+    failures.extend(unmeasured_stages(declared, &invocation.logs));
 
     for (stage, path) in &invocation.logs {
         let Ok(text) = std::fs::read_to_string(path) else {
@@ -347,7 +417,7 @@ fn decide(invocation: &Invocation, declared: &[hooks::Hook], changed: &[String])
             failures.push(format!("no hook row parsed out of the {stage} log at {path}"));
             continue;
         }
-        let per_hook = coverage_of(declared, stage, &read);
+        let per_hook = coverage_of(declared, stage, &read, &abstentions.unavailable);
         if per_hook.is_empty() {
             failures.push(format!("no hook is declared at stage `{stage}`, so its log measures nothing"));
             continue;
@@ -357,42 +427,98 @@ fn decide(invocation: &Invocation, declared: &[hooks::Hook], changed: &[String])
             if hook.coverage.inspected() {
                 inspected.push(hook.id.clone());
             }
-            if hook.coverage == Coverage::Unreported {
-                failures.push(format!(
-                    "`{}` is declared at `{stage}` and printed no row - SKIP / PREK_SKIP silences a hook by removing it",
-                    hook.id
-                ));
-            }
+            failures.extend(why_it_measured_nothing(stage, hook));
         }
     }
 
     failures.extend(unknown_hook_ids(declared));
-    failures.extend(surface_gaps(changed, &inspected, &invocation.ran));
-    verdict(&failures, changed.len())
+    let (reported, gaps) = surface_gaps(changed, &inspected, &invocation.ran);
+    failures.extend(gaps);
+    verdict(&failures, reported, changed.len())
+}
+
+/// Stages the config declares that this run was handed nothing for, or has not classified at all.
+///
+/// **The *cannot look at all* half.** An unreadable log fails and an unparsable log fails; a stage
+/// with no log was neither measured nor mentioned, so `hook-coverage --since HEAD` printed `ok`
+/// having read no prek output. The denominator is the config either way, which is the rule the
+/// hook count already followed one level down.
+fn unmeasured_stages(declared: &[hooks::Hook], logs: &[(String, String)]) -> Vec<String> {
+    let mut problems = Vec::new();
+    for stage in MEASURED_STAGES {
+        if !declared.iter().any(|hook| hook.runs_at(stage)) {
+            problems.push(format!(
+                "no hook is declared at stage `{stage}`, which this task measures - the reader stopped matching {}, or the tier is gone and this list did not move",
+                hooks::CONFIG
+            ));
+            continue;
+        }
+        if !logs.iter().any(|(given, _)| given == *stage) {
+            problems.push(format!(
+                "stage `{stage}` was handed no --log, so nothing was read about the hooks declared there - a stage nobody measured is not a stage with no gaps"
+            ));
+        }
+    }
+    for stage in declared.iter().flat_map(|hook| hook.stages.iter()) {
+        if !MEASURED_STAGES.contains(&stage.as_str()) && !UNMEASURED_STAGES.contains(&stage.as_str()) {
+            problems.push(format!(
+                "{} declares a hook at stage `{stage}`, and this task classifies it as neither measured nor out of scope - say which",
+                hooks::CONFIG
+            ));
+        }
+    }
+    problems.sort();
+    problems.dedup();
+    problems
+}
+
+/// The sentence for one hook whose row was not coverage, if there is one.
+fn why_it_measured_nothing(stage: &str, hook: &Inspected) -> Option<String> {
+    match hook.coverage {
+        Coverage::Ran | Coverage::NoMatchingFiles => None,
+        Coverage::Unreported => Some(format!(
+            "`{}` is declared at `{stage}` and printed no row - the environment can silence a hook by removing it",
+            hook.id
+        )),
+        Coverage::DryRun => Some(format!(
+            "`{}` reported `Dry Run` at `{stage}` - prek listed it and executed nothing, so this log measures no coverage at all",
+            hook.id
+        )),
+        Coverage::SelfSkipped => Some(format!(
+            "`{}` reported a pass at `{stage}` and could not have run on this host - its own shell falls through to a skip notice and exits 0, which prek prints as a pass",
+            hook.id
+        )),
+    }
 }
 
 /// One stage's line: how many of its declared hooks ran, and the names of the ones that did not.
+///
+/// **Every state gets a clause**, which is what makes a real run's line different text from a
+/// hollow run's. Before, `Dry Run` and a self-skip both landed in the `ran` count, so a
+/// `--dry-run` capture printed the identical sentence.
 fn report_stage(stage: &str, per_hook: &[Inspected]) {
     let ran = per_hook.iter().filter(|hook| hook.coverage.inspected()).count();
-    let filtered: Vec<&str> = per_hook
-        .iter()
-        .filter(|hook| hook.coverage == Coverage::NoMatchingFiles)
-        .map(|hook| hook.name.as_str())
-        .collect();
-    let missing: Vec<&str> = per_hook
-        .iter()
-        .filter(|hook| hook.coverage == Coverage::Unreported)
-        .map(|hook| hook.id.as_str())
-        .collect();
     print!(
         "xtask hook-coverage: {stage} - {ran} of {} declared hook(s) ran",
         per_hook.len()
     );
-    if !filtered.is_empty() {
-        print!(", {} skipped (no matching files: {})", filtered.len(), filtered.join(", "));
-    }
-    if !missing.is_empty() {
-        print!(", {} NOT REPORTED ({})", missing.len(), missing.join(", "));
+    let labels = |state: Coverage| -> Vec<&str> {
+        per_hook
+            .iter()
+            .filter(|hook| hook.coverage == state)
+            .map(|hook| hook.name.as_str())
+            .collect()
+    };
+    for (state, clause) in [
+        (Coverage::NoMatchingFiles, "skipped (no matching files"),
+        (Coverage::Unreported, "NOT REPORTED (silenced from the environment"),
+        (Coverage::DryRun, "MEASURED NOTHING (dry run"),
+        (Coverage::SelfSkipped, "COULD NOT RUN HERE (self-skipped on a missing tool"),
+    ] {
+        let named = labels(state);
+        if !named.is_empty() {
+            print!(", {} {clause}: {})", named.len(), named.join(", "));
+        }
     }
     println!();
 }
@@ -424,9 +550,11 @@ fn unknown_hook_ids(declared: &[hooks::Hook]) -> Vec<String> {
 /// precisely the sentence this whole module exists to stop being printed as coverage. `just <task>`
 /// having run covers the surface whatever the hooks did, which is what stops the arm firing on a
 /// tree somebody has already checked the other way.
-fn surface_gaps(changed: &[String], inspected: &[String], ran: &[String]) -> Vec<String> {
+fn surface_gaps(changed: &[String], inspected: &[String], ran: &[String]) -> (usize, Vec<String>) {
     let mut gaps = Vec::new();
+    let mut reported = 0_usize;
     for surface in touched(SURFACES, changed) {
+        reported = reported.saturating_add(1);
         let by_task = ran.iter().any(|task| task == surface.reached_by);
         let missing: Vec<&str> = surface
             .hooks
@@ -455,13 +583,17 @@ fn surface_gaps(changed: &[String], inspected: &[String], ran: &[String]) -> Vec
             surface.label, surface.reached_by
         ));
     }
-    gaps
+    (reported, gaps)
 }
 
 /// The line a reader quotes, and the exit code behind it.
-fn verdict(failures: &[String], changed: usize) -> Verdict {
+///
+/// `reported` is the number of surfaces this diff touched, and it is in the sentence for
+/// `check-venues`' reason one gate over: *every surface* over an empty set is a claim about
+/// nothing, and a reader has no way to tell four from zero without the number.
+fn verdict(failures: &[String], reported: usize, changed: usize) -> Verdict {
     if failures.is_empty() {
-        println!("xtask hook-coverage: ok - every surface these {changed} changed file(s) touch was inspected");
+        println!("xtask hook-coverage: ok - {reported} surface(s) these {changed} changed file(s) touch, each inspected");
         return Verdict::Pass;
     }
     eprintln!(
@@ -482,9 +614,17 @@ fn verdict(failures: &[String], changed: usize) -> Verdict {
 mod tests {
     use super::{Coverage, Row, Surface};
 
-    /// prek's real commit-stage output on a diff of one README, captured from prek 0.4.14 with
-    /// `--color never`. Byte-for-byte: the padding is what the row parser keys on, so a
-    /// hand-tidied fixture would test a format prek does not print.
+    /// prek 0.4.14's **`--dry-run`** commit-stage output on a diff of one README, `--color never`.
+    ///
+    /// **Its doc used to call this a real run, and it is not** - reported in review, and the two
+    /// captures are byte-identical apart from the status column: `prek run --dry-run --files
+    /// README.md` produces exactly this. The correction matters because a dry run is the state
+    /// [`Coverage::DryRun`] exists for, so this fixture is the RED arm for that rule rather than
+    /// evidence about a real one. [`REAL_COMMIT_LOG`] is the real capture, and the two differ in
+    /// the verdict they produce.
+    ///
+    /// Byte-for-byte either way: the padding is what the row parser keys on, so a hand-tidied
+    /// fixture would test a format prek does not print.
     const COMMIT_LOG: &str = concat!(
         "cargo fmt.............................................(no files to check)Skipped\n",
         "cargo clippy (-D warnings, all features, on stable)...(no files to check)Skipped\n",
@@ -498,6 +638,150 @@ mod tests {
         "GitHub Actions static analysis........................(no files to check)Skipped\n",
     );
 
+    /// prek 0.4.14's REAL commit-stage output, `--color never`, over a diff of one README on a
+    /// host with nix - so `structural gates` and the secret scan actually executed.
+    ///
+    /// The point of having both is that they are told apart: over this one the verdict is a pass,
+    /// and over [`COMMIT_LOG`] it is a failure naming every dry-run row. Before, the two produced
+    /// character-for-character the same lines.
+    const REAL_COMMIT_LOG: &str = concat!(
+        "cargo fmt.............................................(no files to check)Skipped\n",
+        "cargo clippy (-D warnings, all features, on stable)...(no files to check)Skipped\n",
+        "structural gates..........................................................Passed\n",
+        "cargo check (changed packages only)...................(no files to check)Skipped\n",
+        "cargo nextest (all features)..............................................Passed\n",
+        "doctests..................................................................Passed\n",
+        "CRAP score (complexity weighted by coverage)..........(no files to check)Skipped\n",
+        "shell scripts.........................................(no files to check)Skipped\n",
+        "detect hardcoded secrets (CI is authoritative)............................Passed\n",
+        "GitHub Actions static analysis........................(no files to check)Skipped\n",
+    );
+
+    #[test]
+    fn a_dry_run_log_and_a_real_one_do_not_produce_the_same_verdict() {
+        // THE HEADLINE DEFECT. Measured in review on the version before this: both stage logs
+        // captured with `prek run --dry-run` printed `pre-commit - 8 of 10 declared hook(s) ran`,
+        // every surface covered and `ok`, exit 0 - character for character the lines the real
+        // `ship-check` run printed, with not one hook having executed.
+        let declared = declared();
+        let none = super::BTreeSet::new();
+        let dry = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(COMMIT_LOG), &none);
+        // FOUR rows measured nothing, and none of them is counted as having run.
+        assert_eq!(
+            dry.iter().filter(|hook| hook.coverage == Coverage::DryRun).count(),
+            4,
+            "{dry:?}"
+        );
+        assert_eq!(dry.iter().filter(|hook| hook.coverage.inspected()).count(), 0, "{dry:?}");
+        // Each one is a FAILED sentence rather than a smaller denominator nobody can attribute.
+        let refusals: Vec<String> = dry
+            .iter()
+            .filter_map(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook))
+            .collect();
+        assert_eq!(refusals.len(), 4, "{refusals:?}");
+        assert!(refusals.iter().all(|line| line.contains("Dry Run")), "{refusals:?}");
+        // And the real capture of the SAME diff, on which those four did run: no refusal at all.
+        let real = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(REAL_COMMIT_LOG), &none);
+        assert_eq!(real.iter().filter(|hook| hook.coverage.inspected()).count(), 4, "{real:?}");
+        assert!(
+            real.iter()
+                .all(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook).is_none()),
+            "{real:?}"
+        );
+    }
+
+    #[test]
+    fn a_hook_that_could_not_have_run_here_is_not_coverage_whatever_its_row_said() {
+        // MEASURED: the `shellcheck` entry verbatim with `nix` off PATH prints its notice and
+        // exits 0, so prek prints a pass. Eight of the fifteen declared hooks are written that
+        // way, three of the four on push - so on a host with no nix the verdict was
+        // `pre-push - 4 of 4 declared hook(s) ran` over hooks that announced their own skip.
+        let declared = declared();
+        let rows = super::rows(REAL_COMMIT_LOG);
+        let unavailable = super::BTreeSet::from([String::from("secret-sweep"), String::from("betterleaks")]);
+        let per_hook = super::coverage_of(&declared, super::hooks::COMMIT, &rows, &unavailable);
+        let leaks = per_hook
+            .iter()
+            .find(|hook| hook.id == "betterleaks")
+            .expect("the betterleaks hook");
+        assert_eq!(leaks.coverage, Coverage::SelfSkipped);
+        assert!(!leaks.coverage.inspected());
+        assert!(
+            super::why_it_measured_nothing(super::hooks::COMMIT, leaks)
+                .is_some_and(|line| line.contains("could not have run on this host")),
+            "{leaks:?}"
+        );
+        // AND THE ARM THAT STILL FIRES: with the tool present the same row is coverage, which is
+        // what keeps this from failing every host that has nix.
+        let none = super::BTreeSet::new();
+        let present = super::coverage_of(&declared, super::hooks::COMMIT, &rows, &none);
+        let leaks = present
+            .iter()
+            .find(|hook| hook.id == "betterleaks")
+            .expect("the betterleaks hook");
+        assert_eq!(leaks.coverage, Coverage::Ran);
+    }
+
+    #[test]
+    fn a_stage_handed_no_log_is_a_failure_rather_than_a_silence() {
+        // Measured in review: `hook-coverage --since HEAD` printed
+        // `ok - every surface these 0 changed file(s) touch was inspected`, exit 0, having read no
+        // prek output at all. An unreadable log failed and an unparsable log failed; a stage nobody
+        // handed over was neither measured nor mentioned.
+        let declared = declared();
+        let nothing = super::unmeasured_stages(&declared, &[]);
+        assert_eq!(nothing.len(), 2, "{nothing:?}");
+        assert!(
+            nothing.iter().any(|line| line.contains("`pre-commit` was handed no --log")),
+            "{nothing:?}"
+        );
+        assert!(
+            nothing.iter().any(|line| line.contains("`pre-push` was handed no --log")),
+            "{nothing:?}"
+        );
+        // One log is still half a measurement, and the half is named.
+        let one = super::unmeasured_stages(&declared, &[(String::from(super::hooks::COMMIT), String::from("/dev/null"))]);
+        assert_eq!(one.len(), 1, "{one:?}");
+        // AND THE ARM THAT STILL FIRES: both handed over, no complaint.
+        let both = super::unmeasured_stages(
+            &declared,
+            &[
+                (String::from(super::hooks::COMMIT), String::from("/dev/null")),
+                (String::from(super::hooks::PUSH), String::from("/dev/null")),
+            ],
+        );
+        assert!(both.is_empty(), "{both:?}");
+    }
+
+    #[test]
+    fn a_stage_the_config_declares_and_this_task_has_not_classified_fails() {
+        // The other direction, so a new tier is a decision rather than a silence. `commit-msg` is
+        // classified out of scope and must not be reported; an unclassified one must.
+        let declared = declared();
+        let logs = [
+            (String::from(super::hooks::COMMIT), String::from("/dev/null")),
+            (String::from(super::hooks::PUSH), String::from("/dev/null")),
+        ];
+        assert!(super::unmeasured_stages(&declared, &logs).is_empty());
+        let text = concat!(
+            "default_stages: [pre-commit]\n",
+            "      - id: a\n",
+            "        name: a\n",
+            "        entry: cargo clippy\n",
+            "      - id: b\n",
+            "        name: b\n",
+            "        entry: cargo clippy\n",
+            "        stages: [pre-push]\n",
+            "      - id: c\n",
+            "        name: c\n",
+            "        entry: cargo clippy\n",
+            "        stages: [post-checkout]\n",
+        );
+        let added = super::unmeasured_stages(&super::hooks::hooks(text), &logs);
+        assert_eq!(added.len(), 1, "{added:?}");
+        assert!(added.iter().any(|line| line.contains("`post-checkout`")), "{added:?}");
+    }
+
     #[test]
     fn a_skipped_hook_is_told_apart_from_one_that_ran() {
         // The whole defect in one assertion: SIX of these ten inspected nothing, and the number
@@ -507,10 +791,15 @@ mod tests {
         // touched a workflow file so the Actions analysis ran, and this capture touched only a
         // README so it did not. The counts are a property of the DIFF - which is exactly why a
         // reader cannot infer them and the verdict has to print them.
-        let rows = super::rows(COMMIT_LOG);
+        let rows = super::rows(REAL_COMMIT_LOG);
         assert_eq!(rows.len(), 10, "{rows:?}");
         assert_eq!(rows.iter().filter(|row| row.coverage.inspected()).count(), 4);
         assert_eq!(rows.iter().filter(|row| row.coverage == Coverage::NoMatchingFiles).count(), 6);
+        // Over the DRY-RUN capture of the same diff the four are `DryRun` instead, which is the
+        // distinction the row parser has to carry for the verdict to be able to make it.
+        let dry = super::rows(COMMIT_LOG);
+        assert_eq!(dry.iter().filter(|row| row.coverage.inspected()).count(), 0);
+        assert_eq!(dry.iter().filter(|row| row.coverage == Coverage::DryRun).count(), 4);
     }
 
     #[test]
@@ -550,18 +839,19 @@ mod tests {
         // MEASURED on prek 0.4.14: `PREK_SKIP=hygiene,rust-tests` removes the two rows outright.
         // So the denominator has to come from the config, and the missing rows have to be named.
         let declared = declared();
-        let silenced = COMMIT_LOG.replace(
-            "structural gates.........................................................Dry Run\n",
+        let none = super::BTreeSet::new();
+        let silenced = REAL_COMMIT_LOG.replace(
+            "structural gates..........................................................Passed\n",
             "",
         );
         let rows = super::rows(&silenced);
         assert_eq!(rows.len(), 9);
-        let per_hook = super::coverage_of(&declared, super::hooks::COMMIT, &rows);
+        let per_hook = super::coverage_of(&declared, super::hooks::COMMIT, &rows, &none);
         let hygiene = per_hook.iter().find(|hook| hook.id == "hygiene").expect("the hygiene hook");
         assert_eq!(hygiene.coverage, Coverage::Unreported);
         // And with the row present it is Ran, which is the direction that proves the arm above is
         // about the silencing rather than about the join failing everywhere.
-        let full = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(COMMIT_LOG));
+        let full = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(REAL_COMMIT_LOG), &none);
         let hygiene = full.iter().find(|hook| hook.id == "hygiene").expect("the hygiene hook");
         assert_eq!(hygiene.coverage, Coverage::Ran);
     }
@@ -571,15 +861,23 @@ mod tests {
         // The sharp case: a composite action's inline shell is invisible to every hook in the
         // config, so a diff touching one always has a gap until the covering task has run.
         let changed = vec![String::from(".github/actions/build-artefacts/action.yml")];
-        let gaps = super::surface_gaps(&changed, &[], &[]);
+        let (reported, gaps) = super::surface_gaps(&changed, &[], &[]);
         assert_eq!(gaps.len(), 1, "{gaps:?}");
+        // The COUNT is in the verdict for `check-venues`' reason: `every surface` over an empty set
+        // is a claim about nothing, and a reader cannot tell four from zero without it.
+        assert_eq!(reported, 1);
+        assert_eq!(super::surface_gaps(&[], &[], &[]).0, 0);
         assert!(
             gaps.first().is_some_and(|gap| gap.contains("just lint-workflows")),
             "{gaps:?}"
         );
         // Named as having run, the same diff has no gap - which is what stops this being a gate
         // that fails a tree somebody has already checked.
-        assert!(super::surface_gaps(&changed, &[], &[String::from("lint-workflows")]).is_empty());
+        assert!(
+            super::surface_gaps(&changed, &[], &[String::from("lint-workflows")])
+                .1
+                .is_empty()
+        );
         // A Rust diff is covered when EVERY hook claiming Rust ran, and not before: `one of them
         // ran` is the sentence this module exists to stop being printed as coverage.
         let rust = vec![String::from("crates/sutura-domain/src/lib.rs")];
@@ -591,14 +889,14 @@ mod tests {
             .iter()
             .map(|id| String::from(*id))
             .collect();
-        assert!(super::surface_gaps(&rust, &all, &[]).is_empty());
+        assert!(super::surface_gaps(&rust, &all, &[]).1.is_empty());
         // Clippy alone is a gap, and the gap NAMES the four that did not run.
-        let partial = super::surface_gaps(&rust, &[String::from("rust-clippy")], &[]);
+        let (_, partial) = super::surface_gaps(&rust, &[String::from("rust-clippy")], &[]);
         assert_eq!(partial.len(), 1, "{partial:?}");
         assert!(partial.first().is_some_and(|gap| gap.contains("rust-fmt")), "{partial:?}");
         // And with nothing at all, which is the state the measured run on a workflow-only branch
         // was in for five of its ten hooks.
-        assert_eq!(super::surface_gaps(&rust, &[], &[]).len(), 1);
+        assert_eq!(super::surface_gaps(&rust, &[], &[]).1.len(), 1);
     }
 
     /// The surface table after a hook rename nobody carried here.

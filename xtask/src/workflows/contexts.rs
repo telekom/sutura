@@ -33,6 +33,17 @@
 //! classified; the classification is about what WOULD gate. And a job's `if:` is not read, so
 //! `docs.yml:publish` - which never runs on a pull request - is declared advisory rather than
 //! excluded, because excluding it would need this gate to evaluate a GitHub expression.
+//!
+//! **AND IT CANNOT SPELL A MATRIX LEG OR A REUSABLE-WORKFLOW CALL.** A context here is a job's
+//! `name:` or its id, and neither shape is that: `cross-link.yml`'s own header states the one this
+//! repository has, `cross / link (<triple>)` - a caller's name, the called job's name and the
+//! matrix value. So requiring one used to print *no job reports it - a required context that never
+//! reports is a PERMANENTLY PENDING merge*, which is FALSE, on the one remedy
+//! `devco/required-contexts` actually discusses. [`derivable`] refuses such an entry with the true
+//! sentence instead, and names the remedy this reader CAN check: an aggregating job, whose plain
+//! context resolves like any other. Synthesising the legs from `strategy.matrix` was weighed and
+//! is the wrong change - it would make this gate a partial evaluator of GitHub's own expansion,
+//! measured against documentation rather than against the thing.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -74,7 +85,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         )];
     }
 
-    let jobs = gating_jobs(root);
+    let Gating { jobs, unreadable } = gating_jobs(root);
     if jobs.is_empty() {
         return vec![String::from(
             "no job in any pull-request-triggered workflow was read - the scan is broken, not the declaration",
@@ -82,7 +93,18 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     }
 
     let mut problems = Vec::new();
+    // ONE unreadable file, not all of them. The floor above fails closed only when EVERY workflow
+    // is unreadable, so a single dropped file was a gating job this record never classified -
+    // reported in review. `crate::hook_coverage` had this right: an unreadable input is a recorded
+    // failure, never a smaller scan.
+    problems.extend(unreadable);
     for context in &required {
+        if !derivable(context) {
+            problems.push(format!(
+                "{DECLARATION} requires the context `{context}`, and this reader derives a PLAIN job's context only - its `name:` or its id. A matrix leg reports `<job> (<value>)` and a reusable-workflow call reports `<caller> / <job> (<value>)`, and no `jobs:` key spells either, so whether that context reports is UNCHECKED here rather than answered wrongly. Require an aggregating job instead: its context resolves like any other, and one name beats four to maintain by hand"
+            ));
+            continue;
+        }
         if !jobs.iter().any(|job| job.context == *context) {
             problems.push(format!(
                 "{DECLARATION} requires the context `{context}` and no job reports it - a required context that never reports is a PERMANENTLY PENDING merge"
@@ -106,6 +128,15 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     problems
 }
 
+/// Can this reader derive whether the context a `[required]` entry names reports?
+///
+/// Only for a plain job. A trailing `)` is a matrix leg's value and a ` / ` is a reusable-workflow
+/// call's caller prefix, and a `jobs:` key spells neither - see the header for why synthesising
+/// them is the wrong change.
+fn derivable(context: &str) -> bool {
+    !context.contains(" / ") && !context.ends_with(')')
+}
+
 /// The entries under one `[section]` header, up to the next header.
 ///
 /// Comment and blank lines are skipped, which is load-bearing: this file's argument is longer than
@@ -126,15 +157,35 @@ fn section(text: &str, header: &str) -> BTreeSet<String> {
     entries
 }
 
-/// Every job in every workflow that can report a context on a pull request or a queue entry.
-fn gating_jobs(root: &Path) -> Vec<Job> {
+/// Every job that can report a context, and every workflow that could not be read.
+///
+/// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
+/// is right to for `crate::shipped::Reconciliation`'s reason: two `Vec`s side by side say nothing
+/// about which is the answer and which is the reason the answer is over a subset.
+struct Gating {
+    /// Every job in a workflow that can report on a pull request or a queue entry.
+    jobs: Vec<Job>,
+    /// One sentence per workflow file that could not be read at all.
+    unreadable: Vec<String>,
+}
+
+/// Every job in every workflow that can report a context on a pull request or a queue entry, and
+/// one sentence per workflow that could not be read.
+fn gating_jobs(root: &Path) -> Gating {
     let mut paths = Vec::new();
     repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"], &mut paths);
     paths.sort();
     let mut jobs = Vec::new();
+    let mut unreadable = Vec::new();
     for rel in &paths {
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
+        let text = match std::fs::read_to_string(root.join(rel)) {
+            Ok(text) => text,
+            Err(error) => {
+                unreadable.push(format!(
+                    "{rel} could not be read, so any job it declares is classified by nothing: {error}"
+                ));
+                continue;
+            }
         };
         if !gates_on_an_event(&text) {
             continue;
@@ -142,7 +193,7 @@ fn gating_jobs(root: &Path) -> Vec<Job> {
         let file = rel.rsplit('/').next().unwrap_or(rel);
         jobs.extend(jobs_in(file, &text));
     }
-    jobs
+    Gating { jobs, unreadable }
 }
 
 /// Does this workflow run on an event whose run reports a context that could gate a merge?
@@ -325,6 +376,46 @@ mod tests {
             super::section(text, "[advisory]"),
             BTreeSet::from([String::from("ci.yml:cross")])
         );
+    }
+
+    #[test]
+    fn a_required_context_this_reader_cannot_spell_is_refused_with_the_true_sentence() {
+        // Reported in review: requiring `cross / link (aarch64-unknown-linux-musl)` printed
+        // *no job reports it - a required context that never reports is a PERMANENTLY PENDING
+        // merge*, which is false. The job DOES report it; this reader cannot derive the string.
+        assert!(!super::derivable("cross / link (aarch64-unknown-linux-musl)"));
+        assert!(!super::derivable("link (x86_64-unknown-linux-musl)"));
+        // AND THE ARM THAT STILL FIRES: a plain job's context is derivable and still resolved, so
+        // the rename this rule exists for is caught exactly as before.
+        assert!(super::derivable("ci"));
+        assert!(super::derivable("structural gates"));
+    }
+
+    #[test]
+    fn one_unreadable_workflow_is_a_recorded_failure_and_not_a_smaller_scan() {
+        // Reported in review: both floors fail closed only when EVERY workflow is unreadable, so a
+        // single dropped file was a gating job classified by nothing. Read over a directory
+        // holding a file this process may not open.
+        let scratch = std::env::temp_dir().join(format!("sutura-contexts-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        std::fs::write(workflows.join("readable.yml"), WORKFLOW).expect("the readable workflow");
+        // NON-UTF-8 bytes, which is what `read_to_string` refuses - the shape
+        // `crate::shipped` already records for a page under `docs/`. A directory named
+        // `unreadable.yml` would not do: `repo::collect_files` recurses into one rather than
+        // collecting it, so the scan would never reach it and the test would prove nothing.
+        std::fs::write(workflows.join("unreadable.yml"), [0xff_u8, 0xfe, 0xfd]).expect("the unreadable workflow");
+        let read = super::gating_jobs(&scratch);
+        assert_eq!(read.jobs.len(), 2, "the readable file is still read");
+        assert_eq!(read.unreadable.len(), 1, "{:?}", read.unreadable);
+        assert!(
+            read.unreadable
+                .first()
+                .is_some_and(|line| line.contains("classified by nothing")),
+            "{:?}",
+            read.unreadable
+        );
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
 
     #[test]

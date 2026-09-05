@@ -73,7 +73,10 @@ pub(crate) struct Hook {
     pub(crate) id: String,
     pub(crate) name: String,
     line: usize,
-    entry: String,
+    /// The resolved command. `pub(crate)` because `crate::hook_coverage::abstain` reads it for a
+    /// different question - whether this hook decides for ITSELF that it will not run - and the
+    /// entry is where that decision is written.
+    pub(crate) entry: String,
     pub(crate) stages: Vec<String>,
 }
 

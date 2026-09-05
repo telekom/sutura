@@ -171,6 +171,12 @@ fn is_literal(pattern: &str) -> bool {
     !pattern.contains('*') && !pattern.contains('?')
 }
 
+/// Both findings, then the verdict.
+///
+/// **BOTH, and the early return is why that needed saying.** The inert-exemption block returned
+/// before the violations report, so with one stale `[warn]` entry a 1200-line file was not named -
+/// measured in review: the exit code was right and the report was half of what the gate knew. A
+/// gate that knows two numbers and prints one is this commit's own subject.
 fn report(
     files: &[String],
     violations: &[(String, usize)],
@@ -193,9 +199,15 @@ fn report(
         eprintln!("  An exemption nothing needs is a claim nothing checks, and this file is a list of");
         eprintln!("  claims: the paragraph beside an entry is the only thing a reviewer reads to decide");
         eprintln!("  whether it is still earned. Delete the entry and its argument together.");
-        return Verdict::Fail;
     }
-    if violations.is_empty() {
+    if !violations.is_empty() {
+        eprintln!("xtask max-lines: FAILED - {} file(s) over {max} lines", violations.len());
+        for (path, lines) in violations {
+            eprintln!("  {path}: {lines} lines");
+        }
+        eprintln!("  split the file. Generated or vendored output belongs in {IGNORE_FILE}, nothing else does.");
+    }
+    if inert.is_empty() && violations.is_empty() {
         println!(
             "xtask max-lines: ok - {} files checked, none over {max} lines ({} warned)",
             files.len(),
@@ -203,11 +215,6 @@ fn report(
         );
         return Verdict::Pass;
     }
-    eprintln!("xtask max-lines: FAILED - {} file(s) over {max} lines", violations.len());
-    for (path, lines) in violations {
-        eprintln!("  {path}: {lines} lines");
-    }
-    eprintln!("  split the file. Generated or vendored output belongs in {IGNORE_FILE}, nothing else does.");
     Verdict::Fail
 }
 
@@ -239,6 +246,7 @@ fn count_lines(path: &Path) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{DEFAULT_MAX_LINES, Ignores, inert_entries, is_literal, is_unexemptable, parse_max_lines};
+    use crate::Verdict;
 
     #[test]
     fn a_warn_entry_for_a_file_back_under_the_cap_is_reported() {
@@ -294,6 +302,22 @@ mod tests {
             .collect();
         let inert = inert_entries(&ignores, &files, &over_cap);
         assert!(inert.is_empty(), "{inert:?}");
+    }
+
+    #[test]
+    fn an_inert_exemption_does_not_hide_a_file_over_the_cap() {
+        // Reported in review: the inert block returned before the violations report, so with a
+        // stale `[warn]` entry present a 1200-line file went unnamed. Both are reported now, and
+        // the verdict is a failure whichever of the two is non-empty.
+        let over = [(String::from("BIGFILE.md"), 1200_usize)];
+        let inert = [String::from("`[warn]` `README.md` is under the cap, so it prints nothing")];
+        let files = [String::from("BIGFILE.md"), String::from("README.md")];
+        assert_eq!(super::report(&files, &over, &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        // Each half on its own is still a failure, and neither is a pass.
+        assert_eq!(super::report(&files, &over, &[], &[], DEFAULT_MAX_LINES), Verdict::Fail);
+        assert_eq!(super::report(&files, &[], &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        // AND THE ARM THAT STILL FIRES: neither half, and the success line is printed.
+        assert_eq!(super::report(&files, &[], &[], &[], DEFAULT_MAX_LINES), Verdict::Pass);
     }
 
     #[test]

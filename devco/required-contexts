@@ -3,8 +3,8 @@
 #
 # WHY THIS FILE EXISTS. Which contexts gate a merge lived only in GitHub's API, so *the four cross
 # link legs block a merge* was believed by readers, written down nowhere, and checked by nothing.
-# They never did. Read on 2026-09-05 from `repos/telekom/sutura/rulesets/21290172` ("main", target
-# `branch`, enforcement `active`):
+# Read on 2026-09-05 from `repos/telekom/sutura/rulesets/21290172` ("main", target `branch`,
+# enforcement `active`):
 #
 #     required_status_checks: [ { context: "ci" } ]
 #     strict_required_status_checks_policy: false
@@ -12,26 +12,46 @@
 # Exactly one context. Classic branch protection is absent as well - `branches/main/protection`
 # answers `404 Branch not protected` - and the second repository ruleset ("main: human review", id
 # 22184737) is `disabled` and declares no rule at all. The ruleset's other rules are `deletion`,
-# `non_fast_forward`, `required_linear_history`, `merge_queue` and `pull_request`; the merge queue
-# takes its pass/fail signal from that same single required context.
+# `non_fast_forward`, `required_linear_history`, `merge_queue` and `pull_request`.
+#
+# READ ON A DATE, AND ONLY THAT DATE. A red link leg DOES NOT BLOCK A MERGE as read on 2026-09-05.
+# Whether one ever did is not in any response above: a ruleset's history is not in its
+# representation, and the legs reported different context strings before they were renamed, so
+# whether some earlier ruleset required one of those earlier names is exactly what this record
+# cannot say. The earlier wording here was *has never blocked a merge*, which is a claim about the
+# past that nothing read - reported in review, and it is the standard the rest of this file keeps.
 #
 # Confirmed live rather than inferred: on a pull request whose `ci` job had gone green while all
 # four `cross / link (<triple>)` legs were still pending, `gh pr view --json mergeStateStatus` read
 # `UNSTABLE` - GitHub's word for *the required checks are satisfied, something non-required is not*
 # - and not `BLOCKED`, which is what the same command read while `ci` itself was pending.
 #
-# THE LIMIT, and it is why this is a declaration rather than a proof: only REPOSITORY-level
-# configuration was checked. `orgs/<org>/rulesets` needs the `admin:org` scope, which the token
-# used had not got (`404` / *needs the "admin:org" scope*), so an organisation-level ruleset could
-# add contexts on top of these and would not appear here. Somebody with that scope has to confirm
-# before this file is treated as the whole answer.
+# WHAT THE MERGE QUEUE TAKES ITS SIGNAL FROM IS NOT MEASURED HERE. The `merge_queue` rule is in the
+# list above, and its own parameters are the queue's build and merge sizes, its grouping strategy,
+# its merge method and a check-response timeout - no status-check list of its own. So *the queue
+# uses the same single required context* is GitHub's documented behaviour rather than something
+# this read establishes, and no queue run is cited. Stated as unmeasured rather than asserted.
+#
+# THE LIMIT, and it is why this is a declaration rather than a proof: the API is the authority and
+# it is unreachable from the sandbox the gate runs in. **What is no longer a limit is the
+# organisation level.** `repos/telekom/sutura/rules/branches/main` returns the EFFECTIVE rules for
+# the branch - every ruleset that applies, whatever its level - and needs only repository read.
+# Measured 2026-09-05: six rules, every one of them `ruleset_source_type: Repository` from ruleset
+# 21290172, required status checks exactly one context, and no organisation-sourced rule
+# contributing anything. So for THIS branch an organisation ruleset cannot be invisible. What
+# remains unknown is narrower and is not about `main`: an organisation ruleset that does not apply
+# to this branch today - one targeting other branch patterns, or set to a different enforcement -
+# is outside that response, and reading the organisation's own ruleset list still needs `admin:org`.
 #
 # WHAT THE GATE HOLDS:
 #
 #   * every `[required]` context resolves to a job some workflow declares - by its `name:` where it
 #     has one, otherwise by its id. A required context that no longer REPORTS is a permanently
 #     pending merge, which is worse than an ungated leg, so a rename fails a gate here instead of
-#     the merge box later;
+#     the merge box later. A matrix leg and a reusable-workflow call report a context no `jobs:`
+#     key spells, so such an entry is REFUSED with that sentence rather than reported as a context
+#     nothing reports - which is what it used to print, falsely, on the one remedy this file
+#     discusses;
 #   * every job in a workflow that can report on a pull request is in one of the two sections
 #     below. A new job is then a decision - required, or advisory - rather than an omission;
 #   * every `[advisory]` entry names a job that exists, so an entry cannot outlive its job.
@@ -53,10 +73,14 @@ ci
 
 [advisory]
 
-# A red leg in this section has never blocked a merge, in the queue or out of it, with no override
-# and no bypass - nobody has to click anything. That is the status quo made visible, not a
-# recommendation: whether any of these should become required is a decision, and the cost of
-# requiring one is four context names to maintain by hand or one aggregating job to add.
+# A red leg in this section does not block a merge, read on 2026-09-05, in the queue or out of it,
+# with no override and no bypass - nobody has to click anything. Present tense on purpose: see the
+# dated paragraph in the header for what a ruleset's representation does and does not say about
+# its own past. That is the status quo made visible, not a recommendation: whether any of these
+# should become required is a decision, and the cost of requiring one is four context names to
+# maintain by hand - which `cargo xtask check-workflows` REFUSES, because it derives a plain job's
+# context and cannot spell `cross / link (<triple>)` - or one aggregating job to add, whose plain
+# context it can check like any other.
 
 # The cross link matrix. It calls `cross-link.yml`, so its legs report `cross / link (<triple>)`
 # and the required set contains none of them. The risk the job exists for - the allocator's C for

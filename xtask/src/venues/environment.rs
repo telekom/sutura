@@ -112,7 +112,7 @@ pub(super) fn problems(root: &Path) -> Contract {
     let Ok(page) = std::fs::read_to_string(root.join(PAGE)) else {
         return Contract::broken(format!("{PAGE} is not readable"));
     };
-    let workflows = workflow_text(root);
+    let (workflows, unreadable) = workflow_text(root);
     if workflows.is_empty() {
         return Contract::broken(String::from(
             "no workflow under .github/workflows could be read - the scan is broken, not the contract",
@@ -121,6 +121,11 @@ pub(super) fn problems(root: &Path) -> Contract {
 
     let mut problems = Vec::new();
     let mut names = 0_usize;
+    // ONE unreadable file, not all of them. The floor above fails closed only when EVERY workflow
+    // is unreadable, and a single dropped file is a `vars.<PREFIX>_...` read this contract never
+    // compared - reported in review. Same shape as the unreadable page `check-docs` dropped in
+    // silence, and `crate::hook_coverage` had it right: an unreadable input is a recorded failure.
+    problems.extend(unreadable);
     for kind in &KINDS {
         let pushed = pushed_names(&script, kind.dict);
         if pushed.is_empty() {
@@ -227,17 +232,27 @@ fn referenced(text: &str, kind: &str, prefix: &str) -> BTreeSet<String> {
     names
 }
 
-/// Every workflow, concatenated. What is asked of it is which NAMES appear, so which file each is
-/// in adds nothing a reader needs - and `crate::venues::acceptance` is what reads the job's shape.
-fn workflow_text(root: &Path) -> String {
+/// Every workflow, concatenated, and one sentence per file that could not be read.
+///
+/// What is asked of the text is which NAMES appear, so which file each is in adds nothing a reader
+/// needs - and `crate::venues::acceptance` is what reads the job's shape. **What a reader does need
+/// is which file was not read at all**, because the answer this scan gives is over the tree and a
+/// dropped file makes it over a subset.
+fn workflow_text(root: &Path) -> (String, Vec<String>) {
     let mut paths = Vec::new();
     repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"], &mut paths);
     paths.sort();
-    paths
-        .iter()
-        .filter_map(|rel| std::fs::read_to_string(root.join(rel)).ok())
-        .collect::<Vec<String>>()
-        .join("\n")
+    let mut text = Vec::new();
+    let mut unreadable = Vec::new();
+    for rel in &paths {
+        match std::fs::read_to_string(root.join(rel)) {
+            Ok(read) => text.push(read),
+            Err(error) => unreadable.push(format!(
+                "{rel} could not be read, so any name it reads was not compared: {error}"
+            )),
+        }
+    }
+    (text.join("\n"), unreadable)
 }
 
 #[cfg(test)]
@@ -321,5 +336,30 @@ mod tests {
         // And it compared something: a reader that stopped matching either file would agree over
         // an empty set, which is the way a text scan goes quiet.
         assert!(contract.names > 5, "reconciled {} name(s)", contract.names);
+    }
+
+    #[test]
+    fn one_unreadable_workflow_is_a_recorded_failure_and_not_a_smaller_scan() {
+        // Reported in review: the floor fails closed only when EVERY workflow is unreadable, so a
+        // single dropped file was a `vars.<PREFIX>_...` read this contract never compared.
+        let scratch = std::env::temp_dir().join(format!("sutura-environment-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        std::fs::write(workflows.join("readable.yml"), "vars.SUTURA_BQ_PROJECT\n").expect("the readable workflow");
+        // NON-UTF-8 bytes, which is what `read_to_string` refuses. A directory named
+        // `unreadable.yml` would not do: `repo::collect_files` recurses into one rather than
+        // collecting it, so the scan would never reach it.
+        std::fs::write(workflows.join("unreadable.yml"), [0xff_u8, 0xfe, 0xfd]).expect("the unreadable workflow");
+        let (text, unreadable) = super::workflow_text(&scratch);
+        assert!(text.contains("SUTURA_BQ_PROJECT"), "the readable file is still read: {text}");
+        assert_eq!(unreadable.len(), 1, "{unreadable:?}");
+        assert!(
+            unreadable.first().is_some_and(|line| line.contains("was not compared")),
+            "{unreadable:?}"
+        );
+        // AND THE ARM THAT STILL FIRES: with every file readable there is no such sentence.
+        std::fs::remove_file(workflows.join("unreadable.yml")).expect("the unreadable workflow");
+        assert!(super::workflow_text(&scratch).1.is_empty());
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
 }
