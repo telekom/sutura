@@ -483,18 +483,21 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // FAIL CLOSED ON A PAGE IT CANNOT LEX. `github.com/telekom/sutura#301`: the fence boundary
-    // this rule rests on used to be a parity toggle, so a nested fence inverted it for the rest
-    // of the page - losing a declaration and reading a mention below the block as one, both
-    // silently, because the other pages keep the reconciled count non-empty.
+    // FAIL CLOSED ON A PAGE IT CANNOT READ OR CANNOT LEX, and the two arms are one rule.
+    // `github.com/telekom/sutura#301`: the fence boundary this rule rests on used to be a parity
+    // toggle, so a nested fence inverted it for the rest of the page - losing a declaration and
+    // reading a mention below the block as one, both silently, because the other pages keep the
+    // reconciled count non-empty. Review of that change measured the READ half still open: a
+    // non-UTF-8 page documenting an unprobed feature left this at `ok` and exit 0.
     let documented = match documented::pages(&root) {
         Ok(found) => found,
         Err(why) => {
-            eprintln!("xtask check-shipped-binaries: FAILED - a page under docs/ cannot be lexed");
+            eprintln!("xtask check-shipped-binaries: FAILED - a page under docs/ could not be reconciled");
             eprintln!("  {why}");
-            eprintln!("  Every line below an unclosed block is either an instruction or a mention and");
-            eprintln!("  this cannot say which, so the reconciliation refuses rather than reading the");
-            eprintln!("  page as all one or all the other.");
+            eprintln!("  A page this cannot read, one whose block never closes, and one instructing in an");
+            eprintln!("  indented block are the same failure: the instructions on it go unreconciled while");
+            eprintln!("  the other pages keep the count non-empty, so the page nobody reconciled is the one");
+            eprintln!("  nobody hears about. The verdict is over the pages this names or it is nothing.");
             return Verdict::Fail;
         }
     };
@@ -703,7 +706,7 @@ mod tests {
         // what is asserted here is which pair was reconciled, by name.
         let root = crate::repo::root().expect("could not locate the repo");
         let source = std::fs::read_to_string(root.join(super::SOURCE)).expect("could not read nix/shipped.nix");
-        let documented = super::documented::pages(&root).expect("a page under docs/ cannot be lexed");
+        let documented = super::documented::pages(&root).expect("a page under docs/ could not be read or lexed");
         let records = super::records(&source);
 
         let build = documented

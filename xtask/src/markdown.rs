@@ -82,10 +82,23 @@ impl fmt::Display for Unlexable {
 /// The fence a line opens, if it opens one.
 ///
 /// **Indentation is deliberately not restricted**, where `CommonMark` allows an opening fence at
-/// most three columns in. Material's admonitions carry fenced blocks four columns in and mkdocs
-/// renders them, so the strict rule would read a documented command as prose. The direction is
-/// the safe one: treating more of the page as code cannot invent a link, and the unclosed check
-/// makes a fence opened by accident loud.
+/// most three columns in. mkdocs-material's admonitions take their body four columns in, so a
+/// fenced block inside one opens at column four and mkdocs renders it - the strict rule would read
+/// a documented command as prose. The direction is the safe one: treating more of the page as code
+/// cannot invent a link, and the unclosed check makes a fence opened by accident loud.
+///
+/// **[`closes`] diverges the same way, and it is the same decision rather than a second one** -
+/// review of `github.com/telekom/sutura#301` reported it as an unspoken divergence, which it was.
+/// `CommonMark` allows a closing fence at most three columns in; a fence OPENED four columns in
+/// inside an admonition is closed four columns in, so restricting the closer while leaving the
+/// opener free would leave that block open to end of file and turn a rendered page into an
+/// [`Unlexable`]. Over-closing is the safe half of the trade for both callers: it ends a block
+/// early rather than swallowing the page.
+///
+/// **Measured, so the reason is not overstated:** `grep -rnE '^\s{4,}```' docs` matches nothing
+/// on 2026-09-05, and six pages carry an admonition with no fence inside one. So both divergences
+/// are for a shape mkdocs renders and this tree does not yet write - a design choice, not a
+/// workaround for a page that exists.
 fn opens(line: &str, number: usize) -> Option<Fence> {
     let trimmed = line.trim_start();
     let marker = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;

@@ -177,22 +177,62 @@ fn const_declaration(line: &str) -> Option<Declared> {
     })
 }
 
+/// One in-scope file, read.
+struct Source {
+    /// Repo-relative path.
+    rel: String,
+    /// Its whole text.
+    text: String,
+}
+
+/// The in-scope files that could be read, and one problem per file that could not.
+///
+/// A named struct rather than a tuple because `clippy::type_complexity` refuses the tuple, and
+/// because the read failures are part of the ANSWER rather than an aside.
+struct Sources {
+    /// What was read.
+    read: Vec<Source>,
+    /// One entry per in-scope file that is not readable text.
+    unreadable: Vec<String>,
+}
+
+/// The in-scope library source, read once, with an unreadable file as a PROBLEM.
+///
+/// **Fail closed on a read, not just on a parse.** Review of `github.com/telekom/sutura#301`
+/// measured the sibling shape one gate over: a non-UTF-8 page under `docs/` left
+/// `check-shipped-binaries` at `ok` and exit 0, because the reader said `continue`. The same
+/// `let Ok(..) else { continue }` here would drop the file holding a declaration or the file
+/// making a false claim, and every other file would keep the verdict looking like an answer. One
+/// read for all three passes, so there is one place this can go wrong instead of three.
+fn readable(root: &Path, files: &[String]) -> Sources {
+    let mut read = Vec::new();
+    let mut unreadable = Vec::new();
+    for rel in files {
+        if !matches_any(OVER, rel) {
+            continue;
+        }
+        match std::fs::read_to_string(root.join(rel)) {
+            Ok(text) => read.push(Source { rel: rel.clone(), text }),
+            Err(why) => unreadable.push(format!(
+                "{rel}: cannot be read as UTF-8 text - {why}. A file this check cannot look at may \
+                 be the one holding the declaration or the one making the claim, so the verdict is \
+                 over the files it names or it is nothing"
+            )),
+        }
+    }
+    Sources { read, unreadable }
+}
+
 /// Every `const NAME: Enum = Enum::Variant;` in the library source, with the type it is declared on.
 ///
 /// Read from [`code_lines`], which is what keeps a doctest out of it: `sutura-domain`'s
 /// `Warehouse` documentation shows an `impl` block with this exact declaration inside a fenced
 /// example, and a raw-text scan reads that as a second declaration of the same constant.
-fn declarations(root: &Path, files: &[String]) -> Vec<Held> {
+fn declarations(read: &[Source]) -> Vec<Held> {
     let mut found = Vec::new();
-    for rel in files {
-        if !matches_any(OVER, rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
+    for Source { rel, text } in read {
         let mut on: Option<String> = None;
-        for (index, line) in code_lines(&text).iter().enumerate() {
+        for (index, line) in code_lines(text).iter().enumerate() {
             if let Some(target) = impl_target(line) {
                 on = Some(target);
                 continue;
@@ -220,17 +260,11 @@ fn declarations(root: &Path, files: &[String]) -> Vec<Held> {
 ///
 /// The variant list is what makes the comparison narrow: a `CamelCase` word in a sentence is only
 /// compared when it is a variant OF THE ENUM the resolved constant holds.
-fn variants(root: &Path, files: &[String]) -> BTreeMap<String, BTreeSet<String>> {
+fn variants(read: &[Source]) -> BTreeMap<String, BTreeSet<String>> {
     let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for rel in files {
-        if !matches_any(OVER, rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
+    for Source { text, .. } in read {
         let mut open: Option<(String, usize)> = None;
-        for line in code_lines(&text) {
+        for line in code_lines(text) {
             if let Some((name, depth)) = open.as_mut() {
                 let after = depth
                     .saturating_add(line.matches('{').count())
@@ -486,20 +520,16 @@ fn read_file(rel: &str, text: &str, held: &[Held], enums: &BTreeMap<String, BTre
 
 /// A doc comment may not name a variant its own constant does not hold.
 pub(in crate::guidance) fn constant_problems(root: &Path, files: &[String]) -> (Vec<String>, usize) {
-    let held = declarations(root, files);
-    let enums = variants(root, files);
+    let sources = readable(root, files);
+    let held = declarations(&sources.read);
+    let enums = variants(&sources.read);
     let mut reading = Reading {
         resolved: 0,
         confirmed: 0,
-        problems: Vec::new(),
+        problems: sources.unreadable,
     };
-    for rel in files {
-        if !matches_any(OVER, rel) {
-            continue;
-        }
-        if let Ok(text) = std::fs::read_to_string(root.join(rel)) {
-            read_file(rel, &text, &held, &enums, &mut reading);
-        }
+    for Source { rel, text } in &sources.read {
+        read_file(rel, text, &held, &enums, &mut reading);
     }
     // FAIL CLOSED, and on the CONFIRMED count rather than the resolved one. A resolver that runs
     // and never compares is the shape `.agents/skills/sutura/gates/SKILL.md` records under a
@@ -696,7 +726,9 @@ mod tests {
         let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
             panic!("could not locate the repo");
         };
-        let held = super::declarations(&root, &files);
+        let sources = super::readable(&root, &files);
+        assert!(sources.unreadable.is_empty(), "{:?}", sources.unreadable);
+        let held = super::declarations(&sources.read);
         assert!(
             held.iter()
                 .any(|one| one.name == "IMPERSONATION" && one.kind == "ImpersonationCapability"),

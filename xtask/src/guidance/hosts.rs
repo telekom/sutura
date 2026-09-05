@@ -111,6 +111,17 @@ pub(in crate::guidance) const HOSTED: &[Hosted] = &[
     },
 ];
 
+/// What one scan found, and the files it could not read.
+///
+/// A named struct rather than a tuple because `clippy::type_complexity` refuses the tuple, and it
+/// reads better at both ends: the read failures are part of the ANSWER here, not an aside.
+struct Scanned<T> {
+    /// The rows the scan produced.
+    found: Vec<T>,
+    /// One entry per in-scope file that could not be read as text.
+    unreadable: Vec<String>,
+}
+
 /// The backtick span at the end of `head`, if it ends in one.
 ///
 /// Trailing whitespace is allowed between the span and the marker and nothing else is: a possessive
@@ -129,20 +140,25 @@ fn trailing_span(head: &str) -> Option<&str> {
 /// holding one mechanism are two copies to keep in step, and a sentence that hands a reader a list
 /// orients nobody. `None` is a FAILED verdict at the call site either way - the two cases are told
 /// apart there, because *it moved* and *there are two of them* want different corrections.
-fn hosting(root: &Path, files: &[String], hosted: &Hosted) -> Vec<String> {
+fn hosting(root: &Path, files: &[String], hosted: &Hosted) -> Scanned<String> {
     let mut found = Vec::new();
+    let mut unreadable = Vec::new();
     for rel in files {
         if !matches_any(hosted.over, rel) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
-        if hosted.holds.iter().all(|needle| text.contains(needle)) {
-            found.push(rel.clone());
+        match std::fs::read_to_string(root.join(rel)) {
+            Ok(text) if hosted.holds.iter().all(|needle| text.contains(needle)) => found.push(rel.clone()),
+            Ok(_) => {}
+            // FAIL CLOSED ON A READ, not only on a parse. The file this cannot look at may be the
+            // one holding the mechanism, and dropping it turns *nobody holds this* into an answer.
+            // Measured one gate over during review of `github.com/telekom/sutura#301`: a non-UTF-8
+            // page left `check-shipped-binaries` at `ok` and exit 0 because its reader said
+            // `continue`.
+            Err(why) => unreadable.push(format!("{rel}: cannot be read as UTF-8 text - {why}")),
         }
     }
-    found
+    Scanned { found, unreadable }
 }
 
 /// One place an attribution is written: where, and which file it names.
@@ -160,14 +176,22 @@ struct Attributed {
 /// Read from the FLATTENED view for `Counted`'s reason, which was a defect there before it was a
 /// rule: prose wraps, so an attribution whose file span ends one line above its marker is invisible
 /// to a per-line search, and every occurrence is read rather than the first on a line.
-fn attributions(root: &Path, files: &[String], hosted: &Hosted) -> Vec<Attributed> {
+fn attributions(root: &Path, files: &[String], hosted: &Hosted) -> Scanned<Attributed> {
     let mut found = Vec::new();
+    let mut unreadable = Vec::new();
     for rel in files {
         if !matches_any(hosted.mentioned_in, rel) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
+        // Same rule on this side, and the loss is the mirror image: an unread page may be the one
+        // making the false attribution, and another page stating it correctly keeps the entry
+        // non-empty - so the miss is silent in exactly the way this whole module exists to stop.
+        let text = match std::fs::read_to_string(root.join(rel)) {
+            Ok(text) => text,
+            Err(why) => {
+                unreadable.push(format!("{rel}: cannot be read as UTF-8 text - {why}"));
+                continue;
+            }
         };
         let (flat, lines) = flatten(&text);
         let mut from = 0_usize;
@@ -185,14 +209,18 @@ fn attributions(root: &Path, files: &[String], hosted: &Hosted) -> Vec<Attribute
             from = offset.saturating_add(hosted.marker.len().max(1));
         }
     }
-    found
+    Scanned { found, unreadable }
 }
 
 /// A file named as holding a mechanism must be the file that holds it.
 pub(in crate::guidance) fn host_mismatches(root: &Path, all: &[String], files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for hosted in HOSTED {
-        let holders = hosting(root, all, hosted);
+        let Scanned {
+            found: holders,
+            unreadable,
+        } = hosting(root, all, hosted);
+        problems.extend(unreadable);
         let derived = match holders.split_first() {
             // The thing attributed is gone. Not the prose being right - a rename, a deletion or a
             // reworded literal all land here, and every one of them leaves the sentences below
@@ -220,7 +248,11 @@ pub(in crate::guidance) fn host_mismatches(root: &Path, all: &[String], files: &
                 continue;
             }
         };
-        let stated = attributions(root, files, hosted);
+        let Scanned {
+            found: stated,
+            unreadable,
+        } = attributions(root, files, hosted);
+        problems.extend(unreadable);
         for claim in &stated {
             if claim.named != derived {
                 problems.push(format!(
@@ -289,24 +321,41 @@ mod tests {
             "lint-workflows.sh",
             "mapfile -t scripts < <(git ls-files '*.sh' | sort)\n",
         );
+        // Text to begin with, so the read guard below is the only reason it later fails.
+        write(&docs, "not-text.md", "nothing to attribute here\n");
         write(
             &docs,
             "page.md",
             "The list is what `nix/lint-workflows.sh`\nbuilds from tracked files, and a `run:` block is not one.\n",
         );
-        let all = vec![String::from("nix/lint-workflows.sh"), String::from("docs/page.md")];
+        let all = vec![
+            String::from("nix/lint-workflows.sh"),
+            String::from("docs/page.md"),
+            String::from("docs/not-text.md"),
+        ];
         let read = super::attributions(&dir, &all, &ENTRY);
-        assert_eq!(read.len(), 1, "the wrapped attribution was not read");
-        assert_eq!(read.first().map(|one| one.named.as_str()), Some("nix/lint-workflows.sh"));
+        assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
+        assert_eq!(read.found.len(), 1, "the wrapped attribution was not read");
         assert_eq!(
-            super::hosting(&dir, &all, &ENTRY),
-            vec![String::from("nix/lint-workflows.sh")]
+            read.found.first().map(|one| one.named.as_str()),
+            Some("nix/lint-workflows.sh")
         );
+        let holders = super::hosting(&dir, &all, &ENTRY);
+        assert_eq!(holders.found, vec![String::from("nix/lint-workflows.sh")]);
+        assert!(holders.unreadable.is_empty(), "{:?}", holders.unreadable);
 
         // And the direction the whole entry exists for: a sentence naming the wrong file.
         write(&docs, "page.md", "The list is what `ci.yml` builds from tracked files.\n");
         let wrong = super::attributions(&dir, &all, &ENTRY);
-        assert_eq!(wrong.first().map(|one| one.named.as_str()), Some("ci.yml"));
+        assert_eq!(wrong.found.first().map(|one| one.named.as_str()), Some("ci.yml"));
+
+        // FAIL CLOSED ON A READ, both sides. A page nobody can read may be the one making the
+        // false attribution, and a file nobody can read may be the one holding the mechanism -
+        // and another correct page keeps the entry non-empty, so the loss is silent.
+        std::fs::write(docs.join("not-text.md"), [0xff_u8, 0xfe, 0x00]).unwrap_or_else(|e| panic!("{e}"));
+        let now = super::attributions(&dir, &all, &ENTRY).unreadable;
+        assert_eq!(now.len(), 1, "an unreadable page was dropped in silence: {now:?}");
+        assert!(now.iter().any(|p| p.contains("docs/not-text.md")), "{now:?}");
         std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
     }
 
@@ -316,25 +365,42 @@ mod tests {
     /// A fixture cannot establish that each entry resolves to exactly one file and that at least
     /// one page attributes it. Those are what stop the check passing over a moved mechanism or over
     /// silence, so they are asserted here rather than described.
+    ///
+    /// **The attribution side is given the caller's TEXT set, not the whole tree, and this test
+    /// mirrors that deliberately.** The first version passed `all_files()` to both sides and
+    /// reported `docs/assets/favicon.png` - a PNG cannot carry an attribution, so a binary inside
+    /// the `docs/**` glob is out of SCOPE rather than unreadable. The distinction is what keeps the
+    /// read guard from being the thing somebody switches off: it fails on a file this gate is meant
+    /// to read and cannot, never on a file it was never going to read.
     #[test]
     fn every_entry_resolves_to_one_file_and_some_page_names_it() {
         let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
             panic!("could not locate the repo");
         };
+        let text: Vec<String> = files
+            .iter()
+            .filter(|f| super::super::has_ext(f, &["md", "nix", "yml", "yaml", "toml", "sh"]))
+            .cloned()
+            .collect();
         for hosted in super::HOSTED {
             let holders = super::hosting(&root, &files, hosted);
-            assert_eq!(holders.len(), 1, "{}: {holders:?}", hosted.name);
-            let stated = super::attributions(&root, &files, hosted);
-            assert!(!stated.is_empty(), "{}: nothing attributes it", hosted.name);
-            for claim in &stated {
+            assert!(holders.unreadable.is_empty(), "{:?}", holders.unreadable);
+            assert_eq!(holders.found.len(), 1, "{}: {:?}", hosted.name, holders.found);
+            let stated = super::attributions(&root, &text, hosted);
+            assert!(stated.unreadable.is_empty(), "{:?}", stated.unreadable);
+            assert!(!stated.found.is_empty(), "{}: nothing attributes it", hosted.name);
+            for claim in &stated.found {
                 assert_eq!(
                     Some(claim.named.as_str()),
-                    holders.first().map(String::as_str),
+                    holders.found.first().map(String::as_str),
                     "{}:{} names the wrong file",
                     claim.file,
                     claim.line
                 );
             }
         }
+        // And the whole check over the real tree, through the entry point the gate calls, so a
+        // problem produced by any of the four arms fails this too.
+        assert!(super::host_mismatches(&root, &files, &text).is_empty());
     }
 }

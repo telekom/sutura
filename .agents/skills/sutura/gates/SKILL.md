@@ -178,6 +178,31 @@ therefore does not see.
   many, and a number here would be a second thing to keep true. It fails a cited `just` task that
   does not exist and a cited `cargo` line missing `--all-features`. Its own stated blind spot: a
   comment marker is not stripped, so a claim wrapping inside a `#` block is not found.
+- **A fail-closed arm can cover *cannot say which* and leave *cannot look at all* open, and the
+  second is the cheaper defect to ship.** `check-shipped-binaries` gained a refusal over a page
+  whose fence never closes, and the read one line above it still said `continue`: measured in
+  review, a **non-UTF-8** page under `docs/` documenting a feature `nix/shipped.nix` does not probe
+  left the gate at `ok` and **exit 0**, because the other pages kept the reconciled count non-empty.
+  Same shape as the unreadable page `check-docs` dropped in silence eight lines above its own
+  `FAIL CLOSED` comment. **The question that catches it: for every file a gate is meant to read, is
+  the ANSWER over the tree the verdict names?** Both arms are one rule now, and the read guard is
+  scoped rather than blanket - a PNG inside a `docs/**` glob is out of SCOPE, not unreadable, and a
+  guard that failed on it is one somebody switches off. The test that mirrors the production file
+  filter is what keeps those two apart; the first version of it reported `docs/assets/favicon.png`.
+- **A lexer's declared divergence has to name BOTH ends of the thing it diverges on.**
+  `markdown::opens` declared that an opening fence's indentation is unrestricted, for
+  mkdocs-material's admonitions; `closes` diverges identically and said nothing, so a reviewer read
+  it as a bug. It is not - a fence opened four columns in is closed four columns in - but the
+  omission cost a review round. And the reason was overstated in the other direction: measured
+  2026-09-05, `grep -rnE '^\s{4,}```' docs` matches NOTHING, so both divergences are for a shape
+  mkdocs renders and this tree does not yet write. **The related loss is real and is not the one the
+  limit list named:** a build instruction written as a four-column INDENTED code block is neither
+  fenced nor inline, and the fenced reader dropped it silently. Changing the lexer is the wrong fix
+  here, because an admonition body IS four columns in and treating it as code would blank every
+  admonition `check-docs` reads links out of - so what closes it is a refusal keyed on the full
+  instruction shape, read off the PROSE half, where an inline mention is already blanked as a code
+  span. It fires on nothing in the tree, which is what a refusal over a shape nobody writes should
+  do.
 - **A citation that RESOLVES says nothing about the cited file's contents, and that is how four
   comments named `ci.yml` as holding things it never held** - a caller of the image smoke test, the
   command building the `shellcheck` list, the reason a floor of 100 is a floor. None of them was
