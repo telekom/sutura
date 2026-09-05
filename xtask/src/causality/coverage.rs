@@ -81,8 +81,11 @@ impl Coverage {
 
 /// What the two runs are scoped to, and how much of the diff that leaves unmeasured.
 ///
-/// The filter and its own limit travel together, so no branch can print the verdict without the
-/// ratio that qualifies it.
+/// One value rather than two parameters, so the filter and its own limit reach the reconstruction
+/// together. **What that buys is narrower than it sounds:** `super::base::report_base` takes the
+/// sentence as a `&str`, so nothing stops a caller passing an empty one. What is held is that the
+/// ratio is in REACH at every call site - not that it was printed, which is prose and is held by
+/// the review of these four modules.
 pub(crate) struct Scope<'s> {
     pub(crate) only: &'s str,
     pub(crate) coverage: &'s Coverage,
