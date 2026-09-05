@@ -333,8 +333,19 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, co
                 println!("Scope that to a whole test binary, never a name pattern - a filter that");
                 println!("omits the guarding test reports green and proves nothing.");
             } else {
-                println!("Usually it means the change is not separable at file level: the test and");
-                println!("what it needs arrived together. State the evidence in the handoff.");
+                // MEASURED, and it is why this fork gained a third cause: driven end to end over a
+                // diff whose only change was a public function's ARITY plus a test calling it, this
+                // arm printed *not separable at file level* - the wrong fix, sending the author to
+                // split a change that is already split. Nothing was held back there, so neither the
+                // retry above nor `missing_module_file` could catch it.
+                println!("Two causes reach here and they ask for different things. Either the change");
+                println!("is not separable at file level - the test and what it needs arrived");
+                println!("together - or this change altered a PUBLIC SIGNATURE that a test file kept");
+                println!("at HEAD calls, so the base implementation cannot compile against it: look");
+                println!("for E0061 or E0308 above naming one of your own items. For that second");
+                println!("cause nothing is wrong with the change; scope this gate PER COMMIT against");
+                println!("the commit before the signature change, or prove by MUTATION. Either way,");
+                println!("state the evidence in the handoff.");
             }
             // WHY THIS IS NOT A PASS AND NOT A FAILURE. It returned `Verdict::Pass` - exit 0 - and
             // a required CI step reads the exit code and nothing else, so this shape was cited as
