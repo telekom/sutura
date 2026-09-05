@@ -20,6 +20,7 @@ mod changes;
 mod commit_msg;
 mod compose;
 mod crap;
+mod default_feature_tests;
 mod default_features;
 mod docs;
 mod examples;
@@ -160,7 +161,7 @@ const TASKS: &[Task] = &[
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
         // rather than evaluated, one value that has to be the same in both.
         name: "check-warm-start",
-        description: "the causality gate builds where nix warms its target directory",
+        description: "the warm start's directory, stamp and profile agree with what reads them",
         kind: Kind::Hygiene(Reads::Code),
         run: warm_start::run,
     },
@@ -213,6 +214,17 @@ const TASKS: &[Task] = &[
         description: "every shipped package compiles and lints at cargo's default features",
         kind: Kind::Standalone,
         run: default_features::run,
+    },
+    Task {
+        // The other half of the line above, and it is a separate task because the two cost
+        // different amounts: that one stops at metadata, this one links and RUNS. Standalone for
+        // the same reason, and it reads the same declaration. What it closes is a whole category
+        // of test that was compiled by that gate and executed by no venue at all - the module's
+        // header carries the count and the measurement.
+        name: "check-default-feature-tests",
+        description: "every shipped package runs its tests at cargo's default features",
+        kind: Kind::Standalone,
+        run: default_feature_tests::run,
     },
     Task {
         // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a

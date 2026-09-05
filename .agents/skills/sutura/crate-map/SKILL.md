@@ -65,8 +65,10 @@ sets `all-features = true`, so the registration is still compiled, linted and te
 and `just gates` adds a DEFAULT-feature lane, because a `#[cfg(feature = ..)]` compiled only with
 the feature on is the shipped set's blind spot. **That lane's scope is the shipped set and no
 wider** - its package list is derived from the `binaries` list below, so a feature on a crate that
-does not ship is reached by the `--all-features` gates and by nothing at the default set - and it is
-a developer lane: CI has the four `cross` builds for the compile half and nothing for the lint half.
+does not ship is reached by the `--all-features` gates and by nothing at the default set - and its
+CI half is PARTIAL: the required `ci` job runs that lane's TESTS at the default set, while its
+compile and lint halves are `just gates`' alone, with the four `cross` builds for the first and
+nothing for the second.
 
 **What makes that rule a gate rather than a wish** is `probeFeatures` in `nix/shipped.nix`: a
 feature named there gets a `<bin>-<feature>-<triple>-ci` package per release triple, and the `cross`

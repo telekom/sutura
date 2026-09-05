@@ -590,6 +590,15 @@ jobs:
           fi
           nix run .#causality -- --since "$BASE"
 
+      # THE ONLY STEP HERE THAT RUNS A TEST AT CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
+      # publishes and no other venue uses, so a `#[cfg(not(feature = ..))]` test was COMPILED by a
+      # gate and executed by nothing. An app because it shells out to cargo; after `Test causality`
+      # to reuse its warmed closure at the `ci` profile, measured at 2m18s. The argument, the
+      # measurement and every limit are in `xtask/src/default_feature_tests.rs`.
+      - name: The shipped feature set runs its tests
+        if: steps.classify.outputs.rust == 'true'
+        run: nix run .#default-feature-tests
+
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
   #

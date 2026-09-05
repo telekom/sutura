@@ -482,6 +482,34 @@ therefore does not see.
   and one mutation per property it holds. Its own limit is written at the feature switch: nothing
   asserts a shipped artefact leaves the feature off, because `checks.shipped-features` reads crate
   NAMES and the feature adds none.
+- **A gate that COMPILES a test runs nothing, and that hid a whole test CATEGORY.**
+  `check-default-features` covers the shipped lane with `cargo check --all-targets` and
+  `cargo clippy --all-targets`, both of which stop at metadata, while every venue that RUNS a test -
+  `just test`, `just serve-e2e`, `just mcp-e2e`, `just declared-source`, the `nextest` nix check -
+  passes `--all-features`. So a `#[cfg(not(feature = ..))]` test was compiled by the first and
+  excluded by the second: it read as coverage in a diff and held nothing, and a refusal that stopped
+  refusing would have been caught nowhere. **Measured by differencing the two test lists**
+  (2026-09-04, `cargo nextest list --workspace` against the same with `--all-features`): 1718 and
+  1813 tests, 2 in the first and not the second, 97 the other way round.
+  `check-default-feature-tests` runs that lane now,
+  in `just gates` and in CI, one invocation per shipped package, and `--no-tests fail` makes an empty
+  selection red instead of green. **The transferable half: a lane that only compiles is not a lane
+  that covers, and the difference of the two lists is what says whether the hole is a pair or a
+  category.**
+- **Replacing a `contains` with "a real lexer" means picking the reader by the file's COMMENT
+  SYNTAX, and the obvious one is Rust-only.** `serde_parse::scan::code_lines` was named twice as the
+  fix for a `contains`-based wiring test - it is a real lexer, of **Rust**: `//`, `/* */`, char
+  literals, multi-line string interiors blanked and single-line ones kept. Measured on the two lines
+  the test had to reject (2026-09-05): `#  run: nix run .#default-feature-tests` and
+  `# cargo run -q -p xtask -- check-default-feature-tests` both survive it **verbatim**, so a fix
+  built on it keeps the false green it was chosen to close. For `#`-commented files three readers
+  exist already: `workflows::collect` for workflow YAML (`a_comment_is_not_a_reference` holds it
+  to skipping a `#` line), `tasks::recipe_body` for a justfile recipe, `warm_start::live_lines`
+  for nix.
+  **And the limit every one of them shares, `code_lines` included:** they are comment-stripped LINE
+  scans, so a needle inside a single-line string on a line that IS live is still a live anchor. What
+  they buy is that a commented-OUT line is not one - which is the whole property a wiring assertion
+  needs, and nothing more.
 
 ## The causality gate, and how it can lie
 
