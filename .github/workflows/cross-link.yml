@@ -134,6 +134,11 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          # An EMPTY set is a green matrix that linked nothing: zero iterations, no
+          # `assert-linked.sh`, and the notice below printed anyway. `set -u` catches the variable
+          # being UNSET and caught nothing about it being empty. `cargo xtask
+          # check-shipped-binaries` is what holds this guard in every step that loops over the set.
+          test -n "$BINARIES" || { echo "::error::BINARIES is empty: this leg would link nothing"; exit 1; }
           for bin in $BINARIES; do
             nix build ".#${bin}-${TARGET}-ci" -L -o "result-ci-${bin}"
             # NOT a bare `file`, which is what stood here under a comment claiming it proved the
