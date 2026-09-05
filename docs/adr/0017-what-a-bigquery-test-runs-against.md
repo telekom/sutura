@@ -1309,17 +1309,23 @@ all. Two consequences, and both are limits rather than defects:
    red on every push until somebody sets them, and a job that is red for a configuration reason is a
    job people learn to ignore. The order is the environment first, the job second.
 
-   **The cap decision belongs to that change and not to this one**, which an earlier wording of this
-   item had in the present tense. Measured with `wc -l`: `.github/workflows/ci.yml` is **999** lines
-   on `main` and at this record's own head - at the 1000-line cap
-   [#285](https://github.com/telekom/sutura/issues/285) is about, not over it, and this change
-   touches no workflow. Adding the job's step is what would put it over, so whichever change does
-   that carries the cap decision and records its own measured pair in `devco/max-lines-ignore`; this
-   tree carries no `[warn]` entry. **And that decision may evaporate:**
-   [#289](https://github.com/telekom/sutura/pull/289) takes `ci.yml` to 856 lines, so if it lands
-   first there is no cap to decide and the `[warn]` entry should not be added at all - or should come
-   out if it already was. That file is for generated and vendored output; a hand-written workflow in
-   it is a promise to split, and a promise nobody needs is worse than none.
+   **The cap decision this item used to carry has evaporated, and the sequence is worth recording
+   because it is the ordinary case rather than an accident.** An earlier wording said
+   `.github/workflows/ci.yml` was *over* the 1000-line cap
+   [#285](https://github.com/telekom/sutura/issues/285) is about, in the present tense, and paired
+   it with `987 → 1042`. Neither was true of any tree this record shipped in: measured with
+   `wc -l`, the file was **999** on `main` and at this record's own head, and this change touches no
+   workflow at all. Then [#289](https://github.com/telekom/sutura/pull/289) landed and took it to
+   **856** - `wc -l .github/workflows/ci.yml` on `main` at `fd5959ea`, and on this branch after
+   carrying that merge in. So there is **143 lines of headroom** and no cap decision for the job
+   change to make: `devco/max-lines-ignore` needs no `[warn]` entry for this workflow, and one added
+   before #289 landed should come out. That file is for generated and vendored output, where length
+   is a function of what is described; a hand-written workflow in it is a promise to split, and a
+   promise nobody needs is worse than none.
+
+   **The transferable half:** a line count written in the present tense is a measurement with no
+   date, and nothing in this repository derives it. Write the command and the commit beside the
+   number, or the number is a claim that rots on somebody else's merge.
 
 ### What review of the cell found, recorded because each was a claim rather than a bug
 
