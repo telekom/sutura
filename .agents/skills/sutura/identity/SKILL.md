@@ -64,14 +64,24 @@ proof of impersonation.
   live clock and was therefore *scheduled* to go red in early 2027 - a failure nobody would have
   been looking for. `UnixClock` makes the instant an input (`SystemClock` ships, `measured_against`
   is how a test names one), so the floor's decision is asserted at instants decades out. Two of its
-  three arms are that a mint *does not ask the time*: a purely shared mint and a zero floor. Those
-  are held by a clock that always fails, plus a third test firing the same clock through a floor
-  that can, so the pair cannot pass vacuously.
-- **A `floor_seconds` of zero is the floor DISABLED, not a floor of zero seconds.** Nothing is
-  refused by the adapter - not even an already-past expiry, which is left to the domain's
-  `Expiry::passed_by` at the leg. `clears_floor` holds that meaning, so the pure function and
-  `empty()`'s contract cannot disagree; a served deployment always has a positive floor, because it
-  comes from the request timeout.
+  three arms are that a mint *does not ask the time*: a purely shared mint and a broker with no
+  floor. Those are held by a clock that always fails, plus a third test firing the same clock
+  through a floor that can, so the pair cannot pass vacuously. **The narrower shape this is not:**
+  every other time-dependent API here takes the instant as a *parameter*, which is better and is
+  unavailable while `CredentialBroker::mint` carries none - widening that domain port reaches ten
+  implementors across eight crates.
+- **The floor's absence is `None`, never a zero.** `Option<NonZeroU64>`, because the sentinel
+  version needed the same "is there a floor" test in `mint` *and* in `clears_floor`, each with a
+  paragraph promising the two would not drift. `with_floor` is the one place a zero is read, and the
+  served path cannot reach it: `RequestTimeout::parse` already refuses a zero timeout. With no floor
+  the adapter refuses nothing - not even an already-past expiry, which is the domain's
+  `Expiry::passed_by` at the leg.
+- **The floor asks `Expiry::passed_by` rather than comparing, and the boundary is why.** It once
+  wrote its own `unix >= now + floor`, a second deadline comparison beside the domain's - which
+  counts the boundary second as PASSED on purpose, since `not_after` is whole seconds. The two
+  disagreed the wrong way: a credential with *exactly* the floor left was granted here and then
+  called expired by the domain at the last instant of the budget it had just cleared. A second
+  comparison next to a documented one is the defect, not the off-by-one.
 - **The caller's assertion is carried, and whether it is read depends on the broker.** `RequestContext`
   holds it as an `Option<Secret>`; `WorkloadIdentityBroker` exchanges it (a subject with none at an
   impersonating source is refused as `credential_unavailable`), while `StaticCredentialBroker` never
