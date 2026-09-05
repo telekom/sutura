@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden/service.rs
 expression: err.to_string()
 ---
-metric active_subscriptions was expected to produce 59, and produced -1
+metric active_subscriptions was expected to produce "59", and produced "-1"

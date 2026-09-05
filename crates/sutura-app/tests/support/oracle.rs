@@ -51,11 +51,13 @@ mod knowledge;
 // `cargo xtask max-lines` fails at a thousand of them.
 mod refusals;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
@@ -94,16 +96,19 @@ fn june() -> TimeRange {
     .expect("June is a range")
 }
 
-fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>) -> (DimensionName, Dimension) {
-    let name = DimensionName::parse(name).expect("a corpus dimension is a dimension");
-    let dimension = Dimension::new(
-        name.clone(),
+/// The anchor every bundle below is certified with: one range, one parsed value.
+fn anchor(value: &str) -> Anchor {
+    Anchor::new(june(), AnchorValue::parse(value).expect("a corpus anchor value is a value"))
+}
+
+fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>) -> Dimension {
+    Dimension::new(
+        DimensionName::parse(name).expect("a corpus dimension is a dimension"),
         column(col),
         via.map(|v| RelationshipName::parse(v).expect("a corpus relationship is a relationship")),
         allowed.map(values),
         Description::default(),
-    );
-    (name, dimension)
+    )
 }
 
 // -------------------------------------------------------------------------- the five dimensions ---
@@ -115,11 +120,13 @@ fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>)
 // function below, and `agrees_with_the_oracle` is where that surfaces - so writing them once loses
 // no coverage and keeps the metrics readable as definitions rather than as walls of literals.
 //
-// One function each rather than one table, because the metrics take different SUBSETS and picking a
-// subset out of a map is more code than listing the members.
+// One function each rather than one table, because the metrics take different SUBSETS and naming
+// the members a metric declares is what a catalog document does too. Each returns a `Dimension` and
+// not a keyed pair: `Metric::new` takes a vector so that a duplicate reaches the domain's own check
+// rather than being collapsed here - #266's D4.
 
 /// The commercial segment of the customer, one many-to-one join away.
-fn segment() -> (DimensionName, Dimension) {
+fn segment() -> Dimension {
     dimension(
         "segment",
         "segment",
@@ -129,7 +136,7 @@ fn segment() -> (DimensionName, Dimension) {
 }
 
 /// Where the customer is, through the same join.
-fn region() -> (DimensionName, Dimension) {
+fn region() -> Dimension {
     dimension(
         "region",
         "region",
@@ -139,7 +146,7 @@ fn region() -> (DimensionName, Dimension) {
 }
 
 /// The kind of product rather than the individual tariff, through the product join.
-fn product_family() -> (DimensionName, Dimension) {
+fn product_family() -> Dimension {
     dimension(
         "product_family",
         "product_family",
@@ -150,7 +157,7 @@ fn product_family() -> (DimensionName, Dimension) {
 
 /// The individual tariff. **No value list, so it can be grouped by and not filtered on** - which is
 /// what `refused-dimension-not-filterable.yaml` exists to reach.
-fn product_name() -> (DimensionName, Dimension) {
+fn product_name() -> Dimension {
     dimension("product_name", "product_name", Some("subscription_product"), None)
 }
 
@@ -160,13 +167,13 @@ fn product_name() -> (DimensionName, Dimension) {
 /// plainest group-by key the compiler resolves, and the one a catalog of exclusively joined
 /// dimensions would never once compile. Declared on two metrics rather than one, so the case
 /// survives either of them being rewritten.
-fn contract_term() -> (DimensionName, Dimension) {
+fn contract_term() -> Dimension {
     dimension("contract_term", "contract_term", None, Some(&["annual", "monthly"]))
 }
 
 /// The three that four of these metrics declare together.
-fn segment_region_and_family() -> BTreeMap<DimensionName, Dimension> {
-    BTreeMap::from([segment(), region(), product_family()])
+fn segment_region_and_family() -> Vec<Dimension> {
+    vec![segment(), region(), product_family()]
 }
 
 type ModelsAndJoins = (Vec<Model>, Vec<Relationship>);
@@ -291,9 +298,10 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("62"))),
+        Some(anchor("62")),
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "How many subscription-months the period billed." A count of ROWS and not of subscriptions:
     // the same column as `subscription_base` under a different aggregate, and the same number over
     // this catalog only because the snapshot holds one row per subscription per month and this
@@ -310,10 +318,11 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         Vec::new(),
         column("month"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::from([segment(), region(), product_family(), contract_term()]),
-        Some(Anchor::new(june(), String::from("62"))),
+        vec![segment(), region(), product_family(), contract_term()],
+        Some(anchor("62")),
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "Outgoing voice minutes." One aggregate over one column, no definitional filter, no join, no
     // ratio. No anchor, for the reason `data_per_subscription` gives: a sum of decimals is a float,
     // so an anchor written as text would pin a formatting decision rather than a number.
@@ -324,10 +333,11 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         Vec::new(),
         column("usage_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
 
     vec![subscription_base, subscription_months_billed, voice_minutes]
 }
@@ -368,10 +378,11 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::from([segment(), region(), product_family(), product_name(), contract_term()]),
-        Some(Anchor::new(june(), String::from("202121"))),
+        vec![segment(), region(), product_family(), product_name(), contract_term()],
+        Some(anchor("202121")),
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "How many subscriptions were active at the end of the month." `subscription_base` with one
     // predicate added, counting the key distinctly rather than counting rows. **The two anchors are
     // what `required_filters` buys**: 59 against 62 over the same rows in the same month, with one
@@ -390,9 +401,10 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("59"))),
+        Some(anchor("59")),
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "What the average active subscription was worth in the month, in minor units." The mean of a
     // COLUMN, which is a different definition from every ratio here: it averages subscription-MONTHS,
     // where `revenue_per_customer` averages customers. **The only `avg` in the repository**, so an
@@ -408,10 +420,11 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "How many subscriptions terminated inside the month." `count_if` and not a count of the
     // column, and the difference is a wrong number that raises no error: `count(churned_in_month)`
     // counts the rows where the column is not null, which is every row, so it would report the whole
@@ -427,9 +440,10 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("3"))),
+        Some(anchor("3")),
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     vec![
         recurring_revenue,
         active_subscriptions,
@@ -470,9 +484,10 @@ fn the_ratios() -> Vec<Metric> {
         column("month"),
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
-        Some(Anchor::new(june(), String::from("0.04838709677419355"))),
+        Some(anchor("0.04838709677419355")),
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "Data volume per subscription, in gigabytes." A ratio with no definitional filter, which is the
     // other half of what `required_filters` is for: this one means what it measures over every row in
     // range and there is no predicate a reader has to be warned about. The denominator counts the
@@ -491,10 +506,11 @@ fn the_ratios() -> Vec<Metric> {
         Vec::new(),
         column("usage_date"),
         BTreeSet::from([Grain::Day, Grain::Week, Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "Recurring revenue per customer, in minor units, over active subscriptions." Per CUSTOMER and
     // not per subscription, which is the whole reason it is a ratio rather than an `avg`: a customer
     // holding three subscriptions is one customer and three rows, so the two answers differ by
@@ -514,10 +530,11 @@ fn the_ratios() -> Vec<Metric> {
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::from([segment()]),
+        vec![segment()],
         None,
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
     // "How much recurring revenue the month carried for each subscription it lost, in minor units."
     // **The mirror of `churn_rate`**: there a conditional count is the NUMERATOR of a ratio, here it
     // is the DENOMINATOR. Nothing about the vocabulary makes the two positions different, and a
@@ -548,10 +565,11 @@ fn the_ratios() -> Vec<Metric> {
         Vec::new(),
         column("month"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("the corpus declares each dimension once");
 
     vec![
         churn_rate,
@@ -650,15 +668,12 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                 .dimensions()
                 .values()
                 .map(|d| {
-                    (
+                    Dimension::new(
                         d.name().clone(),
-                        Dimension::new(
-                            d.name().clone(),
-                            d.column().clone(),
-                            d.via().cloned(),
-                            d.allowed_values().cloned(),
-                            Description::default(),
-                        ),
+                        d.column().clone(),
+                        d.via().cloned(),
+                        d.allowed_values().cloned(),
+                        Description::default(),
                     )
                 })
                 .collect();
@@ -673,6 +688,8 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                 metric.anchor().cloned(),
                 Description::default(),
             )
+            // The dimensions came OUT of a keyed map, so a duplicated pair cannot be among them.
+            .expect("a keyed map cannot yield a duplicate")
         })
         .collect();
     let joins = definitions.relationships().values().cloned().collect();

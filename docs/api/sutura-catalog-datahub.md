@@ -602,7 +602,7 @@ pub fn into_domain(self) -> Anchor
 Into the domain type `Definitions::assemble` holds.
 
 ```rust
-pub const fn new(range: TimeRange, value: String) -> Self
+pub const fn new(range: TimeRange, value: AnchorValue) -> Self
 ```
 
 An anchor.

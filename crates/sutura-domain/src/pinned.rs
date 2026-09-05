@@ -585,7 +585,14 @@ impl AnchorReport {
 /// Why a bundle is not validated.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum NotValidated {
-    #[error("metric {metric} was expected to produce {expected}, and produced {actual}")]
+    /// The declared number and the produced one, both quoted.
+    ///
+    /// `{:?}` and not `{}`, for the reason [`crate::measure::RequiredFilter`]'s `Display` gives: a
+    /// bundle is refused on this line and somebody reads it to find out why, so the spacing of both
+    /// halves has to be visible. `expected` came from a catalog author and is an
+    /// [`AnchorValue`](crate::catalog::AnchorValue) at rest; `actual` came from the data system and
+    /// is held to nothing, which is the half that makes the quoting worth having.
+    #[error("metric {metric} was expected to produce {expected:?}, and produced {actual:?}")]
     AnchorMismatch {
         metric: MetricName,
         expected: String,

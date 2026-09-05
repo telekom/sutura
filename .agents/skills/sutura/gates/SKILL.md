@@ -145,6 +145,28 @@ therefore does not see.
   to run `just docs` rather than a gate encoding a boundary nobody measured. It is not in `validate`
   because that recipe would then fail on a clone whose pixi docs environment is not installed, and
   **a gate that fails for an environment reason gets disabled.**
+- **The file a gate reads is not always the file that ships, and that defeated the rule the gate
+  was added for.** `docs/contributing.md` and `docs/changelog.md` are `pymdownx.snippets` stubs -
+  their published body is `CONTRIBUTING.md` / `CHANGELOG.md` at the repo root - so `check-docs`
+  read a sixteen-line include directive and counted it as a page. Measured: a link into an
+  excluded page written in `CONTRIBUTING.md` left the gate green with the link total unmoved. It
+  follows `--8<--` now and resolves a relative target inside an included file against the
+  INCLUDING page, the way mkdocs does. **The transferable question: for every file a gate reads,
+  ask whether that file is what a reader gets.**
+- **Three more ways that one gate read less than its verdict said, found in one review, and each
+  is a shape already in this file.** (1) A fence tracker toggling a boolean on any three-backtick
+  line inverted on the first NESTED fence and read no link below it - the `check-workflows` rule
+  a second time, so `xtask/src/markdown.rs` records the delimiter and its length and makes an
+  unclosed block an error rather than an answer. (2) `exclude_docs` was compared as a
+  docs-relative path while mkdocs matches it with `pathspec` gitignore semantics, where a pattern
+  containing no `/` matches at ANY depth: the pages mkdocs dropped and the pages the gate believed
+  were dropped were different sets, and both of that gate's new rules were bypassed on the
+  difference. **A gate re-implementing part of a tool has to be measured against the tool, not
+  against its documentation.** (3) The only floor was a repo-wide link total, and `.take(1)` on
+  the page loop satisfied it with 51 of 52 pages unscanned - *at least one row* again, so the
+  floor is per page now. An unreadable page was also dropped in silence eight lines above a
+  `FAIL CLOSED` comment, which is the reminder that **a comment is not the direction; the code at
+  the decision is.**
 - **Prose in `AGENTS.md` and under `.agents/skills/` is gated, which surprises people editing it.**
   `check-guidance` scans both, and `xtask`'s own unit tests assert literal phrases out of `AGENTS.md`
   as the evidence anchoring a rule - so rewording its opening sentence turns a gate's test red rather
@@ -228,6 +250,18 @@ therefore does not see.
   closes it is a second declaration that must agree - here `cargo xtask check-shipped-binaries`
   reconciling `nix/shipped.nix`'s `probeFeatures` against the `cargo build --features` a page
   documents, failing closed when no page documents one at all.
+- **A verdict's rules can hold its SPELLING while nothing holds its TRANSITION, and the second is
+  usually what the sentence beside it promises.** `check-venues`' `unrun` arrived with three rules -
+  the word is in the vocabulary, a `not built` venue may not claim it, the venue's section must use
+  it - and all three read the page. Nothing read whether a run had happened, so *the change that
+  carries the first green run moves this cell* was, still, a sentence nothing read. The failure is
+  silent and permanent: wire the leg into a job, watch it go green on every push, and the page goes
+  on telling its next reader that nothing has run it with every gate green. **The question to ask
+  of any state token: what reads the thing that makes it STOP being true?** Here the answer was in
+  reach - a workflow invoking the venue's `Reached by` task - and the rule that closed it is
+  deliberately one-sided, because an invocation is not a green run and the authority for *did this
+  pass* is unreachable from the sandbox the gate runs in. A one-sided rule that names its side is
+  worth more than a two-sided one nobody can implement.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**

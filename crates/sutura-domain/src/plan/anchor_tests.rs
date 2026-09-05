@@ -11,14 +11,14 @@
 //! matching range and a value nobody certified, and all four guards passed. The pair is gone. The
 //! bundle is the argument now, and the last two cases are the two holes that closed with it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{
     AnchorPlan, NotAnAnchorsPlan, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
     PredicateOrigin, QueryPlan, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, Definitions, Description, Metric, Model};
+use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
 use crate::knowledge::Knowledge;
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
@@ -44,6 +44,14 @@ fn certified() -> TimeRange {
     TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range")
 }
 
+/// The anchor every bundle below is certified with: one range, one parsed value.
+fn anchor(value: &str) -> Anchor {
+    Anchor::new(
+        certified(),
+        AnchorValue::parse(value).expect("a test anchor value is a value"),
+    )
+}
+
 /// The bundle the checks are made against: one model, one metric at `Month` grain, anchored over
 /// [`certified`] unless `anchor` says otherwise.
 ///
@@ -67,10 +75,11 @@ fn bundle(anchor: Option<Anchor>, grains: BTreeSet<Grain>) -> PinnedDefinitions 
         Vec::new(),
         name("month"),
         grains,
-        BTreeMap::new(),
+        Vec::new(),
         anchor,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         Definitions::assemble(vec![model], vec![], vec![definition]).expect("the test bundle is consistent"),
@@ -85,10 +94,7 @@ fn bundle(anchor: Option<Anchor>, grains: BTreeSet<Grain>) -> PinnedDefinitions 
 
 /// The bundle every case but the last two uses: anchored over the certified range, `Month` only.
 fn anchored() -> PinnedDefinitions {
-    bundle(
-        Some(Anchor::new(certified(), String::from("197122"))),
-        BTreeSet::from([Grain::Month]),
-    )
+    bundle(Some(anchor("197122")), BTreeSet::from([Grain::Month]))
 }
 
 /// The plan the boot path builds for an anchor: one metric, its coarsest grain, its certified range,
@@ -217,10 +223,7 @@ fn a_plan_at_a_finer_grain_than_the_metric_declares_is_not_an_anchors_plan() {
     // one number the anchor certifies. Downstream insists on exactly one row, so the series arrived
     // as a mismatch that reads like a broken definition; and a series is strictly more than the
     // number the bundle already publishes in its own catalog document.
-    let pinned = bundle(
-        Some(Anchor::new(certified(), String::from("197122"))),
-        BTreeSet::from([Grain::Day, Grain::Month]),
-    );
+    let pinned = bundle(Some(anchor("197122")), BTreeSet::from([Grain::Day, Grain::Month]));
     let daily = anchors_plan(certified(), Grain::Day, Vec::new(), Vec::new());
     assert_eq!(
         AnchorPlan::of(&daily, &pinned, &metric()).unwrap_err(),
@@ -296,10 +299,11 @@ fn the_grain_comparison_names_the_absence_rather_than_carrying_a_variant_nothing
         Vec::new(),
         column("month"),
         BTreeSet::new(),
-        BTreeMap::new(),
-        Some(Anchor::new(certified(), String::from("1"))),
+        Vec::new(),
+        Some(anchor("1")),
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     assert!(
         Definitions::assemble(vec![model], vec![], vec![grainless]).is_err(),
         "a metric declaring no grain never reaches a pinned bundle, so the absence needs no variant"
