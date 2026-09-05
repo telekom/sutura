@@ -16,14 +16,14 @@
 sutura:
 - is a MCP server
 - to answer questions about data **as the person or agent asking** using metadata; strong metadata like blessed metrics are preferred.
-- can connect systems accross boundaries.
+- can connect systems across boundaries.
 - has a strong focus on security and E2E impersonation
 - clear refusal results based on the metadata
 
 
 ## Status
 
-Very much WIP; basic skeleton and CI pipeliens there.
+Very much WIP; basic skeleton and CI pipelines there.
 
 There are 2 flavours of sutura:
 - single player (shared service user)
@@ -38,13 +38,13 @@ Per connection the mode can be configured.
 - Have a focus on security (impersonation, prompt injection, semantic & rust compiler verification)
 - Support query federation (at least lightly)
 
-We are standing on the shoulders of giants/ecosystems/role models but sometimes just taking inspiratio nand combining:
+We are standing on the shoulders of giants/ecosystems/role models but sometimes just taking inspiration and combining:
 
 - https://datafusion.apache.org/index.html
 - https://github.com/Canner/WrenAI
 - https://github.com/spiceai/spiceai
 
-Buidling around arrow & arrow flight.
+Building around arrow & arrow flight.
 
 
 ## Documentation
