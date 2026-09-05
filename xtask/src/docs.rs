@@ -851,10 +851,14 @@ extra:
 
     // NOTE: there is deliberately no test here that reads the real `mkdocs.yml` and the real
     // docs tree. That property is enforced by `cargo xtask check-docs`, which runs in the hooks
-    // and in the `hygiene` flake check - and `hygiene` is the check given the whole repository
-    // as its source. A unit test cannot do it: the `nextest` check gets crane's Cargo-only
-    // source filter, so `docs/` is not there, and the same mistake already failed CI once for
-    // `.agents/`. Widening the test derivation to the whole repo would make every documentation
-    // edit invalidate the test build. Hence the fixture above: the rule is a pure function of
-    // two sets and a parser, which is the part worth testing.
+    // and in the `hygiene` flake check - and `hygiene` is given the whole repository as its
+    // source.
+    //
+    // **This note used to give a reason that is no longer true, and the correction matters more
+    // than the conclusion.** It said a unit test CANNOT read `docs/` because `checks.nextest`
+    // gets crane's Cargo-only source filter. It does not any more: `flake.nix` passes that check
+    // `wholeTree`, and says why - `xtask`'s tests read repo files by design, and three bug
+    // reports came out of the filter hiding them. So such a test would work; the fixture stays
+    // because the rule is a pure function of two sets and a parser, and a test over the real
+    // tree would assert today's page list rather than the rule.
 }
