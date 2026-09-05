@@ -1,8 +1,8 @@
-//! Serde on a type that PARSES: the derive that walks past the constructor, and the pair of
-//! derives that disagree about the shape.
+//! Serde on a type that PARSES: the derive that walks past the constructor, the pair of derives
+//! that disagree about the shape, and the input struct that accepts a key nobody declared.
 //!
-//! Both rules come from the newtype guide this repo adopts as policy, both said *review* in
-//! `.agents/skills/engineering/rust/SKILL.md`, and both are syntactic - which is the whole
+//! The first two come from the newtype guide this repo adopts as policy, both said *review* in
+//! `.agents/skills/engineering/rust/SKILL.md`, and all three are syntactic - which is the whole
 //! argument for a gate over a sentence. `AGENTS.md`: *a rule with no mechanism is a wish*.
 //!
 //! # Rule one: a derived `Deserialize` writes past `parse`
@@ -39,12 +39,26 @@
 //! Anything else needs `#[serde(into = "..")]` or a hand-written `impl Serialize`, and `Date` and
 //! `QualifiedTable` are the two that take those routes today.
 //!
+//! # Rule three: the input struct that accepts a key nobody declared
+//!
+//! The second shape above is where a real defect lived, and it lived there for as long as it did
+//! because nothing read the claim. `sutura_domain::calendar::TimeRangeInput` carried no
+//! `deny_unknown_fields`, so a key written INSIDE a `range:` object was discarded in silence -
+//! on a question, on a markdown metric's `anchor.range`, and on the `sutura` structured property
+//! `sutura-catalog-datahub` decodes - while five documents said the closedness held *at every
+//! depth*. The outer type's own attribute cannot reach it: `try_from` hands the whole mapping to
+//! the input struct, so the input struct is where the keys are accepted or refused.
+//!
+//! This rule adds no recognition. It is the class rule two already pairs by field names, plus the
+//! attribute check that class was missing, so what it costs is one lookup. A `try_from = "String"`
+//! names no declaration and a newtype has no fields to deny, which is why both are out of it.
+//!
 //! # Scope, and the limits
 //!
 //! Every Rust file the repo tracks, `vendor/` excluded - not library crates only, which is where
 //! this differs from `boundaries::api_shape` next door and does so deliberately. That gate's rules
-//! are about a contract another crate depends on, so a binary is out of scope. These two are about
-//! the path untrusted input takes into a value, which is the same path in a binary.
+//! are about a contract another crate depends on, so a binary is out of scope. These three are
+//! about the path untrusted input takes into a value, which is the same path in a binary.
 //!
 //! * **A fallible constructor is recognised by `-> Result<Self`**, which is the idiom here (139
 //!   occurrences on 2026-09-02) rather than the language. One written `-> Result<MyType, ..>` is not
@@ -52,6 +66,10 @@
 //! * **Rule two compares field NAMES, not types.** Two structs with the same names whose fields
 //!   serialize differently pass. Comparing serialized shapes needs serde's own resolution, which is
 //!   not something a text scan may pretend to.
+//! * **Rule three reads one attribute run and nothing about the FIELDS' own types.** A field whose
+//!   type is another struct is closed by that struct's own attribute, which the rule reaches only
+//!   where that struct is itself a `try_from` target - so a nested shape reached no other way is
+//!   held by rule one and by review.
 //! * `impl` blocks are matched per FILE, so a type whose fallible constructor lives in another
 //!   module of the same crate is not seen. Every one in this workspace is beside its type.
 //! * It does not parse Rust. [`scan`] carries the rest of that argument, and the tests for it.
@@ -66,7 +84,7 @@ use crate::Verdict;
 use crate::repo;
 use crate::serde_parse::scan::{Declared, Shape};
 
-/// What one file's scan found. Held together because both rules need the same walks.
+/// What one file's scan found. Held together because all three rules need the same walks.
 struct FileFacts {
     /// Every struct in the file.
     declared: Vec<Declared>,
@@ -99,6 +117,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         structs = structs.saturating_add(facts.declared.len());
         problems.extend(bypassed_constructors(rel, &facts));
         problems.extend(asymmetric_serde(rel, &facts));
+        problems.extend(open_input_structs(rel, &facts));
     }
 
     if scanned == 0 {
@@ -132,6 +151,11 @@ fn explain() {
     eprintln!("    `Date` shipped that, and the definition digest is taken over the serialized");
     eprintln!("    form - so it covered a shape no catalog file contains. `#[serde(into = \"..\")]`");
     eprintln!("    or a hand-written `impl Serialize` is the fix.");
+    eprintln!("  * an input struct a `try_from` names WITHOUT `deny_unknown_fields` accepts a key");
+    eprintln!("    nobody declared and drops it. The outer type's own attribute cannot reach it:");
+    eprintln!("    `try_from` hands the whole mapping to the input struct. `TimeRangeInput` was");
+    eprintln!("    that, and five documents said the closedness held at every depth while a key");
+    eprintln!("    inside a `range:` was discarded in silence. The attribute is the fix.");
     eprintln!("If a case here genuinely belongs, change the rule in xtask/src/serde_parse.rs with");
     eprintln!("the reason: that is an architecture decision and should be a visible diff.");
 }
@@ -205,6 +229,33 @@ fn asymmetric_serde(rel: &str, facts: &FileFacts) -> Vec<String> {
     problems
 }
 
+/// Rule three: the input struct a `try_from` names, accepting keys nobody declared.
+///
+/// Scoped to a named-field input struct declared in the same file, which is the class rule two
+/// already identifies - `deny_unknown_fields` means nothing on a newtype, and `try_from = "String"`
+/// names no declaration to check. So the rule adds no new recognition, only the attribute check the
+/// class was missing.
+fn open_input_structs(rel: &str, facts: &FileFacts) -> Vec<String> {
+    let mut problems = Vec::new();
+    for declaration in &facts.declared {
+        let Some(target) = scan::serde_arg(&declaration.attrs, "try_from") else {
+            continue;
+        };
+        let Some(input) = facts.declared.iter().find(|other| other.name == target) else {
+            continue;
+        };
+        if !matches!(input.shape, Shape::Named(_)) || scan::serde_flag(&input.attrs, "deny_unknown_fields") {
+            continue;
+        }
+        problems.push(format!(
+            "{rel}:{}: `{target}` is the input shape `{}` deserializes through and does not deny unknown \
+             fields - a key inside it is dropped in silence",
+            input.line, declaration.name
+        ));
+    }
+    problems
+}
+
 /// Does a derived `Serialize` on `shape` write what `target` deserializes from?
 ///
 /// The two accepted cases are the module documentation's two: a newtype struct over `target`
@@ -223,15 +274,26 @@ fn round_trips(shape: &Shape, target: &str, declared: &[Declared]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{asymmetric_serde, bypassed_constructors, facts_of, in_scope};
+    use super::{asymmetric_serde, bypassed_constructors, facts_of, in_scope, open_input_structs};
 
-    /// The two rules over one file's text, as the gate runs them.
+    /// The three rules over one file's text, as the gate runs them.
     fn findings(text: &str) -> Vec<String> {
         let facts = facts_of(text);
         let mut problems = bypassed_constructors("x.rs", &facts);
         problems.extend(asymmetric_serde("x.rs", &facts));
+        problems.extend(open_input_structs("x.rs", &facts));
         problems
     }
+
+    /// A `Range` over an input struct, with the input struct's attribute run given as a parameter
+    /// so each case below differs by exactly the line under test.
+    fn over_input(input_attrs: &str, input_fields: &str) -> String {
+        format!(
+            "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"RangeInput\")]\npub struct Range {{\n    start: Date,\n    end: Date,\n}}\n\n{input_attrs}\nstruct RangeInput {{\n{input_fields}}}\n"
+        )
+    }
+
+    const SAME_FIELDS: &str = "    start: Date,\n    end: Date,\n";
 
     /// A validated newtype, with the attribute run given as a parameter so each case below
     /// differs by exactly the line under test.
@@ -319,14 +381,48 @@ mod tests {
     #[test]
     fn a_named_struct_whose_input_shape_matches_round_trips() {
         // `TimeRange` over `TimeRangeInput`: the wire form is the mapping both halves agree on.
-        let text = "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"RangeInput\")]\npub struct Range {\n    start: Date,\n    end: Date,\n}\n\n#[derive(serde::Deserialize)]\nstruct RangeInput {\n    start: Date,\n    end: Date,\n}\n";
-        assert!(findings(text).is_empty());
+        let text = over_input("#[derive(serde::Deserialize)]\n#[serde(deny_unknown_fields)]", SAME_FIELDS);
+        assert!(findings(&text).is_empty(), "{:?}", findings(&text));
     }
 
     #[test]
     fn a_named_struct_whose_input_shape_differs_does_not() {
-        let text = "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"RangeInput\")]\npub struct Range {\n    start: Date,\n    end: Date,\n}\n\n#[derive(serde::Deserialize)]\nstruct RangeInput {\n    from: Date,\n    to: Date,\n}\n";
-        assert_eq!(findings(text).len(), 1);
+        let text = over_input(
+            "#[derive(serde::Deserialize)]\n#[serde(deny_unknown_fields)]",
+            "    from: Date,\n    to: Date,\n",
+        );
+        assert_eq!(findings(&text).len(), 1);
+    }
+
+    #[test]
+    fn an_input_struct_that_accepts_an_undeclared_key_is_refused() {
+        // The `TimeRangeInput` defect exactly: the outer type's own `deny_unknown_fields` cannot
+        // reach the mapping, because `try_from` hands the whole mapping to the input struct. The
+        // twin above differs by the one attribute line and is empty.
+        let text = over_input("#[derive(serde::Deserialize)]", SAME_FIELDS);
+        let found = findings(&text);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found
+                .first()
+                .is_some_and(|p| p.contains("does not deny unknown fields") && p.contains("RangeInput")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_try_from_naming_no_declaration_in_the_file_is_not_this_rule() {
+        // `try_from = "String"` and the nine newtypes over it: there is no input struct to check,
+        // and a rule that reported them would be reporting the absence of a file it never read.
+        let text =
+            "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Digest(String);\n";
+        assert!(findings(text).is_empty());
+    }
+
+    #[test]
+    fn a_newtype_input_struct_has_no_fields_to_deny() {
+        let text = "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"Inner\", into = \"Inner\")]\npub struct Wrapped(Inner);\n\n#[derive(serde::Serialize, serde::Deserialize)]\nstruct Inner(String);\n";
+        assert!(findings(text).is_empty(), "{:?}", findings(text));
     }
 
     #[test]

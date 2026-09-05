@@ -1124,24 +1124,29 @@ where the documented source build did not compile.
 
 **Two couplings this lane rests on. One is held now, and it was not when the lane landed.**
 
-**WHICH FEATURES ARE PROBED - held, by `cargo xtask check-shipped-binaries`.** `ci.yml`'s refusal
-is *the manifest has at least one row*, and that was read as *a probe cannot silently disappear*.
-It is not the same claim: zero rows means *the CLI probe is gone* only because the other binary
+**WHICH FEATURES ARE PROBED - held, by `cargo xtask check-shipped-binaries`.** The refusal in
+`.github/workflows/cross-link.yml` is *the manifest has at least one row*, and that was read as *a
+probe cannot silently disappear*. It is not the same claim: zero rows means *the CLI probe is gone* only because the other binary
 declares none, which is a property of today's data rather than of the construction. Declare a probe
 for `sutura-serve` and delete `"bigquery"` from `sutura-cli`'s, and the manifest is still non-empty
-- the four `cross` jobs go green and this record's claim reverts to *assumed* with no signal at all.
+- the four link legs go green and this record's claim reverts to *assumed* with no signal at all.
 The coupling that closes it is the one nothing checked: a page tells a reader to run
 `cargo build --release -p sutura-cli --features bigquery`, and `probeFeatures` had to contain that
 feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
 fails, and so does a tree where no page documents such a build at all, because a reconciliation
 against nothing passes everything.
 
-**WHICH TRIPLES ARE PROBED - still not held.** `ci.yml`'s `cross` matrix spells the four triples as
-literals, as `release.yml`'s does, and `check-shipped-binaries` reconciles the shipped BINARIES
-between those files and `nix/shipped.nix` - not the TARGETS. So a triple added to `crossTargets` and
-to `release.yml` but not to `ci.yml` would ship having been linked by nothing, with the feature or
-without it, and the only thing saying otherwise is a comment above the matrix. The reverse direction
-does fail closed, freely: a matrix target that is not a release target has no
+**WHICH TRIPLES ARE PROBED - still not held.** The link matrix in
+`.github/workflows/cross-link.yml` spells the four triples as literals, as `release.yml`'s does, and
+`check-shipped-binaries` reconciles the shipped BINARIES between those files and `nix/shipped.nix` -
+not the TARGETS. So a triple added to `crossTargets` and to `release.yml` but not to
+`cross-link.yml` would ship having been linked by nothing, with the feature or without it, and the
+only thing saying otherwise is a comment above that matrix. **The matrix moved out of `ci.yml` and
+this pointer moved with it** - which is the second failure mode of a coupling held by prose: not
+only can the comment go, the sentence naming where to read it can be left behind. `cross:` in
+`ci.yml` is now a three-key caller with no `strategy.matrix` in it at all, so a reader sent to that
+file finds nothing to add a triple to. The reverse direction does fail closed, freely: a matrix
+target that is not a release target has no
 `feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a matrix
 cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
 reconciling this pair too. It is the same shape as the rule above and is a separate change.

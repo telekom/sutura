@@ -221,6 +221,10 @@ of its own.
 
 ## `use None`
 
+## `use None`
+
+## `use None`
+
 ## Module `transport`
 
 The one thing this adapter needs from a `BigQuery` endpoint, as a port.

@@ -389,7 +389,8 @@ let
 
   # WHAT TO BUILD FOR ONE TRIPLE, as a file at a FIXED attribute name: `feature-probes-<triple>`
   # holds one row per probe - the package to build, the executable it installs, and the feature it
-  # was built with - and `ci.yml` reads the three fields rather than deriving any of them.
+  # was built with - and `.github/workflows/cross-link.yml` reads the three fields rather than
+  # deriving any of them.
   #
   # **A FILE RATHER THAN A PATTERN IN THE WORKFLOW, and the reason is a dead gate this branch
   # shipped and then measured.** The step used to RECONSTRUCT the set from the package names above
@@ -546,7 +547,7 @@ let
     # shipped binary with `cargo auditable`, which puts the crates the compiler actually
     # linked into one ELF section, and `rust-audit-info` reads them back. A check over
     # `Cargo.toml` would be asserting what somebody wrote down; this asserts what shipped.
-    # It is the same section `release.yml`'s SBOM and `ci.yml`'s cross job already depend
+    # It is the same section `release.yml`'s SBOM and the pull-request link check already depend
     # on, so a build that stopped embedding it fails here too rather than passing quietly.
     #
     # TWO DIRECTIONS, because only checking the absence would pass on a binary that linked

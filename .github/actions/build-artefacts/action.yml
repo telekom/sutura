@@ -254,7 +254,7 @@ runs:
           # **`grep -o ... | wc -l`, NEVER `grep -c`.** `grep -c` counts matching LINES, and
           # syft writes JSON on ONE line - so it returns 1 for a document naming 241 packages
           # and 1 for a document naming none. This step shipped with `grep -c` and would have
-          # failed every release; `ci.yml`'s cross job is what caught it, on the pull request,
+          # failed every release; the pull-request link check is what caught it, on the branch,
           # which is the argument for that check existing at all.
           #
           # COUNTED PER FORMAT rather than through a shared key. `"name":` also appears in tool

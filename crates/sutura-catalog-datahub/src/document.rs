@@ -292,20 +292,32 @@ impl MetricAspect {
     }
 }
 
-/// `DataHub`'s view of the deployment-defined metric content: ONE structured property named
-/// `sutura`, whose single scalar value is the JSON document below.
+/// `DataHub`'s view of the deployment-defined metric content: ONE structured property, whose single
+/// scalar value is the JSON document below.
 ///
 /// **This is what makes the scalar-only constraint literal rather than prose.** `DataHub`'s
 /// `structuredProperty` has no nested or record value type, so a deployment cannot define a nested
-/// object under `sutura` at all; what it can define is one string-valued property, and
-/// [`Self::assemble`] is the step that turns that scalar into the nested [`SuturaContent`] - the
-/// issue #202 mechanism, implemented here and exercised by a fixture recorded in this flat form
-/// rather than left to a sentence. The scalar payload is still bounded by the value-type limits a
-/// deployment's `DataHub` enforces; this crate adds none of its own.
+/// object at all; what it can define is one string-valued property, and [`Self::assemble`] is the
+/// step that turns that scalar into the nested [`SuturaContent`] - the issue #202 mechanism,
+/// implemented here and exercised by a fixture recorded in this flat form rather than left to a
+/// sentence.
+///
+/// **The property's NAME is the deployment's and does not appear here.** `sutura` is the field
+/// [`MetricAspect`] carries this under on the adapter's own canonical shape; which structured
+/// property a reader maps onto it is `docs/adr/0016` decision 7's *not ours to say*, and
+/// `tests/provisioned.rs` registers one whose name shares nothing with this field precisely so the
+/// independence is measured.
+///
+/// The scalar payload is bounded by the value-type limits a deployment's `DataHub` enforces - the
+/// platform names its own as `structuredProperties.keywordMaxLength`, because the value is indexed
+/// as an Elasticsearch keyword, so the bound is an index setting rather than a constant here.
+/// What is measured is that the refusal NAMES that setting; nothing has raised it and retried,
+/// so whether a deployment can move it is `DataHub`'s documentation and not this repository's
+/// measurement. This crate adds no bound of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SuturaProperty {
-    /// The scalar value of the `sutura` structured property: the metric content as JSON text.
+    /// The scalar value of the deployment's structured property: the metric content as JSON text.
     string_value: String,
 }
 
@@ -341,10 +353,19 @@ impl SuturaProperty {
 /// vocabularies.** The `measure` is the `sutura-domain` [`Measure`] type itself - the closed set,
 /// written exactly as this repository writes it - the `grains` and `required_filters` are the
 /// closed `Grain` and `RequiredFilter` enums, and a `dimension` and an `anchor` mirror the markdown
-/// document's shapes with `deny_unknown_fields` at every depth refusing a property this adapter
-/// does not recognise rather than guessing. An aggregate out of the closed set, an unknown operator,
-/// an unparseable value, an unknown grain, an unclosed namespace key - all fail the decode before
-/// the conversion sees them.
+/// document's shapes. `deny_unknown_fields` sits on this document, on the measure and on the term
+/// inside it, on a filter, on a dimension, on the anchor and on the range inside the anchor, and
+/// refuses a property this adapter does not recognise rather than guessing. An aggregate out of the
+/// closed set, an unknown operator, an unparseable value, an unknown grain, an unknown key at any of
+/// those levels - all fail the decode before the conversion sees them, naming the key.
+///
+/// **The range is where that used to stop**, which is worth recording because the claim read *at
+/// every depth* while it was one depth short: `sutura_domain::calendar::TimeRangeInput` carried no
+/// `deny_unknown_fields`, so a key written INSIDE the range object was discarded in silence rather
+/// than named, and the metric was certified from a document nobody had read in full. The attribute
+/// is on that domain shape now, which closes the same hole on the markdown catalog and question
+/// paths that decode the same type, and
+/// `a_key_inside_an_anchor_range_is_refused_through_the_load_path` is what holds it here.
 ///
 /// The three free strings - `model`, `time_column`, and each nested `column` - are the one thing
 /// this shape cannot close, and they are parsed as domain identifier types during the conversion

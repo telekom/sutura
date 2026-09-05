@@ -20,8 +20,6 @@
 
 use std::path::Path;
 
-use super::matches_any;
-
 // Both split off under the 1000-line cap, on the seam the causality gate forces: the mechanism
 // moves and every assertion stays in `tests` below, in the file that DECLARES the module - a file
 // adding no `#[test]` is one that gate may revert, which would take the declaration with it and
@@ -506,10 +504,10 @@ pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> 
             continue;
         }
         for rel in files {
-            if !rule.only.is_empty() && !matches_any(rule.only, rel) {
+            if !rule.only.is_empty() && !crate::repo::matches_any(rule.only, rel) {
                 continue;
             }
-            if matches_any(rule.except, rel) {
+            if crate::repo::matches_any(rule.except, rel) {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
@@ -740,7 +738,7 @@ mod tests {
         {
             let quoted = files
                 .iter()
-                .filter(|rel| super::matches_any(rule.except, rel))
+                .filter(|rel| crate::repo::matches_any(rule.except, rel))
                 .filter_map(|rel| std::fs::read_to_string(root.join(rel)).ok())
                 .any(|text| {
                     rule.wordings

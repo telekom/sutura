@@ -116,14 +116,15 @@ pub enum Reason {
 /// Which venue answers for a service, so a remedy cites THAT venue's task rather than assuming one.
 ///
 /// There are two and they are not interchangeable: the compose tier is the demo a person brings up
-/// on their own machine, and a nix-native tier is what `checks.nextest` and `just test` provision
-/// where there is no docker socket and no network. `compose.services.yaml` declares which one
-/// answers per service, and the gate holding that declaration holds it against the existence of the
-/// module - so the MODULE is the ground truth, and reading it here derives the same answer instead
-/// of adding a second declaration to keep true.
+/// on their own machine, and a nix-native tier is what a nix check provisions where there is no
+/// docker socket - one check per tier, which is why the task that starts one is per tier too.
+/// `compose.services.yaml` declares which venue answers per service, and the gate holding that
+/// declaration holds it against the existence of the module - so the MODULE is the ground truth,
+/// and reading it here derives the same answer rather than adding a declaration to keep true.
 #[derive(Debug)]
 enum Venue {
-    /// A nix-native tier. Nothing to enable: it is started, or it is not.
+    /// A nix-native tier. Nothing to enable: it is started, or it is not - and a service may have
+    /// a compose block as well, which is why this wins (see [`venue`]) rather than merging.
     NixTier {
         /// The module, repo-relative, so the remedy names a file a reader can open.
         module: String,
@@ -140,11 +141,9 @@ enum Venue {
 ///
 /// **The tier wins over the compose row, and that order is the fix rather than an accident.** A
 /// service that moved to a tier KEEPS its compose block, because the block is the demo - so a
-/// lookup that stopped at the row would hand a reader the venue that is no longer the one CI and
-/// `just test` run, which is the same wrong-venue advice the comment in [`Absent::remedy`] records.
-///
-/// `None` for the worktree is the case where the walk upwards found no root, so no module can be
-/// looked for; the compose row is still readable, because it is compiled in.
+/// lookup stopping at the row would hand a reader the venue CI no longer provisions, which is the
+/// same wrong-venue advice [`Venue::advice`] records. `None` for the worktree is the walk upwards
+/// finding no root, so no module can be looked for; the compose row is compiled in and still reads.
 fn venue(worktree: Option<&Path>, service: &str) -> Venue {
     let module = format!("nix/{service}-tier.nix");
     if worktree.is_some_and(|root| root.join(&module).is_file()) {
@@ -156,6 +155,64 @@ fn venue(worktree: Option<&Path>, service: &str) -> Venue {
         .map_or(Venue::Undeclared, |declared| {
             declared.profile().map_or(Venue::ComposeDefault, Venue::Profile)
         })
+}
+
+impl Venue {
+    /// The task that starts `service` here, as the line a reader is handed.
+    ///
+    /// **One derivation for every arm of [`Absent::remedy`] that names a task for a service.**
+    /// Which venue answers decides which task starts it; *why* it is absent does not, so a second
+    /// copy is only a way for the two to disagree - and `github.com/telekom/sutura#267` is that
+    /// with the count at zero: the `NotProvisioned` arm printed a constant `just dev-up` four lines
+    /// above the arm that derived one, and that is the wrong venue for three of the four services
+    /// this crate is asked for.
+    ///
+    /// **Each half of the derivation was a wrong constant once, which is why neither is one now.**
+    /// The profile was `just dev-up-identity` while `identity` was the only profile, so the day a
+    /// second arrived a reader missing `datahub` was told to bring up Keycloak; its replacement
+    /// listed every profile and cited a raw `xtask` line, the one form `AGENTS.md` says a reader is
+    /// never told to type. The tier was `just test`, which is true of `postgres` and of nothing
+    /// else - that recipe sources `nix/with-tier.sh`, which starts the Postgres tier and no other,
+    /// while the identity tier has a nix check of its own for the reason `flake.nix` gives where it
+    /// declares it. So a reader missing `keycloak` was sent to a task that starts nothing for it,
+    /// and the cross-arm test added to close the class asserted that literal for every tier,
+    /// pinning it.
+    ///
+    /// So the task is per tier, `just <service>-tier start`, and three checks hold that:
+    /// [`venue`] keeps the venue true, `every_command_this_remedy_names_is_a_just_task_that_exists`
+    /// keeps the cited name a recipe that exists, and
+    /// `a_nix_tier_remedy_cites_the_task_whose_module_publishes_that_service` reads the cited task
+    /// back to the `nix/<task>.nix` this arm names and fails unless that module publishes an
+    /// endpoint for THIS service - which `just test` cannot satisfy for any service, and could not
+    /// have satisfied for `keycloak`.
+    ///
+    /// **The limit, next to the claim: all three are text, and none of them runs the task.** A
+    /// module that publishes a service it cannot actually start reads as correct to every one of
+    /// them. That half is a measurement, and on 2026-09-05 each of the four venues was followed to
+    /// the letter in one worktree - `just dev-up` for `clickhouse`, `just keycloak-tier start`,
+    /// `just dev-up-datahub` and `just postgres-tier start` - and `just dev-endpoint <service>`
+    /// then printed where each had landed. A remedy nothing checks is prose, and prose rots
+    /// silently.
+    fn advice(&self, service: &str) -> String {
+        match *self {
+            Self::NixTier { ref module } => format!(
+                "`just {service}-tier start` - `{service}` is a nix-native tier ({module}), started by that \
+                 task and needing no docker socket"
+            ),
+            Self::Profile(profile) => format!(
+                "`just dev-up-{profile}` - `{service}` is behind the `{profile}` compose profile, which is off \
+                 unless it is asked for"
+            ),
+            Self::ComposeDefault => format!(
+                "`just dev-up` - `{service}` is a compose service with no profile, so a provision that finished \
+                 would have started it"
+            ),
+            Self::Undeclared => format!(
+                "nothing declares `{service}` yet - a service is a row in `compose.services.yaml` or a \
+                 `nix/<service>-tier.nix` module, and this worktree has neither for it"
+            ),
+        }
+    }
 }
 
 impl Absent {
@@ -181,78 +238,49 @@ impl Absent {
         &self.0.reason
     }
 
+    /// The line naming the task that starts the service this was raised about - called by every
+    /// arm of [`Absent::remedy`] that names one, so the venue and the service cannot come apart.
+    fn venue_advice(&self) -> String {
+        venue(self.0.worktree.as_deref(), &self.0.service).advice(&self.0.service)
+    }
+
     /// What to run, chosen from the reason rather than printed unconditionally.
     ///
     /// A message that says "run `just dev-up`" when the tier is already up and the service is
     /// behind a profile sends somebody to re-run something that will not help.
+    ///
+    /// **Every arm that names a task for a service goes through [`Absent::venue_advice`]** - all
+    /// three, since the unreadable-file arm joined them. It used to end `just dev-down` then
+    /// `just dev-up`, which re-serialises the discovery document from the docker services it read
+    /// and so DROPPED a nix tier's entry - the justfile records that half beside `dev-up`. What the
+    /// file needs is the reset; what the service needs is its own venue.
+    ///
+    /// One line per line of the message; the label and the hanging indent under it belong to the
+    /// `Display` impl, so no arm has to know whether its line comes first.
     fn remedy(&self) -> Vec<String> {
         match self.0.reason {
             Reason::NoWorktree { .. } => vec![String::from(
-                "run        this from inside a checkout of this repository - the walk upwards found no root",
+                "this from inside a checkout of this repository - the walk upwards found no root",
             )],
             Reason::NoScope(_) => vec![String::from(
-                "run        nothing yet - the worktree root did not resolve, which is a filesystem problem",
+                "nothing yet - the worktree root did not resolve, which is a filesystem problem",
             )],
             Reason::NotDiscovered(ref problem) => match *problem {
                 DiscoveryError::NotProvisioned { .. } => vec![
-                    String::from("run        `just dev-up` - it starts this worktree's services and writes that file"),
-                    format!(
-                        "             `just dev-endpoint {}` then prints where it landed",
-                        self.0.service
-                    ),
+                    self.venue_advice(),
+                    format!("`just dev-endpoint {}` then prints where it landed", self.0.service),
                 ],
                 DiscoveryError::UnknownService { .. } => vec![
-                    String::from("run        `just dev-endpoints` to see what this worktree actually has, and"),
-                    // BOTH HALVES ARE DERIVED, and each of them was wrong once.
-                    //
-                    // The profile used to be named - `just dev-up-identity`, the only one there was
-                    // - so the day a second arrived it became advice that starts the wrong stack: a
-                    // reader whose missing service was `datahub` was told to bring up Keycloak. The
-                    // replacement listed every profile and cited `xtask dev-up --with <profile>`,
-                    // which is a raw command line where all four sibling remedies here cite a `just`
-                    // task - the one form `AGENTS.md` says a reader is never told to type, and at the
-                    // time enforced by `check-guidance` over prose and therefore by nothing over a
-                    // string literal. It also assumed the compose venue, which stops being true for
-                    // a service the day it gets a nix-native tier.
-                    //
-                    // So [`venue`] keeps the venue true and
-                    // `every_command_this_remedy_names_is_a_just_task_that_exists` keeps the task
-                    // name true. A remedy nothing checks is prose, and prose rots silently.
-                    //
-                    // The generalisation landed with `github.com/telekom/sutura#243`:
-                    // `check-guidance` now resolves a `just` or `cargo xtask` citation in every
-                    // `.rs` file the repository publishes, so the next module to print a task name
-                    // is held without a test of its own. It cannot resolve an INTERPOLATED name -
-                    // `just dev-up-{profile}` below is one - which is the half the test here keeps.
-                    match venue(self.0.worktree.as_deref(), &self.0.service) {
-                        Venue::NixTier { ref module } => format!(
-                            "             `just test` provisions it - `{}` is a nix-native tier ({module}) and not a \
-                             compose profile, so there is no profile to enable",
-                            self.0.service
-                        ),
-                        Venue::Profile(profile) => format!(
-                            "             `just dev-up-{profile}` - `{}` is behind the `{profile}` compose profile, \
-                             which is off unless it is asked for",
-                            self.0.service
-                        ),
-                        Venue::ComposeDefault => format!(
-                            "             `just dev-up` - `{}` is a compose service with no profile, so a provision \
-                             that finished would have started it",
-                            self.0.service
-                        ),
-                        Venue::Undeclared => format!(
-                            "             nothing declares `{}` - a service is a row in `compose.services.yaml` or a \
-                             `nix/<service>-tier.nix` module, and this worktree has neither for it",
-                            self.0.service
-                        ),
-                    },
+                    String::from("`just dev-endpoints` to see what this worktree actually has, and"),
+                    self.venue_advice(),
                 ],
                 DiscoveryError::Unreadable { .. }
                 | DiscoveryError::Malformed { .. }
                 | DiscoveryError::UnreadablePublishedAddress { .. }
-                | DiscoveryError::Unwritable { .. } => vec![String::from(
-                    "run        `just dev-down` then `just dev-up` - the discovery file is not readable as one",
-                )],
+                | DiscoveryError::Unwritable { .. } => vec![
+                    String::from("`just dev-down` - the discovery file is not readable as one, so it goes, and"),
+                    self.venue_advice(),
+                ],
             },
         }
     }
@@ -268,8 +296,16 @@ impl std::fmt::Display for Absent {
             writeln!(f, "  discovery  {}", discovery.display())?;
         }
         writeln!(f, "  because    {}", self.0.reason)?;
-        for line in self.remedy() {
-            writeln!(f, "  {line}")?;
+        // The label once, and every line after it hanging two columns past the field column above
+        // - so a continuation cannot be misread as another field, and an arm supplying a line does
+        // not have to know how many came before it. That last part is what a shared advice line
+        // needs: the same sentence is the first line of one remedy and the second of another.
+        let mut remedy = self.remedy().into_iter();
+        if let Some(first) = remedy.next() {
+            writeln!(f, "  run        {first}")?;
+        }
+        for line in remedy {
+            writeln!(f, "               {line}")?;
         }
         write!(
             f,
@@ -315,7 +351,11 @@ impl std::error::Error for Absent {
 /// let problem = provisioned::in_worktree(&std::env::temp_dir(), "postgres")
 ///     .expect_err("nothing is provisioned in a temporary directory");
 /// assert_eq!(problem.service(), "postgres");
-/// assert!(problem.to_string().contains("just dev-up"), "{problem}");
+/// assert!(problem.to_string().contains("no default port"), "{problem}");
+///
+/// // And the remedy is derived from the directory that was ASKED about, not from this repository:
+/// // a temporary directory declares `postgres` under neither venue, so there is no task to name.
+/// assert!(problem.to_string().contains("nothing declares `postgres` yet"), "{problem}");
 /// ```
 pub fn in_worktree(root: &Path, service: &str) -> Result<Endpoint, Absent> {
     let scope = Scope::from_root(root)
@@ -428,7 +468,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
-    use super::{Absent, Reason, in_worktree, worktree_root};
+    use super::{Absent, Reason, Venue, in_worktree, worktree_root};
     use crate::discovery::{DiscoveryError, Malformed, publish};
     use crate::scope::{SERVICES, Scope, ScopeError, Service};
 
@@ -437,6 +477,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("sutura-provisioned-{}-{tag}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dirs are creatable");
         dir
+    }
+
+    /// The backtick span a nix tier's remedy has to carry, spelled from the service - one
+    /// derivation for the three assertions that read one, because a literal pinned the wrong task.
+    fn tier_task(service: &str) -> String {
+        format!("`just {service}-tier start`")
     }
 
     /// A service every default provision brings up, read from the declaration rather than typed.
@@ -481,19 +527,43 @@ mod tests {
     fn an_unprovisioned_worktree_names_the_file_and_the_task_rather_than_failing_to_connect() {
         // The diagnostic IS the deliverable: without it the symptom is a connection refused inside
         // whatever test was running, attributed to the code under test.
+        //
+        // THIS ASSERTION USED TO PIN THE DEFECT: it read `contains("just dev-up")`, satisfied
+        // twice over by a message naming the wrong venue twice, for the service this harness is
+        // asked for most and the one with no compose block at all. A test that pins wrong output
+        // is worse than no test, because correcting the output turns it red while it reads as
+        // coverage until somebody tries.
+        //
+        // The fixture supplies the module, the way the venue test below does: a bare temporary
+        // directory declares no service under either venue, so it cannot show a derivation at all.
         let dir = temp_worktree("diagnostic");
+        let module = "nix/postgres-tier.nix";
+        std::fs::create_dir_all(dir.join("nix")).expect("temp dirs are creatable");
+        std::fs::write(dir.join(module), "# a tier module, as far as this test is concerned\n").expect("writes");
         let problem = in_worktree(&dir, "postgres").expect_err("nothing is provisioned there");
-
-        assert!(matches!(
+        let reason_is_absence = matches!(
             *problem.reason(),
             Reason::NotDiscovered(DiscoveryError::NotProvisioned { .. })
-        ));
+        );
         let message = problem.to_string();
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+
+        assert!(reason_is_absence, "{message}");
         assert!(message.contains("endpoints.json"), "{message}");
-        assert!(message.contains("just dev-up"), "{message}");
         assert!(message.contains("postgres"), "{message}");
         assert!(message.contains("no default port"), "{message}");
-        std::fs::remove_dir_all(&dir).expect("cleanup");
+        assert!(
+            message.contains(&tier_task("postgres")),
+            "the advice names no task, or not this tier's own: {message}"
+        );
+        assert!(message.contains(module), "the advice does not name the module: {message}");
+        // BOTH copies of the constant at once - the remedy's own line, and the `because` line above
+        // it, which is a `DiscoveryError` carrying no service and therefore no way to pick a venue.
+        // Either one coming back fails here.
+        assert!(
+            !message.contains("dev-up"),
+            "a nix-native tier is not brought up by the compose tier: {message}"
+        );
     }
 
     #[test]
@@ -518,12 +588,9 @@ mod tests {
         ));
         let message = problem.to_string();
         assert!(!message.contains("`just dev-up` - it starts"), "wrong advice: {message}");
-        // THE PROFILE THE MISSING SERVICE DECLARES, and the task that enables it. Two wrong shapes
-        // came first, in order: `just dev-up-identity` unconditionally, which was correct while
-        // `identity` was the only profile and became advice that starts the wrong stack the day a
-        // second arrived - a reader whose missing service was `datahub` was told to bring up
-        // Keycloak; then a derived list of EVERY profile, which is never wrong and never says which
-        // one to type. The service knows its own profile, so the advice is one task.
+        // THE PROFILE THE MISSING SERVICE DECLARES, and the task that enables it - not a constant
+        // and not a list of every profile, both of which this advice was. `Venue::advice` records
+        // which way each of those failed.
         assert!(message.contains(&format!("`just dev-up-{profile}`")), "{message}");
         for other in super::super::scope::profiles() {
             assert!(
@@ -558,6 +625,28 @@ mod tests {
         // the split follows no closing one, so it is not a span.
         let closed = parts.len().saturating_sub(1);
         parts.iter().take(closed).skip(1).step_by(2).copied().collect()
+    }
+
+    /// Every service a remedy can be asked about, under BOTH venues, because the venue is what
+    /// decides the task.
+    ///
+    /// A row in `SERVICES` is the compose side; a `nix/<name>-tier.nix` is the other one - and
+    /// Postgres is ONLY ever the second, so a walk over `SERVICES` alone would miss the service this
+    /// harness is asked for most. Fails closed on finding no tier: a walk that covers one venue is
+    /// broken rather than clean, and both callers here read a venue off what it returns.
+    fn every_service_under_both_venues(root: &Path) -> BTreeSet<String> {
+        let mut services: BTreeSet<String> = SERVICES.iter().map(|service| String::from(service.name())).collect();
+        for entry in std::fs::read_dir(root.join("nix")).expect("nix/ is readable") {
+            let name = entry.expect("a readable directory entry").file_name();
+            if let Some(service) = name.to_string_lossy().strip_suffix("-tier.nix") {
+                services.insert(String::from(service));
+            }
+        }
+        assert!(
+            services.len() > SERVICES.len(),
+            "this walk found {services:?} and no nix tier, so it would not cover the second venue"
+        );
+        services
     }
 
     /// A label per reason, with NO wildcard arm - so a new variant fails to compile HERE rather than
@@ -615,54 +704,42 @@ mod tests {
     fn every_command_this_remedy_names_is_a_just_task_that_exists() {
         // THE MECHANISM for `AGENTS.md`'s "cite a `just` task, never a raw command line", held where
         // a reader is actually TOLD rather than where a reader is documented to. When this was
-        // written it was the ONLY one: `check-guidance` filtered to prose - `.md`, `.nix`, `.yml`,
-        // `.yaml`, `.toml`, `.sh` - and the justfile gate reads the justfile, so a citation inside a
-        // Rust string literal was outside every citation checker in the repository. This remedy said
-        // `xtask dev-up --with <profile>` while its four siblings cited `just` tasks, and nothing
-        // was red.
+        // written it was the ONLY one: `check-guidance` filtered to prose and the justfile gate reads
+        // the justfile, so a citation inside a Rust string literal was outside every citation checker
+        // in the repository - this remedy said `xtask dev-up --with <profile>` while its four
+        // siblings cited `just` tasks, and nothing was red.
         //
         // `github.com/telekom/sutura#243` then made that a gate, because one module's unit test is a
-        // mechanism for the module and not for the rule. TWO HALVES SURVIVE HERE, and neither is a
-        // duplicate of it: the gate resolves a written-out name in any `.rs` file and CANNOT resolve
-        // an interpolated one, which `just dev-up-{profile}` is; and the gate reads only the two
-        // invocation prefixes, so "a multi-word span must BEGIN `just `" - the half that caught the
-        // original defect - is still held only here, where four sibling remedies establish the form.
-        //
-        // Two halves, and the second is the one that fires on a rename: a multi-word backtick span
-        // in a remedy IS an invocation, so it has to begin `just `; and the task it names has to be
-        // a recipe that exists.
+        // mechanism for the module and not for the rule. TWO HALVES SURVIVE HERE, neither a duplicate
+        // of it: an INTERPOLATED name, which `just dev-up-{profile}` is and the gate cannot resolve;
+        // and "a multi-word backtick span must BEGIN `just `" - the half that caught the original
+        // defect and the one that fires on a rename - because the gate reads only the two invocation
+        // prefixes, while four sibling remedies here establish the form.
         //
         // WHAT IT DOES NOT REACH: a single-word span, deliberately. `` `datahub` ``, `` `identity` ``
         // and `` `endpoints.json` `` are single-word spans these messages need, so a bare
         // `` `docker` `` would not be read as an invocation. Nor does it reach any other module -
         // this is one function's output and nothing else, which is what `check-guidance`'s `advice`
-        // check covers instead.
+        // check covers instead. And it resolves only that a cited name IS a recipe; that the recipe
+        // provisions the service it was cited for is the test below.
         let root = worktree_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("this crate is inside a checkout");
         let justfile = std::fs::read_to_string(root.join("justfile")).expect("the justfile is readable");
         let tasks = recipes(&justfile);
-        for expected in ["test", "dev-up", "dev-endpoint", "dev-endpoints", "dev-down"] {
+        for expected in [
+            "keycloak-tier",
+            "postgres-tier",
+            "dev-up",
+            "dev-endpoint",
+            "dev-endpoints",
+            "dev-down",
+        ] {
             assert!(
                 tasks.contains(expected),
                 "the recipe scan is broken rather than the justfile: no `{expected}` among {tasks:?}"
             );
         }
 
-        // Every service a remedy can be asked about, under BOTH venues, because the venue is what
-        // decides the task. A row in `SERVICES` is the compose side; a `nix/<name>-tier.nix` is the
-        // other one - and Postgres is ONLY ever the second, so a scan over `SERVICES` alone would
-        // miss the service this harness is asked for most.
-        let mut services: BTreeSet<String> = SERVICES.iter().map(|service| String::from(service.name())).collect();
-        for entry in std::fs::read_dir(root.join("nix")).expect("nix/ is readable") {
-            let name = entry.expect("a readable directory entry").file_name();
-            if let Some(service) = name.to_string_lossy().strip_suffix("-tier.nix") {
-                services.insert(String::from(service));
-            }
-        }
-        assert!(
-            services.len() > SERVICES.len(),
-            "this scan found {services:?} and no nix tier, so it would not cover the second venue"
-        );
-
+        let services = every_service_under_both_venues(&root);
         let mut reasons: BTreeSet<&str> = BTreeSet::new();
         let mut cited: usize = 0;
         for service in &services {
@@ -715,6 +792,43 @@ mod tests {
         );
     }
 
+    /// The cited task, read back to the module that task runs: a tier's advice names
+    /// `just <task> start`, and `nix/<task>.nix` has to publish an endpoint for the very service
+    /// the advice was built for. ONE STEP PAST the recipe scan above, which resolves only that a
+    /// cited name IS a recipe - `just test` is one, and citing it for `keycloak` was the defect.
+    /// STILL TEXT: whether a module starts what it publishes is the measurement in
+    /// `Venue::advice`.
+    #[test]
+    fn a_nix_tier_remedy_cites_the_task_whose_module_publishes_that_service() {
+        let root = worktree_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("this crate is inside a checkout");
+        let mut checked = 0_usize;
+        for service in every_service_under_both_venues(&root) {
+            let venue = super::venue(Some(&root), &service);
+            let Venue::NixTier { ref module } = venue else {
+                continue;
+            };
+            let advice = venue.advice(&service);
+            let task = spans(&advice)
+                .into_iter()
+                .find_map(|span| span.strip_prefix("just ")?.split_whitespace().next())
+                .expect("a tier's advice cites a `just` task");
+            assert_eq!(
+                *module,
+                format!("nix/{task}.nix"),
+                "`just {task}` is cited for `{service}` and is not what runs the module named: {advice}"
+            );
+            let text = std::fs::read_to_string(root.join(module)).expect("the module the advice names is readable");
+            assert!(
+                text.lines()
+                    .filter_map(|line| line.split_once("sutura-tier-endpoint publish"))
+                    .any(|(_, rest)| rest.split_whitespace().any(|word| word.trim_matches('"') == service)),
+                "{module} publishes no endpoint for `{service}`, so `just {task}` is not what provisions it"
+            );
+            checked = checked.saturating_add(1);
+        }
+        assert!(checked >= 2, "this saw {checked} tier(s), so it covers no venue");
+    }
+
     #[test]
     fn a_service_whose_venue_is_a_nix_tier_is_not_told_to_enable_a_compose_profile() {
         // The staleness that arrives with the second nix-native tier. A service that moves from a
@@ -743,7 +857,13 @@ mod tests {
 
         assert!(message.contains("nix-native tier"), "{message}");
         assert!(message.contains(&module), "the advice does not name the module: {message}");
-        assert!(message.contains("`just test`"), "the advice names no task: {message}");
+        // The task for THIS tier, spelled from the service rather than as a literal - and the
+        // fixture is built from the one service that has both venues, which is the service the
+        // literal was wrong for.
+        assert!(
+            message.contains(&tier_task(profiled.name())),
+            "the advice names no task, or not this tier's own: {message}"
+        );
         // The venue that is no longer this service's, in both spellings this message ever had.
         assert!(
             !message.contains("dev-up"),
@@ -756,11 +876,78 @@ mod tests {
     }
 
     #[test]
+    fn every_arm_that_names_a_task_derives_it_from_the_venue_and_not_from_the_reason() {
+        // THE DEFECT CLASS, held across arms instead of once per arm - which is what the two tests
+        // above cannot do, because each provokes one reason over a synthetic fixture: a per-arm test
+        // passes on the arm it was written for while its sibling says something else about the same
+        // service. `Venue::advice` records the constant each arm carried.
+        //
+        // EVERY reason, not the two the defect was in - the third task-naming arm was found on
+        // review of that fix, still sending a reader to the compose tier for a nix-native service.
+        // Over the REAL tree's services, so one that gains a tier or a profile is covered by the walk
+        // rather than by somebody remembering this test, and CONSTRUCTED rather than provoked, which
+        // is what lets one root cover reasons whose fixtures contradict each other.
+        let root = worktree_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("this crate is inside a checkout");
+
+        for service in every_service_under_both_venues(&root) {
+            let venue = super::venue(Some(&root), &service);
+            let advice = venue.advice(&service);
+            for reason in every_reason(&service) {
+                let arm = label(&reason);
+                // The two reasons with no worktree to read a venue from name no task. EVERY OTHER
+                // ARM carries the derivation verbatim, and a new `Reason` is held in the failing
+                // direction: absent from this pair, it has to match.
+                let venue_free = matches!(reason, Reason::NoWorktree { .. } | Reason::NoScope(_));
+                let remedy = Absent::new(&service, Some(root.clone()), None, reason).remedy().join("\n");
+                assert_eq!(
+                    remedy.contains(&advice),
+                    !venue_free,
+                    "{arm} and the derivation for `{service}` disagree: {remedy}"
+                );
+                if venue_free {
+                    continue;
+                }
+
+                // NO wildcard arm: a fifth venue fails to compile here rather than reaching a reader
+                // as whichever existing branch happened to be closest.
+                match venue {
+                    Venue::NixTier { ref module } => {
+                        // DERIVED, never a literal - `Venue::advice` records which one pinned what.
+                        assert!(
+                            remedy.contains(&tier_task(&service)),
+                            "{arm} does not name the task that starts `{service}`'s own tier: {remedy}"
+                        );
+                        assert!(remedy.contains(module), "{arm} does not name `{module}`: {remedy}");
+                        assert!(
+                            !remedy.contains("dev-up"),
+                            "{arm} sends a reader to the compose tier for the nix-native `{service}`: {remedy}"
+                        );
+                    }
+                    Venue::Profile(profile) => {
+                        assert!(
+                            remedy.contains(&format!("`just dev-up-{profile}`")),
+                            "{arm} does not name `{service}`'s own profile: {remedy}"
+                        );
+                        assert!(
+                            !remedy.contains("`just dev-up`"),
+                            "{arm} offers the profile-less task for the gated `{service}`: {remedy}"
+                        );
+                    }
+                    Venue::ComposeDefault => assert!(
+                        remedy.contains("`just dev-up`"),
+                        "{arm} names no task for the default service `{service}`: {remedy}"
+                    ),
+                    Venue::Undeclared => panic!("`{service}` came out of the walk and declares no venue: it is broken"),
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_harness_has_no_fallback_port_to_offer() {
         // The mechanism that stops this eroding one pull request at a time. `Endpoint`'s private
-        // fields are what make a constant unconstructible; this reads THIS module for the softer
-        // failure - a helper that "helpfully" reached for the declaration when discovery came up
-        // empty. Neither half is the claim alone.
+        // fields make a constant unconstructible; this reads THIS module for the softer failure - a
+        // helper that "helpfully" reached for the declaration when discovery came up empty.
         let source = include_str!("provisioned.rs");
         let body = source
             .split("mod tests")

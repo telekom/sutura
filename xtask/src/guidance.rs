@@ -151,6 +151,25 @@ const FORBIDDEN: &[Forbidden] = &[
         only: &[],
         except: &[],
     },
+    Forbidden {
+        // Here rather than in the `CLAIMS` table for two reasons. `xtask/src/guidance/claims.rs`
+        // is at 985 of an unexemptable 1000 lines, and - the one that decides it - a
+        // `Contradicted` entry retires itself when its evidence goes, which is right for a claim
+        // resting on a CODE fact. This one rests on `docs/adr/0016` decision 7, a DECISION, and
+        // reversing a decision is the case where the entry gets deleted rather than retired.
+        needle: "property named `sutura`",
+        instead: "one string-valued structured property under a name of the DEPLOYMENT's choosing; \
+                  `sutura` is the field `document::MetricAspect` carries the scalar under on the \
+                  adapter's own canonical shape, not a urn this repository dictates",
+        why: "`docs/adr/0016`'s addendum decided the name is the deployment's, and the same change \
+              wrote the opposite into five other places - a record, the plan, an example README \
+              and two crate doc comments. That is exactly the one-cause-many-files shape this \
+              module exists for. Rust source is out of scope for the filter in `run`, and it does \
+              not have to be in it: a doc comment reaches `docs/api/**` through `just api`, which \
+              `check-api-docs` forces, so the generated page is where a comment gets caught",
+        only: &[],
+        except: &[],
+    },
 ];
 
 /// A version that must agree wherever it is written.
@@ -184,10 +203,6 @@ fn has_ext(path: &str, exts: &[&str]) -> bool {
         .extension()
         .and_then(std::ffi::OsStr::to_str)
         .is_some_and(|e| exts.iter().any(|want| e.eq_ignore_ascii_case(want)))
-}
-
-fn matches_any(patterns: &[&str], path: &str) -> bool {
-    patterns.iter().any(|p| repo::matches(p, path))
 }
 
 /// The value of `key` in `source`, with quotes and whitespace stripped.
@@ -337,10 +352,10 @@ fn stale_phrases(root: &Path, files: &[String]) -> Vec<String> {
             continue;
         };
         for rule in FORBIDDEN {
-            if !rule.only.is_empty() && !matches_any(rule.only, rel) {
+            if !rule.only.is_empty() && !repo::matches_any(rule.only, rel) {
                 continue;
             }
-            if matches_any(rule.except, rel) {
+            if repo::matches_any(rule.except, rel) {
                 continue;
             }
             for (i, line) in text.lines().enumerate() {
@@ -371,7 +386,7 @@ fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
         };
         let mut stated = 0_usize;
         for rel in files {
-            if !matches_any(pin.mentioned_in, rel) {
+            if !repo::matches_any(pin.mentioned_in, rel) {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
@@ -557,7 +572,7 @@ mod tests {
             let value = super::pinned_value(&root, pin).expect("the pin value");
             let stated = files
                 .iter()
-                .filter(|rel| super::matches_any(pin.mentioned_in, rel))
+                .filter(|rel| crate::repo::matches_any(pin.mentioned_in, rel))
                 .filter_map(|rel| std::fs::read_to_string(root.join(rel)).ok())
                 .flat_map(|text| text.lines().map(|line| super::stated_versions(line, pin)).collect::<Vec<_>>())
                 .any(|versions| !versions.is_empty());

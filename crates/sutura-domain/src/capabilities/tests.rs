@@ -454,7 +454,8 @@ fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind() {
 #[test]
 fn a_conditional_kind_absent_from_the_bundle_is_faithful() {
     // `of_may_provide` is 0011's *declared-and-empty* state, and it is what a source whose content
-    // the deployment authors writes (datahub's `sutura.*` namespace is the first). A kind may be
+    // the deployment authors writes (datahub's deployment-defined structured property is
+    // the first). A kind may be
     // declared and lawfully absent from a given bundle - the deployment decided to author none of it
     // - so absence is faithful. The *undeclared* direction is untouched, so presence is still
     // covered by the declared half, and the unconditional form of the same kinds still fails an

@@ -11,7 +11,9 @@
 //!
 //! **Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.**
 //! `DataHub`'s `structuredProperty` is scalar-only, so a deployment cannot define a nested metric
-//! object; what it CAN define is one string-valued structured property named `sutura`, and the
+//! object; what it CAN define is one string-valued structured property - under a name of its own,
+//! `sutura` being the field this adapter's canonical shape carries it under rather than a urn this
+//! crate dictates - and the
 //! reader decodes its scalar value into the closed-vocabulary content a certified metric needs -
 //! the flat-to-nested assembly `document::SuturaProperty::assemble` implements and the recorded
 //! fixture is kept in. Where that shape is present, this adapter reads it into a certified
@@ -27,15 +29,21 @@
 //! tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
 //! HTTP. What it does not contain is an HTTP client: [`AspectReader`] is the seam a real reader over
 //! `DataHub`'s versioned `OpenAPI` v3 entity surface will implement (with a personal access token as a
-//! bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
-//! opening engineering question `docs/adr/0016` leaves open, to be measured against a provisioned
-//! instance the way `sutura-exec-bigquery`'s acceptance leg was. Until that lands, the only
-//! implementor of the port is the recorded fixture source in [`fixture`]. **And nothing serves it:**
-//! no composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency),
-//! and `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and
-//! tested; what is not is the read path against a provisioned instance and a served composition -
-//! the *Built and not wired* register in `.agents/skills/sutura/query-surface/SKILL.md` records
-//! it, and that register is the one place it may be read from - it is not an invariant.
+//! bearer). Until that lands, the only implementor of the port outside a test is the recorded
+//! fixture source in [`fixture`] - the other two are doubles, `tests::Stub` and the acceptance
+//! suite's `Composed` - so no code here shapes a request or maps a response. **And nothing serves it:** no
+//! composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency), and
+//! `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and tested;
+//! what is not is the reader itself and a served composition - the *Built and not wired* register in
+//! `.agents/skills/sutura/query-surface/SKILL.md` records it, and that register is the one place it
+//! may be read from - it is not an invariant.
+//!
+//! **What that register no longer says is that the cost is unmeasured.** `docs/adr/0016`'s
+//! *Revision, 2026-09-04* has the numbers, off a provisioned instance: a bundle's metric half is ONE
+//! paged request carrying `structuredProperties` and `metricInfo` inline, not a request per metric -
+//! **and that surface is search-backed, so it is not read-your-writes.** A reader written against it
+//! pages an eventually-consistent view; the by-urn form is the immediate one. The limit belongs
+//! beside the cost rather than after it.
 //!
 //! # The declaration, and what it means for the bundle
 //!
@@ -100,8 +108,8 @@ type Content = (Definitions, Knowledge);
 /// **The fake seam.** Everything above this trait is decided and tested against recorded documents;
 /// a real implementor speaks to `DataHub`'s versioned `OpenAPI` v3 entity surface, decodes into
 /// [`document::Snapshot`], and maps its own failures into [`DataHubError::Read`]. The only
-/// implementor today is the recorded source in [`fixture`], which is why the read path's cost is not
-/// measured here - see the crate header.
+/// implementor today is the recorded source in [`fixture`]. The RESPONSE SHAPE that implementor has
+/// to map, and the surface's consistency, are measured rather than guessed - see the crate header.
 ///
 /// A port rather than a method on [`DataHubCatalog`] for the same reason the warehouse port exists:
 /// a catalog that could be swapped for a live source without the conversion changing is the point.
@@ -175,8 +183,10 @@ pub enum DataHubError {
     ///
     /// This adapter declares no knowledge capability, so any knowledge content it were handed would
     /// be refused here (the `UndeclaredContent` guard) rather than dropped or forwarded. Today no
-    /// snapshot produces knowledge - there is no metric for a `Referent` to name - so this stays the
-    /// wiring for content that cannot occur in the standalone deployment.
+    /// snapshot produces knowledge - a [`Snapshot`] has no knowledge aspect to read at all - so
+    /// this stays the wiring for content that cannot occur in the standalone deployment. Since
+    /// issue #202 the reason is no longer that no metric exists for a `Referent` to name: a
+    /// standalone bundle carries a certified metric.
     #[error("the DataHub content's knowledge does not hold together")]
     Knowledge {
         #[source]
@@ -247,9 +257,11 @@ impl<R: AspectReader> DataHubCatalog<R> {
 
         let definitions =
             Definitions::assemble(models, relationships, metrics).map_err(|cause| DataHubError::Inconsistent { cause })?;
-        // No knowledge: there is no metric for a `Referent` to name (see the crate header), so the
-        // bundle carries none and the declaration agrees. The `Knowledge::assemble` call is what
-        // would refuse undeclared content the day a snapshot produced any.
+        // No knowledge: a snapshot has no knowledge aspect to read (see the crate header), so the
+        // bundle carries none and the declaration agrees - not because no metric exists for a
+        // `Referent` to name, which stopped being true when a certified metric arrived. The
+        // `Knowledge::assemble` call is what would refuse undeclared content the day a snapshot
+        // produced any.
         let knowledge =
             Knowledge::assemble(&definitions, KnowledgeInput::none()).map_err(|cause| DataHubError::Knowledge { cause })?;
         Ok((definitions, knowledge))
@@ -343,7 +355,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
     ///
     /// The measure ALREADY is the domain's own [`Measure`], and the filters, grains, dimensions and
     /// anchor are the domain's own closed vocabularies spelled as in a markdown metric - which is
-    /// what makes the namespace closed: an unknown aggregate, an unknown operator, an unparseable
+    /// what makes the document closed: an unknown aggregate, an unknown operator, an unparseable
     /// value, a dimension unreachable through any relationship, a grainless metric or an unknown
     /// property all fail before or at `Definitions::assemble`, never guessed at. The three free
     /// strings (`model`, `time_column`, each nested `column`) are parsed here as the identifier
@@ -421,12 +433,12 @@ where
     ///
     /// That distinction is the whole of this declaration, and it is why a metric-free `DataHub`
     /// deployment stays servable: whether a bundle carries any of the may-provide kinds is the
-    /// deployment's decision (it defined the namespace or it did not), so absence is faithful rather
-    /// than an aspirational declaration - `checked_against`'s `Unprovided` direction exempts them -
-    /// while presence is still covered by the declared half. `Cardinality` is among them because it
-    /// is observed only as *a dimension reached through a relationship*, which happens exactly when
-    /// a deployment declares a dimension with a `via`; a bundle whose dimensions are all local
-    /// carries none, lawfully.
+    /// deployment's decision (it defined the `sutura` property or it did not), so absence is
+    /// faithful rather than an aspirational declaration - `checked_against`'s `Unprovided` direction
+    /// exempts them - while presence is still covered by the declared half. `Cardinality` is among
+    /// them because it is observed only as *a dimension reached through a relationship*, which
+    /// happens exactly when a deployment declares a dimension with a `via`; a bundle whose
+    /// dimensions are all local carries none, lawfully.
     ///
     /// A deployment that defined no metric content therefore loads a bundle with models, prose and
     /// joins and no metrics, which is `docs/adr/0016` decision 3's narrow deployment rather than a
