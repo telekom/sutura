@@ -474,7 +474,7 @@ that review will ask for, and having it already green is the difference between 
 Stacked, smallest first, each step green before the next. `stax` manages the stack; the
 `git-ops/stacked-branches` skill has the mechanics.
 
-**The numbering lives in [the implementation plan](../implementation-plan.md), not here.** An earlier
+**The numbering lives in `docs/implementation-plan.md`, not here.** An earlier
 version of this section numbered its own steps 0 to 8 while the plan numbered its branches differently
 and 0007 numbered a third set 1 to 8, so "step 5" meant three things depending on which file was open -
 two owners too many for one artefact, which is the thing this repository has a table about. So this
@@ -503,7 +503,7 @@ number at all:
 | `feat/raw-sql-tool` | The ungoverned tool [a raw SQL tool, off by default](0013-a-raw-sql-tool-off-by-default.md) decides: absent without its scope, a result type with nowhere to put a definition digest, read-only enforced by the source's own role rather than by inspecting the statement, and the ungoverned share reported as a number. Late in the order because every one of those needs something earlier - the scope gate, a source registry, and a credential port that can hand it a read-only role and a deadline |
 | `feat/demo-tasks` | Every deployment variant has a working example, and one that drifts fails a test rather than misleading a reader |
 
-**Two branches in [the implementation plan](../implementation-plan.md)'s table are deliberately absent
+**Two branches in `docs/implementation-plan.md`'s table are deliberately absent
 from this one, and naming them is cheaper than leaving a reader to diff two tables.**
 `build/supply-chain` and `ci/prose-change-cost` carry no decision from any record this order executes -
 one is release plumbing and one is a CI measurement - so they are scheduled in the plan and have nothing
@@ -517,7 +517,7 @@ behaviour covering a new adapter nobody registered, and `xtask/src/changes.rs` h
 is never reached. The property that sold the design cannot be exercised by the case it was sold for. It
 comes back when there are at least two real service categories to select between and a measured runtime
 that a selector would actually reduce - which is a measurement nobody can take before the tier exists.
-[The implementation plan](../implementation-plan.md) records what survives of the design for whoever
+`docs/implementation-plan.md` records what survives of the design for whoever
 picks it up.
 
 Two properties of that order are the decision rather than the schedule. **The agent surface is first**,

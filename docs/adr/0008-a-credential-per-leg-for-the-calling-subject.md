@@ -1482,7 +1482,7 @@ explicit about what to do with that: a `RefusalReason` variant no test can provo
 refuses to carry. It is deleted rather than left as defence in depth, for the same reason 5d deletes
 `SubjectOnlyDataOnSharedSource` - an arm that reads as a mechanism and resolves to nothing spends a
 reviewer's trust on nothing. The credential-port step in
-[the plan](../implementation-plan-identity-and-services.md) listed it when this was written and no
+`docs/implementation-plan-identity-and-services.md` listed it when this was written and no
 longer does; the variant exists in no record and in no branch.
 
 **An expired token mid-query is deliberately not on that list**, and the reason is worth more than a

@@ -31,7 +31,7 @@ metadata connector -
 [conformance packs](0012-conformance-packs-for-inputs-and-adapters.md),
 [federating across different data systems](0007-federating-across-different-data-systems.md) and
 [the plan](0009-the-plan-from-one-source-to-many.md) - and until this record
-[the implementation plan](../implementation-plan.md)'s stack table had **no row for it at all.** This
+`docs/implementation-plan.md`'s stack table had **no row for it at all.** This
 record closes that gap, and it puts the question before the row because the answer decides the row's
 dependencies.
 

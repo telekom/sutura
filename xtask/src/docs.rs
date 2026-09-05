@@ -12,6 +12,22 @@
 //! point, because these gates run from `nix build .#checks...hygiene` and from a git hook, and
 //! neither has mkdocs on PATH.
 //!
+//! There is a THIRD state, and it is a state rather than an exemption: a page under the docs
+//! directory that `exclude_docs` names is deliberately not part of the site, and mkdocs drops it
+//! from the build entirely. That is what the implementation plans are - written for whoever is
+//! building sutura, kept where every path citation in the repository already names them, and no
+//! part of what a reader came for. It would otherwise be the orphan case above, so the rule is
+//! that a page is in `nav` OR excluded, never neither and never both, and every exclusion names
+//! a page that exists. An exclusion over nothing is the shape a stale one takes, and it reads as
+//! a page being kept off the site while nothing is.
+//!
+//! **The limit, next to the claim.** `exclude_docs` is ignore-file syntax, and this gate does not
+//! implement it - so a glob, a directory pattern or a `!` negation is REFUSED rather than
+//! approximated. Each line must name one page literally, because a pattern this gate cannot
+//! resolve to a file is an exclusion nothing checks. Nor does this gate see a LINK from a
+//! published page into an excluded one: that is a broken link, and `mkdocs build --strict` is
+//! what fails on it.
+//!
 //! The second half is the assets. `mkdocs.yml` names its own stylesheet, its logo and its
 //! favicon by path, and mkdocs copies what it finds without complaining about what it does not:
 //! a stylesheet whose path stopped resolving is a site that renders unstyled behind a green
@@ -193,6 +209,58 @@ fn list_entry(line: &str) -> Option<&str> {
     if value.is_empty() { None } else { Some(value) }
 }
 
+/// Does the configuration declare this top-level key at all?
+///
+/// Separate from reading its value, because a key declared with nothing under it is a finding of
+/// its own: `exclude_docs:` naming no page reads as pages being kept off the site while none is.
+fn declares(text: &str, key: &str) -> bool {
+    text.lines()
+        .filter(|line| is_top_level(line))
+        .any(|line| strip_comment(line).split(':').next() == Some(key))
+}
+
+/// Every line of the `exclude_docs` block, as written.
+///
+/// The block is a `|` string in ignore-file syntax rather than a YAML list, so there is no `- `
+/// to strip - a line is the pattern.
+fn exclusions(text: &str) -> Vec<String> {
+    block(text, "exclude_docs")
+        .iter()
+        .map(|line| strip_comment(line).trim())
+        .filter(|line| !line.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// What makes a line a pattern rather than a path this gate can resolve.
+const PATTERN_CHARS: &[char] = &['*', '?', '[', ']'];
+
+/// The exclusions, judged against the pages on disk and against the nav.
+///
+/// Pure, so every arm is testable without a repo - the same reason [`problems`] is.
+fn exclusion_problems(patterns: &[String], present: &BTreeSet<String>, nav: &BTreeSet<String>, docs_dir: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    for pattern in patterns {
+        if pattern.starts_with('!') || pattern.ends_with('/') || pattern.contains(PATTERN_CHARS) {
+            problems.push(format!(
+                "{CONFIG} excludes `{pattern}`, which is a pattern rather than a page - this gate does not implement ignore-file syntax, so it cannot say which files that keeps off the site. Name each page literally"
+            ));
+            continue;
+        }
+        if !present.contains(pattern) {
+            problems.push(format!(
+                "{CONFIG} excludes `{pattern}`, but there is no `{docs_dir}/{pattern}` - an exclusion over nothing reads as a page being kept off the site while none is, so delete it"
+            ));
+        }
+        if nav.contains(pattern) {
+            problems.push(format!(
+                "{CONFIG} both navigates to `{pattern}` and excludes it - mkdocs drops an excluded page from the build, so the nav entry is a link to nothing. Choose one"
+            ));
+        }
+    }
+    problems
+}
+
 /// Every page under the docs directory, relative to it, with `/` separators.
 fn pages(root: &Path, docs_dir: &str) -> BTreeSet<String> {
     let mut found = Vec::new();
@@ -208,7 +276,10 @@ fn pages(root: &Path, docs_dir: &str) -> BTreeSet<String> {
 }
 
 /// Both directions, as a list of problems. Pure, so the rule is testable without a repo.
-fn problems(nav: &BTreeSet<String>, present: &BTreeSet<String>, docs_dir: &str) -> Vec<String> {
+///
+/// `excluded` is the third state: a page mkdocs is told to leave out of the build is not an
+/// orphan, and a page in neither set still is.
+fn problems(nav: &BTreeSet<String>, present: &BTreeSet<String>, excluded: &BTreeSet<String>, docs_dir: &str) -> Vec<String> {
     let mut problems = Vec::new();
     for target in nav {
         if !present.contains(target) {
@@ -217,9 +288,9 @@ fn problems(nav: &BTreeSet<String>, present: &BTreeSet<String>, docs_dir: &str) 
             ));
         }
     }
-    for orphan in present.difference(nav) {
+    for orphan in present.difference(nav).filter(|page| !excluded.contains(*page)) {
         problems.push(format!(
-            "`{docs_dir}/{orphan}` is in no nav entry - a page mkdocs does not navigate to is published nowhere, so add it to the nav in {CONFIG} or delete it"
+            "`{docs_dir}/{orphan}` is in no nav entry - a page mkdocs does not navigate to is published nowhere, so add it to the nav in {CONFIG}, exclude it with `exclude_docs`, or delete it"
         ));
     }
     problems
@@ -401,8 +472,18 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .map(String::from)
         .collect();
     let present = pages(&root, &docs_dir);
+    let patterns = exclusions(&config);
+    let excluded: BTreeSet<String> = patterns.iter().cloned().collect();
 
-    let mut found = problems(&nav, &present, &docs_dir);
+    let mut found = problems(&nav, &present, &excluded, &docs_dir);
+    found.extend(exclusion_problems(&patterns, &present, &nav, &docs_dir));
+    if declares(&config, "exclude_docs") && patterns.is_empty() {
+        // Fail closed. A declared block naming nothing reads as pages being kept off the site,
+        // and every page is then judged by the nav alone with no sign that the intent was wider.
+        found.push(format!(
+            "{CONFIG} declares `exclude_docs` and names no page - either name the pages that are not part of the site, or delete the key"
+        ));
+    }
     if nav.is_empty() {
         // An empty nav would make every page an orphan and every check above vacuous, so say
         // what is actually wrong instead of printing one problem per page.
@@ -418,9 +499,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if found.is_empty() {
         println!(
-            "xtask check-docs: ok - {} nav entr(ies), {} page(s), every page reachable, {} asset(s) resolve",
+            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} asset(s) resolve",
             nav.len(),
             present.len(),
+            excluded.len(),
             declared.len()
         );
         return Verdict::Pass;
@@ -439,7 +521,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{block, list_entry, nav_target, nested_scalar, problems, top_level_scalar};
+    use super::{
+        block, declares, exclusion_problems, exclusions, list_entry, nav_target, nested_scalar, problems, top_level_scalar,
+    };
 
     fn set(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|s| String::from(*s)).collect()
@@ -460,6 +544,8 @@ nav:
   - Reference:
     - Overview: reference/index.md
     - Slides: https://example.com/deck.md
+exclude_docs: |
+  notes/why-the-order.md
 extra_css:
   - css/telekom.css
 extra:
@@ -537,12 +623,20 @@ extra:
 
     #[test]
     fn a_matching_pair_is_clean() {
-        assert!(problems(&set(&["index.md", "gates.md"]), &set(&["index.md", "gates.md"]), "docs").is_empty());
+        assert!(
+            problems(
+                &set(&["index.md", "gates.md"]),
+                &set(&["index.md", "gates.md"]),
+                &set(&[]),
+                "docs"
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn a_nav_entry_with_no_file_is_a_problem() {
-        let found = problems(&set(&["index.md", "gone.md"]), &set(&["index.md"]), "docs");
+        let found = problems(&set(&["index.md", "gone.md"]), &set(&["index.md"]), &set(&[]), "docs");
         assert_eq!(found.len(), 1);
         assert!(found.iter().any(|p| p.contains("does not exist")), "{found:?}");
     }
@@ -551,14 +645,19 @@ extra:
     fn a_page_in_no_nav_entry_is_a_problem() {
         // The direction a non-strict build does not catch: an orphan page renders and is read by
         // nobody.
-        let found = problems(&set(&["index.md"]), &set(&["index.md", "orphan.md"]), "docs");
+        let found = problems(&set(&["index.md"]), &set(&["index.md", "orphan.md"]), &set(&[]), "docs");
         assert_eq!(found.len(), 1);
         assert!(found.iter().any(|p| p.contains("in no nav entry")), "{found:?}");
     }
 
     #[test]
     fn both_directions_are_reported_together() {
-        let found = problems(&set(&["index.md", "gone.md"]), &set(&["index.md", "orphan.md"]), "docs");
+        let found = problems(
+            &set(&["index.md", "gone.md"]),
+            &set(&["index.md", "orphan.md"]),
+            &set(&[]),
+            "docs",
+        );
         assert_eq!(found.len(), 2, "{found:?}");
     }
 
@@ -642,6 +741,90 @@ extra:
         assert!(external_loads("t.css", "  --md-primary-fg-color: #e20074;").is_empty());
         // A URL in prose or a comment fetches nothing, so it is none of this rule's business.
         assert!(external_loads("t.css", " * see https://example.com/why").is_empty());
+    }
+
+    #[test]
+    fn the_exclusion_block_is_read_as_lines_rather_than_a_yaml_list() {
+        assert_eq!(exclusions(CONFIG), vec![String::from("notes/why-the-order.md")]);
+        assert!(declares(CONFIG, "exclude_docs"));
+        // A key that is not there is not declared, which is what separates "no exclusions" from
+        // "an exclusion block naming nothing".
+        assert!(!declares(CONFIG, "not_in_nav"));
+        assert!(exclusions("site_name: sutura\n").is_empty());
+    }
+
+    #[test]
+    fn an_excluded_page_is_not_an_orphan() {
+        // The whole point of the third state: the implementation plans are under the docs
+        // directory, are in no nav entry, and are not a finding.
+        let found = problems(
+            &set(&["index.md"]),
+            &set(&["index.md", "implementation-plan.md"]),
+            &set(&["implementation-plan.md"]),
+            "docs",
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn an_exclusion_does_not_excuse_a_different_orphan() {
+        // The filter is per page, not a switch that turns the orphan rule off.
+        let found = problems(
+            &set(&["index.md"]),
+            &set(&["index.md", "orphan.md", "implementation-plan.md"]),
+            &set(&["implementation-plan.md"]),
+            "docs",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("orphan.md"), "{found:?}");
+    }
+
+    #[test]
+    fn excluding_a_page_that_is_not_there_is_a_problem() {
+        // The shape a stale exclusion takes: it reads as a page being kept off the site while
+        // nothing is, and the nav check cannot see it because the page is gone.
+        let found = exclusion_problems(
+            &[String::from("implementation-plan.md")],
+            &set(&["index.md"]),
+            &set(&["index.md"]),
+            "docs",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("an exclusion over nothing"), "{found:?}");
+    }
+
+    #[test]
+    fn excluding_a_page_the_nav_also_names_is_a_problem() {
+        // mkdocs drops an excluded page from the build, so the nav entry links to nothing.
+        let found = exclusion_problems(
+            &[String::from("gates.md")],
+            &set(&["index.md", "gates.md"]),
+            &set(&["index.md", "gates.md"]),
+            "docs",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("Choose one"), "{found:?}");
+    }
+
+    #[test]
+    fn a_pattern_this_gate_cannot_resolve_to_a_file_is_refused() {
+        // Refused rather than approximated: this gate does not implement ignore-file matching,
+        // so an exclusion it cannot resolve is an exclusion nothing checks.
+        for pattern in ["*.md", "drafts/", "!keep.md", "plan-[12].md"] {
+            let found = exclusion_problems(&[String::from(pattern)], &set(&["index.md"]), &set(&["index.md"]), "docs");
+            assert_eq!(found.len(), 1, "{pattern}: {found:?}");
+            assert!(found[0].contains("Name each page literally"), "{pattern}: {found:?}");
+        }
+        // And a literal path that resolves is not.
+        assert!(
+            exclusion_problems(
+                &[String::from("notes/why-the-order.md")],
+                &set(&["index.md", "notes/why-the-order.md"]),
+                &set(&["index.md"]),
+                "docs",
+            )
+            .is_empty()
+        );
     }
 
     // NOTE: there is deliberately no test here that reads the real `mkdocs.yml` and the real
