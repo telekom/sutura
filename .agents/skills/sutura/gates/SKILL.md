@@ -750,13 +750,29 @@ check.
 measured cost - the harness move lands on `DidNotCompile` every time, so does a changed signature on
 the retry, and a gate that reddens correct work gets disabled - so the decision moved to the venue
 with the **default closed**: 3 is neither 0 nor 1, so a consumer that has not been taught the code
-fails on it. Two have been taught it, at one line each, and **both still continue** - `ci.yml`
-annotates the pull request and writes the step summary, `ship-check` retains the verdict and goes on
-to the remaining hooks. **So the job is still green on an inconclusive run.** What changed is that
-continuing is a stated decision in one readable place, the verdict reaches a reviewer who never opens
-the log, and `just causality` by hand now exits non-zero. What is still not held by anything: that
-the author supplied the substitute evidence. **When citing this gate, cite the VERDICT LINE, never
-the step's colour.**
+fails on it. Two have been taught it, at one line each, and **both still continue** - `ci.yml` writes
+the step summary and emits a workflow annotation, `ship-check` retains the verdict and goes on to the
+remaining hooks. **So the job is still green on an inconclusive run.** What changed is that continuing
+is a stated decision in one readable place, and `just causality` by hand now exits non-zero. **That
+the default stays closed is `check-inconclusive`'s** - the invocation sites are a declared list, and a
+venue that suppresses 3 with a `|| true`, or captures it and never compares it against 3, fails the
+gate rather than quietly restoring exit-0 semantics.
+
+**WHERE THAT VERDICT IS AND IS NOT VISIBLE, stated because the first version of this paragraph
+overstated it and an overstated control is itself the defect.** It said the verdict *reaches the pull
+request* / *reaches a reviewer who never opens the log*. It does not. `$GITHUB_STEP_SUMMARY` renders
+on the workflow **run summary page** - that is what the variable is for - and a `::warning` with no
+`file=`/`line=` is a **path-less annotation**: it lands in the job log, the run's annotations list and
+the check run, anchored wherever GitHub chooses rather than where the author chose. Neither surface is
+the pull-request conversation. **A reviewer who reads only the conversation sees one green `ci` check
+and nothing else** - #307's failure mode with one click removed, not closed. The conversation
+mechanism exists in the same file: `crap-comment` posts a marker-keyed sticky comment from a separate
+job holding `pull-requests: write`. Routing the inconclusive verdict through that shape is the open
+improvement; it was not taken here because the step's exit-3 branch **has executed in no venue** - no
+run of this repository has reached it - so a delivery path added on top of it would be assumed rather
+than proven. Two things therefore stay unheld: that the author supplied the substitute evidence, and
+that anybody saw the verdict. **When citing this gate, cite the VERDICT LINE from the log, never the
+step's colour.**
 
 **THE BASE IS THE OTHER WAY IT LIES, and the failing direction is the default one.** `ship-check`
 defaults to `origin/main`, so on the second PR of a stack the diff carries the PARENT branch's

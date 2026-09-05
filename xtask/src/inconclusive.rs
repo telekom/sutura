@@ -38,7 +38,9 @@
 //!   it works is `Verdict::exit_code`'s unit test plus the measurement that `nix run` and `just`
 //!   both propagate 3 unchanged.
 //! * **A gate other than `test-causality`.** `Verdict::Inconclusive` is available to every task in
-//!   the registry, and only this one returns it today. When a second does, its invocations join
+//!   the registry, and only this one returns it today - `check-default-features`, the other gate
+//!   `ci.yml` reaches through a flake app, has no inconclusive answer to give, so its step is not a
+//!   site and owes exit 3 nothing. When a second gate does return it, its invocations join
 //!   [`NEEDLES`] and the list grows - which is the same decision made once more, out loud.
 
 use std::path::Path;
