@@ -526,6 +526,18 @@ anything with no `#[test]` - and keep every assertion where it is. Orphaning now
 *the tests this diff added did not run on base* - rather than passing as green, because nextest
 fails a filter that matches nothing.
 
+**AND THE SECOND HALF OF THAT RULE DECIDES WHICH FILE IS MEASURED: a comment-only change holds
+nothing back.** `has_non_test_additions` treats a blank line, a comment and an attribute as carrying
+no behaviour, so a file whose added test sits beside nothing but a **doc comment** is not
+*inseparable* - it stays the diff's PROVABLE test file and its test becomes the whole measurement,
+while every file that carries a real implementation change is held back and its tests are not
+measured at all. Measured on the branch that wrote this paragraph: a doc correction plus one
+characterisation test in `causality/scoped.rs`, three other files carrying the actual change, and the
+verdict was `FAILED - green against base behaviour` **about the one test that was never meant to be
+causal**. So before adding a test that pins EXISTING behaviour, ask which file it lands in: beside an
+implementation change it is held back and merely unmeasured, and beside a doc comment it is the
+verdict.
+
 **Expect that harness move to answer INCONCLUSIVE, and know why before reading it as a pass.**
 Measured on #119: the new harness file added no `#[test]`, so it is *revertible*, while the test file
 declaring `mod <harness>;` added tests and is *held* - so the base tree is a `mod` pointing at a file
