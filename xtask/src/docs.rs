@@ -24,9 +24,11 @@
 //! **The limit, next to the claim.** `exclude_docs` is ignore-file syntax, and this gate does not
 //! implement it - so a glob, a directory pattern or a `!` negation is REFUSED rather than
 //! approximated. Each line must name one page literally, because a pattern this gate cannot
-//! resolve to a file is an exclusion nothing checks. Nor does this gate see a LINK from a
-//! published page into an excluded one: that is a broken link, and `mkdocs build --strict` is
-//! what fails on it.
+//! resolve to a file is an exclusion nothing checks.
+//!
+//! A LINK from a published page into an excluded one is the third thing this holds, and it is
+//! here because `mkdocs build --strict` does NOT catch it: mkdocs logs that link at INFO and
+//! exits 0, measured. [`links`] carries the rule and the measurement.
 //!
 //! The second half is the assets. `mkdocs.yml` names its own stylesheet, its logo and its
 //! favicon by path, and mkdocs copies what it finds without complaining about what it does not:
@@ -48,6 +50,8 @@ use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
+
+mod links;
 
 /// The site configuration. Paths inside it are relative either to this file's directory (the
 /// repo root) or to the docs directory, and which is which is per key - see `asset_problems`.
@@ -477,6 +481,24 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     let mut found = problems(&nav, &present, &excluded, &docs_dir);
     found.extend(exclusion_problems(&patterns, &present, &nav, &docs_dir));
+    // Only the published pages: what an excluded page links to is nobody's business, since
+    // nothing renders it.
+    let mut linked = 0_usize;
+    for page in present.difference(&excluded) {
+        if let Ok(text) = std::fs::read_to_string(root.join(&docs_dir).join(page)) {
+            let (problems, read) = links::problems(page, &text, &excluded, &docs_dir);
+            found.extend(problems);
+            linked = linked.saturating_add(read);
+        }
+    }
+    // FAIL CLOSED, for the reason `links` states: a link scan that reads nothing approves
+    // everything, and the verdict line cannot tell that from a tree whose pages agree.
+    if linked == 0 && !present.is_empty() {
+        found.push(format!(
+            "read no link to a page in `{docs_dir}` out of {} page(s) - the scan is broken, not the tree",
+            present.len().saturating_sub(excluded.len())
+        ));
+    }
     if declares(&config, "exclude_docs") && patterns.is_empty() {
         // Fail closed. A declared block naming nothing reads as pages being kept off the site,
         // and every page is then judged by the nav alone with no sign that the intent was wider.
@@ -499,7 +521,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if found.is_empty() {
         println!(
-            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {} asset(s) resolve",
+            "xtask check-docs: ok - {} nav entr(ies), {} page(s), {} excluded, every other page reachable, {linked} page link(s) land on one, {} asset(s) resolve",
             nav.len(),
             present.len(),
             excluded.len(),

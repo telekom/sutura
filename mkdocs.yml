@@ -135,14 +135,17 @@ markdown_extensions:
 # They stay under `docs/` rather than moving out of it so that every path citation in the
 # repository - ADRs, doc comments, `xtask`'s own gates, the `docs/**` globs `check-guidance`
 # counts and pins against - keeps naming the file it names today. `cargo xtask check-docs` reads
-# this list and holds three things: no pattern here names a page that does not exist, no excluded
-# page is also in `nav`, and a page in neither is the orphan it always was. Each line must name
-# one page literally: a glob or a gitignore negation is refused, because a pattern this gate
-# cannot resolve to a file is an exclusion nothing checks.
+# this list and holds four things: no pattern here names a page that does not exist, no excluded
+# page is also in `nav`, no published page LINKS to one, and a page in neither state is the orphan
+# it always was. Each line must name one page literally: a glob or a negation is refused, because
+# a pattern that gate cannot resolve to a file is an exclusion nothing checks.
 #
-# A LINK from a published page to one of these is a broken link, and `mkdocs build --strict`
-# fails on it - measured as *"contains an unrecognized relative link"*. Cite one as a backticked
-# path instead, which is what the ADRs that used to link them now do.
+# THE LINK RULE IS OURS BECAUSE `--strict` DOES NOT HAVE IT, and this comment said the opposite
+# first. Measured: with an ADR linking one of these pages, `mkdocs build --strict` printed
+# *"contains a link to 'implementation-plan.md' which is excluded from the built site"* at INFO
+# and exited 0 - `--strict` escalates warnings, not info, so the dead link would have published
+# behind a green docs job. Cite one of these pages as a backticked path, which is what the seven
+# ADRs that used to link them now do.
 exclude_docs: |
   implementation-plan.md
   implementation-plan-bigquery.md
