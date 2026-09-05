@@ -126,9 +126,13 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   re-run whose index was already warm.
 - **DataHub tier parallelism holds for the CONTAINERS and not for DISCOVERY** - project name from a
   path digest, ephemeral published ports, named volumes, all gated - but
-  `.sutura-dev/endpoints.json` has two writers and each rewrites it wholesale, **in both
-  directions** - measured, a live nix postmaster absent from a file `xtask dev-up` had just
-  rewritten, and the reverse for the whole of `just test`. Nothing gates that.
+  `.sutura-dev/endpoints.json` has two writers and **one of them still rewrites it wholesale**.
+  `xtask dev-up` serialises the whole document from the docker services it read, so a live nix
+  postmaster is absent from the file it leaves - measured 2026-09-03. The reverse direction is gone
+  (`nix/tier-endpoints.nix` merges per service), and the consequence for the SUITE is gone for the
+  Postgres tier alone: `just test` reads that state as *unclaimed* and republishes the entry, which
+  `checks.postgres-tier` holds. What nothing gates is the wholesale write itself, so any other nix
+  tier's entry - `just keycloak-tier`'s - is still dropped by a `dev-up` and stays dropped.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
   Everything above the wire is decided and tested against a fake; the wire exists behind a
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green
