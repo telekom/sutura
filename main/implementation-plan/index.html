@@ -4006,6 +4006,46 @@ were merged into one function and a name nobody can grep for is not a test list.
 <p><strong>Done when</strong> an adapter cannot be written that is silent about a kind it cannot supply, and the
 matrix runs the oracle over the golden adapters and declaration fidelity over the rest.</p>
 <h2 id="the-datahub-catalog-and-what-it-declares-it-cannot-do">The DataHub catalog, and what it declares it cannot do<a class="headerlink" href="#the-datahub-catalog-and-what-it-declares-it-cannot-do" title="Permanent link">&para;</a></h2>
+<p><strong>Landed - and issue #202 spent one of the absences below rather than delivering it.</strong> The stack
+table above is the one owner of a row's status; this note says which sentences in this section the
+tree no longer agrees with, and each correction is written where the code is rather than only here:</p>
+<ol>
+<li><strong>The measure is a CONDITIONAL provide, not a declared absence.</strong> A deployment defines one
+   string-valued structured property - under a name of its own; <code>sutura</code> is the field on this
+   adapter's canonical shape, not a urn - whose scalar is a closed-vocabulary document,
+   and <code>sutura-catalog-datahub</code> reads a whole certified metric out of it - measure, time column,
+   grains, definitional filters, dimensions with their allowlists, an anchor and prose - so
+   <code>Metrics</code>, <code>Grains</code>, <code>RequiredFilters</code>, <code>AllowedValues</code>, <code>Anchors</code> and <code>Cardinality</code> are
+   <strong>declared-and-empty may-provide</strong> kinds rather than absences. A deployment that defined nothing
+   still loads models, prose and joins, which is what keeps the narrow deployment below true.
+   <code>docs/adr/0016</code>'s <em>Amendment, 2026-09-02</em> and its addendum are the record, and the <em>Does not
+   provide</em> sentence under this note is the pre-#202 decision for the measure.</li>
+<li><strong><code>cardinality</code> is the absence that stayed</strong>, for the reason the <em>Two of those absences</em> paragraph
+   below gives. The one way this adapter produces one is a dimension the deployment declares with a
+   <code>via</code>.</li>
+<li><strong>The test list below is the pre-#202 one and four of its five names do not exist.</strong> What holds
+   the claim now is <code>crates/sutura-catalog-datahub</code>'s own suite -
+   <code>it_declares_metrics_and_the_bundle_carries_one</code>,
+   <code>a_metric_without_the_defined_shape_is_reported_and_not_defined</code>,
+   <code>a_ratio_and_a_count_if_are_carried_as_closed_measures</code>,
+   <code>an_unknown_key_at_the_sutura_level_is_refused_and_named</code>,
+   <code>a_relationship_alone_licenses_no_dimension</code> and
+   <code>content_for_a_kind_it_did_not_declare_fails_the_load</code>, over a fake reader on recorded documents.</li>
+<li><strong>The read path is still unbuilt; this step's first engineering question is no longer
+   unmeasured.</strong> The only <code>AspectReader</code> outside a test is still the recorded fixture, so no
+   library code shapes a
+   request or maps a response. What <code>just datahub-acceptance</code> now measures against the provisioned
+   instance is the platform's half: a deployment can define the property under a name of its own, the
+   corpus's own document is accepted as its scalar and the served aspect decodes into the same
+   <code>document::MetricAspect</code> the fixture carries, through to the closed-vocabulary <code>Measure</code>. The cost
+   is ONE paged request per entity type, carrying <code>structuredProperties</code> and <code>metricInfo</code> inline -
+   <strong>and that surface is search-backed, so it is not read-your-writes</strong>: it lagged a synchronous
+   write by ~2.2 s where the by-urn read answered at once. The scalar's ceiling is the platform's
+   <code>keywordMaxLength</code>, and <code>SINGLE</code> cardinality and the declared value type are refused server-side.
+   <code>a_document_served_by_a_real_datahub_decodes_into_a_certified_metric</code> is where each of those is
+   asserted; what remains owed is the reader itself, the structural half of a live snapshot, and the
+   bearer half, which the tier leaves off.</li>
+</ol>
 <p><strong>Goal.</strong> A <code>SemanticCatalog</code> over DataHub that gives a deployment value from the model it already
 has, and names every gap rather than leaving it to silence.</p>
 <p><strong>Read <a href="../adr/0016-what-datahub-can-carry/">what DataHub can carry</a> first.</strong> It is the measurement
@@ -4047,7 +4087,7 @@ claim in full, a note is attached to a <code>Referent</code> that names a metric
 source's own instructions to point at. And nothing server-side may <strong>match</strong> on a harvested synonym -
 DataHub's own roadmap goes the other way, this repository has no <code>PhraseNotDefined</code> and the agent
 states its choice in its own transcript, and 0016 names that as a fork rather than a gap.</p>
-<p><strong>Tests.</strong>
+<p><strong>Tests.</strong> <em>The pre-#202 list - note 3 at the head of this section names what holds it now.</em>
 - <code>it_declares_it_provides_no_metrics_and_the_bundle_has_none</code> - declaration fidelity, from row 25.
 - <code>a_metric_whose_measure_is_an_expression_string_is_reported_and_not_defined</code>.
 - <code>it_declares_it_provides_no_cardinality_so_a_relationship_licenses_no_dimension</code>.

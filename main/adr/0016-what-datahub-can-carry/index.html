@@ -1760,6 +1760,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#revision-2026-09-04-the-platforms-half-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Revision, 2026-09-04: the platform's half, measured
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2787,6 +2798,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#revision-2026-09-04-the-platforms-half-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Revision, 2026-09-04: the platform's half, measured
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2817,11 +2839,12 @@
 scheduled has since landed as <code>sutura-catalog-datahub</code> - a <code>declaring</code> <code>SemanticCatalog</code> that reads
 recorded entity aspects and declares it provides structure, descriptions and the join columns and no
 metric layer. Everything it decides is tested against a fake reader over recorded aspects; the HTTP
-client over the versioned OpenAPI entity surface is the open read-path-cost measurement this record
-leaves to a provisioned instance. <strong>Issue #202 changed the <em>no metric layer</em> half of that sentence,
-and the <em>Amendment, 2026-09-02</em> at the foot of this page is where the change is recorded - read it
-before citing <code>provides no measure</code> above, and read the <em>Addendum</em> under it before citing decision 7
-or the <em>Required filters</em> argument, both of which it narrows.</strong></p>
+client over the versioned OpenAPI entity surface is still owed, and the read-path cost this record
+left open has since been measured against a provisioned instance. <strong>Issue #202 changed the <em>no metric
+layer</em> half of that sentence, and the <em>Amendment, 2026-09-02</em> at the foot of this page is where the
+change is recorded - read it before citing <code>provides no measure</code> above, read the <em>Addendum</em> under it
+before citing decision 7 or the <em>Required filters</em> argument, both of which it narrows, and read
+<em>Revision, 2026-09-04</em> below that before citing anything as unmeasured against a live instance.</strong></p>
 <p><strong>Reframed after review, and the reframe is recorded rather than smoothed over.</strong> The measurements
 below are unchanged and were independently verified. What changed is the conclusion drawn from one of
 them: the first version read the catalog conformance matrix as every adapter's contract and concluded
@@ -3654,8 +3677,10 @@ were wrong, and a review measured them wrong:</strong></p>
 <ul>
 <li><strong>The transport is one string-valued property, not a namespace of granules.</strong> <code>DataHub</code>'s
   <code>structuredProperty</code> has no nested or record value type, so a deployment cannot define a nested
-  object under <code>sutura.*</code> at all. What it CAN define is <strong>one structured property named <code>sutura</code>
-  whose single scalar value is a JSON document</strong>. <code>document::SuturaProperty</code> is that scalar and
+  object under <code>sutura.*</code> at all. What it CAN define is <strong>one structured property - under a name of
+  its own - whose single scalar value is a JSON document</strong>. <code>document::SuturaProperty</code> is that
+  scalar, <code>sutura</code> is the field it arrives under on this adapter's own canonical shape rather than a
+  urn this repository dictates (see the addendum's decision-7 bullet), and
   <code>SuturaProperty::assemble</code> is the scalar-to-nested decode - the issue #202 mechanism, implemented
   and exercised rather than described. This also collapses the old <em>"a structured property cannot
   carry the shape of a predicate"</em> argument: the scalar is a string, a JSON string carries anything
@@ -3671,14 +3696,24 @@ were wrong, and a review measured them wrong:</strong></p>
   markdown metric uses.</li>
 </ul>
 <h3 id="the-transport-as-defined">The transport, as defined<a class="headerlink" href="#the-transport-as-defined" title="Permanent link">&para;</a></h3>
-<p>A deployment defines, on a metric entity, one string-valued structured property named <code>sutura</code> whose
+<p>A deployment defines, on a metric entity, one string-valued structured property - under whatever
+name it chooses - whose
 value is the canonical <code>SuturaContent</code> document as JSON text: a <code>model</code>, a <code>measure</code> (the domain
 <code>Measure</code> type, written exactly as a markdown metric writes its <code>measure:</code> key), a <code>time_column</code>,
 non-empty <code>grains</code>, and optionally <code>description</code>, <code>required_filters</code>, <code>dimensions</code> and <code>anchor</code>.
 The measure, filter operators, grains and allowed values are the domain's closed vocabularies
-verbatim, and <code>deny_unknown_fields</code> at every depth - on the decoded document, on the measure, on a
-filter, on a dimension and on an anchor - refuses a property this adapter does not define rather than
-guessing. <strong>A metric that carries the property becomes a certified <code>Metric</code>; a metric that does not
+verbatim, and <code>deny_unknown_fields</code> - on the decoded document, on the measure and on the term inside
+it, on a filter, on a dimension, on the anchor and on the range inside the anchor - refuses a
+property this adapter does not define rather than guessing, naming the key.</p>
+<p><strong>The range was the one level at which <em>at every depth</em> was one depth short, and it is closed rather
+than recorded as a limit.</strong> An anchor's <code>range</code> decodes through the domain's <code>TimeRangeInput</code>, which
+carried no <code>deny_unknown_fields</code>, so a key written inside the range object was discarded in silence
+instead of named - and because a question's <code>range</code> and a markdown metric's <code>anchor.range</code> decode
+that same one type, it was the same hole on all three paths. The attribute is on that shape now, held
+by <code>a_key_inside_an_anchor_range_is_refused_through_the_load_path</code> here and by
+<code>a_key_inside_a_range_is_an_error_and_not_a_dropped_field</code> over the YAML question path, each red
+without it.</p>
+<p><strong>A metric that carries the property becomes a certified <code>Metric</code>; a metric that does not
 stays the promotion candidate decision 4 describes, read and never converted.</strong> The two halves are
 the same <code>MetricAspect</code> and the distinction is an <code>Option</code> - the deployment's declaration, not an
 adapter's inference.</p>
@@ -3712,10 +3747,10 @@ adapter's inference.</p>
 <h3 id="what-still-has-no-source">What still has no source<a class="headerlink" href="#what-still-has-no-source" title="Permanent link">&para;</a></h3>
 <p><strong>A real <code>AspectReader</code> and a served composition.</strong> The adapter is a dev-dependency of <code>sutura-app</code>,
 no composition root links it, and <code>sutura-serve</code> refuses <code>catalog.kind: datahub</code> by name. The only
-reader is the recorded fixture source, so the flat form and its assembly are proven against recorded
-documents - and against a live instance nothing is: the read path's cost remains the open measurement
-this record leaves, and <code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not wired</em>
-register records that nothing serves it.</p>
+reader is the recorded fixture source, so no library code shapes a request or maps a response, and
+<code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not wired</em> register records that nothing
+serves it. The read path's COST is no longer the open measurement this record leaves - see
+<em>Revision, 2026-09-04</em> below - but a reader is still owed.</p>
 <h3 id="how-it-is-proven">How it is proven<a class="headerlink" href="#how-it-is-proven" title="Permanent link">&para;</a></h3>
 <ul>
 <li>The unit half is a fake reader over recorded documents carrying the property in its flat,
@@ -3728,9 +3763,12 @@ register records that nothing serves it.</p>
 <li>The conformance matrix's <code>datahub</code> cell - already a <code>declaring</code> registration - expands the
   universal cells over the richer bundle: the pinned digest and definitions moved with it and the
   declaration-fidelity cell holds, over a declaration that mixes unconditional and may-provide kinds.</li>
-<li>The read path against a provisioned instance is <strong>still</strong> the open measurement this record leaves;
-  nothing here reaches a network. <code>sutura-catalog-datahub</code> still has one <code>AspectReader</code> implementor,
-  the recorded fixture source.</li>
+<li>The read path against a provisioned instance was the open measurement this record left, and
+  <em>Revision, 2026-09-04</em> below closes the platform's half of it: the document is accepted under a
+  property the deployment names, served back, and decoded into a certified <code>Metric</code>. What is still
+  open is the READER - <code>sutura-catalog-datahub</code> has one <code>AspectReader</code> implementor outside a
+  test, the recorded
+  fixture source, so nothing in the library reaches a network.</li>
 </ul>
 <h3 id="addendum-to-the-amendment-which-half-of-decision-7-the-deployment-still-owns">Addendum to the amendment: which half of decision 7 the deployment still owns<a class="headerlink" href="#addendum-to-the-amendment-which-half-of-decision-7-the-deployment-still-owns" title="Permanent link">&para;</a></h3>
 <p><strong>Status: accepted.</strong> The amendment above answered issue #202's feasibility question and left two of
@@ -3757,9 +3795,10 @@ is drawn rather than left to a reader:</p>
   adapter's statement of aspect CONTENT and not DataHub's envelope, and no urn appears anywhere in
   the crate. Mapping a registered structured property - its namespace, its <code>SINGLE</code> cardinality, its
   string value type, the entity types it binds to - onto that field is the unbuilt HTTP
-  <code>AspectReader</code>'s job. Until that reader exists, <em>"under which name"</em> is genuinely unanswered rather
-  than answered as <code>sutura</code>, and writing a urn here would be a claim about a registry this
-  repository has never read.</li>
+  <code>AspectReader</code>'s job. So <em>"under which name"</em> is genuinely unanswered rather than answered as
+  <code>sutura</code>, and no urn is written here. What the revision below adds is that this is now a
+  MEASUREMENT: a name that shares nothing with the field name carried the document through a real
+  registry, so the independence is checked rather than asserted.</li>
 </ul>
 <p><strong>And the <em>Required filters: absent, and absent in the way that matters</em> section makes TWO arguments,
 where the amendment collapsed one.</strong> The amendment answered the SHAPE argument - a scalar cannot
@@ -3779,15 +3818,63 @@ author speaking.</p>
   reachable - <code>just datahub-acceptance</code> gets a <code>2xx</code> off the surface a reader would call - and the
   instance is empty, so DataHub's server-side structured-property validator has never seen one of
   these documents. <code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not wired</em> register is
-  where that limit is read from.</li>
+  where that limit is read from. <strong>Superseded by the revision below.</strong></li>
 <li><strong>The document's size ceiling is unmeasured.</strong> It grows with the metric - dimensions, allowed
   values, prose - and a deployment's DataHub validates the scalar for length. This crate adds no
   bound of its own, and no measurement here says what the ceiling is or what a metric that exceeds it
-  does, because writing one through the platform is the same absent step as above.</li>
+  does, because writing one through the platform is the same absent step as above. <strong>Superseded by
+  the revision below.</strong></li>
 <li><strong>Whether a per-deployment property is acceptable to MAINTAIN is still not decided by this record.</strong>
   Issue #202 said that was not its job; it is not this addendum's either. What is decided is what the
   shape is, who owns which half of it, and which of the original arguments against it survive.</li>
 </ul>
+<h3 id="revision-2026-09-04-the-platforms-half-measured">Revision, 2026-09-04: the platform's half, measured<a class="headerlink" href="#revision-2026-09-04-the-platforms-half-measured" title="Permanent link">&para;</a></h3>
+<p><strong>Status: accepted.</strong> The first two bullets above were true when written and are not now.
+<code>a_document_served_by_a_real_datahub_decodes_into_a_certified_metric</code>, behind
+<code>just datahub-acceptance</code>, asks the provisioned instance rather than its schema. What that run
+records:</p>
+<ul>
+<li><strong>A deployment can define the property, under a name of its own, and the platform accepts this
+  document as its value.</strong> One string-valued, <code>SINGLE</code>, <code>metric</code>-bound property; the value written is
+  the recorded corpus's own document, read through <code>fixture::FixtureReader</code> so it cannot drift from
+  the one the unit half decodes. The cell registers it as <code>deployment_metric_document</code>, which shares
+  nothing with the <code>sutura</code> field on <code>document::MetricAspect</code> - <strong>that difference is the measurement</strong>,
+  because a cell registering <code>sutura</code> would pass equally whether the name were the deployment's
+  choice or a constant this repository requires. Decision 7's <em>"not ours to say"</em> holds as a
+  measurement rather than as a sentence.</li>
+<li><strong>What the instance serves DECODES into a certified metric.</strong> The served aspect is mapped onto
+  <code>document::MetricAspect</code> and is EQUAL to the one the recorded fixture carries, which is the
+  strongest available statement that the fixture is faithful to the platform rather than to itself;
+  <code>DataHubCatalog::load</code> then produces the closed-vocabulary <code>Measure</code>. That is issue #202's
+  feasibility question answered against a running instance.</li>
+<li><strong>The read path's cost is a page per entity type, and it is eventually consistent.</strong> ONE
+  <code>GET /openapi/v3/entity/metric?aspects=structuredProperties&amp;aspects=metricInfo</code> returns the metric
+  with both aspects inline - the certified half and the promotion candidate's raw half in the same
+  response - so a reader pages rather than fetching an entity per metric. But that surface is
+  search-backed, and it lagged a synchronous write by ~2.2 s, where
+  <code>GET /openapi/v3/entity/metric/{urn}</code> answered immediately. <strong>A reader that pages does not get
+  read-your-writes</strong>, which is the limit this measurement adds to the cost answer rather than a
+  detail of it: the version of the cell that paged once, immediately after writing, was red.</li>
+<li><strong>The ceiling is the deployment's Elasticsearch keyword length.</strong> The platform's own refusal names
+  it: <em>value is 131072 bytes which exceeds the maximum of 32766 UTF-8 bytes for structured property
+  values indexed as Elasticsearch keywords (<code>structuredProperties.keywordMaxLength</code>)</em>. So what bounds
+  a metric's document is an index setting rather than a constant in this repository. <strong>What was
+  measured is that the refusal names the setting</strong> - nothing raised it and retried, so a
+  deployment's ability to move it is DataHub's own documentation and not a finding here -
+  which is why the cell asserts an order of magnitude of headroom against the number the refusal
+  states rather than pinning the number.</li>
+<li><strong><code>SINGLE</code> cardinality and the declared value type are enforced server-side</strong>, each refused with
+  its own reason (<em>has cardinality 1, but multiple values were assigned</em>; <em>should be a string</em>). "One
+  string-valued property" is therefore the platform's rule and not this adapter's reading of it.</li>
+</ul>
+<p><strong>What this revision does NOT reach, and the distinction is the whole of it.</strong> There is still no
+HTTP <code>AspectReader</code>: the requests and the mapping from the response shape
+(<code>structuredProperties.properties[].values[].string</code>) onto <code>document::MetricAspect</code> are written in
+that test file and nowhere in <code>src/</code>, so <em>A real <code>AspectReader</code> and a served composition</em> above
+stands unaltered, and only the METRIC half of that snapshot came off the wire - the models and the
+relationship are still the corpus's. Nothing is authenticated either: the tier runs with
+metadata-service auth off. And the cell is <code>#[ignore]</code>d with no CI venue, because the nix sandbox has
+no docker socket - so it is evidence of whatever the last <code>just datahub-acceptance</code> run reported.</p>
 
 
 

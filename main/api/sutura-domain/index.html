@@ -2763,8 +2763,9 @@ carries nothing but tables is a real source, and 0016 checked that a bundle of m
 metrics assembles, pins and validates. What is not legitimate is a bundle that disagrees with the
 declaration, and that is <code>MetadataCapabilities::checked_against</code>'s to report.</p>
 <p><strong><code>conditional</code> is 0011's <em>declared-and-empty</em> state, and it is separate from <code>declared</code> on
-purpose.</strong> A source maps a schema the deployment authors (datahub's <code>sutura.*</code> namespace is the
-first), so whether a KIND is produced is a property of the deployment rather than of the code:
+purpose.</strong> A source maps a schema the deployment authors (datahub's deployment-defined
+structured property is the first), so whether a KIND is produced is a property of the deployment
+rather than of the code:
 the adapter declares the kind, and a bundle that carries none is a faithful bundle rather than an
 aspirational declaration. <code>Self::of_may_provide</code> is what such an adapter writes. Everything
 else - the reference adapter, the goldens, an adapter over a fixed external schema - declares
@@ -2815,8 +2816,9 @@ leaves its declaration alone rather than silently widening it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_may_provide</span><span class="p">(</span><span class="n">kinds</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">IntoIterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The kinds a provider may supply, where the deployment decides which a bundle carries.</p>
-<p><strong>What a source whose content is deployment-authored writes</strong> - datahub's <code>sutura.*</code>
-namespace - where the adapter can carry a kind but every given bundle may carry none of it.
+<p><strong>What a source whose content is deployment-authored writes</strong> - datahub's
+deployment-defined structured property - where the adapter can carry a kind but every given
+bundle may carry none of it.
 The kinds are declared (the <em>not declared</em> direction still catches content), and absent from
 a bundle is a faithful bundle rather than an aspirational declaration.</p>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>

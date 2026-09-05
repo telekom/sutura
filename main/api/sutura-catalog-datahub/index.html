@@ -2265,7 +2265,9 @@ no definitional filter, no grain, no value allowlist and no anchor. That is the 
 against that declaration rather than against the golden adapters' oracle.</p>
 <p><strong>Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.</strong>
 <code>DataHub</code>'s <code>structuredProperty</code> is scalar-only, so a deployment cannot define a nested metric
-object; what it CAN define is one string-valued structured property named <code>sutura</code>, and the
+object; what it CAN define is one string-valued structured property - under a name of its own,
+<code>sutura</code> being the field this adapter's canonical shape carries it under rather than a urn this
+crate dictates - and the
 reader decodes its scalar value into the closed-vocabulary content a certified metric needs -
 the flat-to-nested assembly <code>document::SuturaProperty::assemble</code> implements and the recorded
 fixture is kept in. Where that shape is present, this adapter reads it into a certified
@@ -2279,15 +2281,20 @@ property this adapter does not recognise rather than guessing.</p>
 tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
 HTTP. What it does not contain is an HTTP client: <code>AspectReader</code> is the seam a real reader over
 <code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity surface will implement (with a personal access token as a
-bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
-opening engineering question <code>docs/adr/0016</code> leaves open, to be measured against a provisioned
-instance the way <code>sutura-exec-bigquery</code>'s acceptance leg was. Until that lands, the only
-implementor of the port is the recorded fixture source in <code>fixture</code>. <strong>And nothing serves it:</strong>
-no composition root links this crate (its only dependant is <code>sutura-app</code>, as a dev-dependency),
-and <code>sutura-serve</code> refuses <code>catalog.kind: datahub</code> by name. Everything here is decided and
-tested; what is not is the read path against a provisioned instance and a served composition -
-the <em>Built and not wired</em> register in <code>.agents/skills/sutura/query-surface/SKILL.md</code> records
-it, and that register is the one place it may be read from - it is not an invariant.</p>
+bearer). Until that lands, the only implementor of the port outside a test is the recorded
+fixture source in <code>fixture</code> - the other two are doubles, <code>tests::Stub</code> and the acceptance
+suite's <code>Composed</code> - so no code here shapes a request or maps a response. <strong>And nothing serves it:</strong> no
+composition root links this crate (its only dependant is <code>sutura-app</code>, as a dev-dependency), and
+<code>sutura-serve</code> refuses <code>catalog.kind: datahub</code> by name. Everything here is decided and tested;
+what is not is the reader itself and a served composition - the <em>Built and not wired</em> register in
+<code>.agents/skills/sutura/query-surface/SKILL.md</code> records it, and that register is the one place it
+may be read from - it is not an invariant.</p>
+<p><strong>What that register no longer says is that the cost is unmeasured.</strong> <code>docs/adr/0016</code>'s
+<em>Revision, 2026-09-04</em> has the numbers, off a provisioned instance: a bundle's metric half is ONE
+paged request carrying <code>structuredProperties</code> and <code>metricInfo</code> inline, not a request per metric -
+<strong>and that surface is search-backed, so it is not read-your-writes.</strong> A reader written against it
+pages an eventually-consistent view; the by-urn form is the immediate one. The limit belongs
+beside the cost rather than after it.</p>
 <h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
 <p><code>SemanticCatalog::KIND</code> is <code>CatalogKind::Declaring</code>. <code>SemanticCatalog::capabilities</code>
 provides <code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code> unconditionally, and declares
@@ -2323,8 +2330,8 @@ because that is the promotion-candidate half; only a metric carrying the deploym
 <p><strong>The fake seam.</strong> Everything above this trait is decided and tested against recorded documents;
 a real implementor speaks to <code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity surface, decodes into
 <code>document::Snapshot</code>, and maps its own failures into <code>DataHubError::Read</code>. The only
-implementor today is the recorded source in <code>fixture</code>, which is why the read path's cost is not
-measured here - see the crate header.</p>
+implementor today is the recorded source in <code>fixture</code>. The RESPONSE SHAPE that implementor has
+to map, and the surface's consistency, are measured rather than guessed - see the crate header.</p>
 <p>A port rather than a method on <code>DataHubCatalog</code> for the same reason the warehouse port exists:
 a catalog that could be swapped for a live source without the conversion changing is the point.</p>
 <h2 id="enum-datahuberror"><code>enum DataHubError</code><a class="headerlink" href="#enum-datahuberror" title="Permanent link">&para;</a></h2>
@@ -2514,15 +2521,25 @@ fixtures carry.</p>
 <h3 id="struct-suturaproperty"><code>struct SuturaProperty</code><a class="headerlink" href="#struct-suturaproperty" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SuturaProperty</span>
 </span></code></pre></div>
-<p><code>DataHub</code>'s view of the deployment-defined metric content: ONE structured property named
-<code>sutura</code>, whose single scalar value is the JSON document below.</p>
+<p><code>DataHub</code>'s view of the deployment-defined metric content: ONE structured property, whose single
+scalar value is the JSON document below.</p>
 <p><strong>This is what makes the scalar-only constraint literal rather than prose.</strong> <code>DataHub</code>'s
 <code>structuredProperty</code> has no nested or record value type, so a deployment cannot define a nested
-object under <code>sutura</code> at all; what it can define is one string-valued property, and
-<code>Self::assemble</code> is the step that turns that scalar into the nested <code>SuturaContent</code> - the
-issue #202 mechanism, implemented here and exercised by a fixture recorded in this flat form
-rather than left to a sentence. The scalar payload is still bounded by the value-type limits a
-deployment's <code>DataHub</code> enforces; this crate adds none of its own.</p>
+object at all; what it can define is one string-valued property, and <code>Self::assemble</code> is the
+step that turns that scalar into the nested <code>SuturaContent</code> - the issue #202 mechanism,
+implemented here and exercised by a fixture recorded in this flat form rather than left to a
+sentence.</p>
+<p><strong>The property's NAME is the deployment's and does not appear here.</strong> <code>sutura</code> is the field
+<code>MetricAspect</code> carries this under on the adapter's own canonical shape; which structured
+property a reader maps onto it is <code>docs/adr/0016</code> decision 7's <em>not ours to say</em>, and
+<code>tests/provisioned.rs</code> registers one whose name shares nothing with this field precisely so the
+independence is measured.</p>
+<p>The scalar payload is bounded by the value-type limits a deployment's <code>DataHub</code> enforces - the
+platform names its own as <code>structuredProperties.keywordMaxLength</code>, because the value is indexed
+as an Elasticsearch keyword, so the bound is an index setting rather than a constant here.
+What is measured is that the refusal NAMES that setting; nothing has raised it and retried,
+so whether a deployment can move it is <code>DataHub</code>'s documentation and not this repository's
+measurement. This crate adds no bound of its own.</p>
 <h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">assemble</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">SuturaContent</span><span class="p">,</span><span class="w"> </span><span class="n">serde_json</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -2549,10 +2566,18 @@ statement of what that scalar means.</p>
 vocabularies.</strong> The <code>measure</code> is the <code>sutura-domain</code> <code>Measure</code> type itself - the closed set,
 written exactly as this repository writes it - the <code>grains</code> and <code>required_filters</code> are the
 closed <code>Grain</code> and <code>RequiredFilter</code> enums, and a <code>dimension</code> and an <code>anchor</code> mirror the markdown
-document's shapes with <code>deny_unknown_fields</code> at every depth refusing a property this adapter
-does not recognise rather than guessing. An aggregate out of the closed set, an unknown operator,
-an unparseable value, an unknown grain, an unclosed namespace key - all fail the decode before
-the conversion sees them.</p>
+document's shapes. <code>deny_unknown_fields</code> sits on this document, on the measure and on the term
+inside it, on a filter, on a dimension, on the anchor and on the range inside the anchor, and
+refuses a property this adapter does not recognise rather than guessing. An aggregate out of the
+closed set, an unknown operator, an unparseable value, an unknown grain, an unknown key at any of
+those levels - all fail the decode before the conversion sees them, naming the key.</p>
+<p><strong>The range is where that used to stop</strong>, which is worth recording because the claim read <em>at
+every depth</em> while it was one depth short: <code>sutura_domain::calendar::TimeRangeInput</code> carried no
+<code>deny_unknown_fields</code>, so a key written INSIDE the range object was discarded in silence rather
+than named, and the metric was certified from a document nobody had read in full. The attribute
+is on that domain shape now, which closes the same hole on the markdown catalog and question
+paths that decode the same type, and
+<code>a_key_inside_an_anchor_range_is_refused_through_the_load_path</code> is what holds it here.</p>
 <p>The three free strings - <code>model</code>, <code>time_column</code>, and each nested <code>column</code> - are the one thing
 this shape cannot close, and they are parsed as domain identifier types during the conversion
 (through the same <code>try_from</code> every catalog identifier uses) rather than at decode, which is what
@@ -2624,16 +2649,20 @@ carries but this adapter refuses to represent (see the crate header).</p>
 <h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
 <p>The recorded fixture corpus and the fake reader that serves it.</p>
 <p>This is the only <code>AspectReader</code> implementor today, and it is the <strong>fake</strong> the port is tested
-against - recorded aspect documents, not mocked HTTP. <code>docs/adr/0016</code>'s transport note leaves the
-read path's cost open until a provisioned instance exists; until then this is what a
+against - recorded aspect documents, not mocked HTTP. Until a real reader exists this is what a
 <code>crate::DataHubCatalog</code> reads. The corpus is a bundle of models, one relationship and <strong>one
-certified metric</strong> - the metric is <code>revenue</code>, and it carries the deployment-defined <code>sutura</code>
-structured property that the adapter decodes into a domain <code>Metric</code>, which is the issue #202
-claim: <code>DataHub</code> provides metrics for a metric that carries the custom shape. The raw expression
-string beside it stays the promotion-candidate half and is never converted.</p>
+certified metric</strong> - the metric is <code>revenue</code>, and it carries the deployment-defined structured
+property that the adapter decodes into a domain <code>Metric</code>, which is the issue #202 claim:
+<code>DataHub</code> provides metrics for a metric that carries the custom shape. The raw expression string
+beside it stays the promotion-candidate half and is never converted.</p>
+<p><strong>The corpus is not only recorded, it is CONFIRMED against the platform.</strong>
+<code>tests/provisioned.rs</code> writes this metric's scalar into a provisioned <code>DataHub</code>, reads the aspect
+back, and asserts the decoded <code>crate::document::MetricAspect</code> equals the one recorded here - so
+the fixture is faithful to the platform rather than only to itself.</p>
 <p><strong>The metric content is recorded in the FLAT form, and that is the point of keeping it as text.</strong>
 <code>DataHub</code>'s <code>structuredProperty</code> is scalar-only, so a deployment defines metric content as one
-string-valued property named <code>sutura</code>; the corpus records exactly that - <code>"sutura": {
+string-valued property, under a name of its own; the corpus records the shape a reader hands over
+once it has mapped that property - <code>"sutura": {
 "string_value": "..." }</code> with the closed-vocabulary document as the scalar's text - and the read
 path exercises <code>document::SuturaProperty::assemble</code>, the scalar-to-nested step issue #202 is
 about, on every load. The documents are decoded through <code>serde_json</code> at read time, so the same
