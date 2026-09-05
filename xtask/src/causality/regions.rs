@@ -15,7 +15,7 @@
 //! WHAT THIS MODULE DOES NOT DO, stated here rather than left to be discovered:
 //!
 //! - It does not parse Rust. Regions are found by matching `#[cfg(test)]` textually and then
-//!   counting braces with a scanner ([`Braces`]) that knows about comments, string literals,
+//!   counting braces with a scanner ([`Nesting`]) that knows about comments, string literals,
 //!   raw strings and char literals - so a brace inside any of those is not counted. It does not
 //!   know about macro bodies, so a `macro_rules!` arm holding an unbalanced brace would end a
 //!   region in the wrong place. No such macro exists in this workspace today.
@@ -163,7 +163,7 @@ fn cfg_test_regions(text: &str) -> Vec<Range<usize>> {
 /// function - ends where its braces balance. A DECLARATION - `mod tests;`, `use x;` - opens no
 /// brace and ends at the first line that closes a statement outside a literal.
 fn item_end(lines: &[&str], start: usize) -> usize {
-    let mut braces = Braces::default();
+    let mut braces = Nesting::braces();
     for (index, line) in lines.iter().enumerate().skip(start) {
         braces.feed(line);
         if braces.saw_open {
@@ -181,6 +181,38 @@ fn item_end(lines: &[&str], start: usize) -> usize {
     // Unbalanced to the end of the file. Extending to EOF over-counts test code, which is the
     // wrong direction - but it can only happen on a file that does not compile.
     lines.len().saturating_sub(1)
+}
+
+/// The index of the last line of the attribute that begins at `start`.
+///
+/// `start` for the usual one-line `#[test]`, and further down for one the formatter wrapped:
+///
+/// ```text
+/// #[expect(
+///     clippy::disallowed_methods,
+///     reason = ".."
+/// )]
+/// ```
+///
+/// READING AN ATTRIBUTE AS ONE LINE WAS A DEFECT, not a stated limit. `super::attributes`'
+/// downward search for the item an attribute applies to stopped on the continuation line -
+/// a line starting with neither `#[` nor anything else it skipped - so `function_name` was handed
+/// `clippy::disallowed_methods,` and no name came out. Ten sites in this tree wrote that shape
+/// when it was found, eight of them a wrapped `#[expect]` over a `#[test]` and two a wrapped
+/// `#[ignore = ".."]`, and the second pair never reached `Scan::OnlyIgnored`'s loud pass.
+///
+/// `None` when the brackets never balance. An unclosed attribute is an ERROR rather than an
+/// answer, the direction `check-workflows` took for an unclosed block: a caller cannot tell a
+/// fabricated answer from a real one, so there is none to give.
+pub(super) fn attribute_end(lines: &[&str], start: usize) -> Option<usize> {
+    let mut brackets = Nesting::brackets();
+    for (index, line) in lines.iter().enumerate().skip(start) {
+        brackets.feed(line);
+        if brackets.saw_open && brackets.depth == 0 {
+            return Some(index);
+        }
+    }
+    None
 }
 
 /// Is `path` an out-of-line module its parent declares under `#[cfg(test)]`?
@@ -259,6 +291,17 @@ fn is_module_declaration(line: &str, name: &str) -> bool {
 /// visibility, whitespace around the `;` - are exactly the thing that would drift between two
 /// copies.
 pub(super) fn module_name(line: &str) -> Option<&str> {
+    Some(item_head(line).strip_prefix("mod ")?.trim().strip_suffix(';')?.trim())
+}
+
+/// What `line` declares, with a leading `#[cfg(test)]` and any visibility stripped: `mod tests;`
+/// for `#[cfg(test)] pub(crate) mod tests;`.
+///
+/// One owner for the prefixes a declaration may carry, because [`module_name`] and
+/// `super::attributes` both have to read past them to reach the keyword and two lists would
+/// drift. `pub(in path)` is deliberately absent: no such spelling is in this tree, and missing
+/// one reads the item as not a module, which is the direction that asks rather than guesses.
+pub(super) fn item_head(line: &str) -> &str {
     let mut rest = line.trim();
     if let Some(after) = rest.strip_prefix("#[cfg(test)]") {
         rest = after.trim_start();
@@ -269,7 +312,7 @@ pub(super) fn module_name(line: &str) -> Option<&str> {
             break;
         }
     }
-    Some(rest.strip_prefix("mod ")?.trim().strip_suffix(';')?.trim())
+    rest
 }
 
 /// Where a line break left the scanner. Every one of these can span lines in Rust.
@@ -291,17 +334,43 @@ enum Span {
 /// hold JSON and YAML fixtures, and a `"{"` in an error-message assertion would otherwise end a
 /// region in the middle of one - which is a false positive for PRODUCTION code, the exact
 /// direction of the defect this module exists to fix.
-#[derive(Debug, Default)]
-struct Braces {
-    /// Saturating, so a stray `}` cannot wrap around.
+#[derive(Debug)]
+struct Nesting {
+    /// The pair being counted. A parameter rather than two literals, because ONE lexer serves
+    /// both questions asked of this file: where a `{ .. }` item ends, and where a `#[ .. ]`
+    /// attribute the formatter wrapped ends. A second copy for the second pair is the shape that
+    /// stops lexing and starts counting, which is the defect `check-workflows` recorded.
+    open: char,
+    close: char,
+    /// Saturating, so a stray closer cannot wrap around.
     depth: usize,
-    /// Has any `{` been seen since the scanner was created? Distinguishes a block item from a
+    /// Has any opener been seen since the scanner was created? Distinguishes a block item from a
     /// declaration, and does it correctly for `fn h() { 1 }` on a single line.
     saw_open: bool,
     span: Span,
 }
 
-impl Braces {
+impl Nesting {
+    /// A counter over `{` and `}`: where a block item ends.
+    const fn braces() -> Self {
+        Self::of('{', '}')
+    }
+
+    /// A counter over `[` and `]`: where an attribute ends, however many lines it spans.
+    const fn brackets() -> Self {
+        Self::of('[', ']')
+    }
+
+    const fn of(open: char, close: char) -> Self {
+        Self {
+            open,
+            close,
+            depth: 0,
+            saw_open: false,
+            span: Span::Code,
+        }
+    }
+
     /// Is the scanner outside every comment and literal?
     const fn in_code(&self) -> bool {
         matches!(self.span, Span::Code)
@@ -376,11 +445,11 @@ impl Braces {
             '"' => self.span = Span::Text,
             'r' | 'b' => self.maybe_literal_prefix(c, chars),
             '\'' => skip_char_literal(chars),
-            '{' => {
+            _ if c == self.open => {
                 self.depth = self.depth.saturating_add(1);
                 self.saw_open = true;
             }
-            '}' => self.depth = self.depth.saturating_sub(1),
+            _ if c == self.close => self.depth = self.depth.saturating_sub(1),
             _ => {}
         }
         false
@@ -469,7 +538,7 @@ fn skip_char_literal(chars: &mut Chars<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Braces, Range, TestScope, cfg_test_regions, has_non_test_additions, scope};
+    use super::{Nesting, Range, TestScope, attribute_end, cfg_test_regions, has_non_test_additions, scope};
     use crate::causality::fixtures::{added_from as from, tree};
 
     /// The expected regions, as `(first, past_last)` pairs. A helper rather than `vec![a..b]`
@@ -753,12 +822,58 @@ mod tests {
 
     #[test]
     fn the_scanner_tracks_a_block_comment_across_lines() {
-        let mut braces = Braces::default();
+        let mut braces = Nesting::braces();
         braces.feed("/* opening {");
         assert!(!braces.in_code());
         assert_eq!(braces.depth, 0);
         braces.feed("still } inside */ {");
         assert!(braces.in_code());
         assert_eq!(braces.depth, 1);
+    }
+
+    #[test]
+    fn an_attribute_ends_where_its_brackets_balance_however_many_lines_it_spans() {
+        // THE DEFECT, at the level the lexer answers it. Reading an attribute as ONE line stopped
+        // the search for its item on `clippy::disallowed_methods,` - eight `#[test]`s in this tree
+        // are written over exactly this wrapped `#[expect]`, and two more over a wrapped
+        // `#[ignore = ".."]`.
+        let wrapped: Vec<&str> = vec![
+            "#[expect(",                        // 0
+            "    clippy::disallowed_methods,",  // 1
+            "    reason = \"the exposure\"",    // 2
+            ")]",                               // 3
+            "fn expose_secret_returns_it() {}", // 4
+        ];
+        assert_eq!(attribute_end(&wrapped, 0), Some(3));
+        // The ordinary one-line shapes end on their own line.
+        assert_eq!(attribute_end(&["#[test]", "fn t() {}"], 0), Some(0));
+        assert_eq!(attribute_end(&["#[cfg(test)] mod tests;"], 0), Some(0));
+    }
+
+    #[test]
+    fn a_bracket_inside_a_literal_or_a_comment_does_not_close_an_attribute() {
+        // The same reason the brace counter is a lexer: a `]` in a reason string or a nested
+        // array type would otherwise end the attribute mid-way and hand the caller a
+        // continuation line as if it were an item.
+        let literal: Vec<&str> = vec![
+            "#[expect(",
+            "    clippy::indexing_slicing,",
+            "    reason = \"the message reads `a]b` and // is not a comment\"",
+            "    // and a real comment carrying ] too",
+            ")]",
+            "fn t() {}",
+        ];
+        assert_eq!(attribute_end(&literal, 0), Some(4));
+        let nested: Vec<&str> = vec!["#[serde(with = \"as_array\")] // [u8; 4]", "fn t() {}"];
+        assert_eq!(attribute_end(&nested, 0), Some(0));
+    }
+
+    #[test]
+    fn an_attribute_that_never_closes_is_an_error_rather_than_an_answer() {
+        // A caller cannot tell a fabricated line number from a real one, so there is none to
+        // give. Only reachable on a file that does not compile.
+        assert_eq!(attribute_end(&["#[expect(", "    clippy::x,"], 0), None);
+        // And a line holding no bracket at all is not an attribute: nothing to balance, no answer.
+        assert_eq!(attribute_end(&["fn t() {}"], 0), None);
     }
 }

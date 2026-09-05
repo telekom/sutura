@@ -5,37 +5,40 @@
 //! measured what that cost. Scoping is the half that stops an unrelated failure from happening at
 //! all, and that module is the half that stops one being read as evidence if it happens anyway.
 //!
-//! A BARE FUNCTION NAME IS NOT A KEY IN THIS TREE, and believing it was is the defect this module
-//! last carried. Measured on nextest 0.9.143 over a synthetic workspace: `test(/(?:^|::)sums/)`
-//! matched six tests in three packages, including a MODULE called `sums` in a package the diff
-//! never touched. So a test is keyed by three things, all of which its FILE settles: the binary or
-//! package it compiles into, the module path the file contributes, and the function name.
-//! `package(=..) & test(/../)` is the filter that follows, and [`AddedTest::claims`] is the same
-//! key applied to a failure the run reported.
-//!
-//! WHAT THE KEY STILL DOES NOT SEPARATE, measured rather than guessed, and in both directions
-//! because only one of them is a false green. CONSISTENCY: every test `just test` lists satisfies
-//! the key derived from its own declaring file, so the derivation never produces a filter that
-//! matches nothing - that is the false-RED direction and it is clean. SEPARATION is the other one
-//! and is partial: **of 41 duplicated test names, 16 are told apart and 25 are not**
-//! (2026-09-05, over `just test`'s own listing of 1922). Every one of the 25 is a `macro_rules!`
-//! body expanded into several modules of ONE file - `crates/sutura-app/tests/golden/`, where
-//! `mod $name {` is generated once per dialect - so no prefix read from a path or a declaration
-//! can separate them; only running nextest and asking could, which is the same filter. That is
-//! also why the pattern allows any nesting below the file (`(?:.*::)?`), and why a name shared
-//! between a module and its own DESCENDANT in one package is not discriminated: a test added in
-//! `src/model.rs` also accepts `model::qualified::tests::<same name>`.
-//!
-//! What that residual can and cannot do: a collided failure only manufactures a false green if it
-//! is red on base AND green on head, which means the diff changed ITS behaviour - so the change is
-//! causal and the misattribution is to the wrong test name. The vacuous added test riding along is
-//! the defect, and it is now confined to one file's macro-generated modules rather than the whole
-//! workspace.
+//! A BARE FUNCTION NAME IS NOT A KEY IN THIS TREE, and `super::place` owns that key, the
+//! measurement behind it and the collisions it still does not separate. Read it before believing
+//! a filter here identifies one test.
 //!
 //! FAIL CLOSED ON AN EMPTY SCAN, and that is what [`Scoped`] is for. A scan naming no test may
-//! not fall back to "no filter", because the unfiltered run IS the defect above. So the
-//! non-empty set is a TYPE rather than a check somebody remembers to write at the call site:
-//! [`Scan::of`] answers [`Scan::Unnamed`], and the gate refuses instead of measuring the suite.
+//! not fall back to "no filter", because an unfiltered run makes the verdict a property of the
+//! suite. So the non-empty set is a TYPE rather than a check somebody remembers to write at the
+//! call site: [`Scan::of`] answers [`Scan::Unnamed`], and the gate refuses instead of measuring
+//! the suite.
+//!
+//! FAIL CLOSED ON A PARTIAL ONE TOO, which took longer to see because the scan is AGGREGATE: it
+//! answered `Runnable` the moment ONE provable file named a test, so a second provable file whose
+//! added `#[test]` yielded no name rode along unmeasured and unmentioned - the common shape, not a
+//! corner. [`Scan::Unreadable`] is that case and it refuses AHEAD of `Runnable`. It is counted
+//! PER ATTRIBUTE rather than per file, which is the second half of the same finding: `named > 0`
+//! used to end the file's inspection, so a second unnameable attribute BESIDE a nameable one was
+//! invisible in both of `super::coverage`'s numbers. **The precision cost was measured before it
+//! was taken** (2026-09-05, every `.rs` file under `crates/`, `xtask/` and `dev/` walked through
+//! this extractor): **zero** test-declaring attributes fail to name a function, so the
+//! per-attribute rule refuses nothing this tree writes. Only the zero is written down, because it
+//! is the whole argument and a total would rot inside one PR. What it WOULD refuse is a
+//! test-declaring attribute with no function under it, which does not compile, and a
+//! `#[test]`-shaped line inside a raw string literal, of which there is none.
+//!
+//! WHAT A SILENT FILE IS ALLOWED TO CLAIM, and this one was asserted rather than checked. A
+//! `#[cfg(test)] mod ..` declaration names nothing by design, so refusing per file would redden
+//! the ordinary way a test module is added - it is [`Scoped::silent`] and the gate prints it. The
+//! sentence printed beside it said *its own file names the tests*, and nothing read whether that
+//! file was in the diff at all: a `#[cfg(test)] mod legacy;` added to `lib.rs` while `legacy.rs`
+//! sits untouched puts a whole pre-existing module of tests into the build, with no added line
+//! naming any of them and no run measuring any of them - and, because `lib.rs` is held at HEAD,
+//! those tests are in both trees and cannot be red on base either. That is
+//! [`Scan::Enabled`], it refuses, and `super::place::declared_module_files` is what resolves the
+//! declaration instead of asserting it.
 //!
 //! AN `#[ignore]`d TEST IS NAMED AND DROPPED, because a filterset naming only ignored tests
 //! matches nothing and nextest exits 4 with *error: no tests to run* - a false RED on legitimate
@@ -45,232 +48,77 @@
 //! `#[ignore` in this tree is a doc comment ABOUT one - no number is written down, because the
 //! argument holds at any count above zero and a figure would rot within a PR).
 //! Running them is the wrong direction for the reason a tier-backed cell is not required in the
-//! reconstructed worktree (see [`super::nextest`]): they are ignored because this venue lacks what
+//! reconstructed worktree (see [`super::runner::nextest`]): they are ignored because this venue lacks what
 //! they need, so forcing them in a tree nothing provisioned fails CLOSED and reads as
 //! red-on-base. So they leave the
 //! scope, and a diff whose every added test is ignored gets [`Scan::OnlyIgnored`] - a statement
 //! that this gate has not verified the change, not a claim that the extractor is broken.
 //!
 //! WHAT IT DOES NOT REACH. A name is read from an ADDED test attribute and the function under
-//! it, so a body-only edit inside an existing `#[test]` names nothing here. [`adds_test`] also
-//! accepts an added `#[cfg(test)]` or `mod tests {` marker, which names no function - so a diff
-//! adding only a marker is a file the plan calls a test file and this cannot name. That is the
-//! empty scan, and it is a refusal rather than a wider run. Both attribute lists live in this one
-//! module because a name this cannot extract from a marker `adds_test` accepts is exactly the
-//! disagreement that would reopen the unfiltered run.
+//! it, so a body-only edit inside an existing `#[test]` names nothing here. `super::attributes`
+//! also accepts an added `#[cfg(test)] mod ..` or `mod tests {` marker, which names no function -
+//! so a diff whose ONLY test signal is such a marker is a file the plan calls a test file and this
+//! cannot name. **A `#[cfg(test)]` item that is not a module is NOT such a marker**, and treating
+//! it as one was a refusal no author could act on; that module's header carries the reasoning.
+//! Both attribute lists live THERE, in one file, because a name this cannot extract from a marker
+//! it accepts is exactly the disagreement that would reopen the unfiltered run.
 
+use crate::causality::attributes::{attached, declares_a_test, item_below};
 use crate::causality::diff::ChangedFile;
+use crate::causality::names::Ident;
+use crate::causality::place::{AddedTest, Declares, accounted_for, place};
 use crate::causality::regions::{AddedLine, PostImage};
-use crate::changes::package_name;
 
-/// Attributes that mark the function below them as a test.
+/// A provable file that named no test, and where its tests actually are.
 ///
-/// Deliberately syntactic and deliberately generous: a false positive costs a slower gate, a
-/// false negative lets a vacuous test through, so the bias goes one way on purpose. Written
-/// without the closing `]` where an argument list is legal, so `#[tokio::test(flavor = "..")]`
-/// is recognised too.
-const DECLARES_A_TEST: &[&str] = &["#[test]", "#[tokio::test", "#[rstest", "#[test_case"];
-
-/// One Rust identifier: a test function's name, or one segment of a module path.
-///
-/// A newtype that PARSES, and [`AddedTest::term`] is the reason: this reaches nextest inside a
-/// regular expression, so one carrying a metacharacter would widen the filter or break it rather
-/// than fail visibly. A Rust identifier cannot carry one; anything that is not one does not get
-/// through this constructor.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Ident(String);
-
-impl Ident {
-    /// The identifier, if `raw` is an ASCII Rust one.
-    pub(crate) fn parse(raw: &str) -> Option<Self> {
-        let mut chars = raw.chars();
-        let leading = chars.next()?;
-        if !leading.is_ascii_alphabetic() && leading != '_' {
-            return None;
-        }
-        if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return None;
-        }
-        Some(Self(String::from(raw)))
-    }
-
-    /// The identifier as written.
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
+/// The second field is the change: the printed sentence used to ASSERT that the declared module's
+/// own file names the tests, and nothing read whether that file was in the diff. It is resolved
+/// now, so a declaration this cannot account for is [`Scan::Enabled`] rather than a pass.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Silent {
+    /// The provable file that named nothing.
+    pub(crate) path: String,
+    /// The declared module's own file, which IS in this diff and is where its tests are named -
+    /// or `None` for an INLINE module, whose body is in this same file and whose lines were
+    /// already compiled, so nothing arrived for this to name.
+    pub(crate) module: Option<String>,
 }
 
-/// A cargo package or target name.
-///
-/// Parses for the same reason [`Ident`] does - it reaches nextest inside a filter expression -
-/// but it is a different alphabet: cargo allows `-`, which Rust does not, and `sutura-domain` and
-/// `multi_player` are both real names here. It is NOT a superset of `Ident` in intent, so the two
-/// stay separate types rather than one lenient one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CargoName(String);
-
-impl CargoName {
-    /// The name, if `raw` is one cargo could have accepted.
-    fn parse(raw: &str) -> Option<Self> {
-        let mut chars = raw.chars();
-        let leading = chars.next()?;
-        if !leading.is_ascii_alphanumeric() && leading != '_' {
-            return None;
-        }
-        if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-            return None;
-        }
-        Some(Self(String::from(raw)))
-    }
-
-    /// The name as written.
-    fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Which test binary a test compiles into - the coarsest half of the key.
-///
-/// Measured binary-id shapes on nextest 0.9.143: a package's lib unit tests are `<package>`, an
-/// integration target is `<package>::<target>`, and a bin's unit tests are `<package>::bin/<name>`.
-/// A file under `tests/` at the top level IS a target, so its id is exact. A file under `src/`
-/// could be compiled into the lib's binary or a bin's and its path does not say which, so the
-/// qualifier there is the package.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Binary {
-    /// Any binary of this package.
-    Package(CargoName),
-    /// Exactly one integration target: `tests/<target>.rs`.
-    Target(CargoName, CargoName),
-}
-
-impl Binary {
-    /// The nextest predicate that selects it.
-    fn predicate(&self) -> String {
-        match *self {
-            Self::Package(ref package) => format!("package(={})", package.as_str()),
-            Self::Target(ref package, ref target) => {
-                format!("binary_id(={}::{})", package.as_str(), target.as_str())
-            }
-        }
-    }
-
-    /// Could a failure nextest attributes to `id` have come from here?
-    fn holds(&self, id: &str) -> bool {
-        match *self {
-            Self::Package(ref package) => id
-                .strip_prefix(package.as_str())
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with("::")),
-            Self::Target(ref package, ref target) => {
-                id.strip_prefix(package.as_str()).and_then(|rest| rest.strip_prefix("::")) == Some(target.as_str())
-            }
-        }
-    }
-}
-
-/// The module path a test file contributes, from its crate or target root.
-///
-/// `model::qualified` for `crates/sutura-domain/src/model/qualified/tests.rs`. Empty for a crate
-/// root, for a target root, and for any file whose place in the module tree its path does not
-/// settle - `tests/golden/catalogs.rs` is reached by a `#[path]` attribute from another file, so
-/// the path is not the answer there and this claims nothing.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Module(String);
-
-impl Module {
-    /// The module path of a file at `inner`, relative to the `src/` it sits under.
-    ///
-    /// `None` when any segment is not an identifier, which is the conservative direction: no
-    /// prefix rather than a wrong one.
-    fn of(inner: &str) -> Option<Self> {
-        let stem = inner.strip_suffix(".rs")?;
-        // `a/b/mod.rs` IS module `a::b`, declared one level up.
-        let stem = stem.strip_suffix("/mod").unwrap_or(stem);
-        stem.split('/')
-            .all(|segment| Ident::parse(segment).is_some())
-            .then(|| Self(stem.replace('/', "::")))
-    }
-
-    /// The module one segment names.
-    fn named(segment: &Ident) -> Self {
-        Self(String::from(segment.as_str()))
-    }
-
-    /// The prefix a test path under this module begins with: `model::qualified::`, or empty.
-    fn prefix(&self) -> String {
-        if self.0.is_empty() {
-            String::new()
-        } else {
-            format!("{}::", self.0)
-        }
-    }
-
-    /// `path` with this module's prefix removed, or `None` when it does not begin with it.
-    ///
-    /// Through [`Module::prefix`] so the separator rule is stated once: an empty prefix strips
-    /// nothing, which is what `strip_prefix("")` already answers.
-    fn strip<'a>(&self, path: &'a str) -> Option<&'a str> {
-        path.strip_prefix(self.prefix().as_str())
-    }
-}
-
-/// One test the diff added, as a key that identifies it in a run's output.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AddedTest {
-    binary: Binary,
-    within: Module,
-    name: Ident,
-}
-
-impl AddedTest {
-    /// The filter expression term that runs exactly this test.
-    ///
-    /// Parenthesised rather than relying on `&` binding tighter than `+`, because the whole
-    /// expression is built by joining terms and a precedence surprise here is a silently wider
-    /// run rather than an error.
-    fn term(&self) -> String {
-        format!(
-            "({} & test(/^{}(?:.*::)?{}(?:::|$)/))",
-            self.binary.predicate(),
-            self.within.prefix(),
-            self.name.as_str()
-        )
-    }
-
-    /// Is the failure nextest reported as `binary_id`/`path` this test?
-    ///
-    /// The SAME key the filter uses, applied by us rather than by nextest - so it catches a
-    /// filter that stopped filtering (a version whose expression syntax moved, a predicate this
-    /// tree spells differently) and not a key that is wrong. Two enforcers of one key, which is
-    /// what defence in depth is here; it is not two independent keys, and claiming otherwise is
-    /// how this comparison came to accept a name-collided failure.
-    ///
-    /// `binary_id` is absent for the `cargo test` wording, which prints no binary id - so the
-    /// coarse half of the key cannot be checked there and is not. That path is only reached when
-    /// the runner is not nextest at all.
-    pub(crate) fn claims(&self, binary_id: Option<&str>, path: &str) -> bool {
-        if binary_id.is_some_and(|id| !self.binary.holds(id)) {
-            return false;
-        }
-        self.within
-            .strip(path)
-            .is_some_and(|rest| rest.split("::").any(|segment| segment == self.name.as_str()))
-    }
+/// A provable file whose added declaration puts a module of tests into the build that this diff
+/// does not contain.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Enabled {
+    /// The file carrying the declaration.
+    pub(crate) path: String,
+    /// Where cargo will look for the module's source. Not in this diff, which is the finding.
+    pub(crate) module: String,
 }
 
 /// The tests a diff added: at least one, by construction.
 #[derive(Debug)]
-pub(crate) struct Scoped(Vec<AddedTest>);
+pub(crate) struct Scoped {
+    tests: Vec<AddedTest>,
+    /// Provable files that named no test and whose reason for naming none is accounted for.
+    ///
+    /// Carried because this scan is AGGREGATE, so a file it could not name is otherwise invisible
+    /// whenever a sibling could. Stated rather than refused, and the statement is now checked.
+    silent: Vec<Silent>,
+}
 
 impl Scoped {
     /// The keys, for comparing a failure against the set under test.
     pub(crate) fn tests(&self) -> &[AddedTest] {
-        &self.0
+        &self.tests
+    }
+
+    /// Provable files this named no test in, with what accounts for each.
+    pub(crate) fn silent(&self) -> &[Silent] {
+        &self.silent
     }
 
     /// The nextest filter expression that runs exactly these tests.
     pub(crate) fn filterset(&self) -> String {
-        self.0.iter().map(AddedTest::term).collect::<Vec<String>>().join(" + ")
+        self.tests.iter().map(AddedTest::term).collect::<Vec<String>>().join(" + ")
     }
 }
 
@@ -279,6 +127,17 @@ impl Scoped {
 pub(crate) enum Scan {
     /// Tests this venue can run, so there is something to measure.
     Runnable(Scoped),
+    /// A provable file added an attribute that DECLARES a test and no name came out of it, or its
+    /// post-image could not be read at all. Refuses, and refuses ahead of every other answer,
+    /// which is the point: this scan is aggregate, so one nameable test elsewhere in the diff
+    /// used to mask the file completely and the run measured a subset with nothing saying so. The
+    /// fix is the extractor, which is why it comes first: any other verdict over the same diff is
+    /// a verdict this gate cannot read its own inputs for.
+    Unreadable(Vec<String>),
+    /// A provable file declares a test module whose own file is not in this diff, so a module of
+    /// pre-existing tests becomes compiled and no added line names any of them. Refuses - the
+    /// remedy is stated evidence, not an extractor fix, which is why it is its own answer.
+    Enabled(Vec<Enabled>),
     /// Every test the diff added is `#[ignore]`d. Named, and unreachable by any run here.
     OnlyIgnored(Vec<Ident>),
     /// No test could be named at all.
@@ -294,36 +153,87 @@ impl Scan {
     pub(crate) fn of(files: &[ChangedFile], provable: &[String], read: &PostImage<'_>) -> Self {
         let mut runnable: Vec<AddedTest> = Vec::new();
         let mut ignored: Vec<Ident> = Vec::new();
+        let mut silent: Vec<Silent> = Vec::new();
+        let mut enabled: Vec<Enabled> = Vec::new();
+        let mut unreadable: Vec<String> = Vec::new();
         for file in files.iter().filter(|file| provable.contains(&file.path)) {
-            let Some(text) = read(&file.path) else {
-                continue;
-            };
-            let Some(place) = place(&file.path, read) else {
+            // PER ATTRIBUTE, not per file: the count is what `named` is compared against, so an
+            // unnameable attribute beside a nameable one is refused rather than dropped.
+            let declared = file.added.iter().filter(|line| declares_a_test(line.text.trim())).count();
+            let mut named = 0_usize;
+            let Some((text, at)) = read(&file.path).zip(place(&file.path, read)) else {
+                // ONE fail-closed arm for *this gate cannot say where this file's tests would
+                // land*, and nothing may be claimed about such a file - including that a test
+                // module arrived in it. `attributes::adds` answers `TestModule` for a post-image it
+                // cannot read, which is the fail-closed direction, and THIS is where that direction
+                // is delivered: it used to land on the passing `silent` arm, whose printed sentence
+                // said a test module arrived. A path no `Cargo.toml` owns is the same answer for
+                // the same reason - cargo compiles nothing from it, so no sentence about its tests
+                // can be true.
+                unreadable.push(file.path.clone());
                 continue;
             };
             let lines: Vec<&str> = text.lines().collect();
-            for declared in file.added.iter().filter_map(|added| declared_under(&lines, added)) {
-                match declared {
+            for declaration in file.added.iter().filter_map(|added| declared_under(&lines, added)) {
+                named += 1;
+                match declaration {
                     Declared::Ignored(name) => {
                         if !ignored.contains(&name) {
                             ignored.push(name);
                         }
                     }
                     Declared::Runs(name) => {
-                        let one = AddedTest {
-                            binary: place.binary.clone(),
-                            within: place.within.clone(),
-                            name,
-                        };
+                        let one = AddedTest::at(&at, name);
                         if !runnable.contains(&one) {
                             runnable.push(one);
                         }
                     }
                 }
             }
+            if named > 0 && named == declared {
+                continue;
+            }
+            // WHICH kind of unnameable, because they ask for different things - and each file
+            // carries its own cause, so a printed remedy cannot offer one this input cannot have.
+            if declared > 0 {
+                // An added attribute that declares a test and yielded no name: the extractor is
+                // the fix.
+                unreadable.push(file.path.clone());
+                continue;
+            }
+            match accounted_for(file, &lines) {
+                Some(Declares::Inline) => silent.push(Silent {
+                    path: file.path.clone(),
+                    module: None,
+                }),
+                Some(Declares::OutOfLine(candidates)) => {
+                    match candidates.iter().find(|one| files.iter().any(|f| f.path == **one)) {
+                        Some(present) => silent.push(Silent {
+                            path: file.path.clone(),
+                            module: Some(present.clone()),
+                        }),
+                        None => enabled.push(Enabled {
+                            path: file.path.clone(),
+                            module: candidates.into_iter().next().unwrap_or_default(),
+                        }),
+                    }
+                }
+                // Nothing in the added lines declares a module, so what made this a test file
+                // names nothing and cannot be accounted for: a dangling attribute, or a form this
+                // gate does not read. Same remedy as an unreadable name - fix the extractor.
+                None => unreadable.push(file.path.clone()),
+            }
+        }
+        // Ahead of everything: a subset the caller cannot see is the defect, and one sibling that
+        // names a test is exactly what used to hide it.
+        if !unreadable.is_empty() {
+            return Self::Unreadable(unreadable);
+        }
+        if !enabled.is_empty() {
+            return Self::Enabled(enabled);
         }
         if !runnable.is_empty() {
-            return Self::Runnable(Scoped(runnable));
+            return Self::Runnable(Scoped { tests: runnable, silent });
         }
         if ignored.is_empty() {
             Self::Unnamed
@@ -331,148 +241,6 @@ impl Scan {
             Self::OnlyIgnored(ignored)
         }
     }
-}
-
-/// Where a test file's tests land: which binary, and under what module path.
-struct Place {
-    binary: Binary,
-    within: Module,
-}
-
-/// Resolve `path` to the binary and module path its tests carry.
-///
-/// `None` when no ancestor `Cargo.toml` declares a package, which means cargo compiles nothing
-/// from this file and it has no tests to run. The package is read rather than derived from the
-/// directory name, because the two differ in this workspace: `dev/` is package `sutura-dev`.
-fn place(path: &str, read: &PostImage<'_>) -> Option<Place> {
-    let (package, dir) = owning_package(path, read)?;
-    let rest = path.get(dir.len()..)?.trim_start_matches('/');
-    if let Some(inner) = rest.strip_prefix("tests/") {
-        // A top-level `tests/<stem>.rs` IS a target, so its binary id is exact.
-        if let Some(target) = inner
-            .strip_suffix(".rs")
-            .filter(|stem| !stem.contains('/'))
-            .and_then(CargoName::parse)
-        {
-            return Some(Place {
-                binary: Binary::Target(package, target),
-                within: Module::default(),
-            });
-        }
-        // Anything deeper is a submodule of one, and which one under what name is a DECLARATION
-        // rather than a path. Falling back to the package alone is what this tree needed reading:
-        // 25 of its 41 duplicated test names were conflated by that fallback, nearly all of them
-        // in `crates/sutura-app/tests/golden/`.
-        return Some(included_by(&package, dir, inner, read).unwrap_or_else(|| Place {
-            binary: Binary::Package(package),
-            within: Module::default(),
-        }));
-    }
-    // A crate root and a `src/bin/<name>.rs` are both roots: their module path is empty, and
-    // deriving one from the path would produce `bin::<name>`, which no test carries.
-    let within = rest
-        .strip_prefix("src/")
-        .filter(|inner| !matches!(*inner, "lib.rs" | "main.rs") && !inner.starts_with("bin/"))
-        .and_then(Module::of)
-        .unwrap_or_default();
-    Some(Place {
-        binary: Binary::Package(package),
-        within,
-    })
-}
-
-/// The target that includes a file deeper under `tests/`, and the module name it arrives as.
-///
-/// cargo compiles only the TOP level of `tests/` as targets, so `tests/golden/dialects.rs` is a
-/// submodule of one - and which one, under what name, is settled by the declaration reaching it
-/// rather than by its path. `tests/golden.rs` carries `#[path = "golden/dialects.rs"] mod
-/// dialects;`, so the binary is `<package>::golden` and the module is `dialects`. Reading the
-/// DECLARATION rather than guessing from the path is the pattern `regions::declared_under_cfg_test`
-/// already uses, and for the same reason: `golden.rs`'s own comment records that a bare
-/// `mod dialects;` there would resolve to `tests/dialects.rs` instead, so the name and the path
-/// are genuinely independent and a guess would be a filter matching nothing.
-///
-/// Only the target named by the FIRST segment is consulted. A file that some OTHER target also
-/// pulls in by `#[path]` is therefore keyed to this one - which NARROWS the filter rather than
-/// widening it, so the failure direction is a loud `RedOutsideTheDiff` and never a false green.
-/// `tests/support/mod.rs`, which two bigquery targets share, has no `tests/support.rs` above it
-/// and so falls back to the package.
-fn included_by(package: &CargoName, dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Place> {
-    let (first, _) = inner.split_once('/')?;
-    let target = CargoName::parse(first)?;
-    let text = read(&in_dir(dir, &format!("tests/{first}.rs")))?;
-    Some(Place {
-        binary: Binary::Target(package.clone(), target),
-        within: Module::named(&declared_at(&text, inner)?),
-    })
-}
-
-/// The module name `text` gives the file at `inner` through a `#[path]` declaration.
-///
-/// The attribute is matched as the line rustfmt writes it, spaces included. Any other spelling
-/// finds nothing and the caller falls back to the package - generous, and the direction that
-/// cannot turn into a false green.
-fn declared_at(text: &str, inner: &str) -> Option<Ident> {
-    let attribute = format!("#[path = \"{inner}\"]");
-    let lines: Vec<&str> = text.lines().collect();
-    let at = lines.iter().position(|line| line.trim() == attribute)?;
-    lines
-        .iter()
-        .skip(at + 1)
-        .map(|line| line.trim())
-        .find(|trimmed| !sits_between(trimmed))
-        .and_then(crate::causality::regions::module_name)
-        .and_then(Ident::parse)
-}
-
-/// `rel` under `dir`, where an empty `dir` is the repo root.
-fn in_dir(dir: &str, rel: &str) -> String {
-    if dir.is_empty() {
-        String::from(rel)
-    } else {
-        format!("{dir}/{rel}")
-    }
-}
-
-/// The package owning `path`, and that package's directory - empty for one at the repo root.
-///
-/// The nearest ancestor directory whose `Cargo.toml` declares a `[package]` name, walking up.
-/// `changes::package_name` reads the manifest, because the TOML shape is the part that could rot
-/// and one reader for it is enough; the WALK differs - this one goes through the post-image reader
-/// so the resolution is testable without a checkout.
-fn owning_package<'p>(path: &'p str, read: &PostImage<'_>) -> Option<(CargoName, &'p str)> {
-    let mut dir = path;
-    loop {
-        dir = dir.rsplit_once('/').map_or("", |(parent, _)| parent);
-        if let Some(text) = read(&in_dir(dir, "Cargo.toml"))
-            && let Some(name) = package_name(&text)
-            && let Some(package) = CargoName::parse(&name)
-        {
-            return Some((package, dir));
-        }
-        if dir.is_empty() {
-            return None;
-        }
-    }
-}
-
-/// Does this diff hunk add a test?
-///
-/// The marker forms - `#[cfg(test)]` and a new `mod tests` - answer yes and name nothing, which
-/// is deliberate: they decide whether a file is a test file, and the module header says what an
-/// unnamed one costs.
-pub(crate) fn adds_test(added: &[AddedLine]) -> bool {
-    added.iter().any(|line| {
-        let trimmed = line.text.trim();
-        declares_a_test(trimmed)
-            || trimmed.starts_with("#[cfg(test)]")
-            || (trimmed.starts_with("mod tests") && trimmed.contains('{'))
-    })
-}
-
-/// Is this line one of the attributes that names the test below it?
-fn declares_a_test(trimmed: &str) -> bool {
-    DECLARES_A_TEST.iter().any(|attribute| trimmed.starts_with(attribute))
 }
 
 /// A test an added attribute declares, and whether a run in this venue reaches it.
@@ -492,13 +260,8 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
     if !declares_a_test(added.text.trim()) {
         return None;
     }
-    // `number` is 1-based, so skipping that many lands on the line AFTER the attribute.
-    let (index, declaration) = lines
-        .iter()
-        .enumerate()
-        .skip(added.number)
-        .map(|(index, line)| (index, line.trim()))
-        .find(|&(_, trimmed)| !sits_between(trimmed))?;
+    // `number` is 1-based, so it IS the 0-based index of the line after the attribute.
+    let (index, declaration) = item_below(lines, added.number)?;
     let name = function_name(declaration)?;
     Some(if is_ignored(lines, index) {
         Declared::Ignored(name)
@@ -509,33 +272,14 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
 
 /// Does the attribute block attached to the function at `index` carry an `#[ignore]`?
 ///
-/// Walks UP over the contiguous attributes and comments, because `#[ignore]` is legal on either
-/// side of `#[test]` and only the upward walk sees both. A blank line ends the block, so an
-/// attribute belonging to an earlier item cannot be borrowed. `#[cfg_attr(.., ignore)]` is not
-/// recognised - no such spelling exists in this tree, and the direction of missing one is the
-/// `no tests to run` failure this dropping exists to prevent, which is loud.
+/// `attributes::attached` owns the block, because `#[ignore]` is legal on either side of `#[test]`
+/// and a WRAPPED `#[ignore = ".."]` is one attribute over several lines - the shape that used to
+/// put an ignored test into the filterset and cost the loud `OnlyIgnored` pass.
+/// `#[cfg_attr(.., ignore)]` is not recognised - no such spelling exists in this tree, and the
+/// direction of missing one is the `no tests to run` failure this dropping exists to prevent,
+/// which is loud.
 fn is_ignored(lines: &[&str], index: usize) -> bool {
-    lines.get(..index).is_some_and(|above| {
-        above
-            .iter()
-            .rev()
-            .map(|line| line.trim())
-            .take_while(|trimmed| trimmed.starts_with("#[") || trimmed.starts_with("//"))
-            .any(|trimmed| trimmed.starts_with("#[ignore"))
-    })
-}
-
-/// Blank, a comment or another attribute: the things that legitimately sit between an attribute
-/// and the item it applies to. Anything else ends the search, so a stray attribute does not
-/// reach down the file and name an unrelated test.
-///
-/// The same three clauses as `regions::carries_no_behaviour`, and deliberately not that function:
-/// it answers *does this ADDED line change what the code does*, which is a question about a diff,
-/// and this answers *may this line sit between an attribute and its item*, which is a question
-/// about Rust's grammar. They agree today by coincidence, and only one of them should follow
-/// `#![..]` inner attributes.
-fn sits_between(trimmed: &str) -> bool {
-    trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#[")
+    attached(lines, index).iter().any(|opening| opening.starts_with("#[ignore"))
 }
 
 /// The name in `fn NAME(`, if this line declares a function.
@@ -549,16 +293,17 @@ fn function_name(line: &str) -> Option<Ident> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddedTest, CargoName, Ident, Scan, adds_test, place};
+    use super::{AddedTest, Scan, Silent};
     use crate::causality::diff::ChangedFile;
     use crate::causality::fixtures::{changed, manifest, tree};
-    use crate::causality::regions::{AddedLine, PostImage};
+    use crate::causality::names::Ident;
+    use crate::causality::regions::PostImage;
 
     /// The names `Scan::of` found runnable, as plain strings.
     fn runnable(files: &[ChangedFile], provable: &[&str], read: &PostImage<'_>) -> Option<Vec<String>> {
         let owned: Vec<String> = provable.iter().map(|path| String::from(*path)).collect();
         match Scan::of(files, &owned, read) {
-            Scan::Runnable(scoped) => Some(scoped.tests().iter().map(|one| String::from(one.name.as_str())).collect()),
+            Scan::Runnable(scoped) => Some(scoped.tests().iter().map(|one| String::from(one.name())).collect()),
             _ => None,
         }
     }
@@ -570,16 +315,6 @@ mod tests {
             Scan::Runnable(scoped) => scoped.filterset(),
             other => panic!("expected runnable tests, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn recognises_added_tests() {
-        let added = |text: &str| vec![AddedLine::new(1, text)];
-        assert!(adds_test(&added("    #[test]")));
-        assert!(adds_test(&added("#[tokio::test]")));
-        assert!(adds_test(&added("#[cfg(test)]")));
-        assert!(adds_test(&added("mod tests {")));
-        assert!(!adds_test(&added("fn thing() {}")));
     }
 
     #[test]
@@ -619,19 +354,77 @@ mod tests {
     }
 
     #[test]
-    fn a_marker_with_no_test_function_names_nothing() {
-        // The fail-closed shape. `#[cfg(test)]` makes `adds_test` answer yes and names no
+    fn a_marker_whose_module_file_is_in_the_diff_names_nothing_and_refuses() {
+        // The fail-closed shape. `#[cfg(test)]` makes the file a test file and names no
         // function, so the scan comes back empty - and empty has to be unrepresentable rather
-        // than "run everything", which is the unfiltered run this module replaced.
-        let files = vec![changed("crates/x/src/a.rs", 2, &["#[cfg(test)]"])];
+        // than "run everything", which is the unfiltered run this module replaced. `tests.rs` is
+        // in the diff, so the declaration IS accounted for; nothing named a test all the same.
+        let files = vec![
+            changed("crates/x/src/lib.rs", 2, &["#[cfg(test)]"]),
+            changed("crates/x/src/tests.rs", 1, &["use super::f;"]),
+        ];
         let read = tree(&[
-            ("crates/x/src/a.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("crates/x/src/lib.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("crates/x/src/tests.rs", "use super::f;\n"),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
         assert!(matches!(
-            Scan::of(&files, &[String::from("crates/x/src/a.rs")], &read),
+            Scan::of(&files, &[String::from("crates/x/src/lib.rs")], &read),
             Scan::Unnamed
         ));
+    }
+
+    #[test]
+    fn a_declaration_whose_module_file_is_absent_from_the_diff_refuses() {
+        // THE FINDING. `lib.rs` gains `#[cfg(test)] mod legacy;` while `legacy.rs` already exists
+        // and is untouched, so a whole module of pre-existing tests becomes compiled: no added
+        // line names any of them, and `lib.rs` is held at HEAD, so they are in BOTH trees and
+        // cannot be red on base either. One nameable test elsewhere used to be enough to land
+        // this on the passing `silent` arm, whose printed sentence claimed *its own file names
+        // the tests* - a fact nothing checked.
+        let files = vec![
+            changed("crates/x/src/lib.rs", 2, &["#[cfg(test)]", "mod legacy;"]),
+            changed("crates/x/src/other.rs", 1, &["#[test]", "fn added() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/lib.rs", "fn f() {}\n#[cfg(test)]\nmod legacy;\n"),
+            (
+                "crates/x/src/legacy.rs",
+                "#[test]\nfn old_one() {}\n#[test]\nfn old_two() {}\n",
+            ),
+            ("crates/x/src/other.rs", "#[test]\nfn added() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let provable = vec![String::from("crates/x/src/lib.rs"), String::from("crates/x/src/other.rs")];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Enabled(ref refused) => {
+                assert_eq!(refused.len(), 1, "one declaration this diff cannot account for");
+                assert_eq!(refused.first().map(|one| one.path.as_str()), Some("crates/x/src/lib.rs"));
+                assert_eq!(refused.first().map(|one| one.module.as_str()), Some("crates/x/src/legacy.rs"));
+            }
+            other => panic!("expected Enabled ahead of Runnable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unreadable_post_image_is_refused_rather_than_called_a_test_module() {
+        // The other half of the same finding. `attributes::adds` answers `TestModule` for a file
+        // it cannot read, which is the fail-closed direction - but this scan could not read it
+        // either, so it landed on `silent` and printed *a test module arrived here*. Nothing knew
+        // that. Delivering the fail-closed direction is what this arm is.
+        let files = vec![
+            changed("crates/x/src/gone.rs", 1, &["#[cfg(test)]"]),
+            changed("crates/x/src/other.rs", 1, &["#[test]", "fn added() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/other.rs", "#[test]\nfn added() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let provable = vec![String::from("crates/x/src/gone.rs"), String::from("crates/x/src/other.rs")];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("crates/x/src/gone.rs")]),
+            other => panic!("expected Unreadable, got {other:?}"),
+        }
     }
 
     #[test]
@@ -653,127 +446,187 @@ mod tests {
     }
 
     #[test]
-    fn the_filterset_qualifies_a_name_by_the_package_and_the_module_it_sits_in() {
-        // THE DEFECT. A bare `test(/(?:^|::)sums(?:::|$)/)` matched six tests in three packages
-        // on nextest 0.9.143 - including a MODULE called `sums` in another package - so a
-        // name-collided failure was accepted as this test's red. The package and the file's module
-        // path are both in the term, and both come from the file's own path.
-        let files = vec![changed(
-            "crates/sutura-domain/src/model/qualified/tests.rs",
-            1,
-            &["#[test]", "fn sums() {}"],
-        )];
-        let read = tree(&[
-            ("crates/sutura-domain/src/model/qualified/tests.rs", "#[test]\nfn sums() {}\n"),
-            ("crates/sutura-domain/Cargo.toml", &manifest("sutura-domain")),
-        ]);
-        assert_eq!(
-            filterset(&files, &["crates/sutura-domain/src/model/qualified/tests.rs"], &read),
-            "(package(=sutura-domain) & test(/^model::qualified::tests::(?:.*::)?sums(?:::|$)/))"
-        );
-    }
-
-    #[test]
-    fn an_integration_target_is_qualified_by_its_exact_binary_id() {
-        // `tests/<stem>.rs` IS a cargo target, so nextest's id for it is exactly
-        // `<package>::<stem>` - measured on 0.9.143. That separates it from a same-named unit
-        // test in the same package's lib, which `package(=..)` alone would pull in.
-        let files = vec![changed("crates/x/tests/served.rs", 1, &["#[test]", "fn sums() {}"])];
-        let read = tree(&[
-            ("crates/x/tests/served.rs", "#[test]\nfn sums() {}\n"),
-            ("crates/x/Cargo.toml", &manifest("x")),
-        ]);
-        assert_eq!(
-            filterset(&files, &["crates/x/tests/served.rs"], &read),
-            "(binary_id(=x::served) & test(/^(?:.*::)?sums(?:::|$)/))"
-        );
-    }
-
-    #[test]
-    fn a_file_deeper_under_tests_is_keyed_by_the_declaration_that_reaches_it() {
-        // cargo compiles only the top level of `tests/`, so `tests/golden/catalogs.rs` is a
-        // submodule of the `golden` target - and the name it arrives under is a `#[path]`
-        // declaration rather than its path. `golden.rs` records why they differ: a bare
-        // `mod catalogs;` there would resolve to `tests/catalogs.rs` instead.
-        //
-        // Worth more than tidiness: the two tier-backed cells that produced #278's false green
-        // are `sutura-app::differential`, and the golden suite is `sutura-app::golden`. Keyed by
-        // the package alone, a `differential` failure could be read as a golden test's evidence.
+    fn a_relocated_declaration_is_accounted_for_by_the_file_it_actually_names() {
+        // The `#[path]` half of the resolution, at the level that refuses, and the fixture has to
+        // DIVERGE from the layout or it proves nothing: `#[path = "shared/cells.rs"] mod support;`
+        // in `tests/golden.rs` names `tests/shared/cells.rs`, while the layout would look for
+        // `tests/golden/support.rs`. Not in the diff is a REFUSAL now, so a resolver that read the
+        // layout instead of the attribute would redden a correct change - and the first version of
+        // this test used `#[path = "golden/catalogs.rs"]`, where the two agree by coincidence and
+        // ignoring the attribute reddened nothing.
         let target = concat!(
-            "#[cfg(test)]\n",                     // 1
-            "#[path = \"golden/catalogs.rs\"]\n", // 2
-            "mod catalogs;\n",                    // 3
+            "#[cfg(test)]\n",                  // 1
+            "#[path = \"shared/cells.rs\"]\n", // 2
+            "mod support;\n",                  // 3
         );
-        let files = vec![changed("crates/x/tests/golden/catalogs.rs", 1, &["#[test]", "fn sums() {}"])];
+        let files = vec![
+            changed(
+                "crates/x/tests/golden.rs",
+                1,
+                &["#[cfg(test)]", "#[path = \"shared/cells.rs\"]", "mod support;"],
+            ),
+            changed("crates/x/tests/shared/cells.rs", 1, &["#[test]", "fn sums() {}"]),
+        ];
         let read = tree(&[
-            ("crates/x/tests/golden/catalogs.rs", "#[test]\nfn sums() {}\n"),
             ("crates/x/tests/golden.rs", target),
+            ("crates/x/tests/shared/cells.rs", "#[test]\nfn sums() {}\n"),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        assert_eq!(
-            filterset(&files, &["crates/x/tests/golden/catalogs.rs"], &read),
-            "(binary_id(=x::golden) & test(/^catalogs::(?:.*::)?sums(?:::|$)/))"
-        );
+        let provable = vec![
+            String::from("crates/x/tests/golden.rs"),
+            String::from("crates/x/tests/shared/cells.rs"),
+        ];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Runnable(ref scoped) => assert_eq!(
+                scoped.silent(),
+                [Silent {
+                    path: String::from("crates/x/tests/golden.rs"),
+                    module: Some(String::from("crates/x/tests/shared/cells.rs")),
+                }]
+            ),
+            other => panic!("expected the relocated declaration to be stated, got {other:?}"),
+        }
     }
 
     #[test]
-    fn a_shared_helper_no_target_declares_falls_back_to_the_package() {
-        // `tests/support/mod.rs` is pulled in by two bigquery targets and has no `tests/support.rs`
-        // above it, so the declaration that would name a binary is not there. The package alone is
-        // the honest answer; claiming one of the two targets would be a filter matching nothing
-        // half the time.
-        let files = vec![changed("crates/x/tests/support/mod.rs", 1, &["#[test]", "fn sums() {}"])];
-        let read = tree(&[
-            ("crates/x/tests/support/mod.rs", "#[test]\nfn sums() {}\n"),
-            ("crates/x/Cargo.toml", &manifest("x")),
-        ]);
-        assert_eq!(
-            filterset(&files, &["crates/x/tests/support/mod.rs"], &read),
-            "(package(=x) & test(/^(?:.*::)?sums(?:::|$)/))"
-        );
-    }
-
-    #[test]
-    fn the_package_is_read_from_the_manifest_rather_than_the_directory_name() {
-        // They differ here: `dev/` is package `sutura-dev`, so a filter built from the directory
-        // name would name a package nextest does not know and match nothing.
-        let files = vec![changed("dev/src/scope.rs", 1, &["#[test]", "fn sums() {}"])];
-        let read = tree(&[
-            ("dev/src/scope.rs", "#[test]\nfn sums() {}\n"),
-            ("dev/Cargo.toml", &manifest("sutura-dev")),
-        ]);
-        assert_eq!(
-            filterset(&files, &["dev/src/scope.rs"], &read),
-            "(package(=sutura-dev) & test(/^scope::(?:.*::)?sums(?:::|$)/))"
-        );
-    }
-
-    #[test]
-    fn a_crate_root_and_a_mod_rs_get_the_module_path_cargo_gives_them() {
-        // `lib.rs` and `main.rs` ARE the root, so a prefix from their path would be wrong.
-        // `a/b/mod.rs` IS module `a::b`, not `a::b::mod`.
-        let read = tree(&[
-            ("crates/x/Cargo.toml", &manifest("x")),
-            ("crates/x/src/lib.rs", "\n"),
-            ("crates/x/src/deep/mod.rs", "\n"),
-            ("crates/x/src/deep/nested.rs", "\n"),
-        ]);
-        let prefix = |path: &str| place(path, &read).expect("a package").within.prefix();
-        assert_eq!(prefix("crates/x/src/lib.rs"), "");
-        assert_eq!(prefix("crates/x/src/deep/mod.rs"), "deep::");
-        assert_eq!(prefix("crates/x/src/deep/nested.rs"), "deep::nested::");
-    }
-
-    #[test]
-    fn a_path_no_package_owns_is_not_scanned() {
+    fn a_path_no_package_owns_is_refused_rather_than_skipped() {
         // Nothing compiles it, so it has no test to run - and inventing a package name for it
-        // would put a name nextest does not know into the filter.
+        // would put a name nextest does not know into the filter. A REFUSAL rather than a skip,
+        // which is the change: the file is part of the proof, and skipping it measures a subset.
         let files = vec![changed("stray/a.rs", 1, &["#[test]", "fn sums() {}"])];
         let read = tree(&[("stray/a.rs", "#[test]\nfn sums() {}\n")]);
-        assert!(matches!(
-            Scan::of(&files, &[String::from("stray/a.rs")], &read),
-            Scan::Unnamed
-        ));
+        match Scan::of(&files, &[String::from("stray/a.rs")], &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("stray/a.rs")]),
+            other => panic!("expected Unreadable, got {other:?}"),
+        }
+        // And whatever it added, not only a `#[test]`: a declaration in a file cargo compiles
+        // nothing from cannot enable tests, so *its own file names them* is not sayable either.
+        let declaring = vec![changed("stray/lib.rs", 2, &["#[cfg(test)]", "mod tests;"])];
+        let read = tree(&[
+            ("stray/lib.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("stray/tests.rs", "#[test]\nfn sums() {}\n"),
+        ]);
+        match Scan::of(&declaring, &[String::from("stray/lib.rs")], &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("stray/lib.rs")]),
+            other => panic!("expected Unreadable for a path no package owns, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn one_nameable_test_does_not_mask_a_file_this_could_not_name() {
+        // THE MASKING. This scan is aggregate - one nameable test anywhere made the whole answer
+        // `Runnable` - so a provable file whose added `#[test]` yielded no name rode along
+        // unmeasured, unmentioned. `b.rs` adds the attribute over a line no function name comes
+        // out of, and `a.rs` naming its test fine is what used to hide it.
+        let files = vec![
+            changed("crates/x/src/a.rs", 1, &["#[test]", "fn reads_fine() {}"]),
+            changed("crates/x/src/b.rs", 1, &["#[test]", "let _ = 1;"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/a.rs", "#[test]\nfn reads_fine() {}\n"),
+            ("crates/x/src/b.rs", "#[test]\nlet _ = 1;\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let provable = vec![String::from("crates/x/src/a.rs"), String::from("crates/x/src/b.rs")];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("crates/x/src/b.rs")]),
+            other => panic!("expected Unreadable ahead of Runnable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn one_nameable_attribute_does_not_mask_another_in_the_same_file() {
+        // The masking one level down, which `named > 0` left open: the file's inspection ended on
+        // the first name, so the second attribute was dropped from the filter with nothing naming
+        // it - and `super::coverage` could not surface it either, because both of its numbers come
+        // from this extractor. Counting per ATTRIBUTE closes it, and the precision cost was
+        // measured at zero over this tree before it was taken (this module's header).
+        let file = concat!(
+            "#[test]\n",       // 1
+            "fn plain() {}\n", // 2
+            "#[test]\n",       // 3
+            "let _ = 1;\n",    // 4
+        );
+        let files = vec![changed(
+            "crates/x/src/a.rs",
+            1,
+            &["#[test]", "fn plain() {}", "#[test]", "let _ = 1;"],
+        )];
+        let read = tree(&[("crates/x/src/a.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
+        match Scan::of(&files, &[String::from("crates/x/src/a.rs")], &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("crates/x/src/a.rs")]),
+            other => panic!("expected Unreadable for the unnameable second attribute, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_test_module_that_names_nothing_is_stated_rather_than_refused() {
+        // The other unnameable shape, and it must NOT refuse: `lib.rs` gains
+        // `#[cfg(test)] mod tests;` and the module's own file arrives in the same diff naming the
+        // tests. That is the ordinary way a test module is added, so refusing per file would
+        // redden a correct change - the declaration is carried as `silent`, RESOLVED to the file
+        // that names them, and printed instead.
+        let files = vec![
+            changed("crates/x/src/lib.rs", 2, &["#[cfg(test)]", "mod tests;"]),
+            changed("crates/x/src/tests.rs", 1, &["#[test]", "fn added() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/lib.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("crates/x/src/tests.rs", "#[test]\nfn added() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let provable = vec![String::from("crates/x/src/lib.rs"), String::from("crates/x/src/tests.rs")];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Runnable(ref scoped) => {
+                assert_eq!(
+                    scoped.tests().iter().map(AddedTest::name).collect::<Vec<&str>>(),
+                    vec!["added"]
+                );
+                assert_eq!(
+                    scoped.silent(),
+                    [Silent {
+                        path: String::from("crates/x/src/lib.rs"),
+                        module: Some(String::from("crates/x/src/tests.rs")),
+                    }]
+                );
+            }
+            other => panic!("expected Runnable with the declaration stated, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_inline_module_added_around_existing_tests_is_stated_with_no_second_file() {
+        // The third silent shape, and it must not refuse either: an added `mod tests {` whose
+        // body is unchanged context enables nothing - those lines were already compiled. There is
+        // no second file to look for, so the sentence beside it may not claim one.
+        let file = concat!(
+            "fn f() {}\n",            // 1
+            "#[cfg(test)]\n",         // 2
+            "mod tests {\n",          // 3
+            "    #[test]\n",          // 4
+            "    fn existing() {}\n", // 5
+            "}\n",                    // 6
+        );
+        let files = vec![
+            changed("crates/x/src/a.rs", 2, &["#[cfg(test)]", "mod tests {"]),
+            changed("crates/x/src/b.rs", 1, &["#[test]", "fn added() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/a.rs", file),
+            ("crates/x/src/b.rs", "#[test]\nfn added() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let provable = vec![String::from("crates/x/src/a.rs"), String::from("crates/x/src/b.rs")];
+        match Scan::of(&files, &provable, &read) {
+            Scan::Runnable(ref scoped) => assert_eq!(
+                scoped.silent(),
+                [Silent {
+                    path: String::from("crates/x/src/a.rs"),
+                    module: None,
+                }]
+            ),
+            other => panic!("expected the inline module to be stated, got {other:?}"),
+        }
     }
 
     #[test]
@@ -834,6 +687,84 @@ mod tests {
     }
 
     #[test]
+    fn a_test_under_an_attribute_the_formatter_wrapped_is_still_named() {
+        // THE DEFECT. `#[test]` over a wrapped `#[expect(..)]` is how eight tests in this tree are
+        // written, and the downward search stopped on `clippy::disallowed_methods,` - so
+        // `function_name` got that instead of a signature and no name came out. Survivable while
+        // the scan was aggregate and silently skipped the file; after `Scan::Unreadable` refuses
+        // ahead of `Runnable` it is a hard red on a correct change, which is the failure mode
+        // `report_unreadable`'s own doc argues against.
+        let file = concat!(
+            "#[test]\n",                                  // 1
+            "#[expect(\n",                                // 2
+            "    clippy::disallowed_methods,\n",          // 3
+            "    reason = \"exposing it IS the test\"\n", // 4
+            ")]\n",                                       // 5
+            "fn expose_secret_returns_the_value() {}\n",  // 6
+            "#[test]\n",                                  // 7
+            "fn reads_fine() {}\n",                       // 8
+        );
+        let files = vec![changed(
+            "crates/x/src/a.rs",
+            1,
+            &[
+                "#[test]",
+                "#[expect(",
+                "    clippy::disallowed_methods,",
+                "    reason = \"exposing it IS the test\"",
+                ")]",
+                "fn expose_secret_returns_the_value() {}",
+                "#[test]",
+                "fn reads_fine() {}",
+            ],
+        )];
+        let read = tree(&[("crates/x/src/a.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
+        assert_eq!(
+            runnable(&files, &["crates/x/src/a.rs"], &read),
+            Some(vec![
+                String::from("expose_secret_returns_the_value"),
+                String::from("reads_fine")
+            ])
+        );
+    }
+
+    #[test]
+    fn an_ignore_the_formatter_wrapped_still_leaves_the_scope() {
+        // The worse half of the same defect, because it costs a PASS rather than a name.
+        // `#[ignore = ".."]` continued with a trailing `\` is one attribute over two lines, and
+        // reading the second as an item detached the `#[ignore]` from the test - so the only
+        // added test entered the filterset, nextest matched nothing, and `Scan::OnlyIgnored`'s
+        // loud pass was unreachable. Two tests in `crates/sutura-catalog-datahub/tests` are
+        // written exactly this way.
+        let file = concat!(
+            "#[test]\n",                                                    // 1
+            "#[ignore = \"needs `just dev-up-datahub`; run that task \\\n", // 2
+            "            instead\"]\n",                                     // 3
+            "fn the_provisioned_surface_answers() {}\n",                    // 4
+        );
+        let files = vec![changed(
+            "crates/x/tests/t.rs",
+            1,
+            &[
+                "#[test]",
+                "#[ignore = \"needs `just dev-up-datahub`; run that task \\",
+                "            instead\"]",
+                "fn the_provisioned_surface_answers() {}",
+            ],
+        )];
+        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
+        match Scan::of(&files, &[String::from("crates/x/tests/t.rs")], &read) {
+            Scan::OnlyIgnored(ref names) => {
+                assert_eq!(
+                    names.iter().map(Ident::as_str).collect::<Vec<&str>>(),
+                    vec!["the_provisioned_surface_answers"]
+                );
+            }
+            other => panic!("a wrapped `#[ignore]` still leaves the scope, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn a_diff_whose_every_added_test_is_ignored_is_named_not_refused() {
         // The other half of the same measurement, and the reason it is a third answer rather
         // than the empty scan: an all-`#[ignore]`d diff is not an extractor bug, so it must not
@@ -854,25 +785,10 @@ mod tests {
     }
 
     #[test]
-    fn a_name_that_is_not_an_identifier_is_refused() {
-        // What keeps a regular expression out of the filter expression.
-        assert!(Ident::parse("sums_by_month").is_some());
-        assert!(Ident::parse("_private").is_some());
-        assert!(Ident::parse("").is_none());
-        assert!(Ident::parse("9lives").is_none());
-        assert!(Ident::parse("sums|.*").is_none());
-        assert!(Ident::parse("two words").is_none());
-        // A cargo name is a different alphabet: `-` is legal there and not in Rust.
-        assert!(CargoName::parse("sutura-domain").is_some());
-        assert!(CargoName::parse("multi_player").is_some());
-        assert!(CargoName::parse("bad)name").is_none());
-        assert!(CargoName::parse("has space").is_none());
-    }
-
-    #[test]
     fn a_stray_attribute_does_not_reach_down_the_file() {
         // The attribute is the last line of its module, so there is no function under it. Naming
-        // the next test in the file would scope in something the diff did not add.
+        // the next test in the file would scope in something the diff did not add - so it is
+        // refused instead, which is what a test-declaring attribute yielding no name now means.
         let file = concat!(
             "#[cfg(test)]\n",
             "mod tests {\n",
@@ -884,60 +800,5 @@ mod tests {
         let files = vec![changed("crates/x/src/a.rs", 3, &["    #[test]"])];
         let read = tree(&[("crates/x/src/a.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
         assert_eq!(runnable(&files, &["crates/x/src/a.rs"], &read), None);
-    }
-
-    #[test]
-    fn a_collided_name_in_another_package_is_not_this_test() {
-        // The comparison side of the same key, and the false green it closes: with the name
-        // alone, `pb other::sums` and `pb sums::inner` were both accepted for a scoped `sums`,
-        // so a vacuous added test rode a pre-existing failure to `ok - red on base, green on
-        // head`. Reproduced on nextest 0.9.143 before the qualifier went in.
-        let files = vec![changed("crates/pa/src/lib.rs", 1, &["#[test]", "fn sums() {}"])];
-        let read = tree(&[
-            ("crates/pa/src/lib.rs", "#[test]\nfn sums() {}\n"),
-            ("crates/pa/Cargo.toml", &manifest("pa")),
-        ]);
-        let scan = Scan::of(&files, &[String::from("crates/pa/src/lib.rs")], &read);
-        let Scan::Runnable(scoped) = scan else {
-            panic!("expected one runnable test");
-        };
-        let one: &AddedTest = &scoped.tests()[0];
-        assert!(one.claims(Some("pa"), "tests::sums"), "its own package");
-        assert!(!one.claims(Some("pb"), "other::sums"), "another package's module");
-        assert!(!one.claims(Some("pb"), "sums::inner"), "another package's module named sums");
-        assert!(!one.claims(Some("pc::bin/pc"), "tests::sums"), "another package's bin");
-    }
-
-    #[test]
-    fn a_sibling_module_in_the_same_package_is_not_this_test() {
-        // `deserialization_goes_through_the_constructor` occurs in four of `sutura-domain`'s
-        // modules, all in the lib's own binary - so the binary id cannot separate them and the
-        // module path is what does. A test added in `src/calendar.rs` is not the one in
-        // `src/model.rs`.
-        let files = vec![changed(
-            "crates/sutura-domain/src/calendar.rs",
-            1,
-            &["#[test]", "fn deserialization_goes_through_the_constructor() {}"],
-        )];
-        let read = tree(&[
-            (
-                "crates/sutura-domain/src/calendar.rs",
-                "#[test]\nfn deserialization_goes_through_the_constructor() {}\n",
-            ),
-            ("crates/sutura-domain/Cargo.toml", &manifest("sutura-domain")),
-        ]);
-        let scan = Scan::of(&files, &[String::from("crates/sutura-domain/src/calendar.rs")], &read);
-        let Scan::Runnable(scoped) = scan else {
-            panic!("expected one runnable test");
-        };
-        let one: &AddedTest = &scoped.tests()[0];
-        let name = "deserialization_goes_through_the_constructor";
-        assert!(one.claims(Some("sutura-domain"), &format!("calendar::tests::{name}")));
-        assert!(!one.claims(Some("sutura-domain"), &format!("model::tests::{name}")));
-        assert!(!one.claims(Some("sutura-domain"), &format!("definitions::tests::{name}")));
-        // An rstest case sits one segment BELOW the function and is still its failure.
-        assert!(one.claims(Some("sutura-domain"), &format!("calendar::tests::{name}::case_2")));
-        // And a name that merely CONTAINS this one is a different test.
-        assert!(!one.claims(Some("sutura-domain"), &format!("calendar::tests::{name}_too")));
     }
 }
