@@ -61,6 +61,11 @@
 
 use std::collections::BTreeMap;
 
+// Both split off under the unexemptable 1000-line cap, and both take their own NEW tests with
+// them - `.agents/skills/sutura/gates/SKILL.md`'s orphan rule is about moving tests OUT of a
+// file, and every assertion that was here is still here. `documented` is the page reader,
+// `refusal` the workflow locator; neither shares anything with the nix parse above.
+mod documented;
 mod refusal;
 
 use crate::Verdict;
@@ -233,102 +238,6 @@ fn quoted_items(fragment: &str) -> Vec<String> {
     out
 }
 
-/// A `cargo build` line in published prose that names a package AND a feature list.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct DocumentedBuild {
-    /// Repo-relative page, for the message.
-    page: String,
-    /// One-based line, so a failure names something a reader can open.
-    line: usize,
-    /// The `-p` / `--package` value.
-    package: String,
-    /// The `--features` value, split on commas.
-    features: Vec<String>,
-}
-
-/// Every documented feature build in one page.
-///
-/// **`cargo build` and not `cargo run`**, for the reason the module header gives. Both the spaced
-/// and the `=` form of each flag are read, because a page may legitimately write either and a gate
-/// that sees one shape silently passes the other.
-///
-/// **INSIDE A FENCED BLOCK ONLY, and that boundary was forced by running the rule.** The first
-/// version read any line, and the gate's own report went from one reconciled build to two the
-/// moment `docs/adr/0017` gained a sentence *quoting* the command this rule reconciles. The two
-/// are different things: a fenced block is an instruction a reader follows, an inline citation is
-/// a MENTION - and a decision record legitimately quotes a command that is no longer current,
-/// which would then fail a correct tree. A gate that does that gets disabled, so the fence is the
-/// boundary. **It was only visible because the report NAMES the rows** - a count would have read
-/// `2` and looked like more coverage.
-///
-/// What it gives up: a page instructing inline rather than in a block is not read. The fail-closed
-/// check in [`run`] is what stops that being silent - with no such block anywhere, the gate refuses
-/// rather than reconciling nothing.
-fn documented_builds(page: &str, text: &str) -> Vec<DocumentedBuild> {
-    let mut out = Vec::new();
-    let mut fenced = false;
-    for (index, line) in text.lines().enumerate() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            continue;
-        }
-        if !fenced || !line.contains("cargo build") {
-            continue;
-        }
-        let (Some(package), Some(features)) = (flag_value(line, "-p", "--package"), flag_value(line, "", "--features")) else {
-            continue;
-        };
-        out.push(DocumentedBuild {
-            page: String::from(page),
-            line: index.saturating_add(1),
-            package,
-            features: features
-                .split(',')
-                .map(str::trim)
-                .filter(|f| !f.is_empty())
-                .map(String::from)
-                .collect(),
-        });
-    }
-    out
-}
-
-/// The value of `short` or `long` on this line, in either the spaced or the `=` form.
-///
-/// An empty `short` means the flag has no short form. The value stops at whitespace and at the
-/// punctuation prose wraps a command in - a backtick, a quote, a line-continuation backslash - so
-/// an inline citation yields the same value a fenced block does.
-fn flag_value(line: &str, short: &str, long: &str) -> Option<String> {
-    for flag in [long, short] {
-        if flag.is_empty() {
-            continue;
-        }
-        for sep in [' ', '='] {
-            let needle = format!("{flag}{sep}");
-            let Some(at) = line.find(&needle) else {
-                continue;
-            };
-            // A boundary before the flag, so `--no-features` is not read as `--features`.
-            let boundary = line
-                .get(..at)
-                .and_then(|s| s.chars().next_back())
-                .is_none_or(char::is_whitespace);
-            if !boundary {
-                continue;
-            }
-            let tail = line.get(at.saturating_add(needle.len())..)?.trim_start();
-            let value: String = tail
-                .chars()
-                .take_while(|c| !c.is_whitespace() && !matches!(c, '\\' | '`' | '"' | '\''))
-                .collect();
-            if !value.is_empty() && !value.starts_with('-') {
-                return Some(value);
-            }
-        }
-    }
-    None
-}
-
 /// A set of names spelled out in one file, with the line it was spelled on.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Spelled {
@@ -452,20 +361,6 @@ fn yaml_files(root: &std::path::Path) -> BTreeMap<String, String> {
     files
 }
 
-/// Every documented feature build in `docs/**`, page by page.
-fn documented_pages(root: &std::path::Path) -> Vec<DocumentedBuild> {
-    let mut pages = Vec::new();
-    repo::collect_files(root, &root.join("docs"), &["md"], &mut pages);
-    pages.sort();
-    let mut found = Vec::new();
-    for page in pages {
-        if let Ok(text) = std::fs::read_to_string(root.join(&page)) {
-            found.extend(documented_builds(&page, &text));
-        }
-    }
-    found
-}
-
 /// What reconciling `probeFeatures` against the documented builds found.
 ///
 /// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
@@ -485,7 +380,7 @@ struct Reconciliation {
 /// second is what keeps the first from running over an empty set, the failure mode a
 /// text-scanning check is most prone to, and it is rows rather than a count so a reader can see
 /// WHICH builds were reconciled instead of trusting a number.
-fn unprobed(records: &[Record], documented: &[DocumentedBuild]) -> Reconciliation {
+fn unprobed(records: &[Record], documented: &[documented::DocumentedBuild]) -> Reconciliation {
     let mut problems = Vec::new();
     let mut probed = Vec::new();
     for build in documented {
@@ -588,7 +483,21 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    let documented = documented_pages(&root);
+    // FAIL CLOSED ON A PAGE IT CANNOT LEX. `github.com/telekom/sutura#301`: the fence boundary
+    // this rule rests on used to be a parity toggle, so a nested fence inverted it for the rest
+    // of the page - losing a declaration and reading a mention below the block as one, both
+    // silently, because the other pages keep the reconciled count non-empty.
+    let documented = match documented::pages(&root) {
+        Ok(found) => found,
+        Err(why) => {
+            eprintln!("xtask check-shipped-binaries: FAILED - a page under docs/ cannot be lexed");
+            eprintln!("  {why}");
+            eprintln!("  Every line below an unclosed block is either an instruction or a mention and");
+            eprintln!("  this cannot say which, so the reconciliation refuses rather than reading the");
+            eprintln!("  page as all one or all the other.");
+            return Verdict::Fail;
+        }
+    };
     let reconciliation = unprobed(&records(&source), &documented);
 
     if !mismatches.is_empty() {
@@ -717,7 +626,7 @@ mod tests {
             "```\n",
             "and outside the block again: cargo build -p sutura-cli --features nonsense\n",
         );
-        let found = super::documented_builds("docs/p.md", page);
+        let found = super::documented::builds("docs/p.md", page).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(found.len(), 2, "{found:?}");
         assert_eq!(found[0].package, "sutura-cli");
         assert_eq!(found[0].line, 3);
@@ -736,10 +645,11 @@ mod tests {
             "    { bin = \"sutura-serve\"; package = \"sutura-serve\"; probeFeatures = [ \"tls\" ]; }\n",
             "  ];\n",
         );
-        let documented = super::documented_builds(
+        let documented = super::documented::builds(
             "docs/getting-started.md",
             "```bash\ncargo build --release -p sutura-cli --features bigquery\n```\n",
-        );
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
         let found = super::unprobed(&super::records(nix), &documented);
         assert_eq!(found.probed.len(), 1, "{:?}", found.probed);
         assert_eq!(found.problems.len(), 1);
@@ -759,10 +669,11 @@ mod tests {
         // No `probeFeatures` field exists to disagree with, and `reconciled` must not count it -
         // or the fail-closed test below would pass on a tree where nothing was reconciled.
         let nix = "  binaries = [\n    { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ ]; }\n  ];\n";
-        let documented = super::documented_builds(
+        let documented = super::documented::builds(
             "docs/p.md",
             "```bash\ncargo build -p some-other-crate --features whatever\n```\n",
-        );
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
         let found = super::unprobed(&super::records(nix), &documented);
         assert!(found.problems.is_empty());
         assert!(found.probed.is_empty(), "{:?}", found.probed);
@@ -773,7 +684,8 @@ mod tests {
         // Deliberate: a probe nobody asked for costs a job and breaks no claim. The direction
         // this gate holds is the other one.
         let nix = "  binaries = [\n    { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ \"bigquery\" \"postgres\" ]; }\n  ];\n";
-        let documented = super::documented_builds("docs/p.md", "```bash\ncargo build -p sutura-cli --features bigquery\n```\n");
+        let documented = super::documented::builds("docs/p.md", "```bash\ncargo build -p sutura-cli --features bigquery\n```\n")
+            .unwrap_or_else(|e| panic!("{e}"));
         let found = super::unprobed(&super::records(nix), &documented);
         assert!(found.problems.is_empty());
         assert_eq!(found.probed.len(), 1, "{:?}", found.probed);
@@ -791,7 +703,7 @@ mod tests {
         // what is asserted here is which pair was reconciled, by name.
         let root = crate::repo::root().expect("could not locate the repo");
         let source = std::fs::read_to_string(root.join(super::SOURCE)).expect("could not read nix/shipped.nix");
-        let documented = super::documented_pages(&root);
+        let documented = super::documented::pages(&root).expect("a page under docs/ cannot be lexed");
         let records = super::records(&source);
 
         let build = documented
