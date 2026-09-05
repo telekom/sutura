@@ -47,6 +47,22 @@
 # It is not a lock. Two commands starting at once could both see nothing up and both arm a teardown;
 # `start` is idempotent and the second `stop` is a no-op on an already-stopped server, so the outcome
 # is a wasted teardown rather than a corrupted one. A lockfile is not worth that.
+#
+# **And it cannot follow the tier across a WORKTREE, which is the half that bit.** The requirement
+# follows the tier in TIME - exported only once a server is up - and an export follows a process
+# tree, not a directory. The endpoint does not: it is published to `<root>/.sutura-dev/endpoints.json`
+# and resolved by walking up from the harness, so a command that runs cargo in a DIFFERENT root
+# carries the requirement there and leaves the endpoint behind. `just causality` does exactly that -
+# its base run happens in a git-derived worktree under `target/`, where that file cannot exist
+# because it is gitignored - and every tier-backed cell failed CLOSED in a tree nothing had
+# provisioned. Measured: two such cells were the whole of one base run's red, 86 tests into 1810, and
+# the gate reported it as proof about a change that touched neither.
+#
+# Nothing here can hold that; a shell export has no way to say *this root only*. So the caller that
+# knows it is crossing holds it instead: `xtask::causality` removes this variable from the run it
+# makes in a reconstructed worktree, and a unit test over the command it builds is the mechanism. A
+# future gate that runs cargo in another root has to make the same removal, and nothing will remind
+# it.
 
 # Bring the tier up if it is not already; stop it on exit only if we started it.
 #

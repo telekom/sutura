@@ -251,9 +251,9 @@ behaviour*, which is a failure.
 **The rule that predicts it:** a file that adds a `#[test]` is never reverted. So *moving tests out
 of a file* turns that file from held into revertible and takes the new module's declaration with it.
 When a file with tests hits the 1000-line cap, move the **harness** - fakes, fixtures, builders,
-anything with no `#[test]` - and keep every assertion where it is. Only a *green* base verdict
-fails; "the base tree does not build" and "not separable" both pass, and the second asks for
-evidence instead: the command you ran, the failure before, the pass after.
+anything with no `#[test]` - and keep every assertion where it is. Orphaning now reports itself -
+*the tests this diff added did not run on base* - rather than passing as green, because nextest
+fails a filter that matches nothing.
 
 **Expect that harness move to answer INCONCLUSIVE, and know why before reading it as a pass.**
 Measured on #119: the new harness file added no `#[test]`, so it is *revertible*, while the test file
@@ -265,3 +265,53 @@ your assertions in that run, so a **mutation** takes its place - break the thing
 claims, one at a time, and paste the test that reddens. Scope it to a whole test binary
 (`-E 'binary_id(<pkg>::<target>)'`), never a name pattern: a filter that omits the guarding test
 reports green and proves nothing, which happened on that same PR before it was caught.
+
+**Which verdicts pass:** *red on base* and, without proving anything, "the base tree does not
+build", "the base run named no failure", "not separable" and "every added test is `#[ignore]`d" -
+the last three ask for evidence instead: the command you ran, the failure before, the pass after.
+Everything else fails, and the three that fail are the three where the gate has no answer rather
+than a bad one: green against base, red outside the diff, and the added tests not running at all.
+
+**What it could not tell apart until #278.** The base run was the whole suite and any assertion
+failure counted, so with fail-fast one unrelated cell was the entire verdict and the tests under
+test never ran - `ok - red on base` about something else. Both runs are scoped to the tests the diff
+added now, the verdict NAMES what reddened, and a failure outside the diff is its own answer.
+
+**A TEST NAME IS NOT A KEY HERE, and the first fix for #278 was keyed on one.** 23 of this tree's
+1782 test-function names are duplicated - `deserialization_goes_through_the_constructor` four times
+in `sutura-domain`. Measured on nextest 0.9.143, `test(/(?:^|::)sums(?:::|$)/)` matches six tests in
+three packages, one of them a MODULE called `sums`. So a collided failure satisfied both the filter
+and the name comparison, and a vacuous added test still got *ok - red on base, green on head*. The
+key is now the binary or package, the module path the file contributes, and the name.
+
+**The generalisable half:** the filter and the comparison are two ENFORCERS of one key, not two
+independent keys. A second check on the same key catches the enforcer failing and never catches the
+key being wrong - so "two mechanisms" is only worth what the key is worth, and the argument to write
+down is which of the two it is.
+
+**Two smaller ways the same gate lied, both from believing a word rather than measuring it.**
+`ABORT [` is nextest's WINDOWS status; Unix prints `SIG<name> [`, so a base run whose only failure
+was an abort parsed to zero failures and printed *the base tree does not build* about a tree that
+built fine. And a filterset naming only `#[ignore]`d tests matches nothing, which nextest reports as
+`no tests to run` and exit 4 - a false RED, so ignored tests leave the scope rather than being
+named in a filter or forced to run. `git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'` counts them,
+and the same command WITHOUT the anchor answers roughly twice as many across twice as many files -
+because most `#[ignore` in this tree is a doc comment ABOUT one. **No figure is written here on
+purpose:** the argument holds at any count above zero, so a number would only be a second thing to
+keep true - and the review that reported this defect cited the unanchored one.
+
+**Why one commit answered differently in two venues, which is the part nobody could have guessed:
+only one venue provisions the tier.** `just causality` sources `nix/with-tier.sh`, which starts
+Postgres and exports `SUTURA_DEV_REQUIRE_TIER` into the whole process tree - and the endpoint that
+requirement belongs to is published under the ROOT, in a gitignored file the base worktree cannot
+have. So the tier-backed cells failed closed there and became the base run's red. `just ship-check`
+and CI's `nix run .#causality` provision no tier, so those cells skipped and the verdict was about
+the change. **The false green was reachable from the one venue a person runs by hand and cites.**
+The base run drops that variable now, in the gate, because only the thing that provisioned a tier
+may declare one.
+
+**The hole that remains is the shared target directory.** Both runs use one; cargo treats the two
+trees as one unit and decides freshness by mtime, so a build in either overwrites the other's
+binaries and the next run silently executes them - reverted source and `env!("CARGO_MANIFEST_DIR")`
+included. **So a causality verdict is only about the tree whose binaries are in
+`target/causality-target`** - remove that directory before trusting a surprising answer.
