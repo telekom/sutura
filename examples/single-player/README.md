@@ -5,8 +5,10 @@ clone to an answered question.
 
 **This page is the corpus's reference: what is in the directory, why each document is drawn the way
 it is, and what a test holds.** The guided path - install it, ask one question, read the provenance,
-be refused, write your own metric - is [getting started](../../docs/getting-started.md), and every
-command on either page is run by `crates/sutura-cli/tests/documented.rs`.
+be refused, write your own metric - is [getting started](../../docs/getting-started.md). Every
+`catalog`, `describe`, `compile` and `query` command on either page is run by
+`crates/sutura-cli/tests/documented.rs`; the `mcp` one is `crates/sutura-cli/tests/mcp.rs`'s, and
+the served ones are `crates/sutura-serve/tests/served.rs`'.
 
 ```bash
 cargo run -p sutura-cli -- \
