@@ -3271,7 +3271,7 @@ than by an intention.</p>
 </tr>
 <tr>
 <td>the rows <strong>agree with the engine's</strong> for the same plan</td>
-<td><strong>Answered</strong> for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with <strong>one measured divergence</strong> the first run found - see <em>the finding</em> below. Measured on this amendment's run: <strong>16 agreed exactly, 5 agreed on content and differed on null placement</strong>. The divergence is <strong>closed</strong> by the fourth amendment, and the leg now compares order exactly</td>
+<td><strong>Answered</strong> for CONTENT - <em>exactly</em> in the sense the <strong>ninth amendment</strong> narrows, which is rendered content and not cell type - with one stated exclusion below. For ORDER, answered with <strong>one measured divergence</strong> the first run found - see <em>the finding</em> below. Measured on this amendment's run: <strong>16 agreed exactly, 5 agreed on content and differed on null placement</strong>. The divergence is <strong>closed</strong> by the fourth amendment, and the leg now compares order exactly</td>
 </tr>
 <tr>
 <td>the <strong>bucket</strong> is right</td>
@@ -3498,6 +3498,9 @@ place</strong>, and the tally is the one predicted to the number:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agreed, 1 excluded,
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                 31 in the corpus
 </span></code></pre></div>
+<p><strong>Read <code>exactly</code> as the ninth amendment narrows it.</strong> The comparison behind this tally was
+render-based, so it establishes acceptance, rendered row content and ORDER - and says nothing about
+cell type. No number is restated for the typed policy that replaced it.</p>
 <p>All five questions the third amendment named now agree <strong>exactly</strong> - <code>recurring-revenue-by-region-and-family</code>
 at 19 rows, <code>recurring-revenue-by-region</code> at 6, <code>recurring-revenue-by-segment</code> at 4,
 <code>revenue-per-customer-by-segment</code> at 4 and <code>subscription-months-by-region-and-term</code> at 61 - so the 16
@@ -4220,6 +4223,29 @@ is 672 lines now, with the five properties in <code>acceptance/properties.rs</co
 <code>not binary(two_principals)</code> appear in two <code>just</code> recipes and two flake apps, and no gate reads a
 nextest filter expression - so renaming the target would silently un-filter the acceptance app.
 Two nextest profiles carrying the pair once, next to the tests, is the shape that would close it.</p>
+<h2 id="ninth-amendment-2026-09-05-what-exactly-meant-on-the-measured-run-and-what-it-did-not">Ninth amendment, 2026-09-05: what <em>exactly</em> meant on the measured run, and what it did not<a class="headerlink" href="#ninth-amendment-2026-09-05-what-exactly-meant-on-the-measured-run-and-what-it-did-not" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted; it corrects a published claim and carries no live run.</strong> The
+fourth amendment above records <code>21 answers agreed exactly on content AND order</code>, and the third
+amendment's status cell read <em>Answered for CONTENT, exactly</em>. Both are narrowed here, because the
+comparison that produced them was not exact in the sense either sentence invites.</p>
+<p><strong>The comparator of that day compared cells through <code>Value::render</code>, which is a display form.</strong>
+<code>Value::Null</code> and <code>Value::Text("null")</code> both render <code>null</code>; <code>Value::Integer(1)</code> and <code>Value::Text("1")</code>
+both render <code>1</code>. A cell the endpoint answered as text where the engine answered a number - or as the
+word <code>null</code> where the engine answered nothing at all - was therefore counted as agreement on that
+run. The 21 are evidence about <strong>acceptance</strong>, about <strong>rendered row content</strong> and about <strong>ORDER</strong>,
+and about nothing else. The status cell's <em>exactly</em> has to be read that way, which is why it now says
+so at the cell rather than here alone.</p>
+<p><strong>Both legs share one typed policy now.</strong> <code>sutura_domain::warehouse::agreement</code>, behind a default-off
+feature and <code>cfg(test)</code>: the variant is part of the comparison key, and the one approximation is
+named and scoped - <code>RealTolerance::DIFFERENTIAL</code>, thirteen significant digits, reaching <code>Value::Real</code>
+and no other variant.</p>
+<p><strong>No number is restated for it, deliberately.</strong> Nothing has run the corpus leg against the real
+dataset since the policy changed, so the tally above stays as the transcript of the run that made it
+and this amendment corrects the reading rather than replacing the measurement. What is measured for
+the typed policy is that module's own suite plus two cells per leg asserting that a null and the word
+<code>null</code>, and an integer and its own text, are refused <strong>by the content comparison</strong> - the diagnosis
+named in the expected panic, not merely that some panic fired. The next <code>bigquery-acceptance</code> run is
+what would restate the number with <em>exactly</em> meaning what it says.</p>
 
 
 

@@ -7233,6 +7233,121 @@ reading of <em>I asked and nothing was missing</em>.</p>
 verified than for one that was verified clean.</p>
 <h5 id="implements_124">Implements<a class="headerlink" href="#implements_124" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="module-agreement">Module <code>agreement</code><a class="headerlink" href="#module-agreement" title="Permanent link">&para;</a></h3>
+<p>What it takes for two answers to one plan to be the same answer, for the differential legs that
+compare them.</p>
+<p>Behind a default-off feature, and <code>cfg(test)</code> so this crate's own suite reaches it either way -
+the shape <code>sutura_runtime::testing</code>'s <code>test-capture</code> established. It is here rather than in each
+test target because two copies of a comparison policy is how both of them came to erase the cell
+type; its own module header carries that story and the limits.</p>
+<p><strong>That header links the module's OWN items by absolute <code>crate::</code> path, and that is not style.</strong>
+rustc merges this <code>///</code> block with the module's <code>//!</code> one and resolves the merged block in THIS
+scope, where <code>agreement</code>'s items are not - so a bare-name link there resolves to nothing, and no
+gate in this repository reads a rustdoc warning (#321). Four of them were shipped that way.
+What it takes for two answers to one plan to be the SAME answer.</p>
+<p>One policy, so the differential legs cannot each have their own. Two of them did, and both were
+wrong the same way: each compared cells through <code>Value::render</code>, which is a <em>display</em> form and
+therefore erases the variant. <code>Value::Null</code> and <code>Value::Text("null")</code> both render <code>null</code>, and
+<code>Value::Integer(1)</code> and <code>Value::Text("1")</code> both render <code>1</code> - so a data system that answered a
+cell as text where the engine answered it as a number, or as the word <code>null</code> where the engine
+answered nothing at all, compared EQUAL. The live acceptance comparison inherited that, which is
+why this is one shared module rather than a note on each copy.</p>
+<p><code>Value::render</code> is not at fault and is not changed: an anchor is a certified NUMBER compared as
+text on purpose, and one canonical display form is what keeps that comparison the same in every
+place it is made. What was wrong is using a display form as an equality.</p>
+<h1 id="the-four-properties-each-of-which-can-be-lost-on-its-own">The four properties, each of which can be lost on its own<a class="headerlink" href="#the-four-properties-each-of-which-can-be-lost-on-its-own" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>The variant is part of the value.</strong> The comparison key is per variant, so the two pairs above
+  are disagreements.</li>
+<li><strong>Multiplicity survives.</strong> Content is a MULTISET, not a set: a row answered twice by one side
+  and once by the other is a disagreement, which a set cannot see.</li>
+<li><strong>The one approximation is named and scoped.</strong>
+  <a href="crate::warehouse::agreement::RealTolerance"><code>RealTolerance</code></a> applies to <code>Value::Real</code> and to
+  nothing else. An integer, a date-as-text and a text cell are compared exactly.</li>
+<li><strong>Order is a separate assertion.</strong>
+  <a href="crate::warehouse::agreement::agree_on_content"><code>agree_on_content</code></a> says nothing about order
+  and <a href="crate::warehouse::agreement::agree_on_order"><code>agree_on_order</code></a> says nothing else, so <em>a
+  wrong number</em> and <em>the right rows in the wrong order</em> stay two diagnoses rather than one. Call
+  the content one first, or the first symptom of a wrong number is reported as a sort order.</li>
+</ul>
+<h1 id="what-this-does-not-decide">What this does NOT decide<a class="headerlink" href="#what-this-does-not-decide" title="Permanent link">&para;</a></h1>
+<p>Whether an order was promised at all. A plan that emits <code>ORDER BY</code> claims one, and a leg
+comparing an answer to a plan without one should not call
+<a href="crate::warehouse::agreement::agree_on_order"><code>agree_on_order</code></a>. Nothing here can tell, because
+a <code>RowSet</code> does not carry the plan that produced it.</p>
+<h1 id="three-limits-worth-reading-before-citing-this">Three limits worth reading before citing this<a class="headerlink" href="#three-limits-worth-reading-before-citing-this" title="Permanent link">&para;</a></h1>
+<p><strong>A disagreement carries rows, which is the one place this module departs from the rule that an
+error carries nothing sensitive.</strong> A differential failure that does not name the row it found is
+unusable, and the alternative - a boolean plus a hand-written diff at every call site - is the
+duplication this module exists to remove. It is a deliberate exception with a narrow blast
+radius: nothing on a serving path constructs one of these types.</p>
+<p><strong>That narrowness rests on the feature gate and on nothing stronger.</strong> The module compiles only
+under <code>cfg(test)</code> or the default-off <code>agreement</code> feature, so no shipped artefact contains it -
+but <code>checks.shipped-features</code> establishes that kind of claim by reading crate NAMES out of the
+binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
+fail if a composition root turned the feature on.</p>
+<p><strong>An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
+than as the range question it is.</strong> Three are live: <code>sutura-exec-duckdb</code>'s <code>UBigInt</code> and
+<code>HugeInt</code> arms and <code>sutura-exec-datafusion</code>'s <code>UInt64</code> arm answer <code>Value::Integer</code> while the
+value fits an <code>i64</code> and <code>Value::Text</code> when it does not, and <code>sutura-exec-postgres</code> answers a
+scale-0 <code>NUMERIC</code> as <code>Value::Integer</code> where the other two answer a <code>Decimal</code> as
+<code>Value::Text</code>. Under the display form all three compared EQUAL, and that was the RECORDED
+reason for the display form. Here they are <code>ContentDisagreement::Multiplicity</code> - <em>one side
+answered a row 1 time(s) and the other 0</em> - naming neither the fallback nor the overflow behind
+it. So a <code>Multiplicity</code> over a wide count or a decimal column is a range question first: check
+whether one side overflowed its <code>i64</code> before looking for a wrong number.</p>
+<h4 id="struct-realtolerance"><code>struct RealTolerance</code><a class="headerlink" href="#struct-realtolerance" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-461-1"><a id="__codelineno-461-1" name="__codelineno-461-1" href="#__codelineno-461-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RealTolerance</span>
+</span></code></pre></div>
+<p>How two <code>Value::Real</code> cells are compared, and the ONLY approximation in this module.</p>
+<p>A type rather than a bare number, so a call site states the approximation it accepts. One
+reviewed constant rather than a <code>parse</code>, so no call site can quietly choose a looser one: a
+second legitimate tolerance is a second constant here, beside its own reason, in front of a
+reviewer.</p>
+<h5 id="implements_125">Implements<a class="headerlink" href="#implements_125" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-contentdisagreement"><code>enum ContentDisagreement</code><a class="headerlink" href="#enum-contentdisagreement" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-462-1"><a id="__codelineno-462-1" name="__codelineno-462-1" href="#__codelineno-462-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ContentDisagreement</span>
+</span></code></pre></div>
+<p>Why two answers do not carry the same content.</p>
+<h5 id="variants_65">Variants<a class="headerlink" href="#variants_65" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Columns</code> - The two sides labelled the result differently.</li>
+<li><code>Multiplicity</code> - One side answered a row a different number of times than the other.</li>
+</ul>
+<h5 id="implements_126">Implements<a class="headerlink" href="#implements_126" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="enum-orderdisagreement"><code>enum OrderDisagreement</code><a class="headerlink" href="#enum-orderdisagreement" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-463-1"><a id="__codelineno-463-1" name="__codelineno-463-1" href="#__codelineno-463-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OrderDisagreement</span>
+</span></code></pre></div>
+<p>Why two answers do not carry the same content in the same order.</p>
+<p>Its own type rather than a variant of <code>ContentDisagreement</code>, because it is a separate claim
+with a separate diagnosis: content is <em>the answer is wrong</em>, and order is <em>the plan asked for an
+order and one side did not give it</em>.</p>
+<h5 id="variants_66">Variants<a class="headerlink" href="#variants_66" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Shape</code> - The two results are not even the same shape, so there is no position to compare.</li>
+<li><code>Cell</code> - One position holds two different cells.</li>
+</ul>
+<h5 id="implements_127">Implements<a class="headerlink" href="#implements_127" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="fn-agree_on_content"><code>fn agree_on_content</code><a class="headerlink" href="#fn-agree_on_content" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-464-1"><a id="__codelineno-464-1" name="__codelineno-464-1" href="#__codelineno-464-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">agree_on_content</span><span class="p">(</span><span class="n">left</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">RowSet</span><span class="p">,</span><span class="w"> </span><span class="n">right</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">RowSet</span><span class="p">,</span><span class="w"> </span><span class="n">real</span><span class="p">:</span><span class="w"> </span><span class="nc">RealTolerance</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">ContentDisagreement</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>WHAT the two sides answered: the labels, and the rows as a multiset.</p>
+<p>Says nothing about the order - <code>agree_on_order</code> is that assertion, and the two are separate so
+that a wrong number is never reported as a sort order. Call this one first.</p>
+<h4 id="fn-agree_on_order"><code>fn agree_on_order</code><a class="headerlink" href="#fn-agree_on_order" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-465-1"><a id="__codelineno-465-1" name="__codelineno-465-1" href="#__codelineno-465-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">agree_on_order</span><span class="p">(</span><span class="n">left</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">RowSet</span><span class="p">,</span><span class="w"> </span><span class="n">right</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">RowSet</span><span class="p">,</span><span class="w"> </span><span class="n">real</span><span class="p">:</span><span class="w"> </span><span class="nc">RealTolerance</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">OrderDisagreement</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The ORDER: cell for cell, position for position.</p>
+<p>A plan that emits <code>ORDER BY</code> claims an order, so two data systems answering one plan in two
+orders is a defect whatever the reason. Whether the plan claimed one is the caller's to know.</p>
+<p><strong>Two limits, and both are why <code>agree_on_content</code> is called first rather than by convention.</strong>
+This compares the SHAPE and not the labels, so two results of one width whose columns are named
+differently are compared position by position here and reported as a
+<code>ContentDisagreement::Columns</code> there. And a caller reaching only for this one gets no
+multiplicity check, because a positional comparison of equal-height results cannot express one.</p>
 
 
 
