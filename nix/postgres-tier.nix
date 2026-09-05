@@ -17,7 +17,9 @@ let
   # was the only nix tier: see `nix/tier-endpoints.nix` for the entry it would have dropped.
   endpoints = import ./tier-endpoints.nix { inherit pkgs; };
 in
-{
+# `rec` so `check` can drive `tier`: the check exists to run this exact script, and a second
+# reference to it through `flake.nix` would be a second thing to keep pointing here.
+rec {
   package = pkgs.postgresql_18;
 
   # The provisioner, usable from any shell that has it and `postgresql`'s binaries on PATH; the
@@ -25,8 +27,29 @@ in
   #
   # `start` brings up (or is a no-op restart of) a socket-only server and writes
   # `<cwd>/.sutura-dev/endpoints.json` naming its socket directory, so `sutura_dev::provisioned::here`
-  # can read it unchanged. `stop` tears it back down AND REMOVES THAT FILE, and `status` answers
+  # can read it unchanged. `stop` tears it back down AND WITHDRAWS THAT ENTRY, and `status` answers
   # whether a server is up without changing anything.
+  #
+  # # ONE record, because two readings of it diverged and a suite run paid for it
+  #
+  # `status` used to answer from `pg_ctl` while the harness answered from `endpoints.json` - two
+  # statements about one fact, and `github.com/telekom/sutura#298` is them disagreeing in the
+  # direction that blocks work. A postmaster outlived a teardown that had already withdrawn its
+  # entry; `nix/with-tier.sh` read `status`, was told *already up*, started nothing, and every
+  # fail-closed cell then panicked on a worktree that published nothing. One `just test` discarded,
+  # and most of the cost was working out that a GREEN `status` was the reason.
+  #
+  # Two changes, and neither is a tolerance widened until the symptom went away:
+  #
+  # * **`status` is DERIVED from the endpoint file.** The harness reads that document, so that
+  #   document is the fact and this answer is a function of it - see the three states at `status`
+  #   itself. The state above is self-healing now rather than terminal: it answers *unclaimed*,
+  #   `start` republishes the entry, and `start` was already idempotent about a live postmaster.
+  # * **A `stop` that cannot stop does not withdraw.** The old pairing - `pg_ctl stop -m fast`
+  #   under `|| true` beside an unconditional withdrawal - made the claim the WEAKER of the two
+  #   records, retracted whatever happened while the postmaster's death was conditional. That is
+  #   the pairing that manufactured the divergence, so a failed stop now keeps the claim and fails
+  #   loudly. `checks.postgres-tier` drives both, including the failed stop.
   #
   # **The endpoint file is a CLAIM that a server is there, and `stop` used to leave it behind.** That
   # is not cosmetic: discovery reads the file's existence as availability, so after any `stop` the
@@ -113,8 +136,21 @@ in
       }
 
       stop() {
-        if [ -d "$pg" ]; then
-          pg_ctl -D "$pg" stop -m fast || true
+        # The `|| true` this replaces was right about one thing and wrong about the distinction: a
+        # tier that was never started must not fail a teardown, but *never started* and *would not
+        # stop* are not the same state and ignoring the exit code answered both. So the question is
+        # asked instead - and a server that is running and did not stop keeps its entry, because
+        # withdrawing a claim over a live postmaster is exactly how a tier came to be `up` to a
+        # wrapper and absent to every test.
+        if [ -d "$pg" ] && pg_ctl -D "$pg" status >/dev/null 2>&1; then
+          if ! pg_ctl -D "$pg" stop -m fast; then
+            echo "postgres tier: the server did not stop, so its endpoint entry STAYS." >&2
+            echo "               It is still running and still discoverable, which is the honest" >&2
+            echo "               state - a withdrawn claim over a live server is what made a tier" >&2
+            echo "               'already up' to the wrapper and absent to the suite. Retry the" >&2
+            echo "               teardown (\`just postgres-tier stop\` in a dev shell)." >&2
+            exit 1
+          fi
         fi
         # The endpoint entry is a claim that a server is there. Withdraw it, or discovery keeps
         # believing it and the cells fail on a dead socket instead of skipping. Withdrawing the
@@ -124,10 +160,26 @@ in
         sutura-tier-endpoint withdraw "$root" postgres
       }
 
-      # Is a server up? Nothing is changed, and the answer is the exit code - so a wrapper can stop
-      # only what it started rather than trampling a tier somebody else brought up.
+      # Is a server up, and up in the way THE SUITE will see it? Nothing is changed, and the answer
+      # is the exit code - so a wrapper can stop only what it started rather than trampling a tier
+      # somebody else brought up.
+      #
+      # THREE answers, because a wrapper needs two bits out of one fact and asking two commands for
+      # them is how they came apart:
+      #
+      #   0  a postmaster is running AND this worktree's `endpoints.json` publishes it at that
+      #      socket directory - a fail-closed cell will find it
+      #   3  a postmaster is running and nothing publishes it - `start` heals that, and this server
+      #      is NOT the caller's to tear down
+      #   1  nothing is running here
+      #
+      # A boolean caller (`if ... status`) reads 3 as down, which is the honest answer to the
+      # question it asked: there is nothing the suite can reach. `start` deliberately does not go
+      # through this - its own guard is the postmaster alone, which is what keeps it idempotent over
+      # a server whose entry has gone.
       status() {
-        pg_ctl -D "$pg" status >/dev/null 2>&1
+        pg_ctl -D "$pg" status >/dev/null 2>&1 || return 1
+        sutura-tier-endpoint published "$root" postgres "$pg" "$port" || return 3
       }
 
       case "''${1:-}" in
@@ -138,4 +190,184 @@ in
       esac
     '';
   };
+
+  # The tier's state machine, driven end to end - and no other check can see it. `checks.nextest`
+  # starts this tier and stops it, so a green run there says a server came up: it says nothing
+  # about whether `status` and `endpoints.json` agree, nothing about what a stop that FAILS does to
+  # the claim, and nothing about which of those two records the wrapper acts on. All three are
+  # `github.com/telekom/sutura#298`.
+  #
+  # **It SOURCES `nix/with-tier.sh` rather than reasoning about it**, because the defect was in
+  # neither half alone - it was a skip-or-start decision reading a different record from the one
+  # the suite reads. Each arm runs in a SUBSHELL, since `sutura_tier_up` arms an EXIT trap in the
+  # shell that sources it, and that trap firing (or not) is precisely what is under test: the
+  # wrapper must tear down what it started and must not adopt a server it did not.
+  #
+  # The subshell is also what makes the LAST arm possible, and that arm was missing while its
+  # posture was documented: a stop can fail inside that trap, and under the errexit every venue
+  # sources this file with, a failing trap command replaces the status the shell was leaving with.
+  # So the subshell's own exit status is asserted, not just the tier's state afterwards.
+  #
+  # Declared in `flake.nix` as one line pointing here. That `checks = {` block is read TEXTUALLY by
+  # two xtask gates so it cannot leave that file, and this body would put it over the 1000-line cap.
+  check = pkgs.runCommand "postgres-tier"
+    {
+      nativeBuildInputs = [ tier endpoints.script pkgs.jq ];
+    }
+    ''
+      tree="$NIX_BUILD_TOP/worktree"
+      mkdir -p "$tree"
+      cd "$tree"
+
+      endpoints=.sutura-dev/endpoints.json
+      # The tier derives this itself; the check needs it to reach the postmaster's own pid file.
+      pg="$NIX_BUILD_TOP/.sutura-dev/pg"
+
+      tier_state() {
+        state=0
+        sutura-postgres-tier status || state=$?
+        printf '%s' "$state"
+      }
+
+      expect_state() {
+        got="$(tier_state)"
+        if [ "$got" != "$1" ]; then
+          echo "status answered $got, expected $1 - $2" >&2
+          exit 1
+        fi
+      }
+
+      # `absent`, `true` or `false`, and the three are deliberately one scale: the file's EXISTENCE
+      # is what discovery reads as "something is provisioned here", so a missing file and a missing
+      # entry are different states and an assertion that cannot tell them apart is worth less than
+      # it looks. A bare `test` would answer both with an exit code and no sentence.
+      expect_entry() {
+        got=absent
+        if [ -f "$endpoints" ]; then
+          got="$(jq -r '.services | has("postgres")' "$endpoints")"
+        fi
+        if [ "$got" != "$1" ]; then
+          echo "the postgres entry is '$got', expected '$1' - $2" >&2
+          exit 1
+        fi
+      }
+
+      # --- the answer is DERIVED from the document the harness reads ---
+      sutura-postgres-tier start
+      expect_state 0 "a server that is running and published"
+      expect_entry true "start publishes the service it brought up"
+      if [ "$(jq -r '.services.postgres.host' "$endpoints")" != "$pg" ]; then
+        echo "the published host is not the socket directory the server is listening on" >&2
+        exit 1
+      fi
+
+      # The divergence, made on purpose: withdraw the claim and leave the postmaster running. That
+      # is the state #298 was filed in, and `pg_ctl status` on its own called it up.
+      sutura-tier-endpoint withdraw "$tree" postgres
+      expect_entry absent "the last service out takes the file with it"
+      # 3 rather than 0 IS what a boolean caller needs, and no separate assertion says so: `if
+      # ... status` over a non-zero answer is true by construction, so a second test here would
+      # only restate the line above and read as coverage.
+      expect_state 3 "a running server nothing publishes is unclaimed, not up"
+
+      # --- the wrapper heals that state instead of failing the suite closed ---
+      ( . ${./with-tier.sh}
+        sutura_tier_up
+        printf '%s' "$SUTURA_DEV_REQUIRE_TIER" > "$NIX_BUILD_TOP/required"
+      )
+      if [ "$(cat "$NIX_BUILD_TOP/required")" != 1 ]; then
+        echo "the wrapper did not export SUTURA_DEV_REQUIRE_TIER over a tier it made reachable" >&2
+        exit 1
+      fi
+      # Still up after that subshell exited, which a stricter `status` alone would have broken: the
+      # wrapper republished a claim for a server it did not start, so it armed no teardown for it.
+      expect_state 0 "the wrapper republished the entry and left the server alone"
+      expect_entry true "the wrapper republished the entry the suite reads"
+
+      # A tier that is up AND published is left alone too - the same rule, its ordinary arm.
+      ( . ${./with-tier.sh}; sutura_tier_up )
+      expect_state 0 "an already-published tier survives the wrapper"
+
+      # --- what the wrapper DID start, it tears down ---
+      sutura-postgres-tier stop
+      expect_state 1 "a stopped tier"
+      expect_entry absent "a stop that took withdraws the claim"
+      ( . ${./with-tier.sh}; sutura_tier_up )
+      expect_state 1 "the wrapper's EXIT trap stopped the server it started"
+      expect_entry absent "that teardown withdrew the claim too"
+
+      # --- a stop that does not take keeps the claim ---
+      # SIGSTOP on the postmaster is a fast shutdown that cannot complete: the signal reaches a
+      # process that cannot act on it, so `pg_ctl` gives up at `PGCTLTIMEOUT` with the server still
+      # there. That is the path the old `|| true` swallowed, and it is what made the divergence
+      # reachable without anybody having done anything wrong.
+      sutura-postgres-tier start
+      postmaster="$(head -1 "$pg/postmaster.pid")"
+      kill -STOP "$postmaster"
+      echo "--- the failed stop below is expected, its message included ---"
+      failed=0
+      PGCTLTIMEOUT=5 sutura-postgres-tier stop || failed=$?
+      if [ "$failed" = 0 ]; then
+        echo "stop reported success over a server it had not stopped" >&2
+        exit 1
+      fi
+      expect_entry true "a stop that did not take keeps the claim over the live server"
+
+      # The queued shutdown runs the moment it is resumed, so wait for it rather than racing a
+      # second stop against the first one's signal.
+      kill -CONT "$postmaster"
+      for _ in $(seq 1 60); do
+        kill -0 "$postmaster" 2>/dev/null || break
+        sleep 1
+      done
+
+      # And a stop that DOES take withdraws the entry; the last service out takes the file. This is
+      # `github.com/telekom/sutura#231`'s lesson, kept: a claim left over a dead server makes a
+      # fail-closed cell panic where the honest outcome is a skip.
+      sutura-postgres-tier stop
+      expect_entry absent "the withdrawal still happens when the stop succeeds"
+
+      # --- and a failed teardown does not answer for the suite it tore down ---
+      # The arm above calls `stop` directly, which is not the path a developer reaches it by:
+      # `just test` reaches it through `sutura_tier_up`'s EXIT trap, and every venue that sources
+      # that file runs bash with errexit, where a FAILING command in an EXIT trap REPLACES the
+      # status the shell was leaving with. The wrapper's `|| true` is what keeps a teardown from
+      # rewriting a test result, and this arm is the only thing holding that token: without it the
+      # subshell below answers 1.
+      #
+      # 100 on purpose, because the number that has to survive is the DISCRIMINATING one - it is
+      # nextest's *some tests failed*, and a teardown that turns it into 1 has not hidden a failure
+      # but has stopped saying which failure it was.
+      trap_status=0
+      ( set -euo pipefail
+        . ${./with-tier.sh}
+        sutura_tier_up
+        kill -STOP "$(head -1 "$pg/postmaster.pid")"
+        # Exported after `start`, so the budget applies to the trap's stop and not to the startup
+        # this arm depends on.
+        export PGCTLTIMEOUT=5
+        echo "--- the failed stop below is expected too, this one inside the wrapper's trap ---"
+        exit 100
+      ) || trap_status=$?
+      if [ "$trap_status" != 100 ]; then
+        echo "the wrapper's trap answered $trap_status for a body that chose 100: a failed" >&2
+        echo "teardown rewrote the run's exit status, which is what \`|| true\` is there for" >&2
+        exit 1
+      fi
+      expect_entry true "the failed teardown in the trap kept the claim over the live server"
+
+      # Resume it so the queued shutdown completes - the pid is read while it is still SIGSTOPped,
+      # because the postmaster takes its pid file with it on the way out.
+      postmaster="$(head -1 "$pg/postmaster.pid")"
+      kill -CONT "$postmaster"
+      for _ in $(seq 1 60); do
+        kill -0 "$postmaster" 2>/dev/null || break
+        sleep 1
+      done
+      # The remedy that message names, run: the retry withdraws what the failed teardown kept.
+      sutura-postgres-tier stop
+      expect_entry absent "the retried teardown withdraws the claim the failed one kept"
+
+      touch $out
+    '';
 }

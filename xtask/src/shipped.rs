@@ -35,7 +35,11 @@
 //!   sentence is the limit.
 //! * **A file that declares no set at all.** A workflow with no `BINARIES` does not loop over
 //!   binaries, so there is nothing to disagree with. What this catches is a literal that exists
-//!   and is wrong, in either direction.
+//!   and is wrong, in either direction. **That sentence was true of a workflow with no loop and
+//!   false of one that keeps the loop and empties the value** - a zero-iteration loop is a green
+//!   job that built nothing. [`loops`] is the rule that closes it, and the `checked == 0` refusal
+//!   below is not it: the two composite actions each carry a `default:` that is counted, so
+//!   `checked` never drops below 2 and the state its message describes is unreachable.
 //! * **The FEATURES each binary ships with.** That is `checks.shipped-features`, which reads them
 //!   out of the built artifact rather than out of any text.
 //! * **A `probeFeatures` entry no page documents.** A probe nobody asked for costs a job and
@@ -66,6 +70,7 @@ use std::collections::BTreeMap;
 // file, and every assertion that was here is still here. `documented` is the page reader,
 // `refusal` the workflow locator; neither shares anything with the nix parse above.
 mod documented;
+mod loops;
 mod refusal;
 
 use crate::Verdict;
@@ -461,6 +466,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         );
         eprintln!("  file(s) under `.github/workflows` and `.github/actions` means this gate is");
         eprintln!("  reading nothing rather than that the literals agree.");
+        return Verdict::Fail;
+    }
+
+    // A LOOP OVER THE SET REFUSES AN EMPTY ONE, and no file spells the set empty. Separate from
+    // the literal rule above because the value reaches a composite action as
+    // `${{ inputs.binaries }}` - an expression, so no literal rule can say what it resolves to,
+    // and a zero-iteration loop is a green job that linked, audited and inventoried nothing. It
+    // prints its own verdict.
+    if loops::verdict(&files) == Verdict::Fail {
         return Verdict::Fail;
     }
 

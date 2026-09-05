@@ -239,11 +239,6 @@
         # `keycloak-tier` app runs, so the sandbox and a developer's shell cannot drift.
         keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
 
-        # The one writer both tiers publish through. Named here as well, because the property
-        # that matters about it - two tiers in ONE endpoint file - needs a second service in the
-        # sandbox where `checks.keycloak-tier` can watch what happens to it.
-        tierEndpoints = import ./nix/tier-endpoints.nix { inherit pkgs; };
-
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
@@ -468,86 +463,18 @@
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
 
-          # The identity tier, brought up and provisioned INSIDE the sandbox - the nix-native venue
-          # for `compose.services.yaml`'s `keycloak`, whose demo venue is a docker profile.
-          #
-          # **What it holds, and it is not "a server started".** `sutura-keycloak-tier start`
-          # provisions a realm, a confidential client and two subjects through `kcadm.sh` and then
-          # asks the token endpoint for a token AS each subject, failing if either does not come
-          # back. So this check is the mechanical form of the claim that the tier needs NO HUMAN: a
-          # realm that came up half-provisioned, a flow a Keycloak upgrade turns off, or a required
-          # action that reappears is a red check here rather than a puzzling refusal in whatever
-          # reads it next. It asserts the harness contract on top of that - `endpoints.json` names
-          # the port the operating system chose, the realm file names both subjects, and `stop`
-          # withdraws both claims.
-          #
-          # **Its own check rather than `nextest`'s `preCheck`, and the reason is what reads it.**
-          # Postgres is provisioned there because Rust cells connect to it in that pass. Nothing in
-          # this repository can carry a per-subject credential yet, so no cell reads this tier -
-          # paying a JVM's start-up on every test pass for a server nothing connects to is the cost
-          # `compose.services.yaml` declines for the same service on the same grounds. The
-          # convergence is one line: when a cell needs a real issuer, this tier moves into
-          # `nextest`'s `preCheck` beside Postgres and this check goes away.
-          #
-          # No network beyond loopback, no docker socket, no state outside the build directory.
-          keycloak-tier = pkgs.runCommand "keycloak-tier"
-            {
-              nativeBuildInputs = [ keycloakTier.tier tierEndpoints.script pkgs.jq ];
-            }
-            ''
-              tree="$NIX_BUILD_TOP/worktree"
-              mkdir -p "$tree"
-              cd "$tree"
+          # The identity tier, brought up and provisioned INSIDE the sandbox: a realm, a client
+          # and two subjects, and a token fetched AS each of them before it passes. Body and
+          # reasoning in `nix/keycloak-tier.nix`, beside the script it drives.
+          keycloak-tier = keycloakTier.check;
 
-              sutura-keycloak-tier start
-              sutura-keycloak-tier status
-
-              # The discovery contract: a harness learns the port from this file and nowhere else,
-              # so a tier that started and published nothing is a tier no test can reach.
-              endpoints=.sutura-dev/endpoints.json
-              test -f "$endpoints"
-              test "$(jq -r '.provisioner' "$endpoints")" = nix
-              port="$(jq -r '.services.keycloak.port' "$endpoints")"
-              test "$port" -gt 0
-              test "$(jq -r '.services.keycloak.host' "$endpoints")" = 127.0.0.1
-
-              # Two subjects, because one is not the property `docs/adr/0008` draws.
-              realm=.sutura-dev/keycloak-realm.json
-              test "$(jq -r '.subjects | length' "$realm")" = 2
-              test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${keycloakTier.realm}"
-
-              # A SECOND TIER IN THE SAME FILE, which is the property `nix/tier-endpoints.nix`
-              # exists for and which no other check can see: `checks.nextest` provisions Postgres
-              # alone and this one provisions Keycloak alone, so the two-tier case only happens on
-              # a developer's machine - where the old single-`printf` writer silently dropped the
-              # first service's entry and discovery answered a truthful file about half a tier.
-              # A neighbour is published by hand here rather than by starting a real server,
-              # because what is under test is the writer and not the second service.
-              sutura-tier-endpoint publish "$tree" postgres "$tree/.sutura-dev/pg" 5432
-              test "$(jq -r '.services | length' "$endpoints")" = 2
-              test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
-
-              # `stop` withdraws BOTH of ITS OWN claims and NEITHER of the neighbour's. A stale
-              # endpoint is read as availability, which is how a fail-closed cell panics on a dead
-              # server instead of skipping; a withdrawal that took the whole file with it is the
-              # clobbering above, in the other direction.
-              sutura-keycloak-tier stop
-              test ! -f "$realm"
-              test -f "$endpoints"
-              test "$(jq -r '.services | has("keycloak")' "$endpoints")" = false
-              test "$(jq -r '.services.postgres.port' "$endpoints")" = 5432
-              if sutura-keycloak-tier status; then
-                echo "the tier reports itself up after stop" >&2
-                exit 1
-              fi
-
-              # The last service out takes the file with it, because its EXISTENCE is what
-              # discovery reads as "something is provisioned here".
-              sutura-tier-endpoint withdraw "$tree" postgres
-              test ! -f "$endpoints"
-
-              touch $out
-            '';
+          # The Postgres tier's state machine: `status` derived from the one document the harness
+          # reads, a stop that cannot stop keeping its claim, and `nix/with-tier.sh`'s three-way
+          # decision sourced from the file `just test` sources. `checks.nextest` starts and stops
+          # this tier, which says a server came up and nothing about any of those. Body in
+          # `nix/postgres-tier.nix` beside the script it drives - the declaration stays here,
+          # because two xtask gates read this block textually.
+          postgres-tier = postgresTier.check;
 
           # The two release-only assertions about a SHIPPED ARTEFACT - one executable per
           # package, and which features it links - are in `nix/shipped.nix`, beside the list

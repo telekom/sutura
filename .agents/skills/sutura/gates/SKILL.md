@@ -341,6 +341,31 @@ therefore does not see.
   dynamically passes). **The transferable question:** for every command a step runs for its side
   effect, ask what its EXIT CODE is a function of. `file`, `echo`, `grep -c` and any `| head` answer zero on
   inputs a reader would call a failure.
+- **A SHAPE LIST is the wrong shape of answer, and the floor and the needle are two rules.** The
+  rule that a `run:` block looping over the shipped set must refuse an empty one keyed on a line
+  beginning `for ` and naming the variable. Three defects, all measured in one review: a guard
+  existing only in a COMMENT satisfied it, because the loop search blanked comments and the guard
+  search read the raw body - the comment-versus-code split for the third time in one session, and
+  the sibling that already did it right was two functions up, every time; `guarded == 0` printed
+  *0 step(s) loop over $BINARIES, each refusing an empty one* and passed, the empty-scan defect
+  inside the fix for empty-scan defects; and an unguarded `while read -r bin; do ... done <<<
+  "$BINARIES"` was INVISIBLE, same variable spelled identically, an empty here-string feeding zero
+  lines. The needle is the VARIABLE now - a block that names it, other than in a refusal, reads the
+  set - which was measured first: *reads the set* and *loops over the set* select the same eight
+  blocks in this tree, so the widening cost nothing. **Neither half substitutes for the other:** the
+  floor alone still counted a `while read` step among the eight, and the needle alone still
+  permitted a verdict over zero steps. What the widening cannot reach is a read laundered into a
+  helper that inherits the variable from the step `env:`, which at least moves the code somewhere
+  `just lint-workflows` looks.
+- **A single unreadable input dropped in silence, twice more, and the floor did not save it.** Two
+  new gates read every workflow with `.ok()` / `else continue` and failed closed only when EVERY
+  file was unreadable - so one dropped file was a gating job classified by nothing, or a
+  `vars.*` read never compared. Third instance of the shape in this file; the sibling that had it
+  right was `hook_coverage`'s own log read. **The question that catches it stays the same:** for
+  every file a gate is meant to read, is the ANSWER over the tree the verdict names?
+- **A gate that knows two numbers and prints one, again.** `max-lines`' inert-exemption block
+  returned before the violations report, so one stale `[warn]` entry left a 1200-line file
+  unnamed - the exit code right, the report half of what the gate knew, and a round trip spent.
 - **A refusal that is weaker than the claim it defends, and the tell is a quantifier.** The same
   step refuses an EMPTY probe manifest, which reads as *a probe cannot silently disappear* and is
   not that claim: with a second binary declaring a probe, deleting the first one's leaves the
@@ -360,6 +385,72 @@ therefore does not see.
   deliberately one-sided, because an invocation is not a green run and the authority for *did this
   pass* is unreachable from the sandbox the gate runs in. A one-sided rule that names its side is
   worth more than a two-sided one nobody can implement.
+- **`just ship-check` is DIFF-SCOPED, and its green used to say nothing about that.** `prek` filters
+  every hook by the changed file set - which is what makes it fast enough to run before a push, and
+  is correct behaviour. Measured on a branch whose diff was one workflow file and one README: five
+  of ten commit-stage hooks printed `(no files to check)Skipped` - no format check, no clippy, no
+  `cargo check`, no shellcheck - and the last line still said `green`. Both numbers were available
+  and neither was printed. `cargo xtask hook-coverage` now prints them, and the recipe's own last
+  line points at them. **The half nobody would have guessed, measured on prek 0.4.14:** a hook
+  silenced with `PREK_SKIP` / `SKIP` prints **no row at all** rather than a skipped one, so a
+  verdict computed from the rows would report *8 of 8 ran* over a run with two gates switched off.
+  The denominator is derived from `.pre-commit-config.yaml`, and a declared hook with no row is a
+  FAILED verdict. **What no filter reaches:** the shell inside `.github/actions/*/action.yml` -
+  `zizmor` is pointed at `.github/workflows`, `actionlint` cannot read a composite action at the
+  pinned version, and a `run:` block is not a `.sh` file. `just lint-workflows` is the only task
+  that reads it, and `ship-check` runs it when the diff touches one rather than reporting the gap.
+- **THE SAME GATE THEN REPORTED A FALSE FULL HOUSE THREE WAYS, and the transferable part is that a
+  STATUS COLUMN IS NOT AN OBSERVATION.** All three were found in one review of the fix above, and
+  each produced output a reader could not tell from a real run. (1) The loop was over the logs it
+  was HANDED, so a stage with no `--log` was neither measured nor mentioned: `hook-coverage --since
+  HEAD` printed `ok` having read no prek output at all - *cannot say which* was closed and *cannot
+  look at all* was open, one level up from where the same shape had just been fixed. The stage
+  denominator is derived from the config now, in both directions, so an unclassified stage is a
+  refusal too. (2) `Dry Run` mapped to *inspected this diff*: both stage logs captured with
+  `prek run --dry-run` printed `pre-commit - 8 of 10 declared hook(s) ran`, `pre-push - 4 of 4`,
+  every surface covered and `ok`, exit 0 - **character for character** the lines the real run
+  printed, with nothing having executed. And the only end-to-end fixture for the counting rule was
+  itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Eight of the fifteen
+  declared hooks print `Passed` after deciding not to run** - three of the four on push - because a
+  self-skip on a missing tool exits 0. Measured with the `shellcheck` entry verbatim and `nix` off
+  `PATH`: notice printed, exit 0. So on any host without nix the verdict was a green run over hooks
+  that announced their own abstention.
+  **Reading the notice cannot be the mechanism, and that is the measured part:** prek 0.4.14 prints
+  a PASSING hook's own output nowhere - verified on a one-hook repository, `Passed` and nothing
+  else - and it appears only under `verbose: true`, which would also dump the whole test suite's
+  output on every run. So the authority is the shell that DECIDES plus this host's `PATH`, read out
+  of the hook's `entry:` and `nix/run-gate.sh`'s `case` arm rather than listed in the gate. **Its
+  limit: the `PATH` probed is xtask's own**, which is prek's only because `ship-check` runs both -
+  handed a log from another host, it answers about the wrong machine.
+- **A green CI leg is not a gate, and only one context here is.** Measured against the API on
+  2026-09-05: the `main` branch ruleset requires exactly one context, `ci`, classic branch
+  protection is absent (`404 Branch not protected`), and the second repository ruleset is
+  `disabled`. So the four `cross / link (<triple>)` legs - and `docs.yml`'s `verify`,
+  `security-audit.yml`'s `audit`, `bigquery-acceptance` and `crap-comment` - **are required by
+  nothing**, and a red one has never blocked a merge, in the queue or out of it, with no override
+  and nobody clicking anything. Everything routed through the `ci` job IS gated, which is how a
+  step added there is genuinely gating. `devco/required-contexts` is the record and
+  `check-workflows` holds it against the jobs: a required context nothing reports fails the gate,
+  because that state is a permanently pending merge rather than an ungated leg. **The
+  organisation-level caveat this row used to carry is resolved, and the endpoint is the point:**
+  `repos/<owner>/<repo>/rules/branches/<branch>` returns the EFFECTIVE rules - every ruleset that
+  applies, at whatever level - and needs only repository read, where `orgs/<org>/rulesets` needs
+  `admin:org`. Measured 2026-09-05 on `main`: six rules, every one `ruleset_source_type:
+  Repository`, required status checks exactly one context, nothing organisation-sourced. What is
+  left unknown is narrower and is not about this branch: an organisation ruleset that does not
+  apply here today. The gate still holds only that the record and the tree agree, never that the
+  record is true, because no gate can reach the API from `checks.hygiene`.
+  **Two ways the record itself over-reached, both prose and both found in review:** *has never
+  blocked a merge* is a claim about the PAST that a ruleset's representation does not carry - and
+  the legs reported different context strings before they were renamed, so the earlier names are
+  exactly what cannot be checked - and *the merge queue takes its signal from that same context* is
+  GitHub's documented behaviour rather than a read, since the `merge_queue` rule's own parameters
+  are sizes, grouping, merge method and a timeout, with no status-check list. **A dated
+  present-tense sentence is the strongest form available here.** And the reader cannot spell the
+  contexts the record is ABOUT: a matrix leg reports `<job> (<value>)` and a reusable-workflow call
+  `<caller> / <job> (<value>)`, which no `jobs:` key spells - so requiring one printed *no job
+  reports it*, which was false about the one remedy that file discusses. Such an entry is refused
+  with that sentence now, pointing at the aggregating job whose plain context IS checkable.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**

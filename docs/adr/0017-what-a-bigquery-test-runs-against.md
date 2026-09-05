@@ -1377,8 +1377,8 @@ example of this record's own warning about a job red for a configuration reason.
 **`check-venues` reads ONE credential path.** It takes the job's `GOOGLE_APPLICATION_CREDENTIALS`,
 so *written under `$RUNNER_TEMP` and removed* and *the file is a second copy of the secret* are held
 for the CI key and by review for the two principal keys placed beside it. Deriving the credential set
-from the job is the fix; `xtask/src/venues/acceptance.rs` is at 991 lines, so it needs that file split
-first.
+from the job is the fix, and the split it was waiting on has landed: `xtask/src/venues/acceptance.rs`
+is 672 lines now, with the five properties in `acceptance/properties.rs` (#323).
 
 **Nothing checks that the two nextest filters are complements.** `binary(two_principals)` and
 `not binary(two_principals)` appear in two `just` recipes and two flake apps, and no gate reads a
