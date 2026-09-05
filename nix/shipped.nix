@@ -78,6 +78,20 @@ let
   #     and so would a published CLI - measured on 2026-09-02 by compiling
   #     `sutura-cli --all-targets` both ways: the default set touches neither `ring` nor `ureq`, and
   #     `--features bigquery` compiles `ring` from C and assembly.
+  #   * **THAT FIRST BULLET IS FALSE ON COST, and it is left standing because the correction is
+  #     the useful part.** `craneLib.buildDepsOnly` is called on `args` - deliberately unscoped, so
+  #     the checks share one dependency derivation - with `cargoExtraArgs` set on the final attrset
+  #     instead, so that derivation resolves the WHOLE workspace at cargo's default set AND builds
+  #     its dev-dependencies. `ring`, `rustls` and `ureq` therefore compile inside
+  #     `sutura-deps-<triple>` on all four triples WITH THE FEATURE OFF - read out of the `cross`
+  #     logs, not predicted - so the musl C and assembly is paid on every pull request either way.
+  #   * **AND NOT BECAUSE OF THIS ADAPTER, which is a second correction the first one needed.**
+  #     `sutura-exec-bigquery`'s `ureq` is `optional` behind its `wire` feature, so it contributes
+  #     nothing at the default set. `cargo tree` on 2026-09-04 gives the real edges: for
+  #     `aarch64-unknown-linux-musl` the only one is `sutura-catalog-datahub`'s NON-optional `ureq`
+  #     dev-dependency, and `libduckdb-sys` puts a host-side copy there as a build-dependency. So
+  #     the cost is paid by a dev-dependency elsewhere in the workspace, and it would come back if
+  #     that dependency went - which is the kind of thing a comment asserting the wrong cause hides.
   #   * The failure is loud rather than silent, which is what makes the choice defensible instead
   #     of merely cheap. `security.tls_termination: in-process` on a build without `tls` is a
   #     startup refusal naming the feature, and so is a `kind: bigquery` source on a build without
@@ -90,6 +104,29 @@ let
   # There is deliberately no `features` field to set. A field nothing sets is the shape this
   # repository files under *Built And Not Wired*; adding `--features` here when a binary needs
   # them is one line, in front of a reviewer, next to this paragraph.
+  #
+  # **`probeFeatures` IS NOT THAT FIELD, and the difference is what publishes.** Nothing in
+  # `probeFeatures` reaches an artefact: it names the features a SOURCE build may turn on, and
+  # `featurePackages` below builds each one at the `ci` profile for every release triple so the
+  # four `cross` jobs can answer whether the feature-off decision above was necessary. That is the
+  # measurement `github.com/telekom/sutura#121` step 2 owes, and until it existed the only
+  # evidence was a native `cargo check` - which stops at metadata and so says nothing about the
+  # link that a musl target is the whole risk of. An entry here is a build, not a promise.
+  #
+  # **AND DEFAULT-OFF SURVIVES ON A DIFFERENT REASON THAN THE ONE ABOVE, because running the
+  # probe priced it.** `--features bigquery` costs **12 compiled units** on every one of the four
+  # published triples - the adapter and its outbound TLS closure, nothing else - and under 2% of a
+  # `cross` job, because they finish inside the slack ahead of `datafusion` on the critical path.
+  # (CI runs 33808343712 and 33838360913, 2026-09-04. A figure with no run beside it is a figure
+  # nobody can re-take, which is why this one carries one.)
+  # So default-off buys nothing in BUILD time. What it buys is the artefact: no published binary
+  # of either executable links an outbound TLS stack, and `checks.shipped-features` asserts that
+  # out of each binary's own embedded dependency list rather than out of this file. Keep the
+  # decision and cite the artefact for it.
+  #
+  # `docs/adr/0017` carries the numbers, the derivation A/B they rest on, and what the measurement
+  # does NOT cover. One record: a transcript of it here would be a second thing to keep true, and
+  # a copy is what rots first.
   binaries = [
     {
       bin = "sutura";
@@ -104,6 +141,11 @@ let
       # A default that does something harmless and provable. The release workflow smoke-tests it.
       cmd = [ "--version" ];
       description = "identity-aware semantic data runtime for AI agents";
+      # `docs/getting-started.md` tells a reader to run `cargo build -p sutura-cli
+      # --features bigquery`, and before this entry nothing anywhere proved that configuration
+      # LINKS on a triple this project publishes. `ureq`, rustls and `ring` are what it adds, and
+      # `ring` compiles C and assembly, so the two musl triples are the answer worth having.
+      probeFeatures = [ "bigquery" ];
     }
     {
       bin = "sutura-serve";
@@ -116,6 +158,11 @@ let
       # starts the server, which is what a platform scheduling it will do.
       cmd = [ ];
       description = "identity-aware semantic data runtime for AI agents: the HTTP surface";
+      # EMPTY, and deliberately: this binary's `tls` and `bigquery` features are the same shape
+      # and the same risk, and probing both would triple a job that already compiles the whole
+      # dependency closure per target. The CLI is the one issue #121 owes a measurement for; what
+      # this list says is that adding serve's is an entry rather than a design.
+      probeFeatures = [ ];
     }
   ];
 
@@ -129,10 +176,15 @@ let
   # server. Same rule as `keyFor`, applied where there is no target to append.
   ociNameFor = b: if b.keyPrefix == "" then "oci" else "oci-${b.keyPrefix}";
 
+  # The `--features` cargo takes, or nothing at all. Empty produces an empty string rather than a
+  # bare `--features`, so a build with no features is byte-identical to one that never asked.
+  featureArg = features:
+    pkgs.lib.optionalString (features != [ ]) " --features ${builtins.concatStringsSep "," features}";
+
   # A native build of one binary for one profile. For `release` the deps derivation is identical
   # to the flake's `cargoArtifacts`, so Nix dedupes it and the checks' work is reused. A
   # performance build necessarily compiles its own, since the profile is what changed.
-  nativeFor = { binary, profile }:
+  nativeFor = { binary, profile, features ? [ ] }:
     let
       args = commonArgs // {
         CARGO_PROFILE = profile;
@@ -155,7 +207,7 @@ let
       #
       # On the attrset and not on `args`: `buildDepsOnly` above must stay unscoped, or
       # the shared dependency build stops being shared with the checks.
-      cargoExtraArgs = "--package ${binary.package}";
+      cargoExtraArgs = "--package ${binary.package}${featureArg features}";
       # Tests run as their own check in `flake.nix`, sharing the same artifacts.
       doCheck = false;
     } // auditable.toolFor args // {
@@ -164,7 +216,7 @@ let
 
   # One cross-compiled package per binary per target. `cargoExtraArgs` pins the target and the
   # cross linker comes from pkgsCross, so no developer needs a local cross setup.
-  crossFor = { binary, target, profile }:
+  crossFor = { binary, target, profile, features ? [ ] }:
     let
       isMusl = pkgs.lib.hasSuffix "-linux-musl" target;
       crossPkgs = import nixpkgs {
@@ -211,7 +263,7 @@ let
       # Same reasoning as `nativeFor`; crane appends the target itself.
       pname = binary.bin;
       # One package, and the target. Same reasoning as `nativeFor`.
-      cargoExtraArgs = "--package ${binary.package} --target ${target}";
+      cargoExtraArgs = "--package ${binary.package} --target ${target}${featureArg features}";
       # The embedded dependency list, per target. Same reasoning as `nativeFor`, and
       # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
       # that RUNS during the build - `strictDeps = true` above makes that distinction
@@ -285,6 +337,80 @@ let
       }
     ])
     binaries);
+
+  # THE FEATURE-ON LINK CHECK, one package per binary per probe feature per release triple:
+  # `sutura-bigquery-<triple>-ci`. The name is for a human reading `nix build`; nothing parses it,
+  # because each manifest row below carries the executable and the feature as their own fields.
+  #
+  # **`ci` PROFILE AND NOTHING ELSE, which is what keeps this a link check rather than a second
+  # release matrix.** Nothing executes the result and nothing publishes it; what is being asked is
+  # whether the feature's C and assembly cross-compile and LINK for a musl triple, which is the one
+  # question a native `cargo check` cannot answer - it stops at metadata. Deliberately a SEPARATE
+  # attrset from `crossPackages`, because `checks.one-binary`, `ociImages` and the release
+  # workflow all read that one: a probe cannot reach an image or a published asset even by
+  # mistake, the same guarantee the `-ci` variants already rest on.
+  #
+  # ONE FLAT LIST, and both views below read it, so the packages CI can build and the manifest CI
+  # reads to know WHICH to build cannot disagree about which probes exist.
+  probes = builtins.concatMap
+    (b: builtins.concatMap
+      (feature: map
+        (t: {
+          target = t;
+          # The two fields the workflow would otherwise have to recover by splitting the name.
+          exe = b.bin;
+          inherit feature;
+          name = "${b.bin}-${feature}-${t}-ci";
+          value =
+            if t == hostRustTarget
+            then nativeFor { binary = b; profile = "ci"; features = [ feature ]; }
+            else crossFor { binary = b; target = t; profile = "ci"; features = [ feature ]; };
+        })
+        releaseTargets)
+      b.probeFeatures)
+    binaries;
+
+  # DISJOINT BY ASSERTION, because `//` is right-biased and this is the one place the
+  # two-views-of-one-list argument stops - one level ABOVE the list. `flake.nix` merges
+  # `crossPackages // ... // featurePackages`, so a probe whose name equalled a shipped package's
+  # would SHADOW it: the shipped link step would build a probe while its notice named an artefact.
+  # A `sutura-cli` feature called `serve` is exactly that collision - `sutura-serve-<triple>-ci` is
+  # a `crossPackages` key. A `throw` rather than a naming rule, so the failure names the collision.
+  featurePackages =
+    let
+      attrs = builtins.listToAttrs (map (p: { inherit (p) name value; }) probes);
+      shippedNames = crossPackages // nativeBinaries;
+      clashes = builtins.filter (n: builtins.hasAttr n shippedNames) (builtins.attrNames attrs);
+    in
+    if clashes == [ ] then attrs
+    else throw ("nix/shipped.nix: probe package name(s) ${builtins.concatStringsSep ", " clashes} "
+      + "collide with a shipped package. `//` is right-biased in flake.nix, so the probe would "
+      + "shadow the artefact. Rename the feature, or the probe naming rule.");
+
+  # WHAT TO BUILD FOR ONE TRIPLE, as a file at a FIXED attribute name: `feature-probes-<triple>`
+  # holds one row per probe - the package to build, the executable it installs, and the feature it
+  # was built with - and `ci.yml` reads the three fields rather than deriving any of them.
+  #
+  # **A FILE RATHER THAN A PATTERN IN THE WORKFLOW, and the reason is a dead gate this branch
+  # shipped and then measured.** The step used to RECONSTRUCT the set from the package names above
+  # - every `-<triple>-ci` attribute minus the shipped ones - so the naming rule was a coupling
+  # nothing could check, and reordering the name emptied the set while `probeFeatures` still
+  # declared `bigquery`: green run, reassuring sentence, exit ZERO. `docs/adr/0017` has the
+  # reproduction.
+  #
+  # Three properties close it, and each is why this is a derivation and not a convention. A flake
+  # that stops producing a manifest fails `nix build` instead of yielding nothing; an empty
+  # manifest then means what it says, so the step can refuse rather than guess; and the two fields
+  # a printed sentence quotes come from HERE, so renaming a package cannot make that sentence
+  # wrong. `file` carries none of it - it exits zero on a path that is not there, measured.
+  probeManifests = builtins.listToAttrs (map
+    (t: {
+      name = "feature-probes-${t}";
+      value = pkgs.writeText "feature-probes-${t}"
+        (pkgs.lib.concatMapStrings (p: "${p.name} ${p.exe} ${p.feature}\n")
+          (builtins.filter (p: p.target == t) probes));
+    })
+    releaseTargets);
 
   # Every target that becomes a published artifact: the cross list plus the host triple,
   # which is built natively rather than cross-built. One list, so the packages, the
@@ -492,11 +618,13 @@ in
     binaries
     crossPackages
     crossTargets
+    featurePackages
     imageTargets
     keyFor
     nativeBinaries
     localImages
     ociImages
+    probeManifests
     releaseTargets
     ;
 }

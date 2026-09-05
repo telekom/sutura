@@ -19,32 +19,22 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use sutura_app::prompt::CatalogProse;
-use sutura_app::surface::{LocalService, Surface as _};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::pinned::SemanticCatalog as _;
-use sutura_runtime::TracingAuditSink;
 
-use crate::commands::{arg, catalog_reader, render, report};
-use crate::sources::{Opened, OpenedWith, configured, open_engine, refuse_unattached, served_tables};
+use crate::commands::{Composed, arg, catalog_prose, catalog_reader, render, report, started};
+use crate::sources::{Opened, OpenedWith, configured, open_engine};
 // The `BigQuery` arm's half of the same question, and reached only from that arm - so the import is
 // gated for the reason `sources::bigquery`'s are: `dead_code` is `deny` here, and this crate's
 // default build links no BigQuery adapter.
 #[cfg(feature = "bigquery")]
 use crate::sources::refuse_absent_tables;
 
-/// The service this command serves, over one of the adapters this binary links.
-///
-/// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
-/// and the broker are the three collaborators every command in this binary composes. Generic in the
-/// warehouse since the `bigquery` feature landed; the other two are this binary's own choice and
-/// never vary.
-type McpSurface<W> = LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker>;
-
 /// What serving the surface amounts to: the service, and how catalog descriptions are treated.
 ///
-/// Named because even with `McpSurface` aliased, `(McpSurface<W>, CatalogProse)` stays over
+/// Named because even with [`Composed`] aliased, `(Composed<W>, CatalogProse)` stays over
 /// `clippy::type_complexity` once the alias is expanded.
-type Served<W> = (McpSurface<W>, CatalogProse);
+type Served<W> = (Composed<W>, CatalogProse);
 
 /// `mcp <catalog-dir> [data-dir]`: serve the agent surface over standard input and output.
 ///
@@ -67,7 +57,7 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
             settings.server().request_timeout(),
             data.as_deref(),
         )? {
-            Opened::Files(opened) => serve(&catalog, opened, settings.runtime()),
+            Opened::Files(opened) => serve(&catalog, opened, &settings),
             #[cfg(feature = "bigquery")]
             Opened::BigQuery(opened) => {
                 // **The pre-flight, and this line is where its ORDER is decided** - the same order
@@ -92,7 +82,7 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
                 // `LocalService` exposes no accessor for the engines it was handed, so there is
                 // nothing to re-ask once the second load has happened.
                 refuse_absent_tables(&pinned, &opened.engines)?;
-                serve(&catalog, opened, settings.runtime())
+                serve(&catalog, opened, &settings)
             }
         }
     })())
@@ -102,12 +92,12 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
 ///
 /// Generic in the adapter, so the two arms above share every line after them - including the runtime,
 /// the startup notice and the bounded teardown, none of which is a per-adapter decision.
-fn serve<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, runtime: sutura_config::RuntimeSettings) -> Result<(), String>
+fn serve<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, settings: &sutura_config::Settings) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let (service, prose) = mcp_service(catalog, opened, runtime)?;
+    let (service, prose) = mcp_service(catalog, opened, settings)?;
     // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
     // class: a pipe has no header a token could arrive in, so this surface grants every
     // capability to whoever can reach the process. Stated at startup, not left as a default
@@ -141,42 +131,36 @@ where
 
 /// The agent surface this command serves: the `query` composition behind the driving port.
 ///
-/// The same answer path `query` exercises, wrapped in the service an agent client speaks to. The
-/// one difference worth stating is the audit sink: [`LocalService::start`] requires one (a service
-/// with no sink does not exist), and `TracingAuditSink` is it. A locally launched process installs
-/// no subscriber, so those records go nowhere for the whole session - a different weight than
-/// `query`, where one person's own terminal loses nothing, but the same honest default: nothing
-/// claims a record was kept when none was. The sink is only the writer, so any composition that
-/// does install a subscriber must send it to standard error - on this transport standard output is
-/// the protocol channel, which is why the startup notice is an `eprintln!`.
-fn mcp_service<W>(
-    catalog: &LocalCatalog,
-    opened: OpenedWith<W>,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<Served<W>, String>
+/// **Literally the same composition, not a parallel one.** [`started`] is the single place this
+/// binary builds a service - the constructor that takes an audit sink and re-runs every anchor, plus
+/// the unattached-table check that closes the gap its second catalog load leaves. That used to be
+/// the one difference between the two commands: `query` called the answer function directly and
+/// wrote no record at all, which is issue #266's A1, and it now goes through here too.
+///
+/// A locally launched process installs no subscriber either way, so those records go nowhere for the
+/// whole session - the honest default rather than a claim that a record was kept when none was, and
+/// the limit the invariants row states. The sink is only the writer, so any composition that does
+/// install a subscriber must send it to standard error: on this transport standard output is the
+/// protocol channel, which is why the startup notice is an `eprintln!`.
+///
+/// What is left here is the transport's own decision, and there is one - how catalog descriptions
+/// are treated. **It takes the whole `Settings` rather than the two values it needs**, so that
+/// decision is READ here and not handed in; `#266`'s `H1` is what a caller-supplied setting costs.
+fn mcp_service<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, settings: &sutura_config::Settings) -> Result<Served<W>, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let working_set = runtime.working_set().bytes().get() as u64;
-    // `LocalService::start` loads the catalog again and re-runs every anchor - that is its contract,
-    // the constructor that returns a service only if the bundle is fit to serve. `catalog` is handed
-    // over rather than the `pinned` rebuilt, so the two loads cannot disagree about the version or
-    // the source name - and `refuse_unattached` closes the one gap that remains: a model added to the
-    // catalog directory between `load()` above and the load inside `start` would otherwise be served
-    // with no table registered behind it, failing its first question at query time. The same check
-    // `sutura-serve` runs at boot, so a served surface refuses to start in the same cases.
-    let service = LocalService::start(catalog, opened.engines, TracingAuditSink::new(), opened.broker, working_set)
-        .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
-    // Skipped for a data system nothing was attached to, which is the narrowing `Opened::attached`
-    // documents: the check compares the tables the served bundle names against the tables the engine
-    // HOLDS, and it holds them because the attach step put them there. Nothing to compare is not the
-    // same as nothing missing.
-    if let Some(attached) = opened.attached {
-        refuse_unattached(&served_tables(service.definitions()), &attached)?;
-    }
-    // The default treatment of catalog descriptions: quoted in, as the other commands render them.
-    Ok((service, CatalogProse::Quoted))
+    // **Read here rather than taken as an argument**, and that is the whole of `#266`'s `H1` at this
+    // layer: this line was the constant `CatalogProse::Quoted` under a comment calling it *the
+    // default treatment*, which it was not - it was the only one. A caller-supplied setting would
+    // move the defect one frame up and leave the same line uncovered, because a test can pass the
+    // value it wants to see. The conversion is `crate::commands::catalog_prose`, shared with
+    // `sutura prompt`, because two roots resolving one decision separately is how this survived.
+    Ok((
+        started(catalog, opened, settings.runtime())?,
+        catalog_prose(settings.prompt().catalog_prose()),
+    ))
 }
 
 #[cfg(test)]
@@ -201,17 +185,19 @@ mod tests {
     /// it is idle, so the async server task only ever decrements an `Arc`; the caller's own handle
     /// releases it after its runtime is gone, which keeps the one remaining edge - an engine
     /// released mid-answer - from being the path this suite exercises as it shuts down.
-    async fn connected<S>(service: std::sync::Arc<S>) -> rmcp::service::RunningService<rmcp::RoleClient, ()>
+    ///
+    /// The prose treatment is the caller's, because it is what this command resolves from the
+    /// settings and a test that hardcoded it could not tell the two settings apart.
+    async fn connected<S>(
+        service: std::sync::Arc<S>,
+        prose: sutura_app::prompt::CatalogProse,
+    ) -> rmcp::service::RunningService<rmcp::RoleClient, ()>
     where
         S: sutura_app::surface::Surface,
     {
         let (client_side, server_side) = tokio::io::duplex(64 * 1024);
         let server = rmcp::serve_server(
-            sutura_mcp::AgentSurface::new(
-                service,
-                sutura_app::Permitted::every_capability(),
-                sutura_app::prompt::CatalogProse::Quoted,
-            ),
+            sutura_mcp::AgentSurface::new(service, sutura_app::Permitted::every_capability(), prose),
             server_side,
         );
         let client = rmcp::serve_client((), client_side);
@@ -221,6 +207,47 @@ mod tests {
             drop(running.waiting().await);
         }));
         client.expect("the client initializes")
+    }
+
+    /// The documented example, opened over the in-process engine, under a settings DOCUMENT.
+    ///
+    /// The overlay occupies the position a deployment's own file does, which is the whole point: the
+    /// setting has to arrive the way an operator writes it, or the read under test is the test's own
+    /// argument. The same construction `sutura_http::harness::settings` uses, for the same reason.
+    ///
+    /// Extracted because two tests compose it and the composition is the thing under test in both:
+    /// a second copy would be a second answer to *what does this command build*.
+    fn example_composition(
+        overlay: &str,
+    ) -> (
+        super::LocalCatalog,
+        crate::sources::OpenedWith<sutura_exec_datafusion::DataFusionWarehouse>,
+        sutura_config::Settings,
+    ) {
+        let catalog = crate::commands::catalog_reader(&example().join("catalog")).expect("the example catalog is readable");
+        let pinned = sutura_domain::pinned::SemanticCatalog::load(&catalog).expect("the example catalog loads");
+        let settings = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        )
+        .expect("the test settings load");
+        // An exhaustive match into an `Option` rather than a refutable `let`: `clippy::unreachable`
+        // is denied here, and a match is also what makes a third linked adapter a compile error in
+        // this test the way it is in the command itself.
+        let opened = match crate::sources::open_engine(
+            &pinned,
+            &sutura_config::SourceRegistry::default(),
+            settings.runtime(),
+            settings.server().request_timeout(),
+            Some(&example().join("data")),
+        )
+        .expect("the example catalog opens with nothing declared")
+        {
+            crate::sources::Opened::Files(opened) => Some(opened),
+            #[cfg(feature = "bigquery")]
+            crate::sources::Opened::BigQuery(_) => None,
+        }
+        .expect("the example declares a files source");
+        (catalog, opened, settings)
     }
 
     /// THE claim of issue #110, end to end: the `mcp` command's own composition serves the two tools
@@ -237,33 +264,14 @@ mod tests {
     /// takes, where a main-thread handle frees the engine once blocking work has settled.
     #[test]
     fn the_mcp_composition_serves_every_tool_the_surface_declares() {
-        let catalog = crate::commands::catalog_reader(&example().join("catalog")).expect("the example catalog is readable");
-        let pinned = sutura_domain::pinned::SemanticCatalog::load(&catalog).expect("the example catalog loads");
-        // An exhaustive match into an `Option` rather than a refutable `let`: `clippy::unreachable`
-        // is denied here, and a match is also what makes a third linked adapter a compile error in
-        // this test the way it is in the command itself.
-        let settings = crate::sources::configured().expect("the embedded defaults load");
-        let opened = match crate::sources::open_engine(
-            &pinned,
-            &sutura_config::SourceRegistry::default(),
-            settings.runtime(),
-            settings.server().request_timeout(),
-            Some(&example().join("data")),
-        )
-        .expect("the example catalog opens with nothing declared")
-        {
-            crate::sources::Opened::Files(opened) => Some(opened),
-            #[cfg(feature = "bigquery")]
-            crate::sources::Opened::BigQuery(_) => None,
-        }
-        .expect("the example declares a files source");
-        let (service, prose) = mcp_service(&catalog, opened, settings.runtime()).expect("the example bundle is fit to serve");
+        let (catalog, opened, settings) = example_composition("");
+        let (service, prose) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 
         runtime.block_on(async {
-            let client = connected(std::sync::Arc::clone(&service)).await;
+            let client = connected(std::sync::Arc::clone(&service), prose).await;
 
             // Both tools, in the declared order, over the wire.
             let tools = client.list_all_tools().await.expect("tools/list answers");
@@ -294,6 +302,66 @@ mod tests {
                 .as_ref()
                 .expect("an answer carries structured content");
             assert_eq!(structured.get("outcome").and_then(serde_json::Value::as_str), Some("answer"));
+            drop(client.cancel().await);
+        });
+    }
+
+    /// `prompt.catalog_prose: omitted` reaches the served agent surface from THIS command's root.
+    ///
+    /// The last link of `#266`'s `H1`, and the one no test in `sutura-mcp` can reach: that crate's
+    /// suite is handed a setting, while this root is what reads one. It read none - `mcp_service`
+    /// returned `CatalogProse::Quoted` as a constant - so a deployment whose prompt and whose HTTP
+    /// catalog body both withheld the catalog's prose still served every description to an agent
+    /// over stdio, which is the surface with no token and no scope narrowing at all.
+    ///
+    /// The setting arrives as a settings DOCUMENT rather than as an argument, which is what makes
+    /// this a test of the read and not of a parameter: a test that handed `mcp_service` the value it
+    /// wanted to see would pass with the line back to a constant one frame up. Then over the wire
+    /// through the SDK's own client, on both halves of the reply, because the defect was the WIRING -
+    /// what each half renders for a setting it was given is pinned in `sutura-mcp`.
+    ///
+    /// The runtime and drop-order rationale above applies here unchanged. What this does NOT reach
+    /// is `SUTURA_CONFIG_DIR` and `serve` - a settings tree on disk read by the spawned binary -
+    /// which is `tests/mcp.rs`'s
+    /// `a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface`, on the split that
+    /// suite's own header states: this one holds the composition, that one holds the process.
+    #[test]
+    fn the_mcp_composition_honours_the_prose_setting_it_was_configured_with() {
+        let (catalog, opened, settings) = example_composition("prompt:\n  catalog_prose: omitted\n");
+        let (service, prose) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
+        assert_eq!(prose, sutura_app::prompt::CatalogProse::Omitted);
+        let service = std::sync::Arc::new(service);
+        let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
+
+        runtime.block_on(async {
+            let client = connected(std::sync::Arc::clone(&service), prose).await;
+            let result = client
+                .call_tool(rmcp::model::CallToolRequestParams::new(
+                    sutura_app::Capability::DescribeCatalog.id(),
+                ))
+                .await
+                .expect("the catalog tool answers");
+            let structured = result
+                .structured_content
+                .as_ref()
+                .expect("the catalog carries structured content")
+                .to_string();
+            // A description the example catalog really carries, on a dimension of every metric. What
+            // each half renders is `sutura-mcp`'s own business and is pinned there; what this test
+            // owns is that the setting reached them at all.
+            assert!(!structured.contains("Where the customer is."), "{structured}");
+            // No description FIELD either, which is `#266`'s `H1` in its own words, and the setting
+            // echoed so a client reads *this deployment ships none* rather than inferring it.
+            assert!(!structured.contains("description"), "{structured}");
+            assert!(structured.contains(r#""catalog_prose":"omitted""#), "{structured}");
+            let text = result
+                .content
+                .first()
+                .and_then(rmcp::model::ContentBlock::as_text)
+                .map(|block| block.text.clone())
+                .expect("the catalog carries a text block");
+            assert!(!text.contains("Where the customer is."), "{text}");
+            assert!(text.contains("NOT included"), "{text}");
             drop(client.cancel().await);
         });
     }

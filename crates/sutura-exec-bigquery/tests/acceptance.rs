@@ -78,6 +78,14 @@
 //! skips only on a fork's pull request - the runner there cannot see an environment's secrets, which
 //! is *skip where the runner had no choice, fail where somebody typed the command*.
 //!
+//! **One test here is NOT `#[ignore]`d, and it is the exception the paragraph above needs stating
+//! next to it.** `a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about` reads
+//! no project and opens no socket: it is the control on the HARNESS the pre-flight seam leg is built
+//! out of - the bundle written to a scratch directory and read back through the catalog adapter. So
+//! it runs in `just test` and in `checks.nextest`, and `just bigquery-acceptance` skips it, because
+//! `--run-ignored only` reaches the ignored set alone. That is the right way round: a harness defect
+//! should fail in the gate every change runs, not in the one venue that costs a credential.
+//!
 //! # How to run it
 //!
 //! ```text
@@ -134,16 +142,40 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::model::{
-        Aggregate, ColumnName, DatasetName, Grain, MetricName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
+        Aggregate, ColumnName, DatasetName, Grain, MetricName, ModelName, ProjectName, QualifiedTable, SourceName, TableName,
+        TableQualifier,
     };
+    use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::{
         Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
         StatementTables,
     };
     use sutura_domain::warehouse::preflight::TablesPresent;
-    use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
+    use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse};
+
+    use sutura_app::Warehouses;
+    use sutura_app::preflight::{Verdict, ask};
+    use sutura_catalog_local::LocalCatalog;
+    use sutura_exec_bigquery::BigQueryError;
+    use sutura_exec_bigquery::transport::{DatasetAddress, JobTransport as _, ListingTotal};
+    use sutura_exec_bigquery::wire::{BigQueryWire, WireAgent, WireError};
 
     use crate::support::{Connection, Wired, bounds, named, opened, presented};
+
+    /// A table name no dataset holds, and the one name in this file that needs no masking.
+    ///
+    /// **A constant rather than four literals**, because four legs ask the same question - *what does
+    /// this dataset do with a name it does not hold* - and a copy that drifted by a character would be
+    /// a leg passing for the wrong reason: `preflight` reports an unknown name absent whatever it is,
+    /// so nothing here would go red.
+    const NO_SUCH_TABLE: &str = "sutura_acceptance_no_such_table";
+
+    /// The model the seam leg's bundles declare over the table the dataset really holds.
+    const MODEL_ON_A_HELD_TABLE: &str = "held_here";
+
+    /// The model the seam leg's bundle declares over [`NO_SUCH_TABLE`] - the name a refusal has to
+    /// print, because an operator fixes a `table:` by opening the model that wrote it.
+    const MODEL_ON_AN_ABSENT_TABLE: &str = "not_here";
 
     /// What this leg needs from the environment: the shared [`Connection`], plus the one variable only
     /// this leg reads.
@@ -196,18 +228,44 @@ mod tests {
         /// and dataset, so no value here is written into the repository - which is the same rule the
         /// two variables above are read under.
         fn in_project(&self) -> QualifiedTable {
+            self.qualified_in_project(self.connection.dataset.as_str(), self.table.clone())
+        }
+
+        /// `project.dataset.table` in the fixture's OWN project, for any dataset and table.
+        ///
+        /// **One place parses the project id, which is why this is a method and not a second literal
+        /// in a test body.** [`Self::in_project`] asks it about the real dataset; the soft-edge leg
+        /// asks it about one the project does not hold. Two copies of the same
+        /// `ProjectName::parse(billing_project)` would be two answers to *which project pays*, which
+        /// is the live bug `x-goog-user-project` already cost this adapter once.
+        fn qualified_in_project(&self, dataset: &str, table: TableName) -> QualifiedTable {
             QualifiedTable::new(
                 Some(TableQualifier::in_project(
                     ProjectName::parse(self.connection.billing_project.as_str()).expect("a project id is also a project name"),
-                    DatasetName::parse(self.connection.dataset.as_str()).expect("a dataset id is also a dataset name"),
+                    DatasetName::parse(dataset).expect("a dataset id is also a dataset name"),
                 )),
-                self.table.clone(),
+                table,
             )
         }
     }
 
     fn source() -> SourceName {
         SourceName::parse("warehouse").expect("a source name is a source name")
+    }
+
+    /// [`NO_SUCH_TABLE`], parsed - the bare name, for a caller that qualifies it itself.
+    fn no_such_table() -> TableName {
+        TableName::parse(NO_SUCH_TABLE).expect("a table name parses")
+    }
+
+    /// [`NO_SUCH_TABLE`] as an unqualified path, which is the shape four legs ask about.
+    ///
+    /// **Unqualified on purpose, in every one of them.** `preflight` partitions an unaddressable path
+    /// into the absent set BEFORE anything is listed, so a name qualified into a dataset that is not
+    /// there could answer *absent* without a call ever being made. Resolved by the source's own
+    /// default dataset, the answer comes back from a real listing.
+    fn absent_table() -> QualifiedTable {
+        QualifiedTable::from(no_such_table())
     }
 
     /// A plan over the developer's table, built the way the compiler builds one.
@@ -445,7 +503,7 @@ mod tests {
         // `panic = "abort"`.
         let fixture = Fixture::required();
         let warehouse = warehouse(fixture);
-        let absent = QualifiedTable::from(TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"));
+        let absent = absent_table();
         let plan = plan(&absent);
 
         let refused = warehouse
@@ -477,9 +535,12 @@ mod tests {
         //    the listing attributed quota to the DATASET's project rather than the source's billing
         //    project, and the fix is otherwise held by an assertion about a URL and a header rather
         //    than by anything having sent them.
-        // 3. Whether a small dataset pages at all - and that it does not is itself worth knowing,
-        //    because the paging loop is the part of `list` no local document exercises against a real
-        //    token.
+        // 3. The paging loop runs against a real token and terminates, which no local document
+        //    reaches. **What a green run does NOT say is how many pages it took** - nothing here
+        //    reports a page count, so *a small dataset does not page* stays unmeasured, and the
+        //    earlier version of this line claimed the run answered it. What it does establish is
+        //    that the listing was COMPLETE enough to hold the table below, because a listing cut
+        //    short would have reported that table absent and failed the control.
         //
         // **The control is inside this test rather than beside it, and that is the point of the
         // shape.** The pre-flight fails toward reporting a table absent - `Listing`'s fields are all
@@ -492,7 +553,7 @@ mod tests {
         // A fictitious literal, so it is the one name in this leg nothing needs masking - and it is
         // the same spelling the `dry_run` control above uses, because both are asking *what does this
         // dataset do with a name it does not hold*.
-        let absent = QualifiedTable::from(TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"));
+        let absent = absent_table();
         let warehouse = warehouse(fixture);
 
         let clean = BTreeSet::from([present.clone()]);
@@ -521,5 +582,313 @@ mod tests {
             vec![absent.to_string()],
             "the dataset's own listing names the table that is not there and nothing else"
         );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_dataset_the_credential_cannot_list_is_unverified_and_never_every_table_absent() {
+        // **What this leg is the only place to establish - and it is NARROWER than the version of this
+        // comment review corrected.** That `404` warns rather than refuses is already pinned
+        // hermetically, twice with controls: `wire::tables`'s `was_refused` suite asserts it beside
+        // `401`, `403`, `500` and `503`, and `a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome`
+        // asserts the same one port up. A fake transport can hold a predicate over a status. What it
+        // cannot hold is a claim about the SERVICE, and that is this:
+        //
+        // **a dataset that is not there is answered with a non-2xx, so the empty-decode path is not
+        // what a missing dataset produces.** Every field of `wire::tables::Listing` is
+        // `#[serde(default)]`, so a document that decodes to nothing reads as *every table is absent*
+        // and would stop a boot. If the endpoint answered `200` with an empty body for a dataset that
+        // does not exist, the pre-flight would refuse a deployment over a dataset name instead of
+        // warning about it - and nothing in this repository could have known.
+        //
+        // **Both names in the path are fictitious literals, so this leg still writes no resource of
+        // the developer's project into this repository.** The PROJECT is the fixture's own on
+        // purpose: a dataset absent from a project the credential can see is the case being asked
+        // about, and one in a project it cannot see is a different answer.
+        //
+        // **The oracle names the STATUS, which is review correcting an assertion that was green for
+        // the wrong reasons.** `!preflight_was_refused` plus a surviving `#[source]` is satisfied by
+        // `Unreachable`, by a `500` or `503`, by `DeadlineSpent`, and by the two `403`s this crate
+        // deliberately puts in the warning half - `rateLimitExceeded` and `quotaExceeded`. In every
+        // one of those the endpoint never answered about this dataset at all, and the leg still
+        // reported *a dataset that is not there warns*. Matching `WireError::Refused { status: 404 }`
+        // is what makes a different answer RED, which is the only shape in which a green run is the
+        // measurement `docs/adr/0018` cites it as.
+        //
+        // The clean set is still asked FIRST, and it is a second control on a different axis: it says
+        // this credential really can list this project, so the failure below is dataset-SPECIFIC
+        // rather than an identity that reads nothing. It costs one more `tables.list`, billed for
+        // nothing.
+        let fixture = Fixture::required();
+        let present = fixture.unqualified();
+        let nowhere = fixture.qualified_in_project("sutura_acceptance_no_such_dataset", no_such_table());
+        let warehouse = warehouse(fixture);
+
+        assert_eq!(
+            warehouse
+                .preflight(&BTreeSet::from([present]))
+                .expect("the control: this credential really can list this project's own dataset"),
+            TablesPresent::All,
+            "the control: a set naming only a table the dataset holds has nothing absent in it"
+        );
+
+        let unverified = warehouse
+            .preflight(&BTreeSet::from([nowhere]))
+            .expect_err("a dataset that is not there cannot answer a listing, and must not answer one emptily");
+        assert!(
+            matches!(
+                unverified,
+                BigQueryError::Endpoint {
+                    cause: WireError::Refused { status: 404, .. }
+                }
+            ),
+            "a dataset that is not there has to be a 404 from the service - anything else is a call that \
+             never reached this dataset, and reading it as *could not verify* would be an accident: {unverified:?}"
+        );
+        // `preflight_was_refused` answers `true` for `401` and `403` only, so this is the half of the
+        // split a live dataset can reach without a second identity. **The refusal half stays a
+        // fake-transport claim**: it needs a credential holding no `bigquery.tables.list`, which is
+        // not what either this leg or CI's `bq-test` environment is pointed at.
+        assert!(
+            !warehouse.preflight_was_refused(&unverified),
+            "a dataset that is not there is a condition that passes, not a grant an operator adds: {unverified:?}"
+        );
+    }
+
+    /// A bundle naming one model per `(model, table)` pair, on this leg's own source.
+    ///
+    /// **Through [`LocalCatalog`] rather than `PinnedDefinitions::pin`, because the pre-flight seam
+    /// is about a bundle a deployment AUTHORED.** `pin` would let this file hand the decision a
+    /// `Definitions` assembled in memory, which is a shape no operator can produce - and the mistake
+    /// #120 exists for is a typed `table:` in a document. So the documents are written and read back
+    /// through the adapter a composition root loads one through, and `columns:` is present because
+    /// the format requires it rather than because the pre-flight reads it: `tables.list` reports
+    /// existence, and this record's own limit is that it says nothing about the columns a model names.
+    ///
+    /// **`CARGO_TARGET_TMPDIR` and NOT `std::env::temp_dir()`, which review corrected and which
+    /// matters more here than at the sibling call sites.** It is defined for an integration target
+    /// and is inside `target/`, which is `crates/sutura-cli/tests/declared_source.rs`'s own reason -
+    /// and these documents carry the fixture's real table name, deliberately left on disk after a
+    /// failing run. A predictable path in a shared system temp directory is the wrong place for that.
+    /// It also needs no dependency, which retires the `tempfile` argument this comment used to make:
+    /// `tempfile 3.27.0` is already resolved in `Cargo.lock` transitively, so cost was never the
+    /// reason.
+    ///
+    /// Cleared on the way IN rather than after, so a failing run leaves its documents to read.
+    fn bundle_naming(what: &str, models: &[(&str, &str)]) -> PinnedDefinitions {
+        let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("preflight-seam-{what}"));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&root).expect("a scratch directory is creatable");
+        for (model, table) in models {
+            let document = format!(
+                "---\nkind: model\nname: {model}\nsource: {}\ntable: {table}\ncolumns: [day]\n---\n\
+                 One model, so the pre-flight has a `table:` to ask this dataset about.\n",
+                source()
+            );
+            std::fs::write(root.join(format!("{model}.md")), document).expect("a scratch document is writable");
+        }
+        LocalCatalog::new(
+            SourceName::parse("scratch").expect("a catalog name is a name"),
+            root,
+            DefinitionVersion::parse("preflight-seam-1").expect("a definition version parses"),
+        )
+        .load()
+        .expect("a bundle of model documents this file just wrote loads")
+    }
+
+    /// The control on the harness the seam leg below is built out of, and **the one test in this file
+    /// that is not `#[ignore]`d** - it needs no project, so a gate can hold it.
+    ///
+    /// **Without it the seam leg's evidence rests on a bundle nobody checked.** `preflight::ask`
+    /// SKIPS a source the bundle names no model in, so a `bundle_naming` that silently wrote nothing
+    /// this source claims - a `source:` that stopped matching, a document the parse refused, a
+    /// directory the walk missed - would hand the decision an empty question. The leg's
+    /// `answers.len()` assertion catches that, but only in the one venue that costs a credential and
+    /// a CI job; this catches it in `just test`.
+    #[test]
+    fn a_scratch_bundle_really_names_the_models_this_legs_own_source_is_asked_about() {
+        let pinned = bundle_naming(
+            "harness",
+            &[
+                (MODEL_ON_A_HELD_TABLE, "any_table_at_all"),
+                (MODEL_ON_AN_ABSENT_TABLE, NO_SUCH_TABLE),
+            ],
+        );
+        let declared: Vec<(String, String)> = pinned
+            .definitions()
+            .models()
+            .values()
+            .filter(|model| *model.source() == source())
+            .map(|model| (model.name().to_string(), model.table().to_string()))
+            .collect();
+        assert_eq!(
+            declared,
+            vec![
+                (String::from(MODEL_ON_A_HELD_TABLE), String::from("any_table_at_all")),
+                (String::from(MODEL_ON_AN_ABSENT_TABLE), String::from(NO_SUCH_TABLE)),
+            ],
+            "the seam leg's bundle has to reach this leg's own source, or the decision it feeds is asked nothing"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table() {
+        // **The last bullet of issue #216 that no run had reached: the two halves MEETING.** The
+        // legs above stop at `BigQueryWarehouse::preflight`'s `TablesPresent`, and every test of the
+        // decision above it - `sutura_app::preflight::ask` and each root's own sentence - runs against
+        // a `Warehouse` fake. So a real listing had never produced a real verdict, and #216 named that
+        // as the seam a live run covers.
+        //
+        // **What is reachable from here is the DECISION, and what is not is each root's WORDS.**
+        // `sutura_app::preflight::ask` is the one decision sequence both composition roots call -
+        // `sutura_serve::boot::refuse_absent_tables`' own documentation says so - and `sutura-app` is
+        // already a dev-dependency of this crate. What stays out of reach is the rendering: those
+        // functions are `pub(crate)` in crates that depend ON this one, and they are the sentence and
+        // the sink rather than the decision. An earlier revision of `docs/adr/0018` called the whole
+        // seam structurally unreachable from here, which was wrong by one dependency edge.
+        //
+        // **Two-sidedness is already in the mixed assertion, and the clean bundle is here for a
+        // DIFFERENT reason - which is a correction to what this comment first said.** An empty
+        // listing reports both tables absent, so comparing the absent set's keys EXACTLY against the
+        // one fictitious name already fails in that world; the clean bundle is not what rescues it.
+        // What the clean bundle is the only live exercise of is the `Present` arm - the decision
+        // mapping a real `TablesPresent::All` to a verdict a root serves on - and #216's seam is both
+        // verdicts, not just the refusing one. It costs one more `tables.list`, billed for nothing.
+        //
+        // **What the count assertion in `one_verdict` holds is the third case**, and it is the one a
+        // reader misses: `ask` SKIPS a source the bundle names no model in, so a bundle that reached
+        // this source with nothing produces no answers at all rather than a wrong verdict.
+        let fixture = Fixture::required();
+        let held = fixture.unqualified();
+        let absent = absent_table();
+        let engines = Warehouses::of(warehouse(fixture));
+
+        let clean = bundle_naming("clean", &[(MODEL_ON_A_HELD_TABLE, held.name().as_str())]);
+        match one_verdict(&clean, &engines) {
+            Verdict::Present { asked } => assert_eq!(
+                asked, 1,
+                "the control: the decision asked this dataset about the one table the bundle names in it"
+            ),
+            other => panic!("the control: a bundle naming only {held} is present, and the decision said {other:?}"),
+        }
+
+        let mixed = bundle_naming(
+            "mixed",
+            &[
+                (MODEL_ON_A_HELD_TABLE, held.name().as_str()),
+                (MODEL_ON_AN_ABSENT_TABLE, NO_SUCH_TABLE),
+            ],
+        );
+        match one_verdict(&mixed, &engines) {
+            Verdict::Absent(behind) => {
+                assert_eq!(
+                    behind.named().keys().collect::<Vec<&QualifiedTable>>(),
+                    vec![&absent],
+                    "the real listing named the table that is not there, and nothing the dataset holds"
+                );
+                let models = behind.named().get(&absent).expect("the assertion above named this table");
+                assert_eq!(
+                    models.iter().map(ModelName::as_str).collect::<Vec<&str>>(),
+                    vec![MODEL_ON_AN_ABSENT_TABLE],
+                    "a refusal an operator can act on names the model whose `table:` is wrong: {behind}"
+                );
+            }
+            other => panic!("a bundle naming {absent} has to be refused, and the decision said {other:?}"),
+        }
+    }
+
+    /// The one verdict this leg's single-source registry can produce, or a panic saying what it got.
+    ///
+    /// **The count is asserted here rather than in each caller**, because it is the same guard both
+    /// times and it is the one that catches a bundle that reached this source with no models: `ask`
+    /// skips such a source, so the honest failure is *no answer* rather than a verdict that is wrong.
+    fn one_verdict(pinned: &PinnedDefinitions, engines: &Warehouses<Wired>) -> Verdict<<Wired as Warehouse>::Error> {
+        let answers = ask(pinned, engines);
+        assert_eq!(
+            answers.len(),
+            1,
+            "one source is open and the bundle names models in it, so the decision has exactly one answer"
+        );
+        answers
+            .into_iter()
+            .next()
+            .expect("a vector of one has a first element")
+            .into_verdict()
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried() {
+        // **The measurement `docs/adr/0018` deferred to a run that could not make it**, which is
+        // issue #263: the record said a `totalItems` cross-check would tell an empty dataset from a
+        // document whose shape the service changed, and deferred the question to the listing leg
+        // above - which asserts on `TablesPresent` while the decoder read no such field, so no value
+        // reached an assertion, a panic message or a log line in either direction.
+        //
+        // **Below the domain port on purpose, and that is a finding rather than a shortcut.**
+        // `TablesPresent` carries no count and should not: the number is a fact about one service's
+        // document. So the total is observable only where the transport answers, which is also where
+        // the decision that reads it will have to live.
+        //
+        // **What it costs, stated rather than rounded to nothing:** one more `tables.list` - a
+        // metadata read, billed for nothing - plus a second credential file read and **a second
+        // token exchange**, because `Credential::bearer` caches nothing and mints per call. A leg of
+        // its own rather than a fold into the one above, because that one holds a `Warehouse` and
+        // this question is a rung below it, and because two independently named legs is what lets a
+        // reader see which claim a red run broke.
+        //
+        // **The cost that is not wall clock: this is a THIRD composition, where
+        // `tests/support/mod.rs` states that having one is the point** - agent, credential,
+        // transport and warehouse assembled once so both legs are evidence for the same composition
+        // rather than for two that resemble each other. It cannot reuse `opened`:
+        // `BigQueryWarehouse` exposes no transport accessor, and a `wire(connection)` helper in
+        // `support` would be an item `corpus.rs` never calls, which `dead_code = "deny"` fails. So
+        // the exception is real, and so is its price - a change to HOW the wire is composed leaves
+        // this leg green against the shape it hard-codes. Only `bounds()` is shared, which is the
+        // one that spends money.
+        let fixture = Fixture::required();
+        // The same project in both roles, which mirrors `BigQueryWarehouse::addressed`'s unqualified
+        // branch - the rule that carried a live quota-project bug, so it is named rather than
+        // re-derived: `billed_to` differs from `project` only where a path names another project.
+        let at = DatasetAddress::of(
+            fixture.connection.billing_project.clone(),
+            fixture.connection.billing_project,
+            fixture.connection.dataset,
+        );
+        let wire = BigQueryWire::new(WireAgent::pinned(bounds()), fixture.connection.credentials);
+        let held = wire
+            .list_tables(&at)
+            .expect("the dataset answered the listing - a refusal here is a grant, not a missing table");
+
+        // Printed so the run's own output IS the measurement rather than a claim about it - a fixed
+        // word from a closed match plus two counts, never a resource name. What a green run says is
+        // that this service populates the field at all, which nothing here had seen until the
+        // `bigquery-acceptance` job answered `Accounted` on 2026-09-04.
+        println!(
+            "bigquery-acceptance: tables.list answered {:?} over {} usable table id(s)",
+            held.total(),
+            held.named().len()
+        );
+
+        // The control, and it is what stops the assertion below being satisfied by a listing that
+        // named nothing: a total reported beside no readable id is the shape change itself.
+        assert!(
+            held.holds(fixture.table.as_str()),
+            "the listing named the fixture table, so this is a real listing of a real dataset"
+        );
+        // **The claim this leg exists to settle**, and it is red rather than silent if the service
+        // does not populate the field: a cross-check whose input is never sent has no teeth, and a
+        // log line nobody reads is how that would go unnoticed for a release.
+        assert!(
+            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable),
+            "the service reported no total this crate could read, so the cross-check has no input: {:?}",
+            held.total()
+        );
+        // **Not asserted: that the total is EXACT.** A dataset being written to while it is listed
+        // moves the number, and this dataset is written to by the corpus leg beside this one - so
+        // requiring `Accounted` would be a leg that fails for a reason outside the diff. What is
+        // required is that the two are comparable at all; `wire::tables`' own suite holds what each
+        // verdict means, against documents rather than against a race.
     }
 }

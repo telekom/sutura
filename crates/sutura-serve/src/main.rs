@@ -202,8 +202,13 @@ fn run() -> Result<(), String> {
             // calls `of` further down, in `open_bigquery`. What holds the first half is the
             // `BigQuerySource` alias declared beside `OpenedSources`, whose transport parameter is
             // `BigQueryWire<Credential>` and whose `Credential` has one public constructor,
-            // `Credential::read`. So the ORDER here is a convention this line keeps, resting on a
-            // type that cannot be built the other way round.
+            // `Credential::read`.
+            //
+            // **The second half is held by `check-boot-order`**, which `just hygiene` runs, and it
+            // is there because this comment used to close by calling the order *a
+            // convention this line keeps* - which is a rule with no mechanism, and `AGENTS.md` does
+            // not accept one. The gate reads the order of three call sites in this file; its own
+            // header states what that is worth and what it cannot see.
             boot::refuse_absent_tables(&pinned, &engines)?;
             (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
         }

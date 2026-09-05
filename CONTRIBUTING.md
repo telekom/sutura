@@ -161,9 +161,9 @@ just validate       # THE gate: the nix checks, which build their own copy of th
 **A new or changed test must be red against the base behaviour and green with your change.** A test
 that passes both ways proves nothing and is worse than no test, because it looks like coverage.
 `just causality` checks that mechanically. Where the change is not separable - impl and test in one
-file, or a rename with no behavioural difference - the gate says so and asks for evidence instead:
-the command you ran, the failure before the fix, the pass after. That goes in the pull request. **Do
-not skip it silently.**
+file, a rename with no behavioural difference, or every added test `#[ignore]`d so no run here
+reaches one - the gate says so and asks for evidence instead: the command you ran, the failure
+before the fix, the pass after. That goes in the pull request. **Do not skip it silently.**
 
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.
