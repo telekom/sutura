@@ -13,6 +13,7 @@ mod arrow_major;
 mod attribution;
 mod boot_order;
 mod boundaries;
+mod bounded_wait;
 mod branches;
 mod causality;
 mod changes;
@@ -259,6 +260,20 @@ const TASKS: &[Task] = &[
         description: "the pre-flight runs after the credential and before the transport",
         kind: Kind::Hygiene(Reads::Code),
         run: boot_order::run,
+    },
+    Task {
+        // The third of that shape, and the one whose failure mode is the most expensive to
+        // diagnose: a gate hanging with no output. The compose tier routes every wait on a
+        // container-runtime child through one function that carries a deadline, and nothing made
+        // the NEXT call come through it - a `.output()` written into a sibling compiles, reviews
+        // clean and restores the hang, and so does a pipe handed to a child and drained to an EOF
+        // that never comes. `disallowed-methods` cannot express it, because an entry there is
+        // workspace-wide and `xtask` waits on `git` and `cargo` without a bound on purpose. So it
+        // is path-scoped, and it starts GREEN.
+        name: "check-bounded-wait",
+        description: "one place in the compose tier can be blocked by a child process",
+        kind: Kind::Hygiene(Reads::Code),
+        run: bounded_wait::run,
     },
     Task {
         name: "line-endings",

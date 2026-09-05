@@ -63,7 +63,16 @@ pub(crate) fn june() -> TimeRange {
 }
 
 /// One model, one anchored metric, one filterable dimension.
+///
+/// The two descriptions are DIFFERENT text on purpose: a test asserting that neither reaches a
+/// caller would pass on the metric's half alone if one string served both.
 pub(crate) fn bundle() -> PinnedDefinitions {
+    described_bundle("Revenue, in minor units.", "Sales region.")
+}
+
+/// The same bundle with the two descriptions supplied, for walking the shared injection corpus
+/// through a real [`Description`] rather than through a wire type built by hand.
+pub(crate) fn described_bundle(metric_prose: &str, dimension_prose: &str) -> PinnedDefinitions {
     let model = Model::new(
         ModelName::parse("orders").expect("a test model is a model"),
         source(),
@@ -79,7 +88,7 @@ pub(crate) fn bundle() -> PinnedDefinitions {
             DimensionValue::parse("north").expect("a test value is a value"),
             DimensionValue::parse("south").expect("a test value is a value"),
         ])),
-        description("Sales region."),
+        description(dimension_prose),
     );
     let revenue = Metric::new(
         MetricName::parse("revenue").expect("a test metric is a metric"),
@@ -93,7 +102,7 @@ pub(crate) fn bundle() -> PinnedDefinitions {
             june(),
             AnchorValue::parse(ANCHORED_VALUE.to_string()).expect("a test anchor value is a value"),
         )),
-        description("Revenue, in minor units."),
+        description(metric_prose),
     )
     .expect("one dimension cannot duplicate another");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");

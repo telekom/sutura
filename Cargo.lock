@@ -3729,6 +3729,7 @@ dependencies = [
  "sutura-semantic",
  "sutura-sql",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
