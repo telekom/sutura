@@ -21,7 +21,11 @@
 #
 # WHAT IT COSTS: the four legs are reported as `cross / link (<triple>)` rather than
 # `cross (<triple>)`. None of them is a required context - `ci` is the only one in the `main`
-# ruleset - so no ruleset changes with this file. `cargo xtask check-workflows`'s REFERENCE scan
+# ruleset - so no ruleset changes with this file. THE OTHER HALF OF THAT SENTENCE, which went
+# unstated: none of them ever WAS required, so a red leg has never blocked a merge either, and this
+# job's coverage is advisory. `devco/required-contexts` is the record - the API response, the date,
+# and the organisation-level scope that could not be read - and `cargo xtask check-workflows` is
+# what keeps it in step with the jobs. `cargo xtask check-workflows`'s REFERENCE scan
 # reads every file in `.github/workflows`, and `cargo xtask check-shipped-binaries` reads that
 # directory and `.github/actions`, so the `nix run` / `nix build` references and the `BINARIES`
 # literal below are checked exactly where they were - measured through `just hygiene`, 64

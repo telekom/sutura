@@ -361,6 +361,20 @@ therefore does not see.
   `zizmor` is pointed at `.github/workflows`, `actionlint` cannot read a composite action at the
   pinned version, and a `run:` block is not a `.sh` file. `just lint-workflows` is the only task
   that reads it, and `ship-check` runs it when the diff touches one rather than reporting the gap.
+- **A green CI leg is not a gate, and only one context here is.** Measured against the API on
+  2026-09-05: the `main` branch ruleset requires exactly one context, `ci`, classic branch
+  protection is absent (`404 Branch not protected`), and the second repository ruleset is
+  `disabled`. So the four `cross / link (<triple>)` legs - and `docs.yml`'s `verify`,
+  `security-audit.yml`'s `audit`, `bigquery-acceptance` and `crap-comment` - **are required by
+  nothing**, and a red one has never blocked a merge, in the queue or out of it, with no override
+  and nobody clicking anything. Everything routed through the `ci` job IS gated, which is how a
+  step added there is genuinely gating. `devco/required-contexts` is the record and
+  `check-workflows` holds it against the jobs: a required context nothing reports fails the gate,
+  because that state is a permanently pending merge rather than an ungated leg. **The limit, and it
+  is not small:** only REPOSITORY-level configuration was checkable - `orgs/<org>/rulesets` needs
+  `admin:org`, which the token had not got - so an organisation ruleset could add contexts that
+  nothing here can see, and the gate holds that the record and the tree agree, never that the
+  record is true.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**

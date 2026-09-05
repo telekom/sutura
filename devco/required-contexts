@@ -1,0 +1,89 @@
+# Which status-check contexts the `main` branch ruleset requires, and every job that reports a
+# context it does NOT require. Held by `cargo xtask check-workflows`.
+#
+# WHY THIS FILE EXISTS. Which contexts gate a merge lived only in GitHub's API, so *the four cross
+# link legs block a merge* was believed by readers, written down nowhere, and checked by nothing.
+# They never did. Read on 2026-09-05 from `repos/telekom/sutura/rulesets/21290172` ("main", target
+# `branch`, enforcement `active`):
+#
+#     required_status_checks: [ { context: "ci" } ]
+#     strict_required_status_checks_policy: false
+#
+# Exactly one context. Classic branch protection is absent as well - `branches/main/protection`
+# answers `404 Branch not protected` - and the second repository ruleset ("main: human review", id
+# 22184737) is `disabled` and declares no rule at all. The ruleset's other rules are `deletion`,
+# `non_fast_forward`, `required_linear_history`, `merge_queue` and `pull_request`; the merge queue
+# takes its pass/fail signal from that same single required context.
+#
+# Confirmed live rather than inferred: on a pull request whose `ci` job had gone green while all
+# four `cross / link (<triple>)` legs were still pending, `gh pr view --json mergeStateStatus` read
+# `UNSTABLE` - GitHub's word for *the required checks are satisfied, something non-required is not*
+# - and not `BLOCKED`, which is what the same command read while `ci` itself was pending.
+#
+# THE LIMIT, and it is why this is a declaration rather than a proof: only REPOSITORY-level
+# configuration was checked. `orgs/<org>/rulesets` needs the `admin:org` scope, which the token
+# used had not got (`404` / *needs the "admin:org" scope*), so an organisation-level ruleset could
+# add contexts on top of these and would not appear here. Somebody with that scope has to confirm
+# before this file is treated as the whole answer.
+#
+# WHAT THE GATE HOLDS:
+#
+#   * every `[required]` context resolves to a job some workflow declares - by its `name:` where it
+#     has one, otherwise by its id. A required context that no longer REPORTS is a permanently
+#     pending merge, which is worse than an ungated leg, so a rename fails a gate here instead of
+#     the merge box later;
+#   * every job in a workflow that can report on a pull request is in one of the two sections
+#     below. A new job is then a decision - required, or advisory - rather than an omission;
+#   * every `[advisory]` entry names a job that exists, so an entry cannot outlive its job.
+#
+# WHAT IT CANNOT HOLD: that this file matches the ruleset. The API is the authority and it is
+# unreachable from the sandbox the gate runs in - the same limit `cargo xtask check-venues` states
+# about its own invocation rule. Re-read the ruleset when it changes, and move the date above.
+#
+# An `[advisory]` entry is `<workflow file>:<job id>`, because the id is the identity a workflow
+# rename does not move. A `[required]` entry is the CONTEXT STRING, because that is what the
+# ruleset holds.
+
+[required]
+
+# The one context the ruleset requires. Everything routed through this job IS gated: the structural
+# gates, the lints, the tests, the doctests, the causality gate, the API pages. A STEP inside it is
+# gated for the same reason, which is how a gate that only runs there is genuinely gating.
+ci
+
+[advisory]
+
+# A red leg in this section has never blocked a merge, in the queue or out of it, with no override
+# and no bypass - nobody has to click anything. That is the status quo made visible, not a
+# recommendation: whether any of these should become required is a decision, and the cost of
+# requiring one is four context names to maintain by hand or one aggregating job to add.
+
+# The cross link matrix. It calls `cross-link.yml`, so its legs report `cross / link (<triple>)`
+# and the required set contains none of them. The risk the job exists for - the allocator's C for
+# the two musl triples - is therefore covered advisorily: a pull request that breaks the cross link
+# for a published triple can merge with the leg red.
+ci.yml:cross
+
+# Posts the CRAP delta as a pull-request comment. Advisory by design: it reports, and `check-crap`
+# inside `ci` is what gates the policy.
+ci.yml:crap-comment
+
+# The live BigQuery acceptance venue. Advisory deliberately rather than by omission: it needs an
+# environment a fork's pull request cannot see, so requiring it would leave every fork pull request
+# permanently pending - the failure mode this file's own header warns about.
+ci.yml:bigquery-acceptance
+
+# The documentation site. `verify` proves the site builds under `--strict` on a pull request;
+# `publish` runs on everything else and reports no context on one. Neither is required, and
+# `check-docs` inside `ci` is what holds the nav and the pages.
+docs.yml:verify
+docs.yml:publish
+
+# The supply-chain audit. It runs on a pull request that touches a manifest or a lock, on a push to
+# `main`, and weekly regardless - and the weekly run is the point of the file, since most
+# advisories arrive against a dependency already in the lock. The pull-request leg is a path-scoped
+# duplicate of the `nix run .#deny` step inside `ci`, which IS required, so nothing here is the only
+# reader of an advisory. Found by this gate on its first run, which is what the gate is for: nobody
+# had classified it, and `ci.yml`'s own trigger comment already says that making this required
+# would need a `merge_group` trigger added here.
+security-audit.yml:audit

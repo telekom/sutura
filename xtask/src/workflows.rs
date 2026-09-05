@@ -42,6 +42,11 @@ use std::collections::BTreeSet;
 // question of the same files - see that module's header for why one walk rather than two.
 pub(crate) mod sources;
 
+// Which jobs GATE a merge, and which only look as though they do. Its own file for the reason
+// `shipped::refusal` is: this one is against the unexemptable 1000-line cap. It reads a different
+// authority - `devco/required-contexts`, a record of an API answer - and its fixtures come with it.
+mod contexts;
+
 /// Which output namespace a reference points into.
 ///
 /// `Runnable` and not `App`: `nix run .#name` resolves an app OR a package with a matching main
@@ -122,6 +127,26 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
+    // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
+    // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
+    // readers and checked by nothing - and it was false.
+    let unclassified = contexts::problems(&root);
+    if !unclassified.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
+            unclassified.len()
+        );
+        for problem in &unclassified {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A job nobody requires gates nothing, and a required context nothing reports is a");
+        eprintln!("permanently pending merge. Which of the two a job is belongs in the record, not in");
+        eprintln!("a reader's assumption - see the header of devco/required-contexts for what that");
+        eprintln!("record can and cannot hold.");
+        return Verdict::Fail;
+    }
+
     let missing: Vec<&Reference> = references
         .iter()
         .filter(|r| {
@@ -135,7 +160,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if missing.is_empty() {
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified",
             references.len()
         );
         return Verdict::Pass;
