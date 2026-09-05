@@ -141,10 +141,17 @@ therefore does not see.
   `mkdocs build --strict`. **Measured:** a doc comment linking another crate's path produced
   *"contains an unrecognized relative link"* and aborted the strict build, while `crate::`-prefixed
   links on four other generated pages did not warn. The safe form for a cross-crate reference is
-  plain backticks. Which shapes mkdocs accepts **was not established**, which is why this is a rule
-  to run `just docs` rather than a gate encoding a boundary nobody measured. It is not in `validate`
-  because that recipe would then fail on a clone whose pixi docs environment is not installed, and
-  **a gate that fails for an environment reason gets disabled.**
+  plain backticks. Which shapes mkdocs accepts is established for two cases and no more, which is why
+  this is a rule to run `just docs` rather than a gate encoding a boundary nobody measured. It is not
+  in `validate` because that recipe would then fail on a clone whose pixi docs environment is not
+  installed, and **a gate that fails for an environment reason gets disabled.**
+- **`--strict` escalates WARNINGs and not INFO, and that is the boundary to know.** An unrecognized
+  relative link is a warning, so `--strict` fails on it. A link into a page `exclude_docs` keeps out
+  of the build is **INFO**: measured as *"contains a link to 'implementation-plan.md' which is
+  excluded from the built site"*, **exit 0** - a dead link on a published page behind a green docs
+  job. `check-docs` holds that one now, with a fail-closed count of the links it read, so the rule
+  here is the general one: a new mkdocs behaviour is unproven until you have read the log AND the
+  exit status, because half of what it notices it notices at a level `--strict` ignores.
 - **Prose in `AGENTS.md` and under `.agents/skills/` is gated, which surprises people editing it.**
   `check-guidance` scans both, and `xtask`'s own unit tests assert literal phrases out of `AGENTS.md`
   as the evidence anchoring a rule - so rewording its opening sentence turns a gate's test red rather
