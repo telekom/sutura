@@ -233,6 +233,23 @@ therefore does not see.
   interiors before matching, and says so, because three doc comments in the tree state *there is
   deliberately no `Deref`*. So the pattern to copy is that one. Two rules fell out: blank the
   non-code half before counting anything, and make an unclosed block an ERROR rather than an answer.
+- **A gate's SELF-EXCLUSION fails OPEN, and a predicate one granularity too coarse turns a
+  sentence into evidence. Both were in one gate, and both were measured.** `check-examples`
+  excluded the single path `xtask/src/examples.rs` from its own scan, so its fixtures could not
+  satisfy it - and `mv xtask/src/examples.rs xtask/src/examples/mod.rs` still compiles, silently
+  re-admits them, and moves nothing in the verdict but a file count. The 1000-line cap drives that
+  move routinely, which makes a path constant there a trap rather than a rule. So the exclusion is
+  DERIVED from the crate's own manifest directory, widened to the crate because no gate's test runs
+  a deployment example, and it fails closed when it removed nothing: *an exclusion that matches
+  nothing is a broken scan*, the `mentioned_in`-glob rule one shape over. The coarse half:
+  "is this file test code" was `text.contains("#[test]")`, so the PRODUCTION half of any `src/*.rs`
+  carrying a unit-test module was passing evidence, and five files in this tree were test code by
+  that substring and by nothing else - the sharpest a module doc reading *"a file that adds no
+  `#[test]`"*, classified as test code because the sentence contains the string. The claim is about
+  a LINE and `causality::regions::scope` already answers per line. **Ask what granularity a
+  predicate answers at, and whether it is the granularity the claim is made at** - and expect the
+  verdict to hide the difference, because this one stated the SCAN's size (`one of 223 test
+  file(s)`) where the evidence was 16 files for one variant and exactly 1 for the other.
 - **`nix eval` is the authority for a flake's outputs and cannot be the mechanism here.** Weighed
   and rejected once, so it does not need weighing again: `check-workflows` runs inside
   `checks.hygiene`, a derivation with no nix and no network, and evaluating `checks` needs the
