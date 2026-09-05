@@ -178,6 +178,26 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
+# The PAGES, run: `crates/sutura-cli/tests/documented.rs` reads every invocation of this binary
+# `docs/getting-started.md` and `examples/single-player/README.md` print, runs it from a clone's
+# working directory, and holds every refusal block and provenance line they print as output against
+# the command in the fence above it.
+#
+# It exists because the pages drifted: both printed a `Debug` dump `render_refusal` had replaced, so
+# the first page a reader is sent to showed output no build had produced. Also a gate -
+# `checks.nextest` runs it, because the example needs no network and no credential. A published page
+# has to be able to cite the task rather than a raw `cargo` line, which is what this recipe is for.
+
+# Run the suite that runs every command the documentation prints.
+documented:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "documented: scope sutura-cli - the pages' own commands, over the spawned binary."
+    echo "documented: run \`just test\` for the whole workspace's suite; this target is part of it."
+    cargo nextest run -p sutura-cli --all-features
+
 # The DECLARED source, asked a question: `crates/sutura-cli/tests/declared_source.rs` copies the
 # example catalog with `source: warehouse` in place of `source: local`, writes a `sources.warehouse`
 # entry over the example's own data, and spawns `sutura query` with `SUTURA_CONFIG_DIR` pointing at
