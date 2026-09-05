@@ -292,6 +292,22 @@ fn flake_text() -> Option<String> {
     std::fs::read_to_string(root.join("flake.nix")).ok()
 }
 
+/// The `let` binding `flake.nix` imports `module` as, so a check declared in terms of it can be
+/// recognised. `None` where nothing imports it - which the caller reports as the missing import.
+///
+/// Textual for `every_nix_tier_module_is_provisioned_by_a_nix_check`'s reason: a unit test cannot
+/// evaluate the flake. The shape it reads is `<name> = import <module>`, which is how every
+/// module in this tree is bound.
+#[cfg(test)]
+fn binding_for(flake: &str, module: &str) -> Option<String> {
+    let needle = format!("import {module}");
+    flake
+        .lines()
+        .find(|line| line.contains(needle.as_str()))
+        .and_then(|line| line.split_once(" = "))
+        .map(|(name, _)| name.trim().to_owned())
+}
+
 #[test]
 fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
     // THE HOLE THIS CLOSES IS THE MIRROR OF THE DECLARATION GATE ABOVE. That one holds
@@ -301,13 +317,25 @@ fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
     // which point CI runs neither venue and both files read as though it did.
     //
     // Textual, because `flake.nix` cannot be evaluated from a unit test and because that is how
-    // `check-workflows` reads the same file. Two things per tier: the module has to be IMPORTED,
-    // and the script it produces has to be named INSIDE `checks = {`.
+    // `check-workflows` reads the same file.
     //
-    // The second half is scoped to that block deliberately. Naming the script anywhere in the file
-    // is satisfied by `apps.<service>-tier` alone - the `just` task, which is a person typing a
-    // command and not a venue - so the gate would have passed a tier CI never runs while its
-    // failure message said the opposite. An overstated control is the defect, not a smaller one.
+    // THREE things per tier, and the shape changed when the check BODIES moved out. `flake.nix`
+    // reached three lines of the 1000-line cap and the `checks = {` block is the one part that
+    // cannot leave it - two gates read that block textually - so a check now lives beside the
+    // script it drives and the block carries a reference to it. So: the module has to be
+    // IMPORTED, the block has to declare `<service>-tier = <binding>.check;` exactly, and the
+    // module has to define that `check`. Neither of the last two alone passes anything useful - a
+    // module can define a check nothing declares, and a declaration can point at an attribute the
+    // module does not have.
+    //
+    // The block scope is deliberate. Naming any of this anywhere in `flake.nix` is satisfied by
+    // `apps.<service>-tier` alone - the `just` task, which is a person typing a command and not a
+    // venue - so the gate would pass a tier CI never runs while its message said the opposite.
+    //
+    // **What this does NOT hold, and did not before either:** that the check STARTS the tier
+    // rather than mentioning it. The previous form looked for the script's name anywhere in the
+    // block, which a comment satisfies; an exact declaration is strictly more than that, and the
+    // remaining half needs the check to be RUN, which `just ci` and CI do.
     let Some(root) = crate::repo::root() else { return };
     let Some(flake) = flake_text() else { return };
     let checks = crate::workflows::block_source(&flake, "checks = {")
@@ -325,17 +353,25 @@ fn every_nix_tier_module_is_provisioned_by_a_nix_check() {
 
     for service in &tiers {
         let module = format!("./nix/{service}-tier.nix");
+        let Some(binding) = binding_for(&flake, &module) else {
+            panic!(
+                "`{module}` exists and flake.nix does not import it, so no nix check provisions \
+                 it - wire it into a check, or delete the module"
+            )
+        };
+        let declaration = format!("{service}-tier = {binding}.check;");
         assert!(
-            flake.contains(module.as_str()),
-            "`{module}` exists and flake.nix does not import it, so no nix check provisions it - \
-             wire it into a check, or delete the module"
+            checks.contains(declaration.as_str()),
+            "flake.nix imports `{module}` as `{binding}` and `checks = {{` does not declare \
+             `{declaration}`, so the tier is built and never started. A tier only `just` runs is \
+             a command a person types, not a CI venue"
         );
-        let script = format!("sutura-{service}-tier");
+
+        let text = std::fs::read_to_string(root.join("nix").join(format!("{service}-tier.nix")))
+            .expect("the module was just listed by this scan");
         assert!(
-            checks.contains(script.as_str()),
-            "flake.nix imports `{module}` and no check in `checks = {{` names `{script}`, so the \
-             tier is built and never started. A tier only `just` runs is a command a person types, \
-             not a CI venue"
+            text.contains("\n  check = "),
+            "`{module}` defines no `check`, so the `{declaration}` above names nothing"
         );
     }
 }

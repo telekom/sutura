@@ -7,9 +7,9 @@
 # the arrangement `nix/postgres-tier.nix` documents - so there are two provisioners sharing one start
 # script, which is the rule this repository already applies to that pin.
 #
-# # Why it exists: three defects, one missing distinction
+# # Why it exists: four defects, each one a missing distinction
 #
-# All three measured on 2026-09-02, in one session.
+# The first three measured on 2026-09-02, in one session; the fourth on 2026-09-03.
 #
 # **1. The hook and `just gates` provisioned nothing.** `just test` started the tier and
 # `checks.nextest` started the tier; the pre-commit `cargo nextest` hook and `just gates` ran the
@@ -25,8 +25,23 @@
 # **3. And `stop` left the endpoint file behind**, so discovery kept claiming a server was there.
 # `nix/postgres-tier.nix` carries that half of the fix and the measurement with it.
 #
-# So: start only if nothing is up, arm the teardown only in that case, and let the REQUIREMENT follow
-# the tier rather than being asserted beside it.
+# **4. And then "is a tier up" turned out to be two questions.** This file asked
+# `sutura-postgres-tier status`, which answered from the postmaster; the suite asked
+# `<root>/.sutura-dev/endpoints.json`, which is where an address actually is. Measured on
+# 2026-09-03 (`github.com/telekom/sutura#298`): a postmaster outlived a teardown that had already
+# withdrawn its entry, this file was told *already up*, it started nothing, and the two fail-closed
+# cells panicked on a worktree that publishes nothing - one full `just test` discarded, and most of
+# the cost was working out that a GREEN `status` was the reason.
+#
+# The fix is not here, and that is the point: `status` is DERIVED from the endpoint file now, so
+# this file reads one record rather than a second opinion about it. What IS here is the third
+# answer that derivation makes available - a server running with nothing publishing it, which is
+# republished and deliberately not adopted. `checks.postgres-tier` drives all three arms through
+# this exact file.
+#
+# So: read ONE record, start only if the suite would find nothing, arm the teardown only for a
+# server this shell actually started, and let the REQUIREMENT follow the tier rather than being
+# asserted beside it.
 #
 # # The requirement follows the tier, and that is the part worth reading
 #
@@ -77,14 +92,39 @@ sutura_tier_up() {
     # existed answers `usage: ... start|stop` on standard error and exits 2, which this reads as
     # "nothing is up" and handles by starting one. That is the right degradation - the old
     # unconditional behaviour - and it must not print a usage message at somebody mid-commit.
-    if sutura-postgres-tier status >/dev/null 2>&1; then
-        echo "with-tier: the Postgres tier is already up - leaving it to whoever started it."
-        export SUTURA_DEV_REQUIRE_TIER=1
-        return 0
-    fi
-    sutura-postgres-tier start
-    # Single quotes on purpose: the trap body is evaluated at exit and takes nothing from here that
-    # could go stale.
-    trap 'sutura-postgres-tier stop' EXIT
+    #
+    # `|| state=$?` rather than an `if`, because there are THREE answers and the caller's `set -e`
+    # must not fire on the two that are not zero. `nix/postgres-tier.nix` documents them at
+    # `status`; what they mean HERE is the whole of `github.com/telekom/sutura#298`.
+    local state=0
+    sutura-postgres-tier status >/dev/null 2>&1 || state=$?
+    case "$state" in
+        0)
+            echo "with-tier: the Postgres tier is already up - leaving it to whoever started it."
+            ;;
+        3)
+            # A postmaster with no entry in `endpoints.json`. THIS branch is the defect: reading
+            # only `pg_ctl` put this state in the branch above, so nothing republished the entry,
+            # nothing started a server, and every fail-closed cell then panicked on a worktree that
+            # publishes nothing. `start` is idempotent about a live postmaster and republishes the
+            # entry, so the state heals here instead of costing a suite run.
+            #
+            # And NO teardown is armed, for the reason defect 2 above was filed: this server is not
+            # ours, whoever lost its entry. Republishing a claim is not adopting a process.
+            echo "with-tier: a Postgres server is up with no endpoint entry - republishing it."
+            echo "           It was started by something else, so it is left running afterwards."
+            sutura-postgres-tier start
+            ;;
+        *)
+            sutura-postgres-tier start
+            # Single quotes on purpose: the trap body is evaluated at exit and takes nothing from
+            # here that could go stale.
+            #
+            # A `stop` that FAILS keeps the endpoint entry and says so on standard error - see
+            # `nix/postgres-tier.nix`. Its message is the whole signal, because an EXIT trap cannot
+            # change the exit status of the shell that is already exiting.
+            trap 'sutura-postgres-tier stop' EXIT
+            ;;
+    esac
     export SUTURA_DEV_REQUIRE_TIER=1
 }

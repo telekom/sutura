@@ -53,20 +53,26 @@
 //! This is the `just bigquery-acceptance` precedent and not a preference, and the fact that decided
 //! it is worth writing down because it affects more than this test.
 //!
-//! **`.sutura-dev/endpoints.json` has two writers and the second erases the first.**
-//! `xtask dev-up` writes every docker service it provisioned; `sutura-postgres-tier start` -
-//! `nix/postgres-tier.nix`, which `just test` runs and which `checks.nextest` runs in the sandbox -
-//! writes the file WHOLESALE with `postgres` as its only entry. So a docker-tier service is absent
-//! from the discovery file for the whole of `just test`, whatever is actually running, and
-//! `just test` sets `SUTURA_DEV_REQUIRE_TIER=1`. A fail-closed cell over a docker service is
-//! therefore not merely inconvenient there - it is unconditionally red, because the tier it asks
-//! about cannot be visible.
+//! **`.sutura-dev/endpoints.json` has two writers and ONE of them still erases the other.**
+//! `xtask dev-up` goes through `sutura_dev::discovery::publish`, which serialises the whole
+//! document from the docker services it just provisioned, so it drops any entry it did not write.
+//! The direction this paragraph was first written about is gone: every nix-native tier writes
+//! through `nix/tier-endpoints.nix` now, which merges a single service key, so
+//! `sutura-postgres-tier start` no longer leaves `postgres` as the file's only entry and a
+//! docker-tier service is no longer absent for the whole of `just test`.
 //!
-//! That is a defect in the seam rather than in this test, and it is **not** fixed here: merging
-//! rather than replacing raises a question this change has no business answering, namely what the
-//! file's single `provisioner` field means once two provisioners contribute to it. It is recorded
-//! rather than worked around silently, and the same clobbering already applies to `clickhouse` -
-//! which nobody noticed only because nothing reads it yet.
+//! What stands is `dev-up`'s own wholesale write, and it is a defect in the seam rather than in
+//! this test. It is **not** fixed here: merging on that side raises a question this change has no
+//! business answering, namely what the file's single `provisioner` field means once two
+//! provisioners contribute to it. Its consequence for the SUITE is gone for one tier only -
+//! `nix/with-tier.sh` reads a Postgres server that is running with nothing publishing it as its own
+//! state and republishes the entry (`github.com/telekom/sutura#298`), which `checks.postgres-tier`
+//! holds - and nothing does that for `clickhouse`, which nobody notices only because nothing reads
+//! it yet.
+//!
+//! `just test` sets `SUTURA_DEV_REQUIRE_TIER=1`, so a fail-closed cell over a service `dev-up`
+//! dropped is not merely inconvenient there: it is unconditionally red, because the tier it asks
+//! about cannot be visible.
 //!
 //! So the venue gets a named task, `just datahub-acceptance`, which brings the profile up and runs
 //! this with the fail-closed direction set. **An `#[ignore]`d test is not evidence in the default
@@ -150,8 +156,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs `just dev-up-datahub`; `just test` cannot see a docker service because the \
-                postgres tier rewrites the discovery file - run `just datahub-acceptance`"]
+    #[ignore = "needs `just dev-up-datahub`; a docker service is only in the discovery file until \
+                the next writer rewrites it - run `just datahub-acceptance`"]
     fn the_provisioned_datahub_serves_the_surface_a_reader_would_call() {
         let Some(endpoint) = endpoint() else {
             return;
@@ -406,8 +412,8 @@ mod tests {
     /// no `AspectReader` over HTTP, the request shaping and the mapping in this file rather than in
     /// `src/`, the structural half of the snapshot still recorded, and no authentication.
     #[test]
-    #[ignore = "needs `just dev-up-datahub`; `just test` cannot see a docker service because the \
-                postgres tier rewrites the discovery file - run `just datahub-acceptance`"]
+    #[ignore = "needs `just dev-up-datahub`; a docker service is only in the discovery file until \
+                the next writer rewrites it - run `just datahub-acceptance`"]
     fn a_document_served_by_a_real_datahub_decodes_into_a_certified_metric() {
         let Some(endpoint) = endpoint() else {
             return;

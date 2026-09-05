@@ -61,9 +61,18 @@ names `just dev-down` instead, for the reasons `xtask/src/compose.rs`'s `abandon
 failed provision can leave containers running. What is fail-closed is the discovery file: it is
 removed BEFORE the tier is touched, so a failed `dev-up` or `dev-down` leaves no endpoint a harness
 can connect to. **A tier that is up with no discovery file is that**, and `just dev-up` again is the
-fix - so is a `just test` whose postgres cells fail closed after a `dev-up` in the same worktree,
-because `publish` writes the whole file and the nix tier's entry goes with it
-(`sutura-postgres-tier stop && start` republishes).
+fix.
+
+**The nix Postgres tier in that state HEALS ITSELF now, and only that one.** `just dev-up` still
+serialises the whole document from the docker services it read, so a nix tier's entry goes with it
+and the postmaster survives unnamed - which used to be a `just test` whose postgres cells failed
+closed, because the wrapper asked `sutura-postgres-tier status` (the process) while the cells asked
+the file (`github.com/telekom/sutura#298`). That answer is derived from the file now: the state
+reads as *unclaimed*, `just test` republishes the entry and leaves the server running, and
+`checks.postgres-tier` holds all three arms. What is NOT healed is any other nix tier - nothing
+sources a wrapper for `just keycloak-tier`, so its entry stays dropped until `just keycloak-tier
+start` runs again - and a `just dev-endpoint postgres` between the `dev-up` and the next `just test`
+still answers nothing.
 
 Held the same way as the sentence above it, and worth the same suspicion: `with_endpoints_forgotten`
 covers everything inside it by construction, but a third tier-changing path would have to be routed
