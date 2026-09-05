@@ -34,7 +34,9 @@ pub mod tables;
 #[cfg(test)]
 mod anchor_tests;
 
-pub use crate::plan::federated::{AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, LegSide, labels};
+pub use crate::plan::federated::{
+    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
+};
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 

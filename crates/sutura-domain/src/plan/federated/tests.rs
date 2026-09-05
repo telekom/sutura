@@ -2,10 +2,11 @@ use crate::calendar::{Date, TimeRange};
 use crate::catalog::TIME_BUCKET_LABEL;
 use crate::federation::Federation;
 use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
-use crate::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+use crate::model::{Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, SourceName, TableName};
 use crate::plan::leg::LegPlan;
 use crate::plan::{
-    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, PlanBucket, PlanColumn, PlanKey, StatementTables,
+    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanKey,
+    StatementTables,
 };
 use crate::warehouse::{Real, RowSet, Value};
 
@@ -48,6 +49,25 @@ fn key(name: &str, table_name: &str) -> PlanKey {
     PlanKey::new(String::from(name), PlanColumn::new(table(table_name), column(name)))
 }
 
+/// The label the link column carries in either leg's result.
+///
+/// Taken from the type rather than spelled, because these tests are about what the combine COMPUTES.
+/// The spelling itself, and the namespace that makes it uncollidable, is pinned once by
+/// [`an_internal_label_is_in_a_namespace_no_question_can_name`].
+fn link() -> String {
+    InternalLabel::Link.label()
+}
+
+/// The label the carried leaf at `position` carries in the fact leg's result.
+fn leaf(position: usize) -> String {
+    InternalLabel::Leaf(position).label()
+}
+
+/// The link key of a leg: the internal label over the physical join column `customer_key`.
+fn link_key(table_name: &str) -> PlanKey {
+    PlanKey::new(link(), PlanColumn::new(table(table_name), column("customer_key")))
+}
+
 fn bucket() -> PlanBucket {
     PlanBucket::new(
         String::from(TIME_BUCKET_LABEL),
@@ -62,7 +82,7 @@ fn fact_leg() -> LegPlan {
         metric: metric("revenue"),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
-        keys: vec![key("product_family", FACT), key("customer_key", FACT)],
+        keys: vec![key("product_family", FACT), link_key(FACT)],
         terms: Vec::new(),
         filters: Vec::new(),
         params: Vec::new(),
@@ -74,7 +94,7 @@ fn lookup_leg() -> LegPlan {
     LegPlan::Lookup {
         source: source(REMOTE_SOURCE),
         table: table(FACT).into(),
-        keys: vec![key("customer_key", FACT), key("region", FACT)],
+        keys: vec![link_key(FACT), key("region", FACT)],
         filters: Vec::new(),
         params: Vec::new(),
     }
@@ -93,8 +113,6 @@ fn try_plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) 
         bucket(),
         fact_leg(),
         lookup_leg(),
-        String::from("customer_key"),
-        String::from("customer_key"),
         include_unmatched,
         federation,
         vec![
@@ -136,30 +154,13 @@ fn fact(rows: Vec<Vec<Value>>) -> RowSet {
     RowSet::new(
         vec![
             String::from("product_family"),
-            String::from("customer_key"),
+            link(),
             String::from(TIME_BUCKET_LABEL),
-            String::from("revenue"),
+            leaf(0),
         ],
         rows,
     )
     .expect("a test fact result is well formed")
-}
-
-/// The same shape as [`fact`], with the single measure column under `label` rather than `revenue`.
-///
-/// A single-leaf plan projects its leaf under the metric's own name - `labels` says so - so a
-/// minimum or a maximum needs its own label where the sum tests reuse `revenue`.
-fn labelled_fact(label: &str, rows: Vec<Vec<Value>>) -> RowSet {
-    RowSet::new(
-        vec![
-            String::from("product_family"),
-            String::from("customer_key"),
-            String::from(TIME_BUCKET_LABEL),
-            String::from(label),
-        ],
-        rows,
-    )
-    .expect("a labelled fact result is well formed")
 }
 
 /// One fact row carrying `measure`, in the single group [`one_lookup`] maps `c1` into.
@@ -189,7 +190,7 @@ fn extreme_plan(aggregate: Aggregate, measure_name: &str) -> FederatedPlan {
 }
 
 fn lookup(rows: Vec<Vec<Value>>) -> RowSet {
-    RowSet::new(vec![String::from("customer_key"), String::from("region")], rows).expect("a test lookup result is well formed")
+    RowSet::new(vec![link(), String::from("region")], rows).expect("a test lookup result is well formed")
 }
 
 #[test]
@@ -284,10 +285,10 @@ fn avg_fact(rows: Vec<Vec<Value>>) -> RowSet {
     RowSet::new(
         vec![
             String::from("product_family"),
-            String::from("customer_key"),
+            link(),
             String::from(TIME_BUCKET_LABEL),
-            String::from("mean_subscription_mrr__0"),
-            String::from("mean_subscription_mrr__1"),
+            leaf(0),
+            leaf(1),
         ],
         rows,
     )
@@ -324,9 +325,9 @@ fn a_minimum_leaf_reaggregates_across_the_group() {
     let fact = RowSet::new(
         vec![
             String::from("product_family"),
-            String::from("customer_key"),
+            link(),
             String::from(TIME_BUCKET_LABEL),
-            String::from("min_mrr"),
+            leaf(0),
         ],
         vec![
             vec![
@@ -394,11 +395,7 @@ fn a_decomposed_average_with_zero_over_zero_is_null() {
 fn a_missing_leaf_label_is_an_error() {
     let plan = sum_plan(true);
     let fact = RowSet::new(
-        vec![
-            String::from("product_family"),
-            String::from("customer_key"),
-            String::from(TIME_BUCKET_LABEL),
-        ],
+        vec![String::from("product_family"), link(), String::from(TIME_BUCKET_LABEL)],
         vec![vec![
             Value::Text("A".into()),
             Value::Text("c1".into()),
@@ -464,13 +461,10 @@ fn a_minimum_over_a_column_mixing_integers_and_reals_is_refused() {
     // compares an `i64` against an `f64`, which above `2^53` reads two distinguishable cells as
     // equal. One type per column is what makes the comparison exact rather than checked.
     let plan = extreme_plan(Aggregate::Min, "min_mrr");
-    let fact = labelled_fact(
-        "min_mrr",
-        vec![
-            fact_row(Value::Integer(100)),
-            fact_row(Value::Real(Real::parse(1.5).expect("a finite real"))),
-        ],
-    );
+    let fact = fact(vec![
+        fact_row(Value::Integer(100)),
+        fact_row(Value::Real(Real::parse(1.5).expect("a finite real"))),
+    ]);
 
     let refusal = plan
         .combine(&fact, &one_lookup(), UNBOUNDED)
@@ -487,13 +481,10 @@ fn a_maximum_over_wide_integers_answers_the_larger_cell() {
     // the comparison reads them as equal and keeps whichever arrived first - here the smaller - so
     // the maximum of the column was not the larger of its cells.
     let plan = extreme_plan(Aggregate::Max, "max_mrr");
-    let fact = labelled_fact(
-        "max_mrr",
-        vec![
-            fact_row(Value::Integer(TWO_POW_53)),
-            fact_row(Value::Integer(TWO_POW_53_PLUS_ONE)),
-        ],
-    );
+    let fact = fact(vec![
+        fact_row(Value::Integer(TWO_POW_53)),
+        fact_row(Value::Integer(TWO_POW_53_PLUS_ONE)),
+    ]);
 
     let combined = plan.combine(&fact, &one_lookup(), UNBOUNDED).expect("a maximum combines");
     assert_eq!(
@@ -513,7 +504,7 @@ fn a_lone_non_numeric_cell_is_refused_by_a_minimum() {
     // own best without ever reading it as a number, so a `DECIMAL` money column - which the
     // `DuckDB` adapter returns as `Text` to keep it exact - came back as the metric's value.
     let plan = extreme_plan(Aggregate::Min, "min_mrr");
-    let fact = labelled_fact("min_mrr", vec![fact_row(Value::Text("1234.56".into()))]);
+    let fact = fact(vec![fact_row(Value::Text("1234.56".into()))]);
 
     assert!(matches!(
         plan.combine(&fact, &one_lookup(), UNBOUNDED),
@@ -538,7 +529,7 @@ fn a_non_numeric_cell_does_not_win_a_minimum_over_a_number() {
         vec![fact_row(Value::Text("1234.56".into())), fact_row(Value::Integer(1))],
         vec![fact_row(Value::Integer(1)), fact_row(Value::Text("1234.56".into()))],
     ] {
-        let fact = labelled_fact("min_mrr", cells);
+        let fact = fact(cells);
         assert!(matches!(
             plan.combine(&fact, &one_lookup(), UNBOUNDED),
             Err(FederatedFailure::NonNumericLeaf {
@@ -652,10 +643,10 @@ fn a_duplicate_leaf_label_is_refused() {
     let fact = RowSet::new(
         vec![
             String::from("product_family"),
-            String::from("customer_key"),
+            link(),
             String::from(TIME_BUCKET_LABEL),
-            String::from("revenue"),
-            String::from("revenue"),
+            leaf(0),
+            leaf(0),
         ],
         vec![vec![
             Value::Text("A".into()),
@@ -684,7 +675,7 @@ fn an_ambiguous_lookup_link_is_refused() {
     ]]);
     // Two lookup rows for one link would double the measure.
     let lookup = RowSet::new(
-        vec![String::from("customer_key"), String::from("region")],
+        vec![link(), String::from("region")],
         vec![
             vec![Value::Text("c1".into()), Value::Text("north".into())],
             vec![Value::Text("c1".into()), Value::Text("south".into())],
@@ -730,13 +721,76 @@ fn a_plan_with_two_legs_on_one_source_does_not_construct() {
         bucket(),
         lookup_leg(),
         lookup_leg(),
-        String::from("customer_key"),
-        String::from("customer_key"),
         true,
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
         vec![AnswerKey::fact(String::from("product_family"))],
     );
     assert!(matches!(plan, Err(FederatedPlanError::NotFact { .. })));
+}
+
+#[test]
+fn an_internal_label_is_in_a_namespace_no_question_can_name() {
+    // **The property first: nothing a catalog author or a caller can write reaches this namespace.**
+    // Every rendering starts with a digit, which the identifier parser refuses as a FIRST character,
+    // so the refusal is the same one for every spelling and every length rather than a list of
+    // reserved words to keep in step with the labels beside them.
+    let widest = InternalLabel::Leaf(usize::MAX).label();
+    for label in [InternalLabel::Link.label(), InternalLabel::Leaf(0).label(), widest.clone()] {
+        assert!(
+            matches!(DimensionName::parse(&label), Err(InvalidIdentifier::BadFirstCharacter { .. })),
+            "{label} must not be a dimension name"
+        );
+        assert!(MetricName::parse(&label).is_err(), "{label} must not be a metric name");
+        assert!(ColumnName::parse(&label).is_err(), "{label} must not be a column name");
+        assert!(TableName::parse(&label).is_err(), "{label} must not be a table name");
+    }
+
+    // Then the SPELLING, which this test owns: every other test here takes its labels from the type,
+    // so a test that derived this expectation too would assert nothing about what the splitter and
+    // the combiner actually agree on.
+    assert_eq!(InternalLabel::Link.label(), "0_link");
+    assert_eq!(InternalLabel::Leaf(0).label(), "0_leaf_0");
+    assert_eq!(InternalLabel::Leaf(7).label(), "0_leaf_7");
+
+    // And the length, against the limit a data system TRUNCATES at rather than refusing - which
+    // turns two distinct leaf columns into one. The scheme this replaced was `metric__{n}`, which
+    // over a 63-character metric name was 66 characters; nothing here reads a metric's name, so the
+    // widest label a `usize` can index is the bound.
+    assert!(
+        widest.len() <= 63,
+        "an internal label must fit the tightest identifier limit, {widest} is {} characters",
+        widest.len()
+    );
+}
+
+#[test]
+fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
+    // The link is not an answer key, so the answer-key loop never saw it and the combiner reported
+    // a missing column when a leg had not projected it. A plan that cannot be joined is not a plan.
+    let unlinked = LegPlan::Lookup {
+        source: source(REMOTE_SOURCE),
+        table: table(FACT).into(),
+        keys: vec![key("region", FACT)],
+        filters: Vec::new(),
+        params: Vec::new(),
+    };
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        String::from("revenue"),
+        bucket(),
+        fact_leg(),
+        unlinked,
+        true,
+        Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
+        Vec::new(),
+    );
+    match plan {
+        Err(FederatedPlanError::KeyNotOnLeg { side, ref label }) => {
+            assert!(matches!(side, crate::plan::LegSide::Lookup));
+            assert_eq!(*label, InternalLabel::Link.label());
+        }
+        ref other => panic!("a lookup leg that projects no link is not a plan, got {other:?}"),
+    }
 }
 
 /// One fact row: a product family, a link value, and the sum leaf.

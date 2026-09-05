@@ -13,6 +13,11 @@
 //! names from the same [`Federation`] and looks them up in the fact leg's result. There is no second
 //! copy of the naming rule to drift.
 //!
+//! **Those labels live in a namespace a question cannot reach, which is [`label`]'s job.** A leg's
+//! result carries public dimension labels beside the internal ones, so an internal label spelled as
+//! an identifier is a label a legal dimension name can collide with - reproduced. [`InternalLabel`]
+//! is the type that cannot be spelled by one.
+//!
 //! **The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
 //! happens instead.** The [`Above`](crate::federation::Above) tree already carries the only
 //! [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path; this module walks it
@@ -36,6 +41,14 @@
 /// then reports is vacuous.
 mod reaggregate;
 
+/// The reserved label namespace, and the one function that assigns it.
+///
+/// Its own module because it is what the splitter, the combiner and the leg goldens all read the
+/// spelling from, and because a namespace is a thing to reason about on its own. It declares no test
+/// module: a test module declared from a file `test-causality` reverts is never compiled, and the
+/// proof it then reports is vacuous - every assertion about it is in `tests.rs`.
+pub mod label;
+
 use std::collections::BTreeMap;
 
 use crate::federation::Federation;
@@ -44,35 +57,8 @@ use crate::plan::PlanBucket;
 use crate::plan::leg::LegPlan;
 use crate::warehouse::{RowSet, Value};
 
+pub use label::{InternalLabel, labels};
 use reaggregate::{Leaves, reaggregates};
-
-/// The one definition of what a carried leaf is projected under.
-///
-/// The splitter and the combiner both call this, so the column the combiner reads a leaf from and
-/// the label the splitter projected it under cannot disagree - there is no second copy of the rule.
-///
-/// **A single leaf is the answer's own name; several leaves disambiguate by position.** A plain sum
-/// travels as the metric's own label, and the halves of a decomposition travel as `metric__{n}`,
-/// where `n` is the leaf's position in carried order. Position cannot collide: a ratio of two sums -
-/// `sum(a) / sum(b)` - is one aggregating function twice, so naming by aggregate would give both
-/// leaves the same label and a combine that divides a column by itself. Whatever makes the labels
-/// unique within one plan is enough - the final measure comes back under the metric's own name - and
-/// this rule is that minimum.
-pub fn labels(federation: &Federation, metric: &MetricName) -> Vec<String> {
-    let leaves = federation.carried();
-    let single = leaves.len() == 1;
-    leaves
-        .iter()
-        .enumerate()
-        .map(|(index, _)| {
-            if single {
-                String::from(metric.as_str())
-            } else {
-                format!("{}__{index}", metric.as_str())
-            }
-        })
-        .collect()
-}
 
 /// The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
 /// another, linked by a single column.
@@ -98,9 +84,6 @@ pub struct FederatedPlan {
     fact: LegPlan,
     /// The second data system's share: the remote dimensions the answer groups by.
     lookup: LegPlan,
-    /// The label of the column that links the two legs, in each leg's own result.
-    fact_join: String,
-    lookup_join: String,
     /// Whether an unmatched fact row survives with null remote keys.
     ///
     /// INNER for a lookup carrying a filter, LEFT for one that does not - the splitter's decision,
@@ -171,6 +154,13 @@ impl FederatedPlan {
     /// A `Result` constructor is this workspace's convention for a value with an invariant: a plan
     /// that is not a fact leg beside a lookup leg, or that names one data system on both legs, is not
     /// a plan and cannot be built.
+    ///
+    /// **There is no link-label parameter, and that is the F2 fix's structural half.** The label the
+    /// legs are joined under used to be two `String` arguments, and the splitter filled both with the
+    /// physical remote join column's text - which is a legal dimension name, so a legal question
+    /// produced two fact columns under one label. It is now [`InternalLabel::Link`], a constant of
+    /// the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
+    /// for the two legs to disagree about, and the constructor requires both legs to project it.
     // The constructor takes the shape of the question as the splitter decided it; a bundle of named
     // fields is the alternative, and a `Vec` would let a caller omit or duplicate a leg - the two
     // instantiations it exists to forbid.
@@ -180,8 +170,6 @@ impl FederatedPlan {
         bucket: PlanBucket,
         fact: LegPlan,
         lookup: LegPlan,
-        fact_join: String,
-        lookup_join: String,
         include_unmatched: bool,
         federation: Federation,
         keys: Vec<AnswerKey>,
@@ -215,6 +203,18 @@ impl FederatedPlan {
                 })?,
             }
         }
+        // The link column, which is not an answer key and used to be checked by nothing: the
+        // combiner looked it up in each leg's result and reported a missing column when a leg had
+        // not projected it. Asked here instead, so a plan that cannot be joined does not exist.
+        let link = InternalLabel::Link.label();
+        leg_has_key(&fact, &link).map_err(|label| FederatedPlanError::KeyNotOnLeg {
+            side: LegSide::Fact,
+            label: String::from(label),
+        })?;
+        leg_has_key(&lookup, &link).map_err(|label| FederatedPlanError::KeyNotOnLeg {
+            side: LegSide::Lookup,
+            label: String::from(label),
+        })?;
         for leaf in federation.carried() {
             let aggregate = leaf.combine();
             if !reaggregates(aggregate) {
@@ -227,8 +227,6 @@ impl FederatedPlan {
             bucket,
             fact,
             lookup,
-            fact_join,
-            lookup_join,
             include_unmatched,
             federation,
             keys,
@@ -406,14 +404,17 @@ impl LegIndexes {
             .enumerate()
             .map(|(index, (label, _))| (label.clone(), index))
             .collect();
-        let leaf_labels = labels(&plan.federation, &plan.metric);
+        let leaf_labels: Vec<String> = labels(&plan.federation).into_iter().map(InternalLabel::label).collect();
         let leaf_indexes: Vec<usize> = leaf_labels
             .iter()
             .map(|label| column_index(fact, label, "fact"))
             .collect::<Result<_, _>>()?;
+        // Both legs project the link under the one internal label, so this is the scheme's constant
+        // rather than a field either leg could have spelled differently.
+        let link = InternalLabel::Link.label();
         Ok(Self {
-            fact_join: column_index(fact, &plan.fact_join, "fact")?,
-            lookup_join: column_index(lookup, &plan.lookup_join, "lookup")?,
+            fact_join: column_index(fact, &link, "fact")?,
+            lookup_join: column_index(lookup, &link, "lookup")?,
             bucket: column_index(fact, plan.bucket.label(), "fact")?,
             fact_index,
             lookup_columns,

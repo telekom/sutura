@@ -32,8 +32,8 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
 use sutura_domain::plan::{
-    LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
-    StatementTables,
+    InternalLabel, LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm,
+    PredicateOrigin, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
@@ -66,6 +66,19 @@ fn column(table_name: &str, column_name: &str) -> PlanColumn {
 
 fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
     PlanKey::new(String::from(label), column(table_name, column_name))
+}
+
+/// The key the two legs are joined on, under the label the splitter gives it.
+///
+/// **Taken from `InternalLabel` rather than spelled, and that is what makes the statements below
+/// evidence about the real scheme.** These fixtures are hand-built - there is no splitter to derive
+/// them from - and a hand-written link label is a place where the fixture and the splitter can
+/// disagree without any test noticing; they did, and the label the splitter chose was a legal
+/// dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
+/// the parse check for a reserved label: `parses_in_the_dialect_it_was_generated_for` asks each of
+/// the four targets whether an alias in this namespace is valid there.
+fn link_key(table_name: &str) -> PlanKey {
+    PlanKey::new(InternalLabel::Link.label(), column(table_name, "customer_key"))
 }
 
 fn june() -> TimeRange {
@@ -124,13 +137,18 @@ fn metric(name: &str) -> MetricName {
     MetricName::parse(name).expect("a fixture metric is a metric")
 }
 
-fn term(aggregate: Aggregate, column_name: &str, label: &str) -> LegTerm {
+/// One carried leaf of the measure, projected under the label its POSITION gives it.
+///
+/// `position` and not a name, for [`link_key`]'s reason: the leaf labels are in the same reserved
+/// namespace, and the scheme they replaced - `metric__{n}` - was both a legal dimension name and
+/// able to cross the 63-character identifier limit a data system truncates silently.
+fn term(aggregate: Aggregate, column_name: &str, position: usize) -> LegTerm {
     LegTerm::new(
         PlanTerm::Aggregate {
             aggregate,
             column: column(FACT_TABLE, column_name),
         },
-        String::from(label),
+        InternalLabel::Leaf(position).label(),
     )
 }
 
@@ -138,8 +156,9 @@ fn term(aggregate: Aggregate, column_name: &str, label: &str) -> LegTerm {
 ///
 /// The sum descends as written, so this leg computes it and the combine adds the leg sums.
 /// `product_family` is on the SAME data system, so it stays a join rather than becoming a second
-/// leg - which is what `joins` holding same-source hops only means in practice. `customer_key` is in
-/// `keys` because the remote dimension has to be joined to something above.
+/// leg - which is what `joins` holding same-source hops only means in practice. The join column is in
+/// `keys` because the remote dimension has to be joined to something above, under [`link_key`]'s
+/// reserved label rather than under its own physical name.
 fn fact_sum_over_a_local_join() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
@@ -162,9 +181,9 @@ fn fact_sum_over_a_local_join() -> LegPlan {
         bucket: month_bucket(),
         keys: vec![
             key("product_family", LOCAL_DIMENSION_TABLE, "product_family"),
-            key("customer_key", FACT_TABLE, "customer_key"),
+            link_key(FACT_TABLE),
         ],
-        terms: vec![term(Aggregate::Sum, "mrr_cents", "recurring_revenue")],
+        terms: vec![term(Aggregate::Sum, "mrr_cents", 0)],
         filters: definitional_filters(),
         params: definitional_params(),
         range: june(),
@@ -183,11 +202,8 @@ fn fact_decomposed_average() -> LegPlan {
         metric: metric("mean_subscription_mrr"),
         tables: StatementTables::only(table(FACT_TABLE)),
         bucket: month_bucket(),
-        keys: vec![key("customer_key", FACT_TABLE, "customer_key")],
-        terms: vec![
-            term(Aggregate::Sum, "mrr_cents", "mean_subscription_mrr__sum"),
-            term(Aggregate::Count, "mrr_cents", "mean_subscription_mrr__count"),
-        ],
+        keys: vec![link_key(FACT_TABLE)],
+        terms: vec![term(Aggregate::Sum, "mrr_cents", 0), term(Aggregate::Count, "mrr_cents", 1)],
         filters: definitional_filters(),
         params: definitional_params(),
         range: june(),
@@ -207,10 +223,7 @@ fn fact_distinct_keys() -> LegPlan {
         metric: metric("active_subscriptions"),
         tables: StatementTables::only(table(FACT_TABLE)),
         bucket: month_bucket(),
-        keys: vec![
-            key("customer_key", FACT_TABLE, "customer_key"),
-            key("subscription_key", FACT_TABLE, "subscription_key"),
-        ],
+        keys: vec![link_key(FACT_TABLE), key("subscription_key", FACT_TABLE, "subscription_key")],
         terms: Vec::new(),
         filters: definitional_filters(),
         params: definitional_params(),
@@ -227,10 +240,7 @@ fn lookup_unfiltered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
         table: table(REMOTE_TABLE).into(),
-        keys: vec![
-            key("customer_key", REMOTE_TABLE, "customer_key"),
-            key("region", REMOTE_TABLE, "region"),
-        ],
+        keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
         filters: Vec::new(),
         params: Vec::new(),
     }
@@ -245,10 +255,7 @@ fn lookup_filtered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
         table: table(REMOTE_TABLE).into(),
-        keys: vec![
-            key("customer_key", REMOTE_TABLE, "customer_key"),
-            key("region", REMOTE_TABLE, "region"),
-        ],
+        keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
         filters: vec![PlanFilter::new(
             PredicateOrigin::Requested,
             PlanPredicate::Equals {
@@ -555,7 +562,14 @@ fn a_fact_leg_with_no_terms_projects_keys_rather_than_a_count() {
         // Quoted with the dialect's own character rather than a literal `"` - BigQuery uses a
         // backtick, and a hard-coded double quote failed here rather than passing vacuously.
         let quote = dialect.identifier_quote().character();
-        for name in ["subscription_key", "customer_key"] {
+        // The physical join column, the pulled key - and the reserved ALIAS the link is projected
+        // under, which is the half a leading digit makes worth asserting per dialect: unquoted it
+        // would not be an identifier at all in any of the four.
+        for name in [
+            String::from("subscription_key"),
+            String::from("customer_key"),
+            InternalLabel::Link.label(),
+        ] {
             assert!(
                 query.sql().contains(&format!("{quote}{name}{quote}")),
                 "the distinct-key leg does not project {name:?} quoted with {quote:?} for {dialect}:\n{}",
