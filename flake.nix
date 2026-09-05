@@ -766,6 +766,25 @@
               --run-ignored only -E 'binary(two_principals)' "$@"
           '');
         };
+
+        # `nix run .#default-feature-tests` - the shipped feature set's tests actually RUN.
+        #
+        # An app for `apps.causality`'s reason (it shells out to cargo, which needs a registry and
+        # a writable target directory), with the pinned cargo and nextest for `apps.deny`'s. It
+        # takes NO profile argument: the gate derives cargo's profile from the stamp
+        # `cargoWarmStart` leaves behind, so there is no flag to put on the wrong side of a `--`.
+        # `xtask/src/default_feature_tests.rs` carries the whole argument.
+        apps.default-feature-tests = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-default-feature-tests" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo run -q --profile ci -p xtask -- check-default-feature-tests "$@"
+          '');
+        };
+
         # `nix run .#crap` - the CRAP gate, outside the sandbox.
         #
         # `checks.crap` above is what CI runs and is the authority. This app exists for the

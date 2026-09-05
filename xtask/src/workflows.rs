@@ -41,6 +41,11 @@ use std::collections::BTreeSet;
 // The three places CI invokes something from. Shared with `crate::venues`, which asks a different
 // question of the same files - see that module's header for why one walk rather than two.
 pub(crate) mod sources;
+// One job of a workflow, and one step inside it. Its own module because what it reads is a
+// workflow's STRUCTURE rather than the flake references this file scans for, and two gates need
+// the same reader: `venues::acceptance` for the acceptance job's properties, and
+// `default_feature_tests` for whether a step still invokes it.
+pub(crate) mod step;
 
 // Which jobs GATE a merge, and which only look as though they do. Its own file for the reason
 // `shipped::refusal` is: this one is against the unexemptable 1000-line cap. It reads a different

@@ -21,6 +21,15 @@
 //! variable is caught as well as a renamed directory. The Rust side is the `join` chain of the
 //! binding whose value every `cargo_test` call receives as `CARGO_TARGET_DIR`.
 //!
+//! WHAT ELSE IT HOLDS, one level down the same seam. `check-default-feature-tests` derives cargo's
+//! profile from [`STAMP`] existing inside `CARGO_TARGET_DIR` rather than from a flag, so two more
+//! facts have to stay true of these same two files: the warmer WRITES the stamp into the directory
+//! it exports, and `flake.nix` BUILDS the artifacts it unpacks at [`WARM_PROFILE`]. Both were
+//! assertions in that gate's own test module, as `contains` over raw text - a commented-out write
+//! satisfied the first and a stamp moved out of the exported directory satisfied it too. They are
+//! here because this module owns both literals, and a gate in `just hygiene` is a stronger venue
+//! than a unit test.
+//!
 //! FAIL CLOSED, like its neighbours. An unreadable file, an export this gate cannot follow, or a
 //! binding it cannot find is a FAILURE naming what it could not find. A path-reading gate's worst
 //! outcome is to stop finding the path and say `ok`.
@@ -32,6 +41,18 @@ use crate::repo;
 
 /// The nix module that unpacks the inherited artifacts into the directory.
 const WARMER: &str = "nix/cargo-env.nix";
+
+/// The stamp `cargoWarmStart` writes beside the unpacked artifacts, naming the closure it unpacked.
+pub(crate) const STAMP: &str = ".sutura-warm-start";
+
+/// The profile the warm artifacts were built at.
+///
+/// Here rather than beside each reader because this module is already the OWNER of that fact:
+/// [`profiled_consumers`] fails the build when any `${cargoWarmStart}` consumer in `flake.nix` does
+/// not pass it, including the `--cargo-profile`-versus-`--profile` distinction. A third Rust spelling
+/// of `"ci"` next to a gate that already enforces it is a copy that can go stale while the gate
+/// stays green.
+pub(crate) const WARM_PROFILE: &str = "ci";
 
 /// The gate that builds into it.
 const CONSUMER: &str = "xtask/src/causality.rs";
@@ -60,10 +81,24 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     if paths != Verdict::Pass {
         return paths;
     }
+    // The stamp's two halves. `check-default-feature-tests` derives cargo's profile from the
+    // stamp being present in `CARGO_TARGET_DIR`, so *written into the directory this warms* and
+    // *those artifacts built at `WARM_PROFILE`* are properties of these same two files, and they
+    // belong to the module that owns both literals rather than to that gate's own test module.
+    for (rel, holds) in [
+        (WARMER, stamped as fn(&str) -> Result<(), String>),
+        (APPS, built_at_the_warm_profile),
+    ] {
+        if let Err(why) = read(&root, rel).and_then(|text| holds(&text)) {
+            eprintln!("xtask check-warm-start: {why}");
+            return Verdict::Fail;
+        }
+    }
+    println!("xtask check-warm-start: ok - {WARMER} stamps that directory and {APPS} builds it at profile {WARM_PROFILE}");
     let profiles = read(&root, APPS).and_then(|text| profiled_consumers(&text));
     match profiles {
         Ok(count) => {
-            println!("xtask check-warm-start: ok - {count} app(s) consume the artifacts with profile ci");
+            println!("xtask check-warm-start: ok - {count} app(s) consume the artifacts with profile {WARM_PROFILE}");
             Verdict::Pass
         }
         Err(why) => {
@@ -128,14 +163,24 @@ fn warmed(text: &str) -> Result<String, String> {
     beneath_the_root(&raw).ok_or_else(|| format!("{WARMER} warms {raw:?}, which this gate cannot reduce to a path in the repo"))
 }
 
+/// The lines of a nix file that could execute anything.
+///
+/// A `#` line is a comment in nix and a comment in the shell of an indented string alike, so
+/// neither can be the export, the assignment or the write - and a comment DISCUSSING one is how
+/// each of these readers would otherwise pass over a line that no longer runs. Stated once here
+/// because three readers below need the same rule.
+///
+/// Deliberately NOT [`crate::workflows`]' Nix lexer, which blanks string interiors: every value
+/// read here - the export, the assignment, the stamp write, the profile - lives inside one. So the
+/// limit is that a needle inside a string on a live line is a live anchor to this scan, comment
+/// syntax or not; what it buys is that a commented-OUT line is not one.
+fn live_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.lines().map(str::trim_start).filter(|line| !line.starts_with('#'))
+}
+
 /// The double-quoted value `CARGO_TARGET_DIR` is exported as.
 fn exported_value(text: &str) -> Option<String> {
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        // A comment discussing the export is not the export.
-        if trimmed.starts_with('#') {
-            continue;
-        }
+    for trimmed in live_lines(text) {
         if let Some(rest) = trimmed.strip_prefix(EXPORT) {
             let value: String = rest.chars().take_while(|c| *c != '"').collect();
             if !value.is_empty() {
@@ -158,11 +203,7 @@ fn bare_variable(value: &str) -> Option<&str> {
 /// The double-quoted value assigned to a shell variable.
 fn assigned(text: &str, variable: &str) -> Option<String> {
     let prefix = format!("{variable}=\"");
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with('#') {
-            continue;
-        }
+    for trimmed in live_lines(text) {
         if let Some(rest) = trimmed.strip_prefix(prefix.as_str()) {
             let value: String = rest.chars().take_while(|c| *c != '"').collect();
             if !value.is_empty() {
@@ -187,6 +228,58 @@ fn beneath_the_root(raw: &str) -> Option<String> {
         return None;
     }
     Some(String::from(path))
+}
+
+/// [`STAMP`] is written INTO the directory this module warms, not merely somewhere in the file.
+///
+/// `check-default-feature-tests` derives cargo's profile from the stamp being present in
+/// `CARGO_TARGET_DIR`; a write that moved out of the warmed directory would leave that gate
+/// compiling at the developer's default profile inside CI's warmed one - a whole dependency build
+/// bought back, and nothing red. Followed from the EXPORT for [`warmed`]'s reason: the literal
+/// appears in this file's own prose and in `xtask/` besides, so finding it anywhere in the text
+/// checks that the string exists rather than that the write does.
+fn stamped(text: &str) -> Result<(), String> {
+    let exported = exported_value(text).ok_or_else(|| {
+        format!("{WARMER} exports no `{EXPORT}..\"`, so this gate cannot tell which directory the stamp belongs in")
+    })?;
+    let under = format!("{exported}/{STAMP}");
+    if live_lines(text).any(|line| writes_to(line, under.as_str())) {
+        return Ok(());
+    }
+    Err(format!(
+        "{WARMER} writes no `{under}`: the stamp is not in the directory it exports, so `check-default-feature-tests` would compile at the wrong profile and reuse none of the warmed artifacts"
+    ))
+}
+
+/// Does this line REDIRECT into `target`, rather than merely mention it?
+///
+/// Found by mutation, and it is the whole difference between this gate and the `contains` it
+/// replaced: commenting the write out left `if [ "$(cat "$warmTarget/.sutura-warm-start" ...` on
+/// the line above, which mentions the path, satisfies any scan for it, and READS a stamp nothing
+/// writes any more. So the redirect's own target is what is compared.
+///
+/// The limit, and it is the safe direction: only a `>`/`>>` redirect counts, so a write through
+/// `install` or `tee` would fail this gate rather than pass it. `venues::acceptance` asks the
+/// neighbouring question - is a redirect's target a file at all - and cannot answer this one.
+fn writes_to(line: &str, target: &str) -> bool {
+    line.split('>')
+        .skip(1)
+        .any(|rest| rest.trim_start().trim_start_matches('"').starts_with(target))
+}
+
+/// The warmed artifacts are BUILT at [`WARM_PROFILE`], which is what makes deriving it sound.
+///
+/// The other half of [`stamped`]: the stamp says artifacts are there, this says which profile they
+/// carry. What it does NOT reach is which argument set the warm start's `cargoArtifacts` comes
+/// from - that binding is nix, and this gate evaluates none.
+fn built_at_the_warm_profile(text: &str) -> Result<(), String> {
+    let declared = format!("CARGO_PROFILE = \"{WARM_PROFILE}\"");
+    if live_lines(text).any(|line| line.contains(declared.as_str())) {
+        return Ok(());
+    }
+    Err(format!(
+        "{APPS} declares no `{declared}`, so the artifacts the warm start unpacks are no longer built at profile {WARM_PROFILE}"
+    ))
 }
 
 /// The repo-relative directory [`CONSUMER`] builds into, read off its `join` chain.
@@ -244,9 +337,9 @@ fn profiled_consumers(text: &str) -> Result<usize, String> {
         } else {
             "--profile"
         };
-        if !words.windows(2).any(|pair| pair == [flag, "ci"]) {
+        if !words.windows(2).any(|pair| pair == [flag, WARM_PROFILE]) {
             return Err(format!(
-                "{APPS}:{} warms profile ci but its cargo command does not pass `{flag} ci`: {command}",
+                "{APPS}:{} warms profile {WARM_PROFILE} but its cargo command does not pass `{flag} {WARM_PROFILE}`: {command}",
                 index.saturating_add(1)
             ));
         }
@@ -351,6 +444,65 @@ mod tests {
         let built_path = super::read(&root, super::CONSUMER).and_then(|text| super::built(&text));
         assert!(warmed_path.is_ok(), "{warmed_path:?}");
         assert!(built_path.is_ok(), "{built_path:?}");
+    }
+
+    /// The stamp write, as `WARMER` has it: a read guarding the unpack and the write after it.
+    const STAMP_WRITE: &str = concat!(
+        "    if [ \"$(cat \"$warmTarget/.sutura-warm-start\" 2>/dev/null)\" != \"${cargoArtifacts}\" ]; then\n",
+        "      printf '%s' \"${cargoArtifacts}\" > \"$warmTarget/.sutura-warm-start\"\n",
+        "    fi\n",
+    );
+
+    #[test]
+    fn the_stamp_has_to_be_written_into_the_directory_this_warms() {
+        let live = format!("{NIX}{STAMP_WRITE}");
+        assert_eq!(super::stamped(&live), Ok(()));
+        // COMMENTED OUT is the shape a text scan misses, and the one that actually happens: a step
+        // gets parked and the line stays in the file. `contains` over the raw text passes here -
+        // and so did the first version of this reader, because the `if [ "$(cat ...` line above
+        // MENTIONS the stamp while writing nothing. See [`super::writes_to`].
+        // Commented AT THE START OF THE LINE, which is the rule `live_lines` states: this
+        // fixture first put the `#` mid-line, where it is a shell comment to a reader and not to
+        // a line scan, and the test passed for the wrong reason until that was fixed.
+        let parked = live.replace("      printf", "      # printf");
+        assert!(super::stamped(&parked).is_err(), "a commented-out write is not a write");
+        // And the same line with the `#` MID-line, which is a shell comment to a reader and not to
+        // a line scan. `live_lines` says a line STARTS with one, so this stays live and the
+        // redirect is still a redirect - stated because the fixture above got it wrong first.
+        let mid = live.replace("printf '%s'", "true # printf '%s'");
+        assert_eq!(super::stamped(&mid), Ok(()));
+        // And the stamp moved OUT of the exported directory, which is the other way this gate's
+        // reader goes green while `check-default-feature-tests` derives the wrong profile.
+        let elsewhere = live.replace("$warmTarget/.sutura-warm-start", "$warmRoot/.sutura-warm-start");
+        let moved = super::stamped(&elsewhere).expect_err("a stamp outside the warmed directory is not the stamp");
+        assert!(moved.contains("writes no `$warmTarget/.sutura-warm-start`"), "{moved}");
+        let unfollowable = super::stamped(STAMP_WRITE).expect_err("no export is no directory to judge");
+        assert!(unfollowable.contains("exports no"), "{unfollowable}");
+    }
+
+    #[test]
+    fn the_warmed_artifacts_have_to_be_built_at_the_profile_this_derives() {
+        let live = "        ciArgs = commonArgs // { CARGO_PROFILE = \"ci\"; };\n";
+        assert_eq!(super::built_at_the_warm_profile(live), Ok(()));
+        let parked = format!("#{live}");
+        assert!(
+            super::built_at_the_warm_profile(&parked).is_err(),
+            "a commented-out declaration builds nothing"
+        );
+        let released = live.replace("\"ci\"", "\"release\"");
+        let wrong = super::built_at_the_warm_profile(&released).expect_err("release artifacts are not ci artifacts");
+        assert!(wrong.contains("no longer built at profile ci"), "{wrong}");
+    }
+
+    #[test]
+    fn both_new_anchors_are_still_live_in_the_real_tree() {
+        // The other half of `both_real_files_still_yield_a_path`, and for its reason: a reader that
+        // matches nothing on the real tree makes its gate pass over the thing it describes.
+        let root = crate::repo::root().expect("the repo root");
+        let warmer = super::read(&root, super::WARMER).and_then(|text| super::stamped(&text));
+        let apps = super::read(&root, super::APPS).and_then(|text| super::built_at_the_warm_profile(&text));
+        assert_eq!(warmer, Ok(()), "{warmer:?}");
+        assert_eq!(apps, Ok(()), "{apps:?}");
     }
 
     #[test]

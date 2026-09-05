@@ -46,9 +46,12 @@ path = "src/main.rs"
 # `nix/shipped.nix`'s `binaries` - so this crate is in it - and runs `cargo check` AND `cargo clippy`
 # at the DEFAULT set: that is what compiles the `cfg(not(feature = "bigquery"))` half of
 # `src/sources/bigquery.rs` and the one-variant `Opened` beside it, and clippy is in there because
-# `cargo check` cannot see a lint. Its limit is CI's: that gate is neither a nix check nor an app, so
-# what CI has for this lane is the four `cross` link builds for the compile half and nothing for the
-# lint half.
+# `cargo check` cannot see a lint. **Neither of them RUNS anything**, both stopping at metadata, so
+# the `cfg(not(feature = "bigquery"))` TEST in `src/sources/bigquery.rs` was compiled by that gate
+# and executed by no venue at all until `cargo xtask check-default-feature-tests` - same package
+# list, same set, and it links and runs. The CI split is worth reading exactly: that one has a
+# `ci.yml` step of its own, `check-default-features` has none, so what CI has for the COMPILE half
+# is still the four `cross` link builds and for the LINT half nothing.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
 [dependencies]

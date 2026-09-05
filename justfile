@@ -319,6 +319,11 @@ gates: hygiene
     # publishes cargo's default set - so a `#[cfg(feature = ...)]` compiled only with the feature on
     # can be a hard error in exactly the configuration a release builds. That shipped once.
     cargo run -q -p xtask -- check-default-features
+    # And the lane's tests, which the line above only COMPILES: `cargo check` and `cargo clippy`
+    # both stop at metadata, so every `#[cfg(not(feature = ...))]` test in the tree was compiled
+    # here and executed by nothing - each venue that runs a test passes --all-features, where that
+    # cfg is false. Two such tests were in that state when this landed.
+    cargo run -q -p xtask -- check-default-feature-tests
     bash nix/run-gate.sh crap
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.

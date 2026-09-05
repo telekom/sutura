@@ -41,12 +41,17 @@
 //! `--all-features` gates are what reach those - and this says nothing about a package that does not
 //! ship. Nor does it link: `cargo check` and `cargo clippy` both stop at metadata, which is what
 //! keeps it affordable and is also why the `cross` builds stay the authority on a musl link.
+//!
+//! **And it RUNS nothing, which for a whole category of test meant nobody did.** Stopping at
+//! metadata compiles a `#[cfg(not(feature = "..."))]` test and never executes it, while every venue
+//! that does run a test passes `--all-features`, where that cfg is false. `check-default-feature-tests`
+//! is this lane's other half and its module header carries the measurement.
 
 use crate::Verdict;
 use crate::repo;
 
 /// The declaration the package list is read out of.
-const SOURCE: &str = "nix/shipped.nix";
+pub(crate) const SOURCE: &str = "nix/shipped.nix";
 
 /// Every `package = "..."` inside `nix/shipped.nix`'s `binaries = [ ... ]`, in declaration order.
 ///
@@ -55,7 +60,11 @@ const SOURCE: &str = "nix/shipped.nix";
 /// key appears elsewhere in that file, and `{ bin = "sutura"; package = "sutura-cli"; }` is one legal
 /// record on one line. Duplicates are dropped, keeping first appearance, so two binaries out of one
 /// package are one compile rather than two.
-fn shipped_packages(text: &str) -> Vec<String> {
+///
+/// `pub(crate)` for exactly one other reader: `check-default-feature-tests` runs the same packages'
+/// tests at the same feature set, and a second parser over one declaration is how two gates come to
+/// disagree about which packages ship.
+pub(crate) fn shipped_packages(text: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     let mut indent: Option<usize> = None;
     for line in text.lines() {
@@ -133,28 +142,58 @@ const PASSES: &[Pass] = &[
     },
 ];
 
-/// `cargo xtask check-default-features` - the shipped feature set compiles and lints.
-pub(crate) fn run(_args: &[String]) -> Verdict {
+/// What a gate needs before it can compile anything the declaration names.
+///
+/// A struct rather than a tuple, and clippy asked for it: the two fields are a path and a list of
+/// strings, which is exactly the pair a positional return gets wrong silently.
+pub(crate) struct Shipped {
+    /// The repo root, so a `Command` can set the working directory cargo resolves paths against.
+    pub(crate) root: std::path::PathBuf,
+    /// The packages `nix/shipped.nix` publishes, in declaration order.
+    pub(crate) packages: Vec<String>,
+}
+
+/// The shipped package list, or the verdict to return instead.
+///
+/// **One owner for the fail-closed policy**, and that is the whole reason this is a function. The
+/// rule - *a list this gate reads as empty checks nothing and passes, which is the one failure it
+/// must not have* - was stated twice in two paraphrases once a second gate read the same declaration,
+/// and a policy stated twice is a policy that drifts. The per-gate prologue is a house pattern here
+/// (`shipped.rs` has a third instance against the same file), so what is shared is the part with no
+/// precedent for duplication: this one, whose two readers also share the PARSER.
+///
+/// `gate` names the caller in every message, because a reader of a failure needs to know which gate
+/// could not read the declaration.
+pub(crate) fn shipped_or_fail(gate: &str) -> Result<Shipped, Verdict> {
     let Some(root) = repo::root() else {
-        eprintln!("xtask check-default-features: could not determine the repo root");
-        return Verdict::Fail;
+        eprintln!("xtask {gate}: could not determine the repo root");
+        return Err(Verdict::Fail);
     };
     let path = root.join(SOURCE);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) => {
-            eprintln!("xtask check-default-features: could not read {}: {error}", path.display());
-            return Verdict::Fail;
+            eprintln!("xtask {gate}: could not read {}: {error}", path.display());
+            return Err(Verdict::Fail);
         }
     };
     let packages = shipped_packages(&text);
     if packages.is_empty() {
-        eprintln!("xtask check-default-features: FAILED - parsed no package out of {SOURCE}");
+        eprintln!("xtask {gate}: FAILED - parsed no package out of {SOURCE}");
         eprintln!("  A list this gate reads as empty checks nothing and passes, which is the one");
         eprintln!("  failure it must not have. `binaries = [` and `package = \"...\";` are the two");
         eprintln!("  shapes it looks for.");
-        return Verdict::Fail;
+        return Err(Verdict::Fail);
     }
+    Ok(Shipped { root, packages })
+}
+
+/// `cargo xtask check-default-features` - the shipped feature set compiles and lints.
+pub(crate) fn run(_args: &[String]) -> Verdict {
+    let Shipped { root, packages } = match shipped_or_fail("check-default-features") {
+        Ok(read) => read,
+        Err(verdict) => return verdict,
+    };
     println!(
         "xtask check-default-features: {} shipped package(s) from {SOURCE}: {}",
         packages.len(),
