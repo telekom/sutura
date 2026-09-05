@@ -43,5 +43,16 @@ secrecy = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 
+# One feature, default-off, and it adds no dependency: `warehouse::agreement`, the typed comparison
+# the differential legs make. It is a feature rather than an unconditional module because the module
+# is test support in the interior of the hexagon, and `sutura_runtime`'s `test-capture` is the shape
+# this repository already uses for that - a consumer asks for it in `[dev-dependencies]`.
+#
+# The limit, stated where the switch is: nothing asserts a shipped binary leaves it off.
+# `checks.shipped-features` reads the crate names out of an artefact and this feature adds none, so
+# what keeps it out of a release is cargo's default set and review.
+[features]
+agreement = []
+
 [lints]
 workspace = true

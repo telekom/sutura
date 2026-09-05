@@ -33,6 +33,21 @@ use crate::source::{ImpersonationCapability, SourcePosture};
 /// carried a port method returning a type it does not describe. A public module gets documented.
 pub mod preflight;
 
+/// What it takes for two answers to one plan to be the same answer, for the differential legs that
+/// compare them.
+///
+/// Behind a default-off feature, and `cfg(test)` so this crate's own suite reaches it either way -
+/// the shape `sutura_runtime::testing`'s `test-capture` established. It is here rather than in each
+/// test target because two copies of a comparison policy is how both of them came to erase the cell
+/// type; its own module header carries that story and the limits.
+///
+/// **That header links the module's OWN items by absolute `crate::` path, and that is not style.**
+/// rustc merges this `///` block with the module's `//!` one and resolves the merged block in THIS
+/// scope, where `agreement`'s items are not - so a bare-name link there resolves to nothing, and no
+/// gate in this repository reads a rustdoc warning (#321). Four of them were shipped that way.
+#[cfg(any(test, feature = "agreement"))]
+pub mod agreement;
+
 use crate::warehouse::preflight::TablesPresent;
 
 /// A value bound to a placeholder.
