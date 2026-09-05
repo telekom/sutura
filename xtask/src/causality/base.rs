@@ -207,7 +207,12 @@ fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 ///
 /// `retried` only changes what the operator is told: after a second attempt, "not separable at
 /// file level" is no longer the likely explanation, because the tree WAS coherently at base.
-pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) -> Verdict {
+///
+/// `measured` is `super::coverage`'s sentence, and it rides on the PASSING verdict specifically:
+/// that is the line a handoff cites, and it read as a statement about the change while the run
+/// covered a subset of the tests the branch added. The failing arms print it too, from `prove`,
+/// before either run - they are asking for something rather than reporting coverage.
+pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, measured: &str) -> Verdict {
     match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
@@ -223,7 +228,7 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
                 println!("    red on base: {one}");
             }
             println!("{}", tail(output, 12));
-            println!("xtask test-causality: ok - red on base, green on head");
+            println!("xtask test-causality: ok - red on base, green on head ({measured})");
             Verdict::Pass
         }
         BaseOutcome::RedOutsideTheDiff { ref failed } => {

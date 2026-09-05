@@ -259,6 +259,17 @@ fn is_module_declaration(line: &str, name: &str) -> bool {
 /// visibility, whitespace around the `;` - are exactly the thing that would drift between two
 /// copies.
 pub(super) fn module_name(line: &str) -> Option<&str> {
+    Some(item_head(line).strip_prefix("mod ")?.trim().strip_suffix(';')?.trim())
+}
+
+/// What `line` declares, with a leading `#[cfg(test)]` and any visibility stripped: `mod tests;`
+/// for `#[cfg(test)] pub(crate) mod tests;`.
+///
+/// One owner for the prefixes a declaration may carry, because [`module_name`] and
+/// `super::attributes` both have to read past them to reach the keyword and two lists would
+/// drift. `pub(in path)` is deliberately absent: no such spelling is in this tree, and missing
+/// one reads the item as not a module, which is the direction that asks rather than guesses.
+pub(super) fn item_head(line: &str) -> &str {
     let mut rest = line.trim();
     if let Some(after) = rest.strip_prefix("#[cfg(test)]") {
         rest = after.trim_start();
@@ -269,7 +280,7 @@ pub(super) fn module_name(line: &str) -> Option<&str> {
             break;
         }
     }
-    Some(rest.strip_prefix("mod ")?.trim().strip_suffix(';')?.trim())
+    rest
 }
 
 /// Where a line break left the scanner. Every one of these can span lines in Rust.

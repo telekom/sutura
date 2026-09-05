@@ -52,24 +52,19 @@
 //! that this gate has not verified the change, not a claim that the extractor is broken.
 //!
 //! WHAT IT DOES NOT REACH. A name is read from an ADDED test attribute and the function under
-//! it, so a body-only edit inside an existing `#[test]` names nothing here. [`adds_test`] also
-//! accepts an added `#[cfg(test)]` or `mod tests {` marker, which names no function - so a diff
-//! adding only a marker is a file the plan calls a test file and this cannot name. That is the
-//! empty scan, and it is a refusal rather than a wider run. Both attribute lists live in this one
-//! module because a name this cannot extract from a marker `adds_test` accepts is exactly the
-//! disagreement that would reopen the unfiltered run.
+//! it, so a body-only edit inside an existing `#[test]` names nothing here. `super::attributes`
+//! also accepts an added `#[cfg(test)] mod ..` or `mod tests {` marker, which names no function -
+//! so a diff adding only a marker is a file the plan calls a test file and this cannot name. That
+//! is the empty scan, and it is a refusal rather than a wider run. **A `#[cfg(test)]` item that is
+//! not a module is NOT such a marker**, and treating it as one was a refusal no author could act
+//! on; that module's header carries the reasoning. Both attribute lists live THERE, in one file,
+//! because a name this cannot extract from a marker it accepts is exactly the disagreement that
+//! would reopen the unfiltered run.
 
+use crate::causality::attributes::{declares_a_test, sits_between};
 use crate::causality::diff::ChangedFile;
 use crate::causality::regions::{AddedLine, PostImage};
 use crate::changes::package_name;
-
-/// Attributes that mark the function below them as a test.
-///
-/// Deliberately syntactic and deliberately generous: a false positive costs a slower gate, a
-/// false negative lets a vacuous test through, so the bias goes one way on purpose. Written
-/// without the closing `]` where an argument list is legal, so `#[tokio::test(flavor = "..")]`
-/// is recognised too.
-const DECLARES_A_TEST: &[&str] = &["#[test]", "#[tokio::test", "#[rstest", "#[test_case"];
 
 /// One Rust identifier: a test function's name, or one segment of a module path.
 ///
@@ -223,6 +218,15 @@ pub(crate) struct AddedTest {
 }
 
 impl AddedTest {
+    /// The function name, for a line a PERSON reads.
+    ///
+    /// Not a key - this module's header carries the measurement that says so - and nothing built
+    /// from this reaches nextest. `super::coverage` prints it so a reader can find a test the
+    /// proof left out; the filter and the failure comparison both go through the whole key.
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
     /// The filter expression term that runs exactly this test.
     ///
     /// Parenthesised rather than relying on `&` binding tighter than `+`, because the whole
@@ -456,25 +460,6 @@ fn owning_package<'p>(path: &'p str, read: &PostImage<'_>) -> Option<(CargoName,
     }
 }
 
-/// Does this diff hunk add a test?
-///
-/// The marker forms - `#[cfg(test)]` and a new `mod tests` - answer yes and name nothing, which
-/// is deliberate: they decide whether a file is a test file, and the module header says what an
-/// unnamed one costs.
-pub(crate) fn adds_test(added: &[AddedLine]) -> bool {
-    added.iter().any(|line| {
-        let trimmed = line.text.trim();
-        declares_a_test(trimmed)
-            || trimmed.starts_with("#[cfg(test)]")
-            || (trimmed.starts_with("mod tests") && trimmed.contains('{'))
-    })
-}
-
-/// Is this line one of the attributes that names the test below it?
-fn declares_a_test(trimmed: &str) -> bool {
-    DECLARES_A_TEST.iter().any(|attribute| trimmed.starts_with(attribute))
-}
-
 /// A test an added attribute declares, and whether a run in this venue reaches it.
 enum Declared {
     /// A test that runs here.
@@ -525,19 +510,6 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
     })
 }
 
-/// Blank, a comment or another attribute: the things that legitimately sit between an attribute
-/// and the item it applies to. Anything else ends the search, so a stray attribute does not
-/// reach down the file and name an unrelated test.
-///
-/// The same three clauses as `regions::carries_no_behaviour`, and deliberately not that function:
-/// it answers *does this ADDED line change what the code does*, which is a question about a diff,
-/// and this answers *may this line sit between an attribute and its item*, which is a question
-/// about Rust's grammar. They agree today by coincidence, and only one of them should follow
-/// `#![..]` inner attributes.
-fn sits_between(trimmed: &str) -> bool {
-    trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#[")
-}
-
 /// The name in `fn NAME(`, if this line declares a function.
 ///
 /// One line rather than a parser: a test's signature is written on one line in this tree, and the
@@ -549,10 +521,10 @@ fn function_name(line: &str) -> Option<Ident> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddedTest, CargoName, Ident, Scan, adds_test, place};
+    use super::{AddedTest, CargoName, Ident, Scan, place};
     use crate::causality::diff::ChangedFile;
     use crate::causality::fixtures::{changed, manifest, tree};
-    use crate::causality::regions::{AddedLine, PostImage};
+    use crate::causality::regions::PostImage;
 
     /// The names `Scan::of` found runnable, as plain strings.
     fn runnable(files: &[ChangedFile], provable: &[&str], read: &PostImage<'_>) -> Option<Vec<String>> {
@@ -570,16 +542,6 @@ mod tests {
             Scan::Runnable(scoped) => scoped.filterset(),
             other => panic!("expected runnable tests, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn recognises_added_tests() {
-        let added = |text: &str| vec![AddedLine::new(1, text)];
-        assert!(adds_test(&added("    #[test]")));
-        assert!(adds_test(&added("#[tokio::test]")));
-        assert!(adds_test(&added("#[cfg(test)]")));
-        assert!(adds_test(&added("mod tests {")));
-        assert!(!adds_test(&added("fn thing() {}")));
     }
 
     #[test]
