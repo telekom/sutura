@@ -13,9 +13,12 @@
 //!   really executed;
 //! - **the rows agree with the engine's for the same plan** - `crates/sutura-app/tests/differential.rs`
 //!   pointed at a second data source, comparing ROWS rather than batches for the reason that file
-//!   gives. **The CONTENT and the ORDER are both compared exactly, with no tolerance for either** -
-//!   see *What its first real run FOUND* below for the one divergence this leg measured, and the
-//!   generator change that closed it.
+//!   gives. **The CONTENT and the ORDER are both compared, cell type included, and the one
+//!   approximation is named**: `RealTolerance::DIFFERENTIAL` cuts a `Value::Real` and reaches no
+//!   other variant. This bullet read *with no tolerance for either* until the float cut inside the
+//!   comparator was noticed, which is an overstated control and therefore its own defect. See *What
+//!   its first real run FOUND* below for the one divergence this leg measured, and the generator
+//!   change that closed it.
 //!
 //! **So the constructs the smoke leg says nothing about are covered here, and they are the ones a live
 //! run is worth most for.** The corpus renders, for `BigQuery`: 12 `LEFT JOIN`s, 6 `COUNT(DISTINCT`, 4
@@ -58,9 +61,9 @@
 //! **It is FIXED, in the generator rather than here, and this leg no longer tolerates it.** The plan's
 //! `ORDER BY` now states the placement - `sutura_sql::generate`'s `ordered_nulls_last`, emitted by
 //! both `generate` and `generate_leg` - so all four dialects converge on the engine's own order and
-//! `agreement_between` compares CONTENT and ORDER exactly, with no tolerance for either. The
-//! measurement that used to be asserted here (*at least one question diverges on null placement*) is
-//! gone rather than relaxed: a divergence in either now fails.
+//! `agreement_between` compares CONTENT and ORDER through the shared policy. The measurement that
+//! used to be asserted here (*at least one question diverges on null placement*) is gone rather than
+//! relaxed: a divergence in either now fails.
 //!
 //! **Measured in CI on 2026-08-31 with the exact comparison in place**, and the five questions above
 //! are the five that moved into the first number:
@@ -185,6 +188,7 @@ mod tests {
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::Executable;
     use sutura_domain::query::{Query, ToolOutcome};
+    use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
     use sutura_domain::warehouse::{PreFlight, RowSet, Value, Warehouse as _};
 
     use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline};
@@ -456,78 +460,72 @@ mod tests {
         }
     }
 
-    /// A result as comparable text.
-    ///
-    /// Lifted from `crates/sutura-app/tests/differential.rs`, whose reasoning applies unchanged and is
-    /// worth restating because it is what makes this a ROW comparison: rendered rather than compared as
-    /// `Value`, because two sides legitimately return different Rust types for the same number, and
-    /// `Value::render` is the one canonical form both are already required to agree on.
-    ///
-    /// **Floats are cut to twelve significant digits, and that is not a loosening.** Summing the same
-    /// rows in a different order changes the last place of an `f64`, and neither side promises an
-    /// order. Twelve digits is far beyond any figure a metric reports and far short of the noise;
-    /// integers, dates and text are untouched, so an exact count stays exactly compared.
-    fn rendered(rows: &RowSet) -> Vec<Vec<String>> {
-        rows.rows()
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|value| match *value {
-                        Value::Real(v) => format!("{v:.12e}"),
-                        ref other => other.render(),
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-
-    /// The rows as a set, for comparing WHAT was answered rather than in what order.
-    ///
-    /// Kept even though the ORDER is now compared exactly, because it is what separates the two
-    /// diagnoses: *different rows* is a wrong number and *same rows, different order* is a generator
-    /// that stopped saying how to sort them. One assertion for both would report the first as the
-    /// second.
-    fn as_a_set(rows: &[Vec<String>]) -> Vec<&Vec<String>> {
-        let mut out: Vec<&Vec<String>> = rows.iter().collect();
-        out.sort();
-        out
-    }
-
     /// The two sides of one question, compared - and it panics rather than reporting a disagreement,
     /// because a disagreement here is what this leg exists to fail on.
     ///
-    /// A function rather than an arm inside the loop, for `clippy::too_many_lines`' reason and because
-    /// what it decides is worth reading in one place: **the CONTENT and the ORDER are both compared
-    /// exactly, and there is no tolerance for either.** It returns nothing, because there is no longer
-    /// a second degree of agreement for a caller to count - see *What its first real run FOUND* in the
-    /// module header for the one that used to be here and what closed it.
+    /// **What makes two answers the same answer is `sutura_domain::warehouse::agreement`, and this
+    /// leg no longer has an opinion of its own.** It used to: a `rendered()` copied from
+    /// `crates/sutura-app/tests/differential.rs`, comparing every cell through `Value::render`. That
+    /// is a DISPLAY form, so the variant was erased on both sides of the copy - a `Null` and the text
+    /// `"null"` compared equal, and so did `Integer(1)` and the text `"1"`. **The comparisons this
+    /// file makes against a live dataset inherited that**, which is why the policy now lives in one
+    /// module with its own tests and both legs call it.
+    ///
+    /// **The CONTENT and the ORDER are both compared, and the ONE approximation is
+    /// `RealTolerance::DIFFERENTIAL`** - twelve digits after the point on a `Value::Real` and nothing
+    /// else, because two sides summing the same rows in different orders differ in the last place of
+    /// an `f64`. The module header used to say *no tolerance for either*, which was an overstatement
+    /// of the control: the float cut was already there, inside `rendered`.
+    ///
+    /// Content first, so a wrong number is never reported as a sort order - *different rows* is a
+    /// wrong number and *same rows, different order* is a generator that stopped saying how to sort
+    /// them. It returns nothing, because there is no longer a second degree of agreement for a caller
+    /// to count - see *What its first real run FOUND* in the module header for the one that used to be
+    /// here and what closed it.
     fn agreement_between(name: &str, from_engine: &RowSet, from_bigquery: &RowSet) {
-        assert_eq!(
-            from_engine.columns(),
-            from_bigquery.columns(),
-            "{name}: the engine and BigQuery labelled the result differently"
-        );
-        let (here, over_there) = (rendered(from_engine), rendered(from_bigquery));
+        if let Err(disagreement) = agree_on_content(from_engine, from_bigquery, RealTolerance::DIFFERENTIAL) {
+            panic!("{name}: the engine and BigQuery returned different rows - {disagreement}");
+        }
+        if let Err(disagreement) = agree_on_order(from_engine, from_bigquery, RealTolerance::DIFFERENTIAL) {
+            panic!(
+                "{name}: the engine and BigQuery returned the same rows in different orders, and the \
+                 plan's ORDER BY claims one order - {disagreement}"
+            );
+        }
+        println!("bigquery-corpus: {name} agrees, {} row(s)", from_engine.rows().len());
+    }
 
-        // **The CONTENT, compared exactly.** A wrong number has to be produced twice, the same way, by
-        // two things that share nothing below the plan. First, so that a wrong number is not reported
-        // as a sort order.
-        assert_eq!(
-            as_a_set(&here),
-            as_a_set(&over_there),
-            "{name}: the engine and BigQuery returned different rows"
-        );
+    /// One cell, as a whole result, for the two comparisons below.
+    fn one_cell(label: &str, cell: Value) -> RowSet {
+        RowSet::new(vec![String::from(label)], vec![vec![cell]]).expect("a one-cell result is rectangular")
+    }
 
-        // **The ORDER, compared exactly - which this leg's first real run could not do.** A plan that
-        // emits `ORDER BY` claims an order, so two data systems answering one plan in two orders is a
-        // defect whatever the reason. The reason it used to have was null placement, and the generator
-        // states it now.
-        assert_eq!(
-            here, over_there,
-            "{name}: the engine and BigQuery returned the same rows in different orders, and the plan's \
-             ORDER BY claims one order"
+    /// **The comparison this leg makes against a live dataset is type-aware, and this is where that
+    /// stops being a claim.**
+    ///
+    /// NOT `#[ignore]`d, unlike the three legs below, and that is the point: [`agreement_between`] is
+    /// a pure function of two results, so the property is checked on every `just test` with no
+    /// credential, no dataset and no network. Against the comparator this replaced both of these
+    /// PASSED - which is what made the finding worth a fix rather than a note.
+    #[test]
+    #[should_panic(expected = "a-null-is-not-the-word-null: the engine and BigQuery")]
+    fn a_null_and_the_word_null_do_not_agree_in_this_leg_s_comparison() {
+        agreement_between(
+            "a-null-is-not-the-word-null",
+            &one_cell("region", Value::Null),
+            &one_cell("region", Value::Text(String::from("null"))),
         );
-        println!("bigquery-corpus: {name} agrees, {} row(s)", here.len());
+    }
+
+    /// The other half of the same hole: a count and the text of that count.
+    #[test]
+    #[should_panic(expected = "an-integer-is-not-its-text: the engine and BigQuery")]
+    fn an_integer_and_its_own_text_do_not_agree_in_this_leg_s_comparison() {
+        agreement_between(
+            "an-integer-is-not-its-text",
+            &one_cell("subscriptions", Value::Integer(1)),
+            &one_cell("subscriptions", Value::Text(String::from("1"))),
+        );
     }
 
     /// An error and every cause beneath it, as one string.

@@ -29,6 +29,13 @@
 //!
 //! Two things it caught on first being written are noted on the assertions below. Both were shallow -
 //! column labels and row ordering - which is about the yield to expect from it.
+//!
+//! **What makes two answers the same answer is decided in one place, and it is not here.**
+//! `sutura_domain::warehouse::agreement` holds the policy; this file and the `BigQuery` acceptance leg
+//! both call it. Each used to hold its own copy, and both copies compared cells through
+//! `Value::render` - a display form, so the cell TYPE was erased and a null compared equal to the
+//! text `"null"`. That module's header carries the finding, the four properties the policy holds and
+//! the limits.
 
 #[cfg(test)]
 mod adapters;
@@ -37,6 +44,7 @@ mod adapters;
 mod tests {
     use sutura_app::{answer, verify_anchors};
     use sutura_domain::query::ToolOutcome;
+    use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
     use sutura_domain::warehouse::{RowSet, Value};
 
     use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, load, open, questions, read_question, stem};
@@ -49,31 +57,65 @@ mod tests {
     /// THIS file is about; the registry says what the entries are, not which of them is the yardstick.
     type Engine = sutura_exec_datafusion::DataFusionWarehouse;
 
-    /// A result as comparable text.
+    /// The two sides of one question, compared - through the ONE shared policy.
     ///
-    /// Rendered rather than compared as `Value`, because two sides legitimately return different Rust
-    /// types for the same number: one hands back a `DECIMAL` where the other hands back a wide
-    /// integer, and `Value::render` is the one canonical form both are already required to agree on.
-    /// Comparing the enum would fail on a difference that is not a difference.
+    /// `sutura_domain::warehouse::agreement` decides what makes two answers the same answer, and the
+    /// `BigQuery` acceptance leg calls the same two functions. What used to be here was a local
+    /// `rendered()` that compared cells through `Value::render`, and its copy in that leg compared
+    /// them the same way - so both erased the variant, and a `Null` answered as the text `"null"` or a
+    /// count answered as the text `"1"` compared EQUAL in a comparison whose whole job is to find
+    /// exactly that class of divergence. The float tolerance that comment argued for survives as
+    /// `RealTolerance::DIFFERENTIAL`, where its reasoning is written once and applies to
+    /// `Value::Real` and to nothing else.
     ///
-    /// **Floats are cut to twelve significant digits, and that is not a loosening.** Summing the same
-    /// rows in a different order changes the last place of an `f64`, so comparing the full binary
-    /// expansion asserts that both sides summed in the same order - which is not a property either one
-    /// promises, and not what this test is for. It has already fired once for real, on the example
-    /// corpus. Twelve digits is far beyond any figure a metric reports and far short of the noise;
-    /// integers and dates are untouched, so an exact count stays exactly compared.
-    fn rendered(rows: &RowSet) -> Vec<Vec<String>> {
-        rows.rows()
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|value| match *value {
-                        Value::Real(v) => format!("{v:.12e}"),
-                        ref other => other.render(),
-                    })
-                    .collect()
-            })
-            .collect()
+    /// Content first and order second, deliberately: the first symptom of a wrong number would
+    /// otherwise be reported as a sort order. Both are asserted, because a plan that emits `ORDER BY`
+    /// claims an order - this corpus's questions all do, which is why there is no third argument
+    /// asking whether one was promised.
+    fn agreement_between(name: &str, against: &str, from_engine: &RowSet, from_other: &RowSet) {
+        if let Err(disagreement) = agree_on_content(from_engine, from_other, RealTolerance::DIFFERENTIAL) {
+            panic!("{name}: the engine and {against} returned different rows - {disagreement}");
+        }
+        if let Err(disagreement) = agree_on_order(from_engine, from_other, RealTolerance::DIFFERENTIAL) {
+            panic!(
+                "{name}: the engine and {against} returned the same rows in different orders, and the \
+                 plan's ORDER BY claims one order - {disagreement}"
+            );
+        }
+    }
+
+    /// One cell, as a whole result, for the two comparisons below.
+    fn one_cell(label: &str, cell: Value) -> RowSet {
+        RowSet::new(vec![String::from(label)], vec![vec![cell]]).expect("a one-cell result is rectangular")
+    }
+
+    /// **The comparison this leg makes is type-aware, and this is where that stops being a claim.**
+    ///
+    /// It runs with no data system at all, because [`agreement_between`] is a pure function of two
+    /// results - so the property is checked on every `just test` rather than only where an adapter is
+    /// available. Against the comparator this replaced, both of these PASSED: `Value::render` answers
+    /// `"null"` for a null and for the word, so the two compared equal.
+    #[test]
+    #[should_panic(expected = "a-null-is-not-the-word-null: the engine and a data system")]
+    fn a_null_and_the_word_null_do_not_agree_in_this_leg_s_comparison() {
+        agreement_between(
+            "a-null-is-not-the-word-null",
+            "a data system",
+            &one_cell("region", Value::Null),
+            &one_cell("region", Value::Text(String::from("null"))),
+        );
+    }
+
+    /// The other half of the same hole: a count and the text of that count.
+    #[test]
+    #[should_panic(expected = "an-integer-is-not-its-text: the engine and a data system")]
+    fn an_integer_and_its_own_text_do_not_agree_in_this_leg_s_comparison() {
+        agreement_between(
+            "an-integer-is-not-its-text",
+            "a data system",
+            &one_cell("subscriptions", Value::Integer(1)),
+            &one_cell("subscriptions", Value::Text(String::from("1"))),
+        );
     }
 
     /// An error and every cause beneath it, as one string.
@@ -243,18 +285,7 @@ mod tests {
 
             match (from_engine, from_other) {
                 (ToolOutcome::Answer { rows: ref a, .. }, ToolOutcome::Answer { rows: ref b, .. }) => {
-                    assert_eq!(
-                        a.columns(),
-                        b.columns(),
-                        "{name}: {} and {against} labelled the result differently",
-                        W::NAME
-                    );
-                    assert_eq!(
-                        rendered(a),
-                        rendered(b),
-                        "{name}: {} and {against} returned different rows",
-                        W::NAME
-                    );
+                    agreement_between(&name, against, a, b);
                     compared = compared.saturating_add(1);
                 }
                 (ToolOutcome::Refusal { reason: ref a }, ToolOutcome::Refusal { reason: ref b }) => {
