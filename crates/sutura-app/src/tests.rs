@@ -3,11 +3,11 @@
 //! Split out of `lib.rs` for the reason [`crate::tests_support`] is - the file reached the 1000-line
 //! gate, and the fakes it uses live there.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, Definitions, Description, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
@@ -112,10 +112,14 @@ pub(crate) fn bundle() -> PinnedDefinitions {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
-        Some(Anchor::new(range, String::from("197122"))),
+        Vec::new(),
+        Some(Anchor::new(
+            range,
+            AnchorValue::parse("197122").expect("a test anchor value is a value"),
+        )),
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     // The real hasher, from the catalog adapter that owns the canonical form. `pin` applies it to
     // the definitions being pinned, so there is no digest here for the bundle not to describe.

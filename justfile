@@ -178,6 +178,26 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
+# The PAGES, run: `crates/sutura-cli/tests/documented.rs` reads every invocation of this binary
+# `docs/getting-started.md` and `examples/single-player/README.md` print, runs it from a clone's
+# working directory, and holds every refusal block and provenance line they print as output against
+# the command in the fence above it.
+#
+# It exists because the pages drifted: both printed a `Debug` dump `render_refusal` had replaced, so
+# the first page a reader is sent to showed output no build had produced. Also a gate -
+# `checks.nextest` runs it, because the example needs no network and no credential. A published page
+# has to be able to cite the task rather than a raw `cargo` line, which is what this recipe is for.
+
+# Run the suite that runs every command the documentation prints.
+documented:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "documented: scope sutura-cli - the pages' own commands, over the spawned binary."
+    echo "documented: run \`just test\` for the whole workspace's suite; this target is part of it."
+    cargo nextest run -p sutura-cli --all-features
+
 # The DECLARED source, asked a question: `crates/sutura-cli/tests/declared_source.rs` copies the
 # example catalog with `source: warehouse` in place of `source: local`, writes a `sources.warehouse`
 # entry over the example's own data, and spawns `sutura query` with `SUTURA_CONFIG_DIR` pointing at
@@ -676,6 +696,14 @@ infra-set:
 # Every other test task skips them, and an unconfigured run fails rather than reporting green without
 # reaching a real project.
 #
+# **The dataset is SHARED** - the `SUTURA_BQ_DATASET` this targets is the same one CI's
+# `bq-test` job targets, by configuration. Since the closure of #119 every run names its own tables
+# with a per-run token (the CI run id, or a local clock+pid value), so a local run and a CI run
+# pointing at one dataset no longer race - each reads, and drops, only its own tables, which also
+# carry a 24-hour expiration in case a run is cancelled. A local run ANNOUNCES itself the same way
+# a CI run does: its table names, printed as they load, carry its token, so a log says which run
+# wrote them.
+#
 # Needs `just gcloud-login` once, and three values in the developer's own environment. Their names
 # are in that file's header; their values belong on the machine, which is what `.envrc` already
 # sources a file outside this repository for.
@@ -691,7 +719,7 @@ bigquery-acceptance:
     echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'not binary(two_principals)'
 
-# The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s seventh
+# The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
 # amendment and issue #123.
 #
 # **Its own task rather than a third leg above, and the reason is a developer's.** It needs five
@@ -760,6 +788,22 @@ doctor:
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
+# The Postgres tier, by hand: `just postgres-tier start|stop|status`.
+#
+# The same shape as `just keycloak-tier` and it exists for the same reason: a remedy that names the
+# venue for a missing service has to name a task a reader can type, and `nix/postgres-tier.nix` had
+# none - so `sutura_dev::provisioned` cited `just test` for every nix-native tier, which provisions
+# THIS one and no other. See that module; the correspondence is held by its recipe scan.
+#
+# NOT a step before committing. `just test` brings the tier up through `nix/with-tier.sh` and tears
+# down only what it started, so a tier started here survives a suite run - which is what makes the
+# remedy's second line (`just dev-endpoint postgres`) true afterwards.
+#
+# Straight to the script rather than through `nix run`: it is in the dev shell already, which is
+# where `nix/with-tier.sh` looks for it. `checks.nextest` runs the same one from the same file.
+postgres-tier *args:
+    sutura-postgres-tier {{ args }}
+
 # ------------------------------------------------------- the compose tier ---
 #
 # One independent service instance per worktree, provisioned through xtask rather than through the
@@ -793,7 +837,7 @@ dev-up-identity:
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
-# The provisioned DataHub, asked whether it serves the surface a reader would call.
+# The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 #
 # A named task rather than a cell in the default suite, and NOT because a network is missing - the
 # `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers,
@@ -814,8 +858,11 @@ datahub-acceptance:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, the provisioned instance's"
-    echo "datahub-acceptance: reachability. It proves the VENUE and not the adapter's read path."
+    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two cells: the instance is"
+    echo "datahub-acceptance: reachable, and a document written under a property THE DEPLOYMENT names"
+    echo "datahub-acceptance: comes back and decodes into a certified metric. There is no HTTP"
+    echo "datahub-acceptance: AspectReader, so this is NOT a read path - the requests and the mapping"
+    echo "datahub-acceptance: onto the adapter's shape are in the test, not in src/."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture

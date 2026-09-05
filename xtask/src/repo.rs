@@ -329,6 +329,14 @@ pub(crate) fn relative(root: &Path, path: &Path) -> Option<String> {
         .map(|rel| rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
 }
 
+/// Does any of `patterns` match `path`?
+///
+/// Here rather than in each caller because every path-scoped gate wants the plural form and three
+/// of them had grown their own name for it.
+pub(crate) fn matches_any(patterns: &[&str], path: &str) -> bool {
+    patterns.iter().any(|pattern| matches(pattern, path))
+}
+
 /// Does `path` match `pattern`?
 ///
 /// `*` matches within one path segment, `**` matches across segments, `?` matches one

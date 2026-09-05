@@ -249,6 +249,16 @@ fn declares_test_module(text: &str, name: &str) -> bool {
 
 /// Is this line the declaration `mod <name>;`, whatever its visibility?
 fn is_module_declaration(line: &str, name: &str) -> bool {
+    module_name(line) == Some(name)
+}
+
+/// The name in `mod NAME;`, if this line declares an out-of-line module.
+///
+/// One parser rather than one per caller: `super::scoped` reads the same shape to follow a
+/// `#[path]` declaration, and the spellings this tree accepts - a `#[cfg(test)]` in front, any
+/// visibility, whitespace around the `;` - are exactly the thing that would drift between two
+/// copies.
+pub(super) fn module_name(line: &str) -> Option<&str> {
     let mut rest = line.trim();
     if let Some(after) = rest.strip_prefix("#[cfg(test)]") {
         rest = after.trim_start();
@@ -259,10 +269,7 @@ fn is_module_declaration(line: &str, name: &str) -> bool {
             break;
         }
     }
-    let Some(after) = rest.strip_prefix("mod ") else {
-        return false;
-    };
-    after.trim().strip_suffix(';').map(str::trim) == Some(name)
+    Some(rest.strip_prefix("mod ")?.trim().strip_suffix(';')?.trim())
 }
 
 /// Where a line break left the scanner. Every one of these can span lines in Rust.
@@ -462,30 +469,13 @@ fn skip_char_literal(chars: &mut Chars<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddedLine, Braces, Range, TestScope, cfg_test_regions, has_non_test_additions, scope};
-
-    /// A post-image reader over a fixed set of files, standing in for the working tree.
-    fn tree(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
-        let owned: Vec<(String, String)> = files
-            .iter()
-            .map(|&(path, text)| (String::from(path), String::from(text)))
-            .collect();
-        move |wanted: &str| owned.iter().find(|(path, _)| path == wanted).map(|(_, text)| text.clone())
-    }
+    use super::{Braces, Range, TestScope, cfg_test_regions, has_non_test_additions, scope};
+    use crate::causality::fixtures::{added_from as from, tree};
 
     /// The expected regions, as `(first, past_last)` pairs. A helper rather than `vec![a..b]`
     /// because a one-element vec of a `Range` is a clippy finding on its own.
     fn spans(pairs: &[(usize, usize)]) -> Vec<Range<usize>> {
         pairs.iter().map(|&(first, past_last)| first..past_last).collect()
-    }
-
-    /// Added lines numbered consecutively from `first`.
-    fn from(first: usize, texts: &[&str]) -> Vec<AddedLine> {
-        texts
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| AddedLine::new(first + offset, *text))
-            .collect()
     }
 
     #[test]

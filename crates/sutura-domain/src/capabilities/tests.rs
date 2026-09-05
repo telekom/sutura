@@ -10,13 +10,13 @@
 //! directions fails with the kind named. What is tested over a real adapter's real bundle is in
 //! `sutura-app`'s golden suite, which is where an adapter is.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{
     DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities, UnfaithfulDeclaration, carried, recorded,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use crate::knowledge::{Capability, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent};
 use crate::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use crate::model::{
@@ -139,7 +139,7 @@ fn definitions(carrying: Carrying<'_>) -> Definitions {
 
 /// The one metric a bundle in this file carries, when it carries one.
 fn metric(carrying: Carrying<'_>) -> Metric {
-    let mut dimensions = BTreeMap::new();
+    let mut dimensions: Vec<Dimension> = Vec::new();
     if asked_for(carrying, DefinitionKind::Cardinality) {
         let dimension = Dimension::new(
             DimensionName::parse("region").expect("a test dimension is a dimension"),
@@ -148,7 +148,7 @@ fn metric(carrying: Carrying<'_>) -> Metric {
             None,
             Description::default(),
         );
-        drop(dimensions.insert(dimension.name().clone(), dimension));
+        dimensions.push(dimension);
     }
     if asked_for(carrying, DefinitionKind::AllowedValues) {
         let dimension = Dimension::new(
@@ -160,7 +160,7 @@ fn metric(carrying: Carrying<'_>) -> Metric {
             ])),
             Description::default(),
         );
-        drop(dimensions.insert(dimension.name().clone(), dimension));
+        dimensions.push(dimension);
     }
     let filters = if asked_for(carrying, DefinitionKind::RequiredFilters) {
         vec![RequiredFilter::IsNotNull {
@@ -177,9 +177,11 @@ fn metric(carrying: Carrying<'_>) -> Metric {
         column("order_date"),
         BTreeSet::from([Grain::Month]),
         dimensions,
-        asked_for(carrying, DefinitionKind::Anchors).then(|| Anchor::new(june(), String::from("62"))),
+        asked_for(carrying, DefinitionKind::Anchors)
+            .then(|| Anchor::new(june(), AnchorValue::parse("62").expect("a test anchor value is a value"))),
         prose(carrying, "revenue, in minor units"),
     )
+    .expect("these fixture dimensions are distinct")
 }
 
 fn june() -> TimeRange {
@@ -454,7 +456,8 @@ fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind() {
 #[test]
 fn a_conditional_kind_absent_from_the_bundle_is_faithful() {
     // `of_may_provide` is 0011's *declared-and-empty* state, and it is what a source whose content
-    // the deployment authors writes (datahub's `sutura.*` namespace is the first). A kind may be
+    // the deployment authors writes (datahub's deployment-defined structured property is
+    // the first). A kind may be
     // declared and lawfully absent from a given bundle - the deployment decided to author none of it
     // - so absence is faithful. The *undeclared* direction is untouched, so presence is still
     // covered by the declared half, and the unconditional form of the same kinds still fails an

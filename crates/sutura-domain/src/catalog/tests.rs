@@ -5,7 +5,7 @@
 //! `cargo xtask max-lines` enforces, and the only way past that gate is to split the file. Same
 //! arrangement as `xtask/src/boundaries/api_shape.rs`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{
     Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_VALUES_PER_DIMENSION, Metric, Model,
@@ -93,7 +93,15 @@ fn two_models() -> ModelsAndJoins {
 }
 
 /// A `sum(amount_cents)` metric over `orders`, with the given dimensions.
+///
+/// It used to key `dimensions` into a map on the way in, which is the bypass #266's D4 is about: no
+/// test in this file could express a duplicate, because the helper collapsed it first.
 fn metric(name: &str, dimensions: Vec<Dimension>) -> Metric {
+    declaring(name, dimensions).expect("these dimensions are distinct")
+}
+
+/// The same metric, with the duplicate check still to run.
+fn declaring(name: &str, dimensions: Vec<Dimension>) -> Result<Metric, InconsistentDefinitions> {
     Metric::new(
         metric_name(name),
         model_name("orders"),
@@ -101,10 +109,7 @@ fn metric(name: &str, dimensions: Vec<Dimension>) -> Metric {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        dimensions
-            .into_iter()
-            .map(|d| (d.name().clone(), d))
-            .collect::<BTreeMap<_, _>>(),
+        dimensions,
         None,
         Description::default(),
     )
@@ -180,10 +185,11 @@ fn a_metric_naming_a_column_its_model_does_not_have_is_refused() {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     assert_eq!(
         assemble_one(broken).unwrap_err(),
         InconsistentDefinitions::UnknownMeasureColumn {
@@ -203,10 +209,11 @@ fn a_metric_with_no_grain_is_refused_because_no_question_could_resolve() {
         Vec::new(),
         column("order_date"),
         BTreeSet::new(),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     assert_eq!(
         assemble_one(grainless).unwrap_err(),
         InconsistentDefinitions::NoGrains {
@@ -308,6 +315,58 @@ fn a_dimension_may_not_take_a_label_the_projection_already_uses() {
         InconsistentDefinitions::DimensionShadowsMeasure {
             metric: metric_name("revenue"),
             dimension: dimension_name("revenue"),
+        }
+    );
+}
+
+/// #266's D4, at the seam it moved to: the constructor, not an adapter.
+///
+/// `Metric::new` took a `BTreeMap`, so the pair was collapsed before the domain saw it and each
+/// adapter answered the question for itself - the markdown one refused, the `DataHub` one kept the
+/// last. Taking a `Vec` makes the collapse unrepresentable rather than forbidden: there is nowhere
+/// earlier for a caller to key the dimensions, so both adapters now get this same value.
+///
+/// An exact repeat rather than the folded pair below, and the two are one scan: the comparison is
+/// `IdentifierCase::COARSEST`, which is true of two identical spellings, so this variant exists to
+/// say the more useful thing about the case an author hits most.
+#[test]
+fn a_metric_declaring_one_dimension_twice_is_refused_by_the_constructor() {
+    let twice = vec![
+        dimension("region", "region_code", None, None),
+        dimension("region", "amount_cents", None, None),
+    ];
+    assert_eq!(
+        declaring("revenue", twice).unwrap_err(),
+        InconsistentDefinitions::DuplicateDimension {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("region"),
+        }
+    );
+}
+
+/// #266's D5: two dimension labels that fold together, which nothing compared.
+///
+/// A dimension was folded against the time bucket, against the measure and against every table, and
+/// against another dimension by nothing at all - `dimensions` is keyed byte-wise, so `region` and
+/// `Region` were two entries and two projected columns. `Metric::new`'s own note carries the
+/// `DuckDB` 1.5.5 run that says what the engine does with the pair.
+///
+/// **The DECLARED order is what the refusal names**, and that is the reason the scan is in the
+/// constructor rather than in `assemble`: `first` is `region` because the fixture writes `region`
+/// first, where a scan over the keyed field would report `Region` first - `BTreeMap` order, which is
+/// nothing an author wrote. The message tells them which of the two to rename only here.
+#[test]
+fn two_dimensions_that_differ_only_in_case_are_one_label_and_are_refused() {
+    let folded = vec![
+        dimension("region", "region_code", None, None),
+        dimension("Region", "amount_cents", None, None),
+    ];
+    assert_eq!(
+        declaring("revenue", folded).unwrap_err(),
+        InconsistentDefinitions::TwoDimensionsOneLabel {
+            metric: metric_name("revenue"),
+            first: dimension_name("region"),
+            second: dimension_name("Region"),
         }
     );
 }

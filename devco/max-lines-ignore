@@ -70,35 +70,9 @@ vendor/**
 
 [warn]
 
-# An entry here is a promise to split a file, not a way to silence the gate - and it keeps
-# printing until somebody keeps that promise.
-
-# `.github/workflows/ci.yml`. **THIS CHANGE PUT IT OVER**, and the entry says so rather than
-# implying the file was already past the limit: it was 987 lines at the base of this stack and 1042
-# with the two-principal acceptance step in it (`wc -l .github/workflows/ci.yml` on each side,
-# 2026-09-04). So this is not the usual `[warn]` shape - recording debt somebody else incurred -
-# and pretending otherwise would be the overstatement `AGENTS.md` calls the defect.
-#
-# **Why the step is not extracted instead**, which is the argument that decides it and is stronger
-# than *trimming is borrowed time*: the seam this repository has used before for exactly this cap
-# is moving a step's shell out of the workflow, and `xtask/src/action_shell.rs`'s header records
-# that such moves outrun the linters. **This job is the one place that seam is not available.**
-# `cargo xtask check-venues` reads the `bigquery-acceptance` job's own INLINED shell for the fork
-# rule, the credential write and removal, the emptiness guards and what may reach a public log; a
-# composite action or a reusable workflow puts every one of those outside what it can see, and the
-# secrets it holds are the ones the gate exists for. An extraction here trades a line count for
-# the gate.
-#
-# The split itself is agreed with a named seam and an owner - telekom/sutura#285 - whose own rule
-# is that it lands as a change containing nothing but the split. This entry keeps the debt VISIBLE
-# (WARN on every run, never a pass) until it does.
-#
-# What is NOT deferred: `check-venues` still reads this job line by line and `check-workflows`
-# still reads every reference in it. The line count is the only property. **And one limit of that
-# first claim, since this comment is where a reader would over-read it:** `check-venues` reads ONE
-# credential path out of the job, so *placed and removed* is held for the CI key and by review for
-# the two principal keys this step adds beside it.
-.github/workflows/ci.yml
+# Empty on purpose: every hand-written file in this repo is under the limit. An entry here
+# is a promise to split a file, not a way to silence the gate - and it keeps printing until
+# somebody keeps that promise.
 
 # Scratch a browser tool writes into the working tree: verbatim dumps of visited pages, thousands
 # of lines each, regenerated on every run and gitignored. Generated output by any reading, and the

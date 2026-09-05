@@ -67,6 +67,11 @@ mod catalog;
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
 
+/// The exchanging broker a `bigquery` deployment is served under. `cfg`-gated like the adapter:
+/// a build that links none of `sutura-exec-bigquery` has no `StsOverHttp` to attach.
+#[cfg(feature = "bigquery")]
+mod broker;
+
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
 /// **No longer a check, and that is the change worth reading.** It used to be the only source name
@@ -168,15 +173,23 @@ fn run() -> Result<(), String> {
     // this crate can promise exists. What that log pipeline retains is the deployment's - sutura
     // writes a record per outcome and keeps nothing.
     // The credential broker, which is the fourth port and the one that decides what a question
-    // executes as. `StaticCredentialBroker` reads the `sources:` tree this root already parsed:
-    // every source declared `shared-service-user` is served under the identity this process holds,
-    // and a source declared `impersonation-at-source` gets no credential from it - so a question
-    // against one is refused as `credential_unavailable` rather than answered as this process. That
-    // is the shipping single-user shape, and the deployment that needs the other one is the
-    // deployment that needs a broker which can perform a token exchange.
-    let broker = StaticCredentialBroker::from_registry(settings.sources());
-    // The working-set ceiling this deployment configured, threaded to the federated combiner so a
-    // combined answer is counted against the same bound the engine's operators are refused by.
+    // executes as. Which broker this build attaches is decided per ARM below, because an
+    // impersonating source can only be served by a broker that EXCHANGES a subject's credential, and
+    // only a `bigquery` build links one:
+    //
+    // - A deployment with no impersonating source (the `files` arm, and a `bigquery` arm with none)
+    //   is served under `sutura_config::StaticCredentialBroker`, which reads the `sources:` tree this
+    //   root already parsed: every source declared `shared-service-user` is served under the identity
+    //   this process holds, and a source the broker holds nothing for is refused as
+    //   `credential_unavailable` rather than answered as this process.
+    // - A `bigquery` deployment with an impersonating source is served under
+    //   `sutura_exec_bigquery::sts::WorkloadIdentityBroker`, which holds BOTH shapes - a declared
+    //   witness for shared sources and an exchanged per-subject credential for impersonating ones -
+    //   because one plan may read one of each and the broker is per answer, not per source.
+    //
+    // **In every arm, a subject with no credential at a source is refused as `credential_unavailable`
+    // rather than answered under the deployment's own identity** - the fallback the port exists to
+    // make unrepresentable.
     let working_set_ceiling_bytes = settings.runtime().working_set().bytes().get() as u64;
     // **One `Arc<dyn Surface>` out of two adapter types, and the erasure is where it always was.**
     // `sutura_app::Warehouses<W>` is generic in ONE adapter, so the service is monomorphised per kind
@@ -184,10 +197,13 @@ fn run() -> Result<(), String> {
     // way. That is the whole reason this deployment does not need the closed enum over adapters that
     // `sutura_app::warehouses` describes: nothing above this line is generic.
     let (service, attached) = match opened {
-        OpenedSources::Files(files) => (
-            started(&catalogs, files.engines, broker, working_set_ceiling_bytes)?,
-            Some(files.attached),
-        ),
+        OpenedSources::Files(files) => {
+            let broker = StaticCredentialBroker::from_registry(settings.sources());
+            (
+                started(&catalogs, files.engines, broker, working_set_ceiling_bytes)?,
+                Some(files.attached),
+            )
+        }
         #[cfg(feature = "bigquery")]
         OpenedSources::BigQuery(engines) => {
             // **The pre-flight, and this line is where its ORDER is decided.** It runs after
@@ -210,6 +226,10 @@ fn run() -> Result<(), String> {
             // not accept one. The gate reads the order of three call sites in this file; its own
             // header states what that is worth and what it cannot see.
             boot::refuse_absent_tables(&pinned, &engines)?;
+            // The exchanging broker this build is the one that can attach. `StsOverHttp` reuses the
+            // same pinned agent and bounds the source composition already declares, so the exchange
+            // and the job share one connection pool and one set of pins - see `crate::broker`.
+            let broker = broker::build_broker(settings.sources(), settings.server().request_timeout())?;
             (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
         }
     };
@@ -513,18 +533,23 @@ type Serving = Arc<dyn Surface>;
 /// Loads the catalogs a second time through their ports, composes them, verifies every anchor, and
 /// erases the adapter.
 ///
-/// Generic in the adapter and returning `Arc<dyn Surface>`, which is what lets the two arms above
-/// share every line after them: the transport takes a trait object, so the monomorphisation ends
-/// here rather than travelling through the router.
-fn started<W>(
+/// Generic in the adapter AND the broker, and the second generic is what lets the two arms below
+/// differ: a `files` deployment has no impersonating source, so its broker is the static one; a
+/// `bigquery` deployment with an impersonating source gets the exchanging broker. Returning
+/// `Arc<dyn Surface>` is what lets the shared lines after each arm stop caring which of those it
+/// was - the transport takes a trait object, so the monomorphisation ends here rather than through
+/// the router.
+fn started<W, B>(
     catalogs: &[LocalCatalog],
     engines: sutura_app::Warehouses<W>,
-    broker: StaticCredentialBroker,
+    broker: B,
     working_set_bytes: u64,
 ) -> Result<Serving, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
+    B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
 {
     LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
         .map(|service| Arc::new(service) as Serving)
@@ -719,25 +744,19 @@ fn build_bigquery(
         .posture()
         .deliverable_by(<BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION, source)
         .map_err(flatten)?;
-    // **The adapter can carry a subject, and this composition does not yet wire a broker that mints
-    // one.** The port, the `WorkloadIdentityBroker` and the real `StsExchange` all exist and are
-    // tested; attaching a broker to a served source is the step that awaits a deployable GCP project.
-    // Until then an `impersonation-at-source` entry would be opened and served under the credential
-    // the deployment declared - every row as this process while a reviewer believed a subject's
-    // authorization was evaluated - which is the confusion `docs/adr/0014` names. Refuse it before
-    // the credential file is read, so an operator fixes the posture rather than a file.
-    // **An exhaustive MATCH and not an `==`**, for the reason `sutura-cli`'s copy states at length:
-    // a third `SourcePosture` would fall through an `==` and be OPENED. Both roots, one edit.
-    match *identity.posture() {
-        sutura_domain::source::SourcePosture::SharedServiceUser { .. } => {}
-        sutura_domain::source::SourcePosture::ImpersonationAtSource => {
-            return Err(format!(
-                "`sources.{source}` is `impersonation-at-source`, and this build does not attach a \
-                 broker that exchanges a subject's credential to a served `BigQuery` source - \
-                 refusing rather than reading every row as this process; no fallback"
-            ));
-        }
-    }
+    // **The adapter can carry a subject, and the COMPOSITION's other half - the broker that mints
+    // one - is attached in `run()`'s `bigquery` arm, not here.** The port, the
+    // `WorkloadIdentityBroker` and the real `StsExchange` all exist; `build_broker` builds the broker
+    // holding this source's declared `workload_identity`, and this line merely OPENING the source is
+    // what lets a question against it be served as the asker rather than refused. The boot refusals
+    // that still guard the cases with no broker are `Settings::refusals`'s `MissingWorkloadIdentity`
+    // for an impersonating source with none declared, and the `cfg(not(feature = "bigquery"))` half
+    // of `open_bigquery` for a build that links none of this.
+    //
+    // **What keeps an impersonating source from being read under the deployment's own identity if
+    // somebody later forgets to attach a broker is not a refusal here - it is the port.** `build_broker`
+    // refuses to mint for a source it holds no exchanging half for (`Minted::Refused`), so a question
+    // against one is refused as `credential_unavailable` rather than answered as this process.
     // **`within_request_timeout` and NOT `parse`, and the difference is a bug that would only show up
     // under load.** What a job may spend is not the request timeout: an answer makes
     // `QueryDeadline::CALLS_PER_ANSWER` calls and each pays a connect margin on top of its own budget,

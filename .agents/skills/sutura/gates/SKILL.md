@@ -145,6 +145,28 @@ therefore does not see.
   to run `just docs` rather than a gate encoding a boundary nobody measured. It is not in `validate`
   because that recipe would then fail on a clone whose pixi docs environment is not installed, and
   **a gate that fails for an environment reason gets disabled.**
+- **The file a gate reads is not always the file that ships, and that defeated the rule the gate
+  was added for.** `docs/contributing.md` and `docs/changelog.md` are `pymdownx.snippets` stubs -
+  their published body is `CONTRIBUTING.md` / `CHANGELOG.md` at the repo root - so `check-docs`
+  read a sixteen-line include directive and counted it as a page. Measured: a link into an
+  excluded page written in `CONTRIBUTING.md` left the gate green with the link total unmoved. It
+  follows `--8<--` now and resolves a relative target inside an included file against the
+  INCLUDING page, the way mkdocs does. **The transferable question: for every file a gate reads,
+  ask whether that file is what a reader gets.**
+- **Three more ways that one gate read less than its verdict said, found in one review, and each
+  is a shape already in this file.** (1) A fence tracker toggling a boolean on any three-backtick
+  line inverted on the first NESTED fence and read no link below it - the `check-workflows` rule
+  a second time, so `xtask/src/markdown.rs` records the delimiter and its length and makes an
+  unclosed block an error rather than an answer. (2) `exclude_docs` was compared as a
+  docs-relative path while mkdocs matches it with `pathspec` gitignore semantics, where a pattern
+  containing no `/` matches at ANY depth: the pages mkdocs dropped and the pages the gate believed
+  were dropped were different sets, and both of that gate's new rules were bypassed on the
+  difference. **A gate re-implementing part of a tool has to be measured against the tool, not
+  against its documentation.** (3) The only floor was a repo-wide link total, and `.take(1)` on
+  the page loop satisfied it with 51 of 52 pages unscanned - *at least one row* again, so the
+  floor is per page now. An unreadable page was also dropped in silence eight lines above a
+  `FAIL CLOSED` comment, which is the reminder that **a comment is not the direction; the code at
+  the decision is.**
 - **Prose in `AGENTS.md` and under `.agents/skills/` is gated, which surprises people editing it.**
   `check-guidance` scans both, and `xtask`'s own unit tests assert literal phrases out of `AGENTS.md`
   as the evidence anchoring a rule - so rewording its opening sentence turns a gate's test red rather
@@ -212,14 +234,14 @@ therefore does not see.
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.
 - **A READOUT under a comment claiming it is an assertion, which is the cheapest version of this
-  whole class.** Both `ci.yml` link-check steps ended in `file <path>`, and the older one said so:
-  *"Proves the arch, not just the exit code."* It proves neither. Measured: `file` on a path that
-  does not exist prints ``cannot open`` and **exits 0**, and nothing compared its answer to the
-  triple - so a renamed or missing executable was green, and the feature-probe step reads that name
-  out of a manifest. `nix/assert-linked.sh` asserts the two things the sentence claimed and names
-  the one it still does not (the libc half, unmeasured, so a musl target linked dynamically
-  passes). **The transferable question:** for every command a step runs for its side effect, ask
-  what its EXIT CODE is a function of. `file`, `echo`, `grep -c` and any `| head` answer zero on
+  whole class.** Both of the cross link check's steps ended in `file <path>`, and the older one
+  said so: *"Proves the arch, not just the exit code."* It proves neither. Measured: `file` on a
+  path that does not exist prints ``cannot open`` and **exits 0**, and nothing compared its answer
+  to the triple - so a renamed or missing executable was green, and the feature-probe step reads
+  that name out of a manifest. `nix/assert-linked.sh` asserts the two things the sentence claimed
+  and names the one it still does not (the libc half, unmeasured, so a musl target linked
+  dynamically passes). **The transferable question:** for every command a step runs for its side
+  effect, ask what its EXIT CODE is a function of. `file`, `echo`, `grep -c` and any `| head` answer zero on
   inputs a reader would call a failure.
 - **A refusal that is weaker than the claim it defends, and the tell is a quantifier.** The same
   step refuses an EMPTY probe manifest, which reads as *a probe cannot silently disappear* and is
@@ -228,6 +250,18 @@ therefore does not see.
   closes it is a second declaration that must agree - here `cargo xtask check-shipped-binaries`
   reconciling `nix/shipped.nix`'s `probeFeatures` against the `cargo build --features` a page
   documents, failing closed when no page documents one at all.
+- **A verdict's rules can hold its SPELLING while nothing holds its TRANSITION, and the second is
+  usually what the sentence beside it promises.** `check-venues`' `unrun` arrived with three rules -
+  the word is in the vocabulary, a `not built` venue may not claim it, the venue's section must use
+  it - and all three read the page. Nothing read whether a run had happened, so *the change that
+  carries the first green run moves this cell* was, still, a sentence nothing read. The failure is
+  silent and permanent: wire the leg into a job, watch it go green on every push, and the page goes
+  on telling its next reader that nothing has run it with every gate green. **The question to ask
+  of any state token: what reads the thing that makes it STOP being true?** Here the answer was in
+  reach - a workflow invoking the venue's `Reached by` task - and the rule that closed it is
+  deliberately one-sided, because an invocation is not a green run and the authority for *did this
+  pass* is unreachable from the sandbox the gate runs in. A one-sided rule that names its side is
+  worth more than a two-sided one nobody can implement.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
@@ -251,6 +285,76 @@ behaviour*, which is a failure.
 **The rule that predicts it:** a file that adds a `#[test]` is never reverted. So *moving tests out
 of a file* turns that file from held into revertible and takes the new module's declaration with it.
 When a file with tests hits the 1000-line cap, move the **harness** - fakes, fixtures, builders,
-anything with no `#[test]` - and keep every assertion where it is. Only a *green* base verdict
-fails; "the base tree does not build" and "not separable" both pass, and the second asks for
-evidence instead: the command you ran, the failure before, the pass after.
+anything with no `#[test]` - and keep every assertion where it is. Orphaning now reports itself -
+*the tests this diff added did not run on base* - rather than passing as green, because nextest
+fails a filter that matches nothing.
+
+**Expect that harness move to answer INCONCLUSIVE, and know why before reading it as a pass.**
+Measured on #119: the new harness file added no `#[test]`, so it is *revertible*, while the test file
+declaring `mod <harness>;` added tests and is *held* - so the base tree is a `mod` pointing at a file
+that is not there, `E0583`, and the verdict is `INCONCLUSIVE - the base tree does not build`. That is
+the gate being honest rather than broken, and it is the **expected** outcome of following the rule
+above, not a sign of doing it wrong. What it costs is the proof: causality establishes nothing about
+your assertions in that run, so a **mutation** takes its place - break the thing each new test
+claims, one at a time, and paste the test that reddens. Scope it to a whole test binary
+(`-E 'binary_id(<pkg>::<target>)'`), never a name pattern: a filter that omits the guarding test
+reports green and proves nothing, which happened on that same PR before it was caught.
+
+**Which verdicts pass:** *red on base* and, without proving anything, "the base tree does not
+build", "the base run named no failure", "not separable" and "every added test is `#[ignore]`d" -
+the last three ask for evidence instead: the command you ran, the failure before, the pass after.
+Everything else fails, and the three that fail are the three where the gate has no answer rather
+than a bad one: green against base, red outside the diff, and the added tests not running at all.
+
+**Reconstructing that evidence for "not separable": restore the base's OUTPUT, not its code.** The
+obvious move - paste the base file's implementation half under the head file's tests - does not
+compile whenever the base spells its private items differently, which is usual for a change that
+introduced one. Measured on #268: the base module had no `Venue::advice` for the tests to call. What
+is behaviourally the base is the STRING each arm produced, so put those back into the head
+structure, `git checkout <base> -- <the non-test files the diff also touched>`, and run `just test`:
+the failures name themselves and an unrelated red is visible as one. Revert nothing and the run
+over-reports green - a justfile recipe the head added is what one of the assertions reads.
+
+**What it could not tell apart until #278.** The base run was the whole suite and any assertion
+failure counted, so with fail-fast one unrelated cell was the entire verdict and the tests under
+test never ran - `ok - red on base` about something else. Both runs are scoped to the tests the diff
+added now, the verdict NAMES what reddened, and a failure outside the diff is its own answer.
+
+**A TEST NAME IS NOT A KEY HERE, and the first fix for #278 was keyed on one.** 23 of this tree's
+1782 test-function names are duplicated - `deserialization_goes_through_the_constructor` four times
+in `sutura-domain`. Measured on nextest 0.9.143, `test(/(?:^|::)sums(?:::|$)/)` matches six tests in
+three packages, one of them a MODULE called `sums`. So a collided failure satisfied both the filter
+and the name comparison, and a vacuous added test still got *ok - red on base, green on head*. The
+key is now the binary or package, the module path the file contributes, and the name.
+
+**The generalisable half:** the filter and the comparison are two ENFORCERS of one key, not two
+independent keys. A second check on the same key catches the enforcer failing and never catches the
+key being wrong - so "two mechanisms" is only worth what the key is worth, and the argument to write
+down is which of the two it is.
+
+**Two smaller ways the same gate lied, both from believing a word rather than measuring it.**
+`ABORT [` is nextest's WINDOWS status; Unix prints `SIG<name> [`, so a base run whose only failure
+was an abort parsed to zero failures and printed *the base tree does not build* about a tree that
+built fine. And a filterset naming only `#[ignore]`d tests matches nothing, which nextest reports as
+`no tests to run` and exit 4 - a false RED, so ignored tests leave the scope rather than being
+named in a filter or forced to run. `git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'` counts them,
+and the same command WITHOUT the anchor answers roughly twice as many across twice as many files -
+because most `#[ignore` in this tree is a doc comment ABOUT one. **No figure is written here on
+purpose:** the argument holds at any count above zero, so a number would only be a second thing to
+keep true - and the review that reported this defect cited the unanchored one.
+
+**Why one commit answered differently in two venues, which is the part nobody could have guessed:
+only one venue provisions the tier.** `just causality` sources `nix/with-tier.sh`, which starts
+Postgres and exports `SUTURA_DEV_REQUIRE_TIER` into the whole process tree - and the endpoint that
+requirement belongs to is published under the ROOT, in a gitignored file the base worktree cannot
+have. So the tier-backed cells failed closed there and became the base run's red. `just ship-check`
+and CI's `nix run .#causality` provision no tier, so those cells skipped and the verdict was about
+the change. **The false green was reachable from the one venue a person runs by hand and cites.**
+The base run drops that variable now, in the gate, because only the thing that provisioned a tier
+may declare one.
+
+**The hole that remains is the shared target directory.** Both runs use one; cargo treats the two
+trees as one unit and decides freshness by mtime, so a build in either overwrites the other's
+binaries and the next run silently executes them - reverted source and `env!("CARGO_MANIFEST_DIR")`
+included. **So a causality verdict is only about the tree whose binaries are in
+`target/causality-target`** - remove that directory before trusting a surprising answer.

@@ -10,12 +10,13 @@
 // hostile fixture; the fixture itself stays here, because `definitions` above declares it.
 mod column_zero;
 mod injection_corpus;
+mod refusal_corpus;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::knowledge::{
     Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
     Phrase, Referent,
@@ -23,7 +24,7 @@ use sutura_domain::knowledge::{
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
-use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound};
+use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query};
 
 // `guide_for` is imported rather than declared here. It used to live in this file under
 // `#[cfg(test)]`; it moved to `prompt.rs` when `sutura-cli` needed the same table to print a refused
@@ -31,6 +32,7 @@ use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, Refusa
 // only one, so a variant added to `RefusalReason` still fails to compile until somebody writes its
 // guidance. The eleven guide constants came with it, which is why they are no longer named here.
 use super::{CatalogProse, GUIDES, PromptInputs, Tool, WIDTH, guide_for, quote, render, wrap};
+use refusal_corpus::every_refusal;
 
 /// The structured names that must never reach the output.
 ///
@@ -159,10 +161,14 @@ fn definitions() -> Definitions {
         }],
         column(TIME_COLUMN),
         BTreeSet::from([Grain::Month, Grain::Day]),
-        BTreeMap::from([(dimension_name("region"), region), (dimension_name("tariff"), tariff)]),
-        Some(Anchor::new(range, String::from("4711"))),
+        vec![region, tariff],
+        Some(Anchor::new(
+            range,
+            AnchorValue::parse("4711").expect("a test anchor value is a value"),
+        )),
         description(HOSTILE),
-    );
+    )
+    .expect("these fixture dimensions are distinct");
     let headcount = Metric::new(
         metric_name("headcount"),
         ModelName::parse(MODEL).expect("a test model is a model"),
@@ -173,10 +179,11 @@ fn definitions() -> Definitions {
         Vec::new(),
         column(TIME_COLUMN),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         description("How many there were."),
-    );
+    )
+    .expect("no dimensions to duplicate");
     Definitions::assemble(vec![model], vec![], vec![revenue, headcount]).expect("the test bundle is consistent")
 }
 
@@ -297,72 +304,6 @@ fn rendered_with(declares: KnowledgeCapabilities, prose: CatalogProse) -> String
 /// Everything declared, everything populated: the reference-adapter case.
 fn everything() -> String {
     rendered_with(KnowledgeCapabilities::all(), CatalogProse::Quoted)
-}
-
-/// One instance of every refusal variant.
-///
-/// The second net rather than the first: what forces an author to write a guide is `guide_for` in
-/// `prompt.rs` failing to compile. What this list adds is that once they have, the set of guides the
-/// prompt renders and the set `guide_for` can return are asserted to be the same.
-fn every_refusal() -> Vec<RefusalReason> {
-    vec![
-        RefusalReason::MetricUnknown {
-            metric: metric_name("revenue"),
-        },
-        RefusalReason::GrainNotSupported {
-            metric: metric_name("revenue"),
-            grain: Grain::Year,
-        },
-        RefusalReason::DimensionNotPermitted {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("region"),
-        },
-        RefusalReason::DimensionNotFilterable {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("tariff"),
-        },
-        RefusalReason::DimensionValueNotAllowed {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("region"),
-        },
-        RefusalReason::DuplicateDimension {
-            dimension: dimension_name("region"),
-        },
-        RefusalReason::TooManyDimensions {
-            requested: 9,
-            limit: MAX_DIMENSIONS,
-        },
-        RefusalReason::ResultTooLarge {
-            bound: ResultBound::Rows { limit: 10_000 },
-        },
-        RefusalReason::TimeRangeTooLong {
-            days: 99_999,
-            limit: MAX_RANGE_DAYS,
-        },
-        // A gibibyte, which is the provisional default `sutura-config` writes. Any number would
-        // exercise the guide; this one is the one an operator will actually read in a log.
-        RefusalReason::ResourcesExhausted {
-            ceiling_bytes: 1024 * 1024 * 1024,
-        },
-        RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
-        RefusalReason::FederationNotExecutable,
-        RefusalReason::FederationLinkAmbiguous {
-            source: SourceName::parse("geo").expect("a test source is a source"),
-        },
-        RefusalReason::MeasureDoesNotFederate {
-            metric: MetricName::parse("active_subscriptions").expect("a test metric is a metric"),
-            aggregate: Aggregate::CountDistinct,
-        },
-        RefusalReason::PlanTablesShareAnIdentifier {
-            table: TableName::parse("orders").expect("a test table is a table"),
-        },
-        RefusalReason::SourceUnavailable {
-            source: SourceName::parse("elsewhere").expect("a test source is a source"),
-        },
-        RefusalReason::CredentialUnavailable {
-            source: SourceName::parse("warehouse").expect("a test source is a source"),
-        },
-    ]
 }
 
 #[test]

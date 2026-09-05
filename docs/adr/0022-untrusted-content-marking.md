@@ -126,7 +126,9 @@ The accepted core is built and tested, per surface:
 - `sutura_mcp::wire::CatalogContent::as_text` quotes every description line with `> ` (`push_prose`),
   names the boundary (`UNTRUSTED_CATALOG_NOTICE`), and under `catalog_prose: omitted` drops the prose
   and says so (`CATALOG_PROSE_OMITTED_NOTICE`) - the same setting the prompt honours, so an operator
-  who does not trust catalog authors ships no prose on either text surface.
+  who does not trust catalog authors ships no prose on either text surface - and, per the second
+  amendment, on neither half of the MCP reply, which this sentence read as covered because the
+  renderer was the half the setting was an argument to.
 - `sutura_app::prompt::quote` already prefixed every line; the corpus test pins it against the same
   hostile prose the tool runs.
 - `sutura_app::untrusted::{CELLS, PROSE}` is the one injection corpus; `sutura-app`, `sutura-mcp` and
@@ -174,3 +176,72 @@ What is built for it:
 **The limit, unchanged and restated because this amendment is about not overstating:** an omission
 narrows what an agent is *told*, never what it may *ask*, and it stops no prose that persuades
 without escaping. A deployment that trusts its catalog authors is the default and is unaffected.
+
+## Second amendment: the surface it missed was inside one it had already counted
+
+The amendment above found a third surface and stated the decision positively. The fourth was not a
+fourth transport - it was the other half of a reply this record had already called covered.
+`sutura_mcp::wire::CatalogContent` was built by a `From<&PinnedDefinitions>` that could not see the
+setting, so `describe_catalog` answered with a text block carrying no description and
+`structured_content` beside it carrying every one, in the same message. `#266`'s `H1`.
+
+**Two things about it are worth carrying, and neither is the fix.**
+
+*Why the count was wrong.* "The MCP tool honours it" was read off the renderer, because the renderer
+is where the setting was an argument. A tool result has two halves and only one of them is rendered;
+the other is a conversion. So the question is not answered per transport but **per thing that carries
+the prose** - `as_text` and `serde_json::to_value` were two of them inside one function.
+
+*Why the test could not have found it.* The regression test asserting the omission read
+`result.content.first()` and nothing else - a different field from the one carrying the leak - so it
+passed against the defect for as long as the defect existed, while standing as the proof that `#128`'s
+item 2 was closed. A test reading the wrong field is not weak coverage; it is a green light over an
+open path.
+
+And the composition root had never read the setting at all: `sutura-cli`'s `mcp` command passed
+`CatalogProse::Quoted` as a constant and called it *the default treatment*, which it was not - it was
+the only one. On the published binary the omission therefore reached the prompt and the HTTP body and
+neither half of the agent tool, which is the surface with no token and no scope narrowing. The same
+shape as the first amendment's finding, one layer further out: the wiring rather than the wire.
+
+What is built for it:
+
+- `CatalogContent::of(pinned, prose)` replaces the `From`, for the reason `CatalogBody::of` did: a
+  conversion reachable without the setting fails OPEN.
+- **The `description` field's TYPE demands the setting**, which is the half `of`'s argument did not
+  reach. `wire::prose::Carried` holds the `Option` privately and `Carried::under(prose, text)` is its
+  only constructor, so a description filled without consulting the operator does not compile - where
+  before the constructor took the setting and the builder inside it could still write `Some(..)`.
+  `#[serde(transparent)]`, so the wire is the string or the field skipped, exactly as before.
+- The content carries `catalog_prose` as the operator's own spelling - the same field the HTTP body
+  carries, so a client reads *this deployment ships no prose* rather than inferring it from an
+  absence.
+- **One value, both halves.** The text half's notice is resolved at construction by `prose::notice`
+  rather than decided again in `as_text`, so the two halves of one reply cannot disagree about a
+  decision the operator made once. Those two functions are the crate's only readers of the setting
+  and both match exhaustively, so a third `CatalogProse` spelling is a compile error where the prose
+  is carried. `sutura_http::wire::CatalogBody::of` matches exhaustively for the same reason.
+- `sutura-cli`'s `mcp` composition READS `prompt.catalog_prose` - `mcp_service` takes the settings it
+  already needed for `runtime()` and resolves the setting itself, through the same exhaustive
+  conversion `sutura prompt` uses. A caller-supplied value is what moved the defect one frame out and
+  left it uncovered.
+- Tests, and the venue matters more than the count: the omission and the quoted default are each
+  asserted on **both halves** of one reply - a fix that withholds everything is an outage rather than
+  a control; the shared `PROSE` corpus is walked under both settings through a real `Description`,
+  with different text per field so a dimension-half survival is visible; and the composition is
+  driven twice, once in-process through the SDK's own client under a settings DOCUMENT, and once by
+  `crates/sutura-cli/tests/mcp.rs` spawning the binary with `SUTURA_CONFIG_DIR` pointed at a
+  `base.yaml` - the only venue that covers `configured()` and `serve`.
+
+**Measured, because this is the record's own lesson repeating:** with the setting arriving as an
+argument, putting `CatalogProse::Quoted` back into `sutura-cli`'s `serve` - the exact defect, one
+frame out - left all 1811 tests green. A test that receives the value it asserts on proves the
+argument, not the read. It is the same failure as reading `content.first()` for a leak in
+`structured_content`, and only the layer changed.
+
+**The limit, and one this record should have stated the first time:** nothing counts the surfaces.
+Every obligation is held per call site by a constructor that demands the argument and a field type
+that cannot be filled without it, and *no fifth carrier of catalog prose exists* is a reading of the
+code rather than a gate. Nor is the structured shape pinned: the byte-compared snapshots under
+`crates/sutura-mcp/src/snapshots/` are the two tool INPUT schemas, so `description` becoming optional
+and `catalog_prose` appearing are held by tests and review, with no output-schema check to break.

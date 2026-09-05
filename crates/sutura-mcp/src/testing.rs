@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
 };
@@ -63,7 +63,16 @@ pub(crate) fn june() -> TimeRange {
 }
 
 /// One model, one anchored metric, one filterable dimension.
+///
+/// The two descriptions are DIFFERENT text on purpose: a test asserting that neither reaches a
+/// caller would pass on the metric's half alone if one string served both.
 pub(crate) fn bundle() -> PinnedDefinitions {
+    described_bundle("Revenue, in minor units.", "Sales region.")
+}
+
+/// The same bundle with the two descriptions supplied, for walking the shared injection corpus
+/// through a real [`Description`] rather than through a wire type built by hand.
+pub(crate) fn described_bundle(metric_prose: &str, dimension_prose: &str) -> PinnedDefinitions {
     let model = Model::new(
         ModelName::parse("orders").expect("a test model is a model"),
         source(),
@@ -79,7 +88,7 @@ pub(crate) fn bundle() -> PinnedDefinitions {
             DimensionValue::parse("north").expect("a test value is a value"),
             DimensionValue::parse("south").expect("a test value is a value"),
         ])),
-        description("Sales region."),
+        description(dimension_prose),
     );
     let revenue = Metric::new(
         MetricName::parse("revenue").expect("a test metric is a metric"),
@@ -88,13 +97,14 @@ pub(crate) fn bundle() -> PinnedDefinitions {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::from([(
-            DimensionName::parse("region").expect("a test dimension is a dimension"),
-            region,
-        )]),
-        Some(Anchor::new(june(), ANCHORED_VALUE.to_string())),
-        description("Revenue, in minor units."),
-    );
+        vec![region],
+        Some(Anchor::new(
+            june(),
+            AnchorValue::parse(ANCHORED_VALUE.to_string()).expect("a test anchor value is a value"),
+        )),
+        description(metric_prose),
+    )
+    .expect("one dimension cannot duplicate another");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),

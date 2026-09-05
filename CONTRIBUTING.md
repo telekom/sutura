@@ -161,9 +161,9 @@ just validate       # THE gate: the nix checks, which build their own copy of th
 **A new or changed test must be red against the base behaviour and green with your change.** A test
 that passes both ways proves nothing and is worse than no test, because it looks like coverage.
 `just causality` checks that mechanically. Where the change is not separable - impl and test in one
-file, or a rename with no behavioural difference - the gate says so and asks for evidence instead:
-the command you ran, the failure before the fix, the pass after. That goes in the pull request. **Do
-not skip it silently.**
+file, a rename with no behavioural difference, or every added test `#[ignore]`d so no run here
+reaches one - the gate says so and asks for evidence instead: the command you ran, the failure
+before the fix, the pass after. That goes in the pull request. **Do not skip it silently.**
 
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.
@@ -266,7 +266,14 @@ just docs-deploy   # one version to gh-pages
 The site is mkdocs-material versioned by [mike](https://github.com/jimporter/mike), built with
 `--strict`, and every command goes through pixi's isolated `docs` environment. `nav` in `mkdocs.yml`
 is explicit rather than derived, and `cargo xtask check-docs` fails on a page in no nav entry, a nav
-entry with no file, or an asset that stopped resolving. `just validate` does **not** render the
-site, so `just docs` is owed by any change that touches a doc comment.
+entry with no file, or an asset that stopped resolving. A page that is deliberately not part of the
+site - the implementation plans are the case - is named in `exclude_docs` instead, and the same gate
+fails an exclusion naming no page, a page both navigated to and excluded, a pattern it cannot
+resolve to one file, and a published page that LINKS an excluded one. That last is not `--strict`'s
+job: mkdocs logs such a link at INFO and exits 0, measured. **This file is one of those published
+pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relative link written
+here resolves against that page's URL rather than the repository root, and the gate reads this file
+to judge it. `just validate` does **not** render the site, so `just docs` is owed by any change that
+touches a doc comment.
 [Publishing the docs](https://github.com/telekom/sutura/blob/main/docs/publishing.md) covers the
 versioning and the one repository setting it needs.
