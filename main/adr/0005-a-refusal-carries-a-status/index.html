@@ -2702,9 +2702,22 @@ bodies near-identical in what they carry.</p>
   raised by a name comparison: the plan's data system against the adapter this process opened. So a
   <code>503</code> here often means a deployment wired wrong rather than one briefly unwell. The status is right
   for the variant's meaning; the sentence is what an operator reads.</li>
-<li><strong>The example session under <code>examples/single-player/README.md</code> shows captured <code>200 OK</code> transcripts
-  for refusals and is now stale.</strong> It has to be re-captured from a running process rather than
-  hand-edited, which is why it is named here instead of quietly corrected.</li>
+<li><strong>The example session under <code>examples/single-player/README.md</code> showed captured <code>200 OK</code>
+  transcripts for refusals. It is deleted rather than re-captured</strong> - the residual this bullet
+  recorded is closed that way, and the reasoning is worth keeping: a transcript nobody runs goes
+  stale in exactly this manner and says nothing while it does. What replaced it is
+  <code>crates/sutura-http/src/wire/refusal.rs</code>, and it is the strongest of the three: <code>every_reason()</code>
+  lists all seventeen <code>RefusalReason</code> variants with the status and <code>code</code> each is given,
+  <code>every_refusal_carries_a_status_a_code_and_a_sentence</code> drives that list, and the exhaustive match
+  with no wildcard arm makes a new variant a COMPILE error rather than an untested one - which is
+  the property a transcript could never have. <code>crates/sutura-serve/tests/served.rs</code> asserts a
+  refusal's status against the same directory over a real port, and
+  <code>crates/sutura-http/src/harness.rs</code> asserts the envelope per status in process for <strong>ten</strong> of the
+  seventeen reasons, the seven it does not reach being <code>DimensionNotFilterable</code>,
+  <code>PlanSpansTooManySources</code>, <code>FederationLinkAmbiguous</code>, <code>MeasureDoesNotFederate</code>,
+  <code>PlanTablesShareAnIdentifier</code>, <code>ResourcesExhausted</code> and <code>CredentialUnavailable</code> - each of which
+  needs a fixture the default pair cannot produce. So the exhaustive claim is the unit table's, not
+  the transport harness's.</li>
 <li><strong>The agent prompt still tells an agent a refusal is a successful call.</strong> That is true at the tool
   level, where <code>sutura_app::prompt</code> speaks; over HTTP it is no longer true of the status. Whether the
   prompt should mention a transport at all is a separate decision.</li>
