@@ -54,7 +54,7 @@ fn dataset(name: &str, table: &str, columns: &[&str], description: &str) -> Data
 
 /// The two models and one relationship the recorded corpus carries, plus one certified metric.
 ///
-/// Since issue #202 the corpus carries a metric with the deployment-defined `sutura.*` content,
+/// Since issue #202 the corpus carries a metric with the deployment-defined `sutura` property,
 /// because the adapter now DECLARES it provides metrics and a declaration measured against a
 /// bundle that carried none would be aspirational. The metric is `revenue` over `orders`.
 fn corpus() -> Snapshot {
@@ -133,7 +133,7 @@ fn the_bundle_of_models_and_one_certified_metric_loads_and_validates() {
 /// `MetadataCapabilities::produced` reads what the bundle actually carries, and
 /// `checked_against` compares it in BOTH directions to what the adapter declared. The declaration
 /// now includes `Metrics` and `Grains`, the bundle here carries one certified metric with a grain,
-/// and the pair agrees. A metric with no `sutura.*` content is absent from this bundle, which is
+/// and the pair agrees. A metric with no `sutura` property is absent from this bundle, which is
 /// the other half of the claim: `DataHub` `provides metrics for a metric that carries the custom
 /// shape`.
 #[test]
@@ -155,7 +155,7 @@ fn it_declares_metrics_and_the_bundle_carries_one() {
 /// `docs/adr/0016` decision 4: `MetricInfo.expression` is a promotion candidate, a string in a
 /// dialect nothing here renders, and `aggregationFunction` beside it is authored independently
 /// with nothing reconciling the two - so taking either would certify half a definition. A metric
-/// entity with no `sutura.*` content stays exactly that: the adapter decodes the aspect and does
+/// entity with no `sutura` property stays exactly that: the adapter decodes the aspect and does
 /// not convert it, and the bundle carries no metric it did not certify.
 #[test]
 fn a_metric_without_the_defined_shape_is_reported_and_not_defined() {
@@ -303,13 +303,15 @@ fn a_metric_that_does_not_hold_together_is_refused_by_its_own_defect() {
     );
 }
 
-/// A property this namespace does not define, written where an operator would write it - as a
-/// key at the content's top level - is refused BY NAME, through the load path's typed error.
+/// A property this document does not define, written where an operator would write it - as a
+/// key at the content's top level - is refused BY NAME.
 ///
-/// The domain guard over the measure's own grammar is the previous test, but that one is a
-/// property inside the measure; the case an operator hits the day they write a key the namespace
-/// does not carry is the top level, and it must refuse naming the property rather than with a
-/// bare serde string.
+/// The domain guard over the measure's own grammar is the NEXT cell, and that one is a property
+/// inside the measure; the case an operator hits the day they write a key the document does not
+/// carry is the top level, and it must refuse naming the property rather than with a bare "did not
+/// decode". This asserts the refusal where the decode happens, on `SuturaProperty::assemble`;
+/// `a_key_inside_an_anchor_range_is_refused_through_the_load_path` is the cell that carries the
+/// same refusal out through `DataHubError::Sutura`, the variant `convert_metric` wraps it in.
 #[test]
 fn an_unknown_key_at_the_sutura_level_is_refused_and_named() {
     let json = r#"{
@@ -324,7 +326,7 @@ fn an_unknown_key_at_the_sutura_level_is_refused_and_named() {
         .sutura()
         .expect("the metric carries sutura content")
         .assemble()
-        .expect_err("a property the namespace does not define must not read")
+        .expect_err("a property the document does not define must not read")
         .to_string();
     assert!(message.contains("optimized"), "the refusal names the property: {message}");
 }
@@ -349,12 +351,41 @@ fn an_unsupported_sutura_property_inside_the_closed_shapes_fails_to_read() {
     assert!(message.contains("optimized"), "the refusal names the property: {message}");
 }
 
+/// The closedness reaches INSIDE an anchor's range, and the load path carries the refusal out as
+/// its own typed error.
+///
+/// Two things no other cell holds. The document's closedness used to stop one level above a range:
+/// `sutura_domain::calendar::TimeRangeInput` carried no `deny_unknown_fields`, so a key written
+/// inside `anchor.range` was discarded in silence and the metric was certified from a document
+/// nobody had read in full - the one place in this document where a typo was dropped rather than
+/// named. And the refusal is provoked through `DataHubCatalog::load` rather than on
+/// `SuturaProperty::assemble`, so [`DataHubError::Sutura`] is reached rather than assumed: it names
+/// the metric, and its source names the key.
+#[test]
+fn a_key_inside_an_anchor_range_is_refused_through_the_load_path() {
+    let json = r#"{
+            "name": "revenue",
+            "dialect": "ANSI_SQL",
+            "expression": "SUM(amount_cents)",
+            "sutura": { "string_value": "{\"model\":\"orders\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\",\"ends\":\"2026-08-01\"},\"value\":\"412345\"}}" }
+        }"#;
+    let metric: MetricAspect = serde_json::from_str(json).expect("the outer aspect decodes");
+    let corpus = corpus();
+    let snapshot = Snapshot::new(corpus.datasets().to_vec(), corpus.relationships().to_vec(), vec![metric]);
+    let error = over(snapshot).load().expect_err("a key inside a range must not read");
+    let DataHubError::Sutura { metric, cause } = &error else {
+        panic!("the scalar's refusal arrives as the load path's own error, not as {error:?}");
+    };
+    assert_eq!(metric, "revenue", "the error names the metric whose document did not read");
+    assert!(cause.to_string().contains("ends"), "the refusal names the key: {cause}");
+}
+
 /// The rest of a metric - a definitional filter, a dimension with its allowlist, an anchor and
 /// prose - rides the `sutura` property into the certified metric, which is issue #202's scope
 /// closed past the measure: `docs/adr/0011` leaves no other route by which any of these could
 /// attach to a metric this adapter defines.
 #[test]
-fn the_rest_of_a_metric_rides_the_deployment_defined_namespace() {
+fn the_rest_of_a_metric_rides_the_deployment_defined_property() {
     let corpus = corpus();
     let snapshot = Snapshot::new(
         corpus.datasets().to_vec(),
@@ -444,7 +475,7 @@ fn the_rest_of_a_metric_rides_the_deployment_defined_namespace() {
 /// for - absent or many-to-many - is still refused naming it, because the `N_N` default makes
 /// an unconsidered relationship indistinguishable from a considered one (`docs/adr/0016` decision
 /// 5). A metric DECLARING a dimension `via` such a relationship is the part that observes
-/// `Cardinality`; that is the `the_rest_of_a_metric_rides_the_deployment_defined_namespace`
+/// `Cardinality`; that is the `the_rest_of_a_metric_rides_the_deployment_defined_property`
 /// test's subject.
 fn relationship_with(cardinality: Option<Cardinality>) -> Snapshot {
     let corpus = corpus();
@@ -500,11 +531,13 @@ fn a_relationship_alone_licenses_no_dimension() {
 ///
 /// `Knowledge::assemble`'s `UndeclaredContent` guard refuses a bundle whose input carries notes
 /// for a capability the declared `KnowledgeCapabilities` do not cover - the "content for a kind
-/// it did not declare" shape. A standalone `DataHub` bundle never reaches it, because a note
-/// needs a metric for its `Referent` to name and this adapter provides no metrics; the wiring is
-/// the point here. Built and refused through the adapter's own types, so the guard is reachable
-/// the day a composed bundle feeds one in, and the failure lands as `DataHubError::Knowledge`
-/// rather than as prose.
+/// it did not declare" shape. A standalone `DataHub` bundle never reaches it, and since issue #202
+/// the reason is no longer "there is no metric for a `Referent` to name" - the corpus carries a
+/// certified one. It is that nothing here reads a knowledge aspect: the snapshot has no field for
+/// one, so `assemble` hands `Knowledge::assemble` a `KnowledgeInput::none()`. The wiring is the
+/// point here. Built and refused through the adapter's own types, so the guard is reachable the day
+/// a composed bundle feeds one in, and the failure lands as `DataHubError::Knowledge` rather than
+/// as prose.
 #[test]
 fn content_for_a_kind_it_did_not_declare_fails_the_load() {
     let model = Model::new(

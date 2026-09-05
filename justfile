@@ -768,6 +768,22 @@ doctor:
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
+# The Postgres tier, by hand: `just postgres-tier start|stop|status`.
+#
+# The same shape as `just keycloak-tier` and it exists for the same reason: a remedy that names the
+# venue for a missing service has to name a task a reader can type, and `nix/postgres-tier.nix` had
+# none - so `sutura_dev::provisioned` cited `just test` for every nix-native tier, which provisions
+# THIS one and no other. See that module; the correspondence is held by its recipe scan.
+#
+# NOT a step before committing. `just test` brings the tier up through `nix/with-tier.sh` and tears
+# down only what it started, so a tier started here survives a suite run - which is what makes the
+# remedy's second line (`just dev-endpoint postgres`) true afterwards.
+#
+# Straight to the script rather than through `nix run`: it is in the dev shell already, which is
+# where `nix/with-tier.sh` looks for it. `checks.nextest` runs the same one from the same file.
+postgres-tier *args:
+    sutura-postgres-tier {{ args }}
+
 # ------------------------------------------------------- the compose tier ---
 #
 # One independent service instance per worktree, provisioned through xtask rather than through the
@@ -801,7 +817,7 @@ dev-up-identity:
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
-# The provisioned DataHub, asked whether it serves the surface a reader would call.
+# The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 #
 # A named task rather than a cell in the default suite, and NOT because a network is missing - the
 # `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers,
@@ -822,8 +838,11 @@ datahub-acceptance:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, the provisioned instance's"
-    echo "datahub-acceptance: reachability. It proves the VENUE and not the adapter's read path."
+    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two cells: the instance is"
+    echo "datahub-acceptance: reachable, and a document written under a property THE DEPLOYMENT names"
+    echo "datahub-acceptance: comes back and decodes into a certified metric. There is no HTTP"
+    echo "datahub-acceptance: AspectReader, so this is NOT a read path - the requests and the mapping"
+    echo "datahub-acceptance: onto the adapter's shape are in the test, not in src/."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture

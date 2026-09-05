@@ -9,8 +9,8 @@ inputs:
     required: true
   binaries:
     description: >
-      Space-separated shipped binaries, as `ci.yml`'s `BINARIES` holds them, which must stay in
-      step with `binaries` in `nix/shipped.nix`.
+      Space-separated shipped binaries, as `cross-link.yml`'s `BINARIES` holds them, which must
+      stay in step with `binaries` in `nix/shipped.nix`.
     required: false
     default: sutura sutura-serve
   result-prefix:
