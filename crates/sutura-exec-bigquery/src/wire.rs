@@ -766,9 +766,9 @@ where
 
     /// Seconds since the epoch, or a named refusal.
     ///
-    /// The one clock read in this crate. It is here rather than in the credential source because
-    /// [`AccessTokens::bearer`] takes the instant as an argument, which is what makes an expiry
-    /// testable without one.
+    /// The one clock read on the JOB path - not in the crate, which has three. It is here rather
+    /// than in the credential source because [`AccessTokens::bearer`] takes the instant as an
+    /// argument, which is what makes an expiry testable without one.
     fn now() -> Wired<u64, C::Error> {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

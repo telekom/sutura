@@ -446,6 +446,22 @@ fn a_question_carrying_sql_is_an_error_and_not_a_dropped_field() {
 }
 
 #[test]
+fn a_key_inside_a_range_is_an_error_and_not_a_dropped_field() {
+    // The same promise one level down, where it did not hold: `TimeRange` deserializes through a
+    // private input shape that carried no `deny_unknown_fields`, so a key written inside `range:`
+    // was the one key in a question that was discarded in silence. `ends:` rather than `sql:`
+    // because a typo is what actually arrives - the question above still deserialized cleanly and
+    // was answered over June, with the author's intended end date on the floor.
+    //
+    // Asserted over YAML as well as over the DataHub crate's JSON because they are different
+    // deserializers: `deny_unknown_fields` is honoured by the Deserializer, so serde_norway's
+    // behaviour is not implied by serde_json's. Not a second statement of one fact.
+    let typo = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\n  ends: 2026-08-01\n";
+    let err = serde_norway::from_str::<Query>(typo).expect_err("a key inside a range is not a field of a range");
+    assert!(err.to_string().contains("ends"), "{err}");
+}
+
+#[test]
 fn a_range_with_no_end_is_not_a_range() {
     // The reason there is no `RefusalReason::TimeRangeUnbounded`: an unbounded range does not
     // deserialize, so the refusal would be unprovokable and a variant with no test that can reach

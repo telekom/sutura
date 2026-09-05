@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Not served** | The port is built and one adapter can carry a subject credential. No published artifact opens such a source |
+| **Leg 2** - a source executing as them | **Wired in serve, not proven live** | The port, the exchanging broker and the serve composition are built: `sutura-serve`'s `bigquery` build attaches the broker, so an impersonating source is openable as the asker. **No exchanged token has ever run against a real STS and no deployment answers as an asker** - the two-grant acceptance leg cannot run without a project |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -52,12 +52,42 @@ proof of impersonation.
 - **Recording is not a control**, and the field's own documentation says so: it reaches a caller
   after the rows did. sutura retains nothing, so a record is worth what the deployment's sink is
   worth.
-- **`Expiry` is read by nothing.** The domain has no clock; `docs/adr/0008` part 6 puts the floor in
-  the broker adapter.
-- **The caller's assertion is carried and unread.** `RequestContext` holds it as an
-  `Option<Secret>`, and the shipped broker never reads it. `docs/adr/0014` Decision 3 is still open
-  about which document each inbound mode retains to fill it. That field is also why
-  `RequestContext` drops `PartialEq`/`Eq`: `==` on credential material is a timing oracle.
+- **`Expiry` used to be read by nothing; the FLOOR now lands it in the broker.** The domain reads no
+  clock - `Expiry::passed_by` takes the instant as an argument and `Minted::agreeing_with` makes the
+  already-dead check there. The FLOOR (`docs/adr/0008` part 6) - *is there enough life left for what
+  this query may take* - lives in the broker adapter, the component that has the configured query
+  timeout: `WorkloadIdentityBroker::with_floor` refuses an exchanged credential already inside the
+  floor rather than presenting it. The `sutura-serve` composition wires the floor from
+  `server.request_timeout_seconds`.
+- **The broker's clock is a port, not an ambient read**, and the reason is a measured one: while it
+  was `SystemTime::now()` inside `mint`, the broker suite minted a fixed 2027 expiry against the
+  live clock and was therefore *scheduled* to go red in early 2027 - a failure nobody would have
+  been looking for. `UnixClock` makes the instant an input (`SystemClock` ships, `measured_against`
+  is how a test names one), so the floor's decision is asserted at instants decades out. Two of its
+  three arms are that a mint *does not ask the time*: a purely shared mint and a broker with no
+  floor. Those are held by a clock that always fails, plus a third test firing the same clock
+  through a floor that can, so the pair cannot pass vacuously. **The narrower shape this is not:**
+  every other time-dependent API here takes the instant as a *parameter*, which is better and is
+  unavailable while `CredentialBroker::mint` carries none - widening that domain port reaches ten
+  implementors across eight crates.
+- **The floor's absence is `None`, never a zero.** `Option<NonZeroU64>`, because the sentinel
+  version needed the same "is there a floor" test in `mint` *and* in `clears_floor`, each with a
+  paragraph promising the two would not drift. `with_floor` is the one place a zero is read, and the
+  served path cannot reach it: `RequestTimeout::parse` already refuses a zero timeout. With no floor
+  the adapter refuses nothing - not even an already-past expiry, which is the domain's
+  `Expiry::passed_by` at the leg.
+- **The floor asks `Expiry::passed_by` rather than comparing, and the boundary is why.** It once
+  wrote its own `unix >= now + floor`, a second deadline comparison beside the domain's - which
+  counts the boundary second as PASSED on purpose, since `not_after` is whole seconds. The two
+  disagreed the wrong way: a credential with *exactly* the floor left was granted here and then
+  called expired by the domain at the last instant of the budget it had just cleared. A second
+  comparison next to a documented one is the defect, not the off-by-one.
+- **The caller's assertion is carried, and whether it is read depends on the broker.** `RequestContext`
+  holds it as an `Option<Secret>`; `WorkloadIdentityBroker` exchanges it (a subject with none at an
+  impersonating source is refused as `credential_unavailable`), while `StaticCredentialBroker` never
+  reads it. `docs/adr/0014` Decision 3 is still open about which document each inbound mode retains to
+  fill it. That field is also why `RequestContext` drops `PartialEq`/`Eq`: `==` on credential material
+  is a timing oracle.
 
 ## Leg 1, and the four things it does not answer
 
@@ -90,34 +120,42 @@ documents `docs/adr/0014` describes are not served; and scopes decide **operatio
 
 ## Brokers
 
-`StaticCredentialBroker` mints what an operator declared and is **the one every shipped binary
-builds**. It holds an entry only for a source declared shared, so an impersonating source gets
-nothing and the question is refused rather than answered as the process.
+`StaticCredentialBroker` mints what an operator declared and is **the one every non-`bigquery` build
+uses** (and the `sutura` command's). It holds an entry only for a source declared shared, so an
+impersonating source gets nothing and the question is refused rather than answered as the process.
 
 `WorkloadIdentityBroker` is the first broker that **exchanges** (RFC 8693) rather than minting from
 configuration, and it is the reason `RequestContext` carries an assertion at all. Two maps by
 source, so one plan reading a shared source and an impersonating one is served by one broker; one
-`Expiry` for the whole answer, the earliest across everything minted.
+`Expiry` for the whole answer, the earliest across everything minted, and a floor wired from the
+query timeout. `sutura-serve`'s `bigquery` build composes it for a deployment with an impersonating
+source, carrying both shapes.
 
 A broker that could not be **reached** is not a refusal: that is `SurfaceFailure::Broker` and
 `503 identity_unavailable`, which shares its status with a dead data system and not its code.
 
-## Built and not wired - do not cite as leg 2
+## Wired in serve, and the two things it is still not
 
 - The BigQuery adapter declares a per-subject credential and sends the asker's token as its job's
   own bearer, decided **once before anything is built or sent** - the asker's where the leg carried
   one, otherwise the source's own, never both, which is what keeps two concurrent subjects apart at
   that seam. The expiry guard stays on the source's own credential, because a subject's token was
   already checked by the broker that minted it.
-- **The composition root refuses that posture BY NAME** while no exchanging broker is attached to a
-  served source. That is a COMPOSITION fact and not a capability one, which is why it is an `if` in
-  the root rather than a `deliverable_by` arm - the capability check *passes* that adapter.
+- **`sutura-serve` attaches the exchanging broker** to a served `bigquery` source with a declared
+  `workload_identity`, so an impersonating source is no longer refused by name - it is opened and
+  answers as the asker. The `sutura` command (`mcp`/`query`) still refuses by name, because it
+  attaches only `StaticCredentialBroker`; the two roots are separate binaries and the CLI's
+  attaching half is not built. A forgotten attachment cannot silently read every row as the
+  deployment: the port refuses a source the broker holds neither half for as `credential_unavailable`.
 - The exchange has never run against a real STS. No live token has been exchanged, and no answer any
   deployment produced was evaluated under an asker.
-- `CredentialUnavailable` is therefore unreachable end to end on the shipped binary. What provokes it
-  is the broker asked directly, `answer` with a refusing broker, and the request path through the
-  assembled router - which narrows the limit rather than lifting it: what is shown is that the
-  transport reaches the refusal, in a test deployment.
+- `CredentialUnavailable` is reachable **through the served binary** now: a served impersonating
+  source with no inbound gate answers `403 credential_unavailable` (no assertion to exchange), and a
+  caller whose exchange the provider refuses gets `503` from `SurfaceFailure::Broker`. None of that
+  is an answer *under* an asker.
 
-**What it would take:** a workload-identity pool to exchange against, and a two-grant acceptance leg
-showing two subjects reading two different row sets.
+**What it would take to call leg 2 served:** a workload-identity pool to exchange against, and a
+two-grant acceptance leg showing two subjects reading two different row sets. The scaffold for that
+leg is in `sutura-exec-bigquery`'s `tests/acceptance.rs`
+(`two_subjects_with_different_grants_read_two_different_row_sets`), `#[ignore]`d and failing rather
+than skipping when its environment is unset.

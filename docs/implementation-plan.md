@@ -1027,6 +1027,46 @@ matrix runs the oracle over the golden adapters and declaration fidelity over th
 
 ## The DataHub catalog, and what it declares it cannot do
 
+**Landed - and issue #202 spent one of the absences below rather than delivering it.** The stack
+table above is the one owner of a row's status; this note says which sentences in this section the
+tree no longer agrees with, and each correction is written where the code is rather than only here:
+
+1. **The measure is a CONDITIONAL provide, not a declared absence.** A deployment defines one
+   string-valued structured property - under a name of its own; `sutura` is the field on this
+   adapter's canonical shape, not a urn - whose scalar is a closed-vocabulary document,
+   and `sutura-catalog-datahub` reads a whole certified metric out of it - measure, time column,
+   grains, definitional filters, dimensions with their allowlists, an anchor and prose - so
+   `Metrics`, `Grains`, `RequiredFilters`, `AllowedValues`, `Anchors` and `Cardinality` are
+   **declared-and-empty may-provide** kinds rather than absences. A deployment that defined nothing
+   still loads models, prose and joins, which is what keeps the narrow deployment below true.
+   `docs/adr/0016`'s *Amendment, 2026-09-02* and its addendum are the record, and the *Does not
+   provide* sentence under this note is the pre-#202 decision for the measure.
+2. **`cardinality` is the absence that stayed**, for the reason the *Two of those absences* paragraph
+   below gives. The one way this adapter produces one is a dimension the deployment declares with a
+   `via`.
+3. **The test list below is the pre-#202 one and four of its five names do not exist.** What holds
+   the claim now is `crates/sutura-catalog-datahub`'s own suite -
+   `it_declares_metrics_and_the_bundle_carries_one`,
+   `a_metric_without_the_defined_shape_is_reported_and_not_defined`,
+   `a_ratio_and_a_count_if_are_carried_as_closed_measures`,
+   `an_unknown_key_at_the_sutura_level_is_refused_and_named`,
+   `a_relationship_alone_licenses_no_dimension` and
+   `content_for_a_kind_it_did_not_declare_fails_the_load`, over a fake reader on recorded documents.
+4. **The read path is still unbuilt; this step's first engineering question is no longer
+   unmeasured.** The only `AspectReader` outside a test is still the recorded fixture, so no
+   library code shapes a
+   request or maps a response. What `just datahub-acceptance` now measures against the provisioned
+   instance is the platform's half: a deployment can define the property under a name of its own, the
+   corpus's own document is accepted as its scalar and the served aspect decodes into the same
+   `document::MetricAspect` the fixture carries, through to the closed-vocabulary `Measure`. The cost
+   is ONE paged request per entity type, carrying `structuredProperties` and `metricInfo` inline -
+   **and that surface is search-backed, so it is not read-your-writes**: it lagged a synchronous
+   write by ~2.2 s where the by-urn read answered at once. The scalar's ceiling is the platform's
+   `keywordMaxLength`, and `SINGLE` cardinality and the declared value type are refused server-side.
+   `a_document_served_by_a_real_datahub_decodes_into_a_certified_metric` is where each of those is
+   asserted; what remains owed is the reader itself, the structural half of a live snapshot, and the
+   bearer half, which the tier leaves off.
+
 **Goal.** A `SemanticCatalog` over DataHub that gives a deployment value from the model it already
 has, and names every gap rather than leaving it to silence.
 
@@ -1076,7 +1116,7 @@ source's own instructions to point at. And nothing server-side may **match** on 
 DataHub's own roadmap goes the other way, this repository has no `PhraseNotDefined` and the agent
 states its choice in its own transcript, and 0016 names that as a fork rather than a gap.
 
-**Tests.**
+**Tests.** *The pre-#202 list - note 3 at the head of this section names what holds it now.*
 - `it_declares_it_provides_no_metrics_and_the_bundle_has_none` - declaration fidelity, from row 25.
 - `a_metric_whose_measure_is_an_expression_string_is_reported_and_not_defined`.
 - `it_declares_it_provides_no_cardinality_so_a_relationship_licenses_no_dimension`.

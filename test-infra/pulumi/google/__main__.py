@@ -25,6 +25,7 @@ never commit them. Per the repository's caller-facing rule, real project/pool
 names never belong in these files.
 """
 
+import hashlib
 import json
 
 import pulumi
@@ -44,6 +45,44 @@ group_column = cfg.require("group_column")
 # deployment; they are data, not logic.
 principal_a_rows = cfg.get("principal_a_rows") or "a"
 principal_b_rows = cfg.get("principal_b_rows") or "b"
+# They must DIFFER, and the refusal belongs HERE rather than only in the acceptance cell that reads
+# them. Equal values provision a fixture whose two row sets are identical, which the cell can only
+# report as *the policies are not enforced* - a red run blaming the data system for a line of stack
+# config. The cell refuses it too, because a stack somebody else applied is not this repository's to
+# trust; two independent refusals of one misconfiguration is the point, not a duplicate.
+if principal_a_rows == principal_b_rows:
+    raise ValueError(
+        "principal_a_rows and principal_b_rows must differ: the two row access policies would "
+        "otherwise grant the same rows, and the two-principal acceptance cell asserts they do not"
+    )
+
+# The CI legs' dataset and table, read HERE rather than beside the resources that use them, because
+# the refusal below needs all four values in one place - and this stack is the only place that sees
+# all four.
+ci_dataset = cfg.require("ci_dataset")
+ci_table = cfg.require("ci_table")
+# The policied dataset and the acceptance dataset must be DIFFERENT datasets, and until this
+# refusal that separation was four independent config keys distinct only because
+# `Pulumi.example.yaml` gives them four different placeholder values. `sync-bq-test-env.sh` asserts
+# the separation to a reader; nothing enforced it.
+#
+# What one setting costs: `BigQueryWarehouse::load_fixture` renders `CREATE OR REPLACE TABLE` over
+# the corpus leg's fixture tables, and replacing a table DROPS its row access policies - so the
+# acceptance legs would be creating and replacing tables in the dataset whose policies the
+# two-principal cell asserts on. The only thing keeping their four fixture names off the policied
+# table today is that telekom/sutura#119 suffixes them per run, which is a property of a different
+# change and not a guarantee this stack holds. It also makes `ci-bigquery-dataeditor-external` a
+# second binding of the same role for the same member on one dataset.
+#
+# Refused on the DATASET rather than on the (dataset, table) pair: tables in different datasets
+# cannot collide, so the dataset is the one condition that has to hold, and refusing it is what
+# lets the export script's comment be an assertion instead of a hope.
+if dataset_id == ci_dataset:
+    raise ValueError(
+        "dataset and ci_dataset must name different datasets: the acceptance legs render "
+        "`CREATE OR REPLACE TABLE` in ci_dataset, which drops a table's row access policies, and "
+        "the two-principal cell asserts on the policies in dataset"
+    )
 
 # The dataset location (may be a multi-region like `EU`) and the provider's COMPUTE region/zone are
 # separate: BigQuery takes its own `location`, while the GCP provider uses a compute region/zone to
@@ -148,34 +187,102 @@ table = gcp.bigquery.Table(
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset, *API_BOOTSTRAP]),
 )
 
+# The ROWS, beside the policies that select them, and that placement is a decision rather than
+# convenience. A predicate and the rows it grants are two halves of one grant: the two-principal
+# acceptance cell asserts that each principal reads exactly its own, so a grant whose rows were
+# written by a test file and whose predicate was written here would be two things to keep in step.
+#
+# It is a DML `INSERT` and never `CREATE OR REPLACE TABLE`: replacing a table DROPS its row access
+# policies, so the loader the corpus leg uses would disarm the grant the cell asserts on. That is
+# also why the cell does not seed - it has no path to an `INSERT`, deliberately.
+#
+# **It is declared BEFORE the two policies and they depend on it, which is the ordering and not the
+# scheduler's choice.** Until this, the job and the two policies were unordered siblings - each
+# depended on the table alone and the policies were bound to no name, so nothing could depend on
+# them - and pulumi created all three concurrently. `docs/adr/0017`'s eighth amendment records that
+# `INSERT` into a table that HAS row access policies was never measured (no policy could be created
+# from a developer machine to try it against), so the order in which those three ran decided whether
+# `up` took a measured path or an unmeasured one, at random. Seeding first needs no unmeasured
+# behaviour on a fresh stack.
+#
+# **What that ordering does NOT fix, and it is why the amendment now asks for a measurement rather
+# than closing the question:** the policies persist. From the second apply onwards, changing a
+# grouping value re-digests this job while both policies already exist, so the `INSERT` runs against
+# a policied table - deterministically, not as a race. If the endpoint refuses it, `up` fails on the
+# resource the cell's whole fixture depends on. `just infra-up` after a config change is the first
+# place anyone can observe that, and the amendment asks whoever gets there to record what happened.
+#
+# One row per principal is the smallest fixture the cell can distinguish: it asserts on the DISTINCT
+# grouping values each principal reads, so the rows are additive and a second run of this job (a
+# changed value re-creates it under a new id) leaves the assertion true rather than doubling a sum.
+# The dates sit inside the ten-year window the plan asks about.
+_seed_statement = (
+    f"INSERT INTO `{dataset_id}.{table_id}` (day, amount, {group_column}) "
+    f"VALUES (DATE '2026-01-01', 1, '{principal_a_rows}'), (DATE '2026-01-02', 2, '{principal_b_rows}')"
+)
+seed = gcp.bigquery.Job(
+    "seed-rows",
+    # Immutable and unique per project, so it carries a digest of the statement: change a grouping
+    # value and pulumi runs a new job rather than reporting the old one as still current.
+    #
+    # **NOT through `sutura_name`, and the reason is a length.** That helper trims to 30 characters
+    # because a service-account `account_id` is 6..30 - and trimming a JOB id would cut the digest,
+    # so two different statements under a long stack name would collide on one id and pulumi would
+    # report the old job as still current. A BigQuery job id has room for both, so it is built here
+    # rather than borrowed from the identity helper.
+    #
+    # **The direction the digest does NOT cover, stated as a claim to verify rather than as
+    # measured:** an unchanged statement over fresh state. `just infra-down` then `just infra-up`
+    # with the same config re-creates this resource under a job id the project has already seen, and
+    # a completed BigQuery job id is understood not to be reusable within a project - so the second
+    # `up` is expected to fail with an `Already Exists` on a name nobody chose. Nobody here holds a
+    # credential for that project, so this was NOT reproduced; it is written down so whoever hits it
+    # is reading a note instead of debugging BigQuery. **Deliberately not fixed with a per-apply
+    # component in the id:** that would run a fresh `INSERT` on every `up`, which is exactly the
+    # DML-on-a-policied-table path the ordering above exists to avoid taking, and it would trade a
+    # failure that names itself for one that quietly re-seeds.
+    job_id=f"{pulumi.get_stack()}-seed-{hashlib.sha256(_seed_statement.encode()).hexdigest()[:16]}",
+    location=region,
+    query=gcp.bigquery.JobQueryArgs(query=_seed_statement, use_legacy_sql=False),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, *API_BOOTSTRAP]),
+)
+
 # The isolation: principal A is granted rows where the grouping column equals A's value,
 # principal B where it equals B's. Disjoint by construction. Two separate policies (one per
 # principal) so each grant is stated on its own line. `grantees` is the IAM member shape
 # (`serviceAccount:<email>`), taken from the SA's own `member` output; the SQL filter is the
 # row predicate. This is a first-class resource since pulumi_gcp 9.x - no separate gcp CLI.
-gcp.bigquery.RowAccessPolicy(
+#
+# **Bound to names and dependent on the seed job**, so the order above is declared. Unbound, they
+# were resources nothing could be made to wait for, which is how the concurrency arose.
+rap_a = gcp.bigquery.RowAccessPolicy(
     "rap-a",
     dataset_id=dataset.dataset_id,
     table_id=table.table_id,
     policy_id="rap_a",
     grantees=[sa_a.member],
     filter_predicate=f"{group_column} = '{principal_a_rows}'",
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, seed]),
 )
-gcp.bigquery.RowAccessPolicy(
+rap_b = gcp.bigquery.RowAccessPolicy(
     "rap-b",
     dataset_id=dataset.dataset_id,
     table_id=table.table_id,
     policy_id="rap_b",
     grantees=[sa_b.member],
     filter_predicate=f"{group_column} = '{principal_b_rows}'",
-     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, seed]),
 )
 
 # To RUN a query the principals need `bigquery.jobUser` (submit jobs) and `bigquery.dataViewer`
 # (read the table at all); the two row access policies above then narrow each to its own rows.
 # Without these a job submitted as principal A/B is refused before the RLS filter is ever reached,
 # which is why the two-principal cell needed them added alongside the policies.
+#
+# **The read grant waits for BOTH policies, which is what the two bindings above are for.** A table
+# carrying no row access policy is fully visible to a `dataViewer`, so granting the read before the
+# policies exist opens a window in which either principal can read every row - on a fresh `up`, in
+# the one fixture whose entire point is that they cannot.
 for tag, sa in (("principal-a", sa_a), ("principal-b", sa_b)):
     gcp.projects.IAMMember(
         f"{tag}-jobuser",
@@ -189,7 +296,7 @@ for tag, sa in (("principal-a", sa_a), ("principal-b", sa_b)):
         dataset_id=dataset.dataset_id,
         role="roles/bigquery.dataViewer",
         member=sa.member,
-        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset]),
+        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset, rap_a, rap_b]),
     )
 
 # Keys are the long-lived bearer each CI run uses. Exported as secrets; never
@@ -235,9 +342,9 @@ gcp.bigquery.DatasetIamMember(
     member=ci_sa.member,
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset]),
 )
-# The CI legs may run against a separate, already-populated dataset (e.g. the acceptance table
-# with the two fixture rows the smoke leg asserts on). Grant the same dataEditor there.
-ci_dataset = cfg.require("ci_dataset")
+# The CI legs run against a separate, already-populated dataset (e.g. the acceptance table with the
+# two fixture rows the smoke leg asserts on) - `ci_dataset`, read at the top of this file beside the
+# refusal that keeps it a DIFFERENT dataset from the policied one. Grant the same dataEditor there.
 gcp.bigquery.DatasetIamMember(
     "ci-bigquery-dataeditor-external",
     dataset_id=ci_dataset,
@@ -245,7 +352,6 @@ gcp.bigquery.DatasetIamMember(
     member=ci_sa.member,
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
 )
-ci_table = cfg.require("ci_table")
 ci_key = gcp.serviceaccount.Key(
     "ci-key",
     service_account_id=ci_sa.email,
@@ -313,6 +419,14 @@ pulumi.export("principal_a_key", key_a.private_key)
 pulumi.export("principal_b_key", key_b.private_key)
 pulumi.export("dataset", dataset.dataset_id)
 pulumi.export("table", table.table_id)
+# The three values the two-principal cell compares an answer against: the column the policies
+# filter on, and the grouping value each policy grants. Exported because the cell asserts against
+# the POLICY's own predicate rather than against a number, so it has to be told what that predicate
+# says - and a value written into the repository instead would be a second answer to the same
+# question. They are grant data, not resource identifiers.
+pulumi.export("group_column", group_column)
+pulumi.export("principal_a_rows", principal_a_rows)
+pulumi.export("principal_b_rows", principal_b_rows)
 pulumi.export("workload_audience", audience)
 pulumi.export("ci_email", ci_sa.email)
 pulumi.export("ci_key", ci_key.private_key)

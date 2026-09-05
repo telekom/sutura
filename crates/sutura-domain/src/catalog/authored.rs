@@ -1,35 +1,44 @@
-//! The authored prose a catalog carries that no identifier parser covers: a declared value and a
-//! description.
+//! The authored prose a catalog carries that no identifier parser covers: a declared value, an
+//! anchor value, and a description.
 //!
 //! Everything else a catalog author writes into a definition is an identifier - a
 //! [`ModelName`](crate::model::ModelName), a [`ColumnName`](crate::model::ColumnName), a
 //! [`Grain`](crate::model::Grain) - and [`crate::model`]'s parser refuses everything that is not one
-//! of a few dozen ASCII bytes. These two types are not identifiers, and for a long time they were not
-//! anything: a declared dimension value and a description were `String`, straight from a YAML
+//! of a few dozen ASCII bytes. These three types are not identifiers, and for a long time they were
+//! not anything: a declared dimension value and a description were `String`, straight from a YAML
 //! document, and the only thing between a catalog file and an agent's context was that somebody had
 //! reviewed the file.
 //!
-//! **Both reach an agent-facing prompt, so both are parsed here.** A declared value is interpolated
-//! into the dimension list `sutura_app::prompt` renders and into the scope line of a caveat; a
-//! description is quoted into the same document. Neither went through a parse, so neither was held
-//! to the one rule every other piece of authored text in this crate is held to - the rule
-//! [`crate::text`] owns, that the text a reviewer reads has to be the text that runs.
+//! **All of them reach a person or an agent, so all of them are parsed here.** A declared value is
+//! interpolated into the dimension list `sutura_app::prompt` renders and into the scope line of a
+//! caveat; a description is quoted into the same document; an anchor value is printed by
+//! `sutura-cli`'s `catalog` command and interpolated into the mismatch a bundle is refused with.
+//! None went through a parse, so none was held to the one rule every other piece of authored text in
+//! this crate is held to - the rule [`crate::text`] owns, that the text a reviewer reads has to be
+//! the text that runs.
 //!
-//! **Two types, three fields**, and the count is worth stating because it was wrong here once: the
-//! header of this file used to say "the two authored strings", and a
-//! [`RequiredFilter`](crate::measure::RequiredFilter)'s value was a third one, on the same wired path,
-//! with no parse on it. It is a [`DimensionValue`] now - the same type as a declared value, for the
-//! reason that type's documentation gives about the two sides of one comparison - so the sentence and
-//! the code agree again. A field counted as covered by the type it does not use is the failure mode a
+//! **Three types, four fields**, and the count is worth stating because it has been wrong here
+//! twice. The header used to say "the two authored strings" while a
+//! [`RequiredFilter`](crate::measure::RequiredFilter)'s value was a third one with no parse on it;
+//! then it said "two types, three fields" while an
+//! [`Anchor`](super::Anchor)'s value was a fourth, `pub const fn new(range, value: String)` straight
+//! from both adapters. A field counted as covered by the type it does not use is the failure mode a
 //! header sentence has, and the remedy is that the types are what is enumerated here.
+//!
+//! **One character rule, one implementation.** `authored_scalar` is it, and
+//! [`DimensionValue::parse`] and [`AnchorValue::parse`] are both a call to it plus their own
+//! storage. A second copy of a rule is how two copies come to disagree - which is the shape of the
+//! defect [`super::Metric`] carried in the other direction, one content read into two different
+//! [`Definitions`](super::Definitions) - so the rule is a function and not a paragraph asking the
+//! next author to keep two parsers in step.
 //!
 //! # Why a separate file
 //!
 //! `cargo xtask max-lines` fails at a thousand lines under `crates/` and cannot be exempted, and
-//! [`super`] plus these two types with their refusals is over it. The seam is a real one rather than
-//! a place the file happened to be cut: [`super`] is what a catalog SAYS and where its
-//! cross-references are checked, and this is the character-level parse of the two fields in it that
-//! are prose rather than structure. The names stay where they were - a caller still writes
+//! [`super`] plus these types with their refusals is over it. The seam is a real one rather than
+//! a place the file happened to be cut: [`super`] is what a catalog SAYS, `super::consistency` is
+//! whether it holds together, and this is the character-level parse of the fields in it that are
+//! prose rather than structure. The names stay where they were - a caller still writes
 //! `sutura_domain::catalog::DimensionValue` - because the module is the unit of API and the files are
 //! not. Same arrangement as [`crate::knowledge`]'s `note` and `bundle`.
 
@@ -94,6 +103,11 @@ pub struct DimensionValue(String);
 
 /// Why a value was rejected.
 ///
+/// **The refusal of the shared `authored_scalar` rule, so it is also [`AnchorValue`]'s.** It keeps this name
+/// because the rule is this type's rule and every adapter that matches on it already spells it;
+/// renaming it for the second caller would be churn across the workspace for a word. Whoever names
+/// the field says which field - the anchor value's own callers carry this as a `source`.
+///
 /// Every variant carries the offending text, unlike [`InvalidDescription`], and the asymmetry is the
 /// one [`crate::knowledge::InvalidPhrase`] and [`crate::knowledge::InvalidNoteBody`] already make: a
 /// value is at most [`MAX_DIMENSION_VALUE_CHARS`] characters, so naming it is what sends an author to
@@ -138,47 +152,121 @@ pub enum InvalidDimensionValue {
 
 impl DimensionValue {
     /// Parses a value, refusing anything that is not one. Normalises nothing.
-    ///
-    /// The order of the checks is the order the messages should arrive in, and it is deliberate
-    /// rather than incidental: emptiness first because it is the most accurate thing to say about
-    /// nothing, then the two character sets - control before invisible, so a newline is reported as a
-    /// newline - then spacing, then the length. Reversing any pair would report a true fault under a
-    /// less useful name.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDimensionValue> {
         let raw = raw.as_ref();
-        if raw.is_empty() {
-            return Err(InvalidDimensionValue::Empty);
-        }
-        if raw.chars().any(char::is_control) {
-            return Err(InvalidDimensionValue::ControlCharacter {
-                value: String::from(raw),
-            });
-        }
-        if let Some(offending) = first_invisible(raw) {
-            return Err(InvalidDimensionValue::InvisibleCharacter {
-                value: String::from(raw),
-                code: u32::from(offending),
-            });
-        }
-        if has_unreadable_spacing(raw) {
-            return Err(InvalidDimensionValue::Spacing {
-                value: String::from(raw),
-            });
-        }
-        let len = raw.chars().count();
-        if len > MAX_DIMENSION_VALUE_CHARS {
-            return Err(InvalidDimensionValue::TooLong {
-                value: String::from(raw),
-                len,
-                limit: MAX_DIMENSION_VALUE_CHARS,
-            });
-        }
+        authored_scalar(raw)?;
         Ok(Self(String::from(raw)))
     }
 
     #[inline]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// The character rule an authored scalar is held to, with nothing about which field holds it.
+///
+/// The order of the checks is the order the messages should arrive in, and it is deliberate rather
+/// than incidental: emptiness first because it is the most accurate thing to say about nothing, then
+/// the two character sets - control before invisible, so a newline is reported as a newline - then
+/// spacing, then the length. Reversing any pair would report a true fault under a less useful name.
+///
+/// It returns `()` and not a value, so a caller keeps its own storage and neither type wraps the
+/// other. That is what lets [`AnchorValue`] share the rule without sharing the name, and it is what
+/// keeps both of them the newtype-over-`String` shape `cargo xtask check-serde-parse` can see
+/// through: a newtype around another newtype reads one shape and writes another as far as a scan is
+/// concerned, and a gate that has to be argued with is a gate somebody disables.
+fn authored_scalar(raw: &str) -> Result<(), InvalidDimensionValue> {
+    if raw.is_empty() {
+        return Err(InvalidDimensionValue::Empty);
+    }
+    if raw.chars().any(char::is_control) {
+        return Err(InvalidDimensionValue::ControlCharacter {
+            value: String::from(raw),
+        });
+    }
+    if let Some(offending) = first_invisible(raw) {
+        return Err(InvalidDimensionValue::InvisibleCharacter {
+            value: String::from(raw),
+            code: u32::from(offending),
+        });
+    }
+    if has_unreadable_spacing(raw) {
+        return Err(InvalidDimensionValue::Spacing {
+            value: String::from(raw),
+        });
+    }
+    let len = raw.chars().count();
+    if len > MAX_DIMENSION_VALUE_CHARS {
+        return Err(InvalidDimensionValue::TooLong {
+            value: String::from(raw),
+            len,
+            limit: MAX_DIMENSION_VALUE_CHARS,
+        });
+    }
+    Ok(())
+}
+
+/// The number a metric is expected to produce, as the text that number is compared as.
+///
+/// **The last authored scalar that entered this crate unparsed.** An
+/// [`Anchor`](super::Anchor)'s value was a `String` behind `pub const fn new`, written by both
+/// catalog adapters and read back by `sutura-cli`'s `catalog` command and by
+/// [`NotValidated::AnchorMismatch`](crate::pinned::NotValidated::AnchorMismatch) - a line an
+/// operator reads to decide whether a bundle still means what it claimed. So it is the same channel
+/// [`DimensionValue`] closed for a declared value and a definitional filter, arriving at a fourth
+/// field: a right-to-left override or a no-break space inside the certified number made the printed
+/// line and the compared text two different things, with nothing downstream able to tell.
+///
+/// **Held to [`DimensionValue`]'s rule by calling it, not by restating it**, and that includes the
+/// length: the cap is [`MAX_DIMENSION_VALUE_CHARS`] rather than a number of this type's own, for the
+/// reason [`MAX_DESCRIPTION_BYTES`] gives about two constants derived from one measurement. 64
+/// characters is three times the longest decimal an `i64` can render, so no number a data system can
+/// return is refused by the length alone. **A long enough STRING scalar would be** - the type does
+/// not require the text to read as a number, see below - and 64 characters is where an anchor over
+/// prose stops being certifiable. That bound is the declared value's and is deliberately not
+/// widened for this caller.
+///
+/// **The refusal is [`InvalidDimensionValue`] and not a type of its own**, because it would be a
+/// second name for the same five faults and would say nothing the shared rule does not. The *anchor*
+/// framing belongs to whoever names the field - `sutura_catalog_local`'s
+/// `InvalidMetricDocument::AnchorValue` names the metric and carries this as its `source`, which is
+/// the arrangement `NotValidated::AnchorNotExecuted` already uses.
+///
+/// **What it is deliberately NOT:** a number. The value is text because it is compared against the
+/// canonical rendering of what the data system returned, and a float would make the comparison
+/// depend on how two languages happen to print the same bits - the argument
+/// [`Anchor`](super::Anchor) already carried and this type does not weaken. Nothing here checks that
+/// the text reads as a number, and a check that did would be this type refusing an anchor over a
+/// string measure.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// Same reason as `DimensionValue`'s: without this the derived `Deserialize` writes straight into the
+// private field. `sutura_catalog_datahub`'s `SuturaAnchor` deserializes this type directly, so the
+// route is live; the markdown adapter parses one step after its own decode, for the `untagged`
+// reason stated there.
+#[serde(try_from = "String")]
+pub struct AnchorValue(String);
+
+impl AnchorValue {
+    /// Parses an anchor value, refusing text a reader could not check a number against.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDimensionValue> {
+        let raw = raw.as_ref();
+        authored_scalar(raw)?;
+        Ok(Self(String::from(raw)))
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Delegates to [`AnchorValue::parse`], for the reason [`DimensionValue`]'s own `TryFrom` gives.
+impl TryFrom<String> for AnchorValue {
+    type Error = InvalidDimensionValue;
+
+    fn try_from(raw: String) -> Result<Self, Self::Error> {
+        Self::parse(raw)
     }
 }
 

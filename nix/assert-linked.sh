@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ASSERT that a link check's output is an executable for the CPU the triple names.
 #
-# **`file` is a READOUT, not an assertion, and both `ci.yml` link steps used it as one.** Measured:
+# **`file` is a READOUT, not an assertion, and both link steps used it as one.** Measured:
 # `file /nonexistent-path-xyz` prints ``cannot open `/nonexistent-path-xyz'`` and exits **0**. So a
 # step whose only check beside `nix build` is `file` stays green when the executable it names is
 # absent or misnamed - and the feature-probe step reads that name out of a manifest, which is

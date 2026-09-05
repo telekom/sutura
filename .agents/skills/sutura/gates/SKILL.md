@@ -258,14 +258,14 @@ therefore does not see.
   `grep -c '^#\[test\]$'` answers zero for tests in an indented inline `mod tests`. One figure in
   this repo was wrong six times. Write the command and the date, or delete the number.
 - **A READOUT under a comment claiming it is an assertion, which is the cheapest version of this
-  whole class.** Both `ci.yml` link-check steps ended in `file <path>`, and the older one said so:
-  *"Proves the arch, not just the exit code."* It proves neither. Measured: `file` on a path that
-  does not exist prints ``cannot open`` and **exits 0**, and nothing compared its answer to the
-  triple - so a renamed or missing executable was green, and the feature-probe step reads that name
-  out of a manifest. `nix/assert-linked.sh` asserts the two things the sentence claimed and names
-  the one it still does not (the libc half, unmeasured, so a musl target linked dynamically
-  passes). **The transferable question:** for every command a step runs for its side effect, ask
-  what its EXIT CODE is a function of. `file`, `echo`, `grep -c` and any `| head` answer zero on
+  whole class.** Both of the cross link check's steps ended in `file <path>`, and the older one
+  said so: *"Proves the arch, not just the exit code."* It proves neither. Measured: `file` on a
+  path that does not exist prints ``cannot open`` and **exits 0**, and nothing compared its answer
+  to the triple - so a renamed or missing executable was green, and the feature-probe step reads
+  that name out of a manifest. `nix/assert-linked.sh` asserts the two things the sentence claimed
+  and names the one it still does not (the libc half, unmeasured, so a musl target linked
+  dynamically passes). **The transferable question:** for every command a step runs for its side
+  effect, ask what its EXIT CODE is a function of. `file`, `echo`, `grep -c` and any `| head` answer zero on
   inputs a reader would call a failure.
 - **A refusal that is weaker than the claim it defends, and the tell is a quantifier.** The same
   step refuses an EMPTY probe manifest, which reads as *a probe cannot silently disappear* and is
@@ -274,6 +274,18 @@ therefore does not see.
   closes it is a second declaration that must agree - here `cargo xtask check-shipped-binaries`
   reconciling `nix/shipped.nix`'s `probeFeatures` against the `cargo build --features` a page
   documents, failing closed when no page documents one at all.
+- **A verdict's rules can hold its SPELLING while nothing holds its TRANSITION, and the second is
+  usually what the sentence beside it promises.** `check-venues`' `unrun` arrived with three rules -
+  the word is in the vocabulary, a `not built` venue may not claim it, the venue's section must use
+  it - and all three read the page. Nothing read whether a run had happened, so *the change that
+  carries the first green run moves this cell* was, still, a sentence nothing read. The failure is
+  silent and permanent: wire the leg into a job, watch it go green on every push, and the page goes
+  on telling its next reader that nothing has run it with every gate green. **The question to ask
+  of any state token: what reads the thing that makes it STOP being true?** Here the answer was in
+  reach - a workflow invoking the venue's `Reached by` task - and the rule that closed it is
+  deliberately one-sided, because an invocation is not a green run and the authority for *did this
+  pass* is unreachable from the sandbox the gate runs in. A one-sided rule that names its side is
+  worth more than a two-sided one nobody can implement.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
@@ -317,6 +329,15 @@ build", "the base run named no failure", "not separable" and "every added test i
 the last three ask for evidence instead: the command you ran, the failure before, the pass after.
 Everything else fails, and the three that fail are the three where the gate has no answer rather
 than a bad one: green against base, red outside the diff, and the added tests not running at all.
+
+**Reconstructing that evidence for "not separable": restore the base's OUTPUT, not its code.** The
+obvious move - paste the base file's implementation half under the head file's tests - does not
+compile whenever the base spells its private items differently, which is usual for a change that
+introduced one. Measured on #268: the base module had no `Venue::advice` for the tests to call. What
+is behaviourally the base is the STRING each arm produced, so put those back into the head
+structure, `git checkout <base> -- <the non-test files the diff also touched>`, and run `just test`:
+the failures name themselves and an unrelated red is visible as one. Revert nothing and the run
+over-reports green - a justfile recipe the head added is what one of the assertions reads.
 
 **What it could not tell apart until #278.** The base run was the whole suite and any assertion
 failure counted, so with fail-fast one unrelated cell was the entire verdict and the tests under

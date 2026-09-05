@@ -7,11 +7,13 @@
 //! reviewer read.
 //!
 //! In `tests/support/mod.rs` rather than `tests/support.rs` so cargo does not build it as a test
-//! target of its own. It is shared by both legs, which is why **nothing in it is target-specific**:
-//! `dead_code` is `deny` in the workspace lint table, so an item only one target used would fail the
-//! build of the other. `SUTURA_BQ_TABLE` is therefore read by `acceptance.rs` and not here - the
-//! corpus leg creates its own tables and has no use for it - while [`named`] is here, because both
-//! legs reach it.
+//! target of its own. It is shared by all three legs, which is why **nothing in it is
+//! target-specific**: `dead_code` is `deny` in the workspace lint table, so an item only one target
+//! used would fail the build of the others. `SUTURA_BQ_TABLE` is therefore read by `acceptance.rs`
+//! and not here - neither other leg has a use for it - while [`named`] is here, because all three
+//! reach it. **The same lint is why [`opened_as`] exists beside [`opened`] rather than as a fourth
+//! parameter on it**: only the two-principal cell opens an impersonating source, and `opened`
+//! delegating keeps both live everywhere.
 //!
 //! # The three values, and where each comes from
 //!
@@ -182,9 +184,24 @@ pub(crate) fn presented() -> Presented {
 /// inside the request-derived share, which is around twelve seconds. So the caller decides, and the
 /// corpus leg gives its loader a deadline of its own while keeping the money ceiling identical.
 pub(crate) fn opened(source: SourceName, connection: Connection, bounds: JobBounds) -> Wired {
+    opened_as(source, posture(), connection, bounds)
+}
+
+/// The same composition under a posture the caller names.
+///
+/// **Its own function rather than a fourth parameter on [`opened`], because of the lint that shapes
+/// this module.** A shared test module is compiled once per target and `dead_code` is `deny`, so an
+/// item only one target used would fail the build of the others - and only the two-principal cell
+/// opens an `impersonation-at-source` source. [`opened`] delegates here, so both are live in every
+/// target that declares this module.
+///
+/// What it buys over a second copy in that cell: **one place builds the wire**, so the money ceiling
+/// and the deadline reach every leg the same way. A copy that drifted by a digit would be a leg
+/// billing differently from the one a reviewer read, which is this module's own opening argument.
+pub(crate) fn opened_as(source: SourceName, posture: SourcePosture, connection: Connection, bounds: JobBounds) -> Wired {
     BigQueryWarehouse::new(
         source,
-        posture(),
+        posture,
         connection.billing_project,
         connection.dataset,
         BigQueryWire::new(WireAgent::pinned(bounds), connection.credentials),

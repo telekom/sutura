@@ -359,12 +359,13 @@ Three things follow, and they are the reason this section exists rather than a s
   of the measurement. Reading upstream source confirmed that the explanation *could* be true; it
   could not confirm that it *was*.
 
-### Why the check lives in `ci.yml` as well
+### Why the check lives on the pull request as well
 
-`ci.yml`'s `cross` job runs both readers over each of the four shipped binaries on every pull
-request. **It earned its place immediately: it is what caught the broken assertion**, on the pull
-request, before a release depended on it - and `release.yml`'s own version of that check would have
-failed every release with the counting bug in it.
+`.github/workflows/cross-link.yml`'s link matrix - `ci.yml`'s `cross` job is the caller that gates
+it - runs both readers over each of the four shipped binaries on every pull request. **It earned its
+place immediately: it is what caught the broken assertion**, on the pull request, before a release
+depended on it - and `release.yml`'s own version of that check would have failed every release with
+the counting bug in it.
 
 Two readers rather than one, because they answer different questions: `rust-audit-info` says *is the
 section there*, `syft` says *can the release path's reader turn it into an inventory*. The run where

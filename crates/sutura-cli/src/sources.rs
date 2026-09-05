@@ -416,10 +416,11 @@ fn bundle_naming(source: &str) -> PinnedDefinitions {
         Vec::new(),
         column("signed_at"),
         std::collections::BTreeSet::from([Grain::Month]),
-        std::collections::BTreeMap::new(),
+        Vec::new(),
         None,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     pin(Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent"))
 }
 

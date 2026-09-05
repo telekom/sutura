@@ -1,4 +1,4 @@
-//! Tests for the two parsed strings in [`super`], one per refusal and one per bound.
+//! Tests for the parsed strings in [`super`], one per refusal and one per bound.
 //!
 //! A file rather than an inline `mod tests`, for the reason [`super`] is a file: the module plus
 //! these cases is over the thousand-line limit `cargo xtask max-lines` enforces.
@@ -8,8 +8,8 @@
 //! cannot have: a typo in a range bound is invisible to a test that only tries `U+200B`.
 
 use super::{
-    Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES,
-    MAX_DIMENSION_VALUE_CHARS,
+    AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
+    MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 
 /// Both ends of all seven ranges [`crate::text::is_invisible`] names.
@@ -165,6 +165,89 @@ fn the_deserialization_path_is_the_one_constructor() {
         Err(InvalidDimensionValue::InvisibleCharacter {
             value: String::from("nor\u{200B}th"),
             code: 0x200B,
+        })
+    );
+}
+
+// ------------------------------------------------------------------ AnchorValue ----
+
+/// The rule is shared by calling it, so the anchor value refuses what a declared value refuses.
+///
+/// One case per fault rather than a copy of every range sweep above: what is asserted here is that
+/// `authored_scalar` is reached, not the rule's own edges - those have their own tests, over the one
+/// implementation. A second sweep would be a second thing to keep true, which is what the shared
+/// function exists to prevent.
+#[test]
+fn an_anchor_value_is_held_to_the_declared_values_rule() {
+    assert_eq!(
+        AnchorValue::parse("197122").expect("a rendered number is a value").as_str(),
+        "197122"
+    );
+    assert_eq!(AnchorValue::parse(""), Err(InvalidDimensionValue::Empty));
+    assert_eq!(
+        AnchorValue::parse("1971\u{200F}22"),
+        Err(InvalidDimensionValue::InvisibleCharacter {
+            value: String::from("1971\u{200F}22"),
+            code: 0x200F,
+        })
+    );
+    assert_eq!(
+        AnchorValue::parse("197122\n"),
+        Err(InvalidDimensionValue::ControlCharacter {
+            value: String::from("197122\n"),
+        })
+    );
+    assert_eq!(
+        AnchorValue::parse(" 197122"),
+        Err(InvalidDimensionValue::Spacing {
+            value: String::from(" 197122"),
+        })
+    );
+}
+
+/// The cap is the declared value's cap, not one of this type's own.
+///
+/// Both ends, and the lower end is what the assertion is for: an anchor is a rendered number and the
+/// longest `i64` is 20 characters, so a cap that refused anything a data system can return as a
+/// scalar would be a bound that breaks a legitimate catalog.
+#[test]
+fn an_anchor_values_length_bound_is_the_declared_values() {
+    let longest_i64 = i64::MIN.to_string();
+    assert_eq!(longest_i64.len(), 20);
+    drop(AnchorValue::parse(&longest_i64).expect("the longest i64 renders well inside the cap"));
+
+    let at = "9".repeat(MAX_DIMENSION_VALUE_CHARS);
+    drop(AnchorValue::parse(&at).expect("the cap itself is legal"));
+    let over = "9".repeat(MAX_DIMENSION_VALUE_CHARS.saturating_add(1));
+    assert_eq!(
+        AnchorValue::parse(&over),
+        Err(InvalidDimensionValue::TooLong {
+            value: over,
+            len: MAX_DIMENSION_VALUE_CHARS.saturating_add(1),
+            limit: MAX_DIMENSION_VALUE_CHARS,
+        })
+    );
+}
+
+/// A document's `value:` goes through `parse`, not into the private field.
+///
+/// `sutura_catalog_datahub`'s `SuturaAnchor` deserializes this type, so the `try_from` is the route
+/// a deployment-defined property's anchor value actually takes. The markdown adapter does NOT -
+/// its `AnchorLiteral::Text` stays a `String` and parses one step later, because `untagged` erases
+/// the cause - so this case covers one of the two adapters and the other one's is in its own file.
+/// Same assertion, and same reason, as the declared value's above.
+#[test]
+fn an_anchor_values_deserialization_path_is_the_one_constructor() {
+    assert_eq!(
+        AnchorValue::try_from(String::from("197122"))
+            .expect("a rendered number is a value")
+            .as_str(),
+        "197122"
+    );
+    assert_eq!(
+        AnchorValue::try_from(String::from("197\u{00A0}122")),
+        Err(InvalidDimensionValue::Spacing {
+            value: String::from("197\u{00A0}122"),
         })
     );
 }

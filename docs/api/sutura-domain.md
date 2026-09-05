@@ -622,8 +622,9 @@ metrics assembles, pins and validates. What is not legitimate is a bundle that d
 declaration, and that is `MetadataCapabilities::checked_against`'s to report.
 
 **`conditional` is 0011's *declared-and-empty* state, and it is separate from `declared` on
-purpose.** A source maps a schema the deployment authors (datahub's `sutura.*` namespace is the
-first), so whether a KIND is produced is a property of the deployment rather than of the code:
+purpose.** A source maps a schema the deployment authors (datahub's deployment-defined
+structured property is the first), so whether a KIND is produced is a property of the deployment
+rather than of the code:
 the adapter declares the kind, and a bundle that carries none is a faithful bundle rather than an
 aspirational declaration. `Self::of_may_provide` is what such an adapter writes. Everything
 else - the reference adapter, the goldens, an adapter over a fixed external schema - declares
@@ -707,8 +708,9 @@ pub fn of_may_provide(kinds: impl IntoIterator<Item>) -> Self
 
 The kinds a provider may supply, where the deployment decides which a bundle carries.
 
-**What a source whose content is deployment-authored writes** - datahub's `sutura.*`
-namespace - where the adapter can carry a kind but every given bundle may carry none of it.
+**What a source whose content is deployment-authored writes** - datahub's
+deployment-defined structured property - where the adapter can carry a kind but every given
+bundle may carry none of it.
 The kinds are declared (the *not declared* direction still catches content), and absent from
 a bundle is a faithful bundle rather than an aspirational declaration.
 
@@ -1117,10 +1119,17 @@ The value is text rather than a float on purpose. It is compared against the can
 of what the data system returned, and a float would make the comparison depend on how two
 languages happen to print the same bits.
 
+**Text, and now parsed text.** It was a `String` behind a `const` constructor written by both
+catalog adapters, which made it the one authored scalar that entered this crate with no character
+rule on it - see `AnchorValue` for the channel that closes and what it deliberately still does
+not check. No `Deserialize`: nothing deserializes an `Anchor`, because each adapter deserializes
+its own document shape and converts, so the derive was a public surface with no caller and one
+more path into a private field.
+
 #### Methods
 
 ```rust
-pub const fn new(range: TimeRange, value: String) -> Self
+pub const fn new(range: TimeRange, value: AnchorValue) -> Self
 ```
 
 ```rust
@@ -1131,9 +1140,16 @@ pub const fn range(&self) -> TimeRange
 pub fn value(&self) -> &str
 ```
 
+The certified number as text.
+
+A `&str` rather than a `&AnchorValue`, because every caller either compares it against a
+rendered cell or prints it - and both want the text. **Whoever prints it uses `{:?}`**, for
+the reason `RequiredFilter`'s `Display` gives: quoting is what makes spacing visible in a
+line a person reads to decide whether a metric still means what it claimed.
+
 #### Implements
 
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct Metric`
 
@@ -1178,8 +1194,64 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub const fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: Description) -> Self
+pub fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
 ```
+
+A certified metric, or a refusal if two of its dimensions answer to one label.
+
+**Takes a `Vec<Dimension>` and returns a `Result`, and the argument for that is already
+written one level up.** `Definitions::assemble`: *"Takes vectors rather than maps so the
+duplicate checks are ours: a caller that built a map first has already silently dropped one
+of a duplicated pair."* This constructor took a map, so the check was not ours, and the two
+shipped adapters had answered the question differently - `sutura_catalog_local` refused a
+duplicate and `sutura_catalog_datahub` collected into a map and kept the last. One content,
+two `Definitions`. The module header above says two adapters reading the same content must
+produce the same one or one of them is wrong, and the golden suite could not see it because
+no fixture declares a duplicate.
+
+**A vector makes the bypass a compile error rather than a rule**, which is why the signature
+changed instead of a check being added beside the old one: an adapter cannot collapse the
+pair before this point any more, because there is nowhere earlier for it to collapse it. The
+field stays a `BTreeMap` - the digest is taken over the serialized form and every reader
+looks a dimension up by name - so the difference between the parameter and the field is the
+whole mechanism.
+
+**One scan and two refusals, because a duplicate and a folded pair are one rule.** The
+comparison is `IdentifierCase::COARSEST`, which is true of two identical spellings too, so
+an exact repeat is the special case and is named as one:
+`InconsistentDefinitions::DuplicateDimension` says *declares dimension `region` twice*,
+which is what an author needs to read, and
+`InconsistentDefinitions::TwoDimensionsOneLabel` carries the pair. Asking it here rather
+than in `Definitions::assemble` is what makes this a parse: after `Ok`, no two of a
+metric's dimensions name one label and nothing downstream re-asks. `assemble` could not have
+asked - by the time a `Metric` reaches it the map has collapsed an exact pair - and the
+DECLARED order is here and nowhere later, so the refusal names the two spellings in the
+order the file wrote them. Same shape, and the same argument, as
+[`StatementTables::parse`](crate::plan::StatementTables::parse).
+
+**What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+(`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
+`IdentifierCase::InsensitiveAscii`:
+`SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
+column's value - in a result column named `region`, and raises no ambiguity error.
+`SELECT *` over the same subquery projects `region, Region_1`, so the second label a caller
+was told to expect is not in the result at all. A wrong number and a missing column, from a
+catalog that loaded. Folded under `COARSEST` and not under the serving target's rule for the
+reason that constant carries: a bundle is dialect-agnostic, so the coarsest rule is the only
+one that cannot be wrong in the direction that returns a number.
+
+**Quadratic, and nothing caps how many dimensions a metric may declare**, so the limit is
+stated rather than implied: there is a cap on a dimension's VALUES
+(`MAX_VALUES_PER_DIMENSION`) and on the group-by keys one question may ask for
+(`crate::query::MAX_DIMENSIONS`), and neither is this. What makes it affordable anyway is
+position rather than size - it runs once per metric while a document that was read whole is
+being converted, and `Definitions`'s own `check_labels_against_table` is already the same shape
+over the same list. A cap on declared dimensions is worth having on its own merits and is not
+this constructor's to add.
+
+The refusal is an `InconsistentDefinitions` rather than an error of this constructor's own,
+so both adapters map it through the variant they already have for that type and neither
+grows a second one.
 
 ```rust
 pub fn required_filters(&self) -> &[RequiredFilter]
@@ -1199,98 +1271,11 @@ pub const fn time_column(&self) -> &ColumnName
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-### `struct Definitions`
+### `use None`
 
-```rust
-pub struct Definitions
-```
+### `use None`
 
-Everything a catalog said, with its cross-references checked.
-
-`BTreeMap` throughout rather than `HashMap`, and that is load-bearing: the digest is taken over
-the serialized form of this value, and an unordered map serializes in whatever order its hasher
-chose this run. A digest that moves without the content moving is a digest nobody trusts, and
-then the pinning is decoration.
-
-#### Methods
-
-```rust
-pub fn assemble(models: Vec<Model>, relationships: Vec<Relationship>, metrics: Vec<Metric>) -> Result<Self, InconsistentDefinitions>
-```
-
-Assembles definitions from what an adapter read, checking every cross-reference.
-
-Takes vectors rather than maps so the duplicate checks are ours: a caller that built a map
-first has already silently dropped one of a duplicated pair, and "the second declaration of
-revenue won" is not a thing to discover from a number.
-
-```rust
-pub fn metric(&self, name: &MetricName) -> Option<&Metric>
-```
-
-```rust
-pub const fn metrics(&self) -> &BTreeMap<MetricName, Metric>
-```
-
-```rust
-pub fn model(&self, name: &ModelName) -> Option<&Model>
-```
-
-```rust
-pub const fn models(&self) -> &BTreeMap<ModelName, Model>
-```
-
-```rust
-pub fn relationship(&self, name: &RelationshipName) -> Option<&Relationship>
-```
-
-```rust
-pub const fn relationships(&self) -> &BTreeMap<RelationshipName, Relationship>
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum InconsistentDefinitions`
-
-```rust
-pub enum InconsistentDefinitions
-```
-
-Why a set of definitions does not hold together.
-
-Every variant is a dangling reference of some kind. Catching them here, once, is what lets the
-resolver assume that a metric's model exists and that a dimension's column is real: without it
-each of those becomes a runtime branch on the query path, and the failure surfaces as a data
-system error rather than as a refusal.
-
-#### Variants
-
-- `DuplicateModel`
-- `DuplicateMetric`
-- `DuplicateRelationship`
-- `UnknownModel`
-- `UnknownMeasureColumn`
-- `UnknownRequiredFilterColumn`
-- `UnknownTimeColumn`
-- `NoGrains`
-- `UnknownRelationship`
-- `RelationshipFromUnknownModel`
-- `RelationshipToUnknownModel`
-- `RelationshipUnknownColumn`
-- `UnknownDimensionColumn`
-- `RelationshipNotFromMetricModel`
-- `JoinWouldDuplicateRows`
-- `EmptyAllowlist`
-- `TooManyValues` - More declared values than `MAX_VALUES_PER_DIMENSION`.
-- `DimensionShadowsTimeBucket`
-- `DimensionShadowsMeasure`
-- `LabelShadowsTable` - A label this metric projects is spelled the same as a table its statement reads.
-
-#### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+### `use None`
 
 ### `use None`
 
@@ -4096,7 +4081,7 @@ Why a bundle is not validated.
 
 #### Variants
 
-- `AnchorMismatch`
+- `AnchorMismatch` - The declared number and the produced one, both quoted.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
 - `UnknownMetricChecked`
