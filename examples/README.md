@@ -78,7 +78,8 @@ The single-player catalog is also an input to `sutura-serve`, the second binary,
 surface has a threat model the command line does not: a token is required beyond loopback and
 it authenticates the deployment rather than the caller, a refusal carries an error status AND a
 machine-readable `code` AND a sentence, and the service refuses to start in a posture nobody chose.
-`single-player/README.md` has a captured session showing all of that - the startup output
-including the line saying there is no per-caller identity, a question and its `provenance`, a
-refusal over the wire, the token gate, the liveness probe, the generated interface description,
-and a refusal to start. `docs/serving.md` is the configuration reference behind it.
+`docs/serving.md` is the configuration reference for all of that, and
+`crates/sutura-serve/tests/served.rs` is the same claims as a suite run against this directory -
+the token gate, the refusal statuses and the startup refusals, on a kernel-chosen port. A captured
+session in `single-player/README.md` used to stand in for both and is gone: it restated the
+reference and nothing held it true.

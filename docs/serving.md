@@ -288,8 +288,9 @@ The second one comes back `404`:
 ```
 
 Both of those are `examples/single-player` over the wire, each captured as one line of JSON and
-reformatted here. `examples/single-player/README.md` has the whole session: the startup output,
-the token gate, the liveness probe, the interface description and a refusal to start.
+reformatted here. What ASSERTS them is `crates/sutura-serve/tests/served.rs`, against that same
+directory on a kernel-chosen port, and the in-process harness in `crates/sutura-http/src/harness.rs`
+one status at a time.
 
 A refusal is still a *result* rather than an error - the caller asked something they may not have,
 and the answer is no - and that is a statement about the domain, not about the status. Which status
@@ -905,13 +906,27 @@ a bundle whose anchors do not reproduce the numbers their author certified start
 a check the startup sequence performs and could forget - the type the service accepts has no other
 constructor.
 
-**`examples/single-player/README.md` has the worked session**, and it is the thing to read next
-rather than this page: the startup output including the `NO PER-CALLER IDENTITY` line, a question
-with its `provenance` block, a refusal over the wire, the `401` a missing token gets, the fifteen
-bytes of the liveness body, the interface description and its `404` in production, and a refusal
-to start with both of its entries. Every command and every response there was captured from a
-running process. This page is the reference for what each knob does; that one is what it looks
-like.
+**Two suites are the thing to read next rather than this page**, and they are suites rather than
+transcripts. `crates/sutura-serve/tests/served.rs` starts this binary against
+`examples/single-player` on a kernel-chosen port and asserts the liveness probe answering only once
+the catalog has loaded, a question with no bearer token refused by the gate, a certified question
+answered, the catalog route, a refusal arriving as its documented status, a caller's own token
+verified and every forgery refused alike, and a published key set this deployment cannot use
+stopping the process - `just serve-e2e` runs it. `crates/sutura-http/src/harness.rs` asserts the
+envelope one status at a time, in process and with no socket: the token gate, `sql` in a body as a
+`400` naming the field, the bounds, the rate-limit tiers, and the interface description served in
+development and not in production.
+
+**What neither asserts, next to the claim:** the startup banner's own wording. `announce_identity`
+in `crates/sutura-runtime/src/banner.rs` emits the `NO PER-CALLER IDENTITY` sentence from the
+config types, and no test compares it to a string - so quoting it on a page is a promise no gate
+keeps. Nor does anything pin a response's JSON *formatting* or the `detail` sentences beside the
+codes.
+
+A hand-captured session in `examples/single-player/README.md` used to hold the read-next role, and
+`docs/adr/0005` had already recorded it as stale - it showed `200 OK` for refusals, which stopped
+being true when a refusal got a status of its own. It is deleted rather than re-captured: a
+transcript nobody runs goes stale silently, and a suite cannot.
 
 ## What is not built
 

@@ -192,9 +192,12 @@ bodies near-identical in what they carry.
   raised by a name comparison: the plan's data system against the adapter this process opened. So a
   `503` here often means a deployment wired wrong rather than one briefly unwell. The status is right
   for the variant's meaning; the sentence is what an operator reads.
-- **The example session under `examples/single-player/README.md` shows captured `200 OK` transcripts
-  for refusals and is now stale.** It has to be re-captured from a running process rather than
-  hand-edited, which is why it is named here instead of quietly corrected.
+- **The example session under `examples/single-player/README.md` showed captured `200 OK`
+  transcripts for refusals. It is deleted rather than re-captured** - the residual this bullet
+  recorded is closed that way, and the reasoning is worth keeping: a transcript nobody runs goes
+  stale in exactly this manner and says nothing while it does. What that page pointed at is now
+  `crates/sutura-serve/tests/served.rs`, which asserts a refusal's status against the same
+  directory, and `crates/sutura-http/src/harness.rs`, which asserts one status per reason.
 - **The agent prompt still tells an agent a refusal is a successful call.** That is true at the tool
   level, where `sutura_app::prompt` speaks; over HTTP it is no longer true of the status. Whether the
   prompt should mention a transport at all is a separate decision.

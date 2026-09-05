@@ -172,12 +172,20 @@ cargo run -p sutura-cli -- \
 ```
 
 ```text
-refused: DimensionValueNotAllowed { metric: MetricName("recurring_revenue"), dimension: DimensionName("region") }
+refused: DimensionValueNotAllowed
+  the dimension is filterable and the value is not one the definitions declare
+  metric: recurring_revenue
+  dimension: region
+  remedy: Use a value from that dimension's list below. The refusal does not repeat your value back to you, on purpose, so compare against the list rather than expecting a correction.
 ```
 
-Note what the refusal does not say: the value you asked for. A rejected value is not echoed into a
-message that reaches a log, a terminal and an agent's context, because that is how a rejected value
-becomes somebody else's input.
+Note what the refusal does not say: the value you asked for. The remedy says outright that it will
+not repeat it back, because a rejected value echoed into a message reaches a log, a terminal and an
+agent's context - which is how a rejected value becomes somebody else's input.
+
+The variant is the machine-readable half and the two sentences are the human half, and they come
+from one table: `sutura_app::prompt::guidance` is what `sutura prompt` renders for an agent and what
+this terminal prints, so a person and an agent are told the same thing about the same refusal.
 
 The other question files under `examples/single-player/questions/` named `refused-*` reach the rest
 of the refusals, one per reason.
