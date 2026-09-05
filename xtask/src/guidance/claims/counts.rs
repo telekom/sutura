@@ -20,7 +20,7 @@
 use std::path::Path;
 
 use super::flatten;
-use crate::guidance::matches_any;
+use crate::repo::matches_any;
 
 /// What one file contributes to a count: itself, or every occurrence in it.
 ///
@@ -139,6 +139,21 @@ pub(in crate::guidance) const COUNTS: &[Counted] = &[
         granularity: Granularity::Occurrences,
         mentioned_in: &[".agents/skills/**", "AGENTS.md", "CONTRIBUTING.md", "docs/**", "README.md"],
         marker: "`pub trait` declarations under",
+    },
+    Counted {
+        name: "needles the compose tier's wait gate keys on",
+        // The gate's own module, because the table IS the definition. There is nowhere else for
+        // the number to come from, and that is what makes it derivable rather than recounted.
+        over: &["xtask/src/bounded_wait.rs"],
+        // The constructor, not the type name: `Blocks` and `Needle` both appear in that module's
+        // prose and in its tests, and this count reads raw text, so a literal its own prose can
+        // contribute to is a number nobody can predict. Measured when this landed: a comment over
+        // there naming the constructor made it `8` against 7 rows, and the gate said so.
+        holds: "Needle::new(",
+        // OCCURRENCES: every row is one needle, and they share a file by construction.
+        granularity: Granularity::Occurrences,
+        mentioned_in: &[".agents/skills/**", "AGENTS.md", "docs/**"],
+        marker: "needles the wait gate keys on",
     },
 ];
 
