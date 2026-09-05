@@ -7140,6 +7140,11 @@ Behind a default-off feature, and `cfg(test)` so this crate's own suite reaches 
 the shape `sutura_runtime::testing`'s `test-capture` established. It is here rather than in each
 test target because two copies of a comparison policy is how both of them came to erase the cell
 type; its own module header carries that story and the limits.
+
+**That header links the module's OWN items by absolute `crate::` path, and that is not style.**
+rustc merges this `///` block with the module's `//!` one and resolves the merged block in THIS
+scope, where `agreement`'s items are not - so a bare-name link there resolves to nothing, and no
+gate in this repository reads a rustdoc warning (#321). Four of them were shipped that way.
 What it takes for two answers to one plan to be the SAME answer.
 
 One policy, so the differential legs cannot each have their own. Two of them did, and both were
@@ -7160,20 +7165,23 @@ place it is made. What was wrong is using a display form as an equality.
   are disagreements.
 - **Multiplicity survives.** Content is a MULTISET, not a set: a row answered twice by one side
   and once by the other is a disagreement, which a set cannot see.
-- **The one approximation is named and scoped.** `RealTolerance` applies to `Value::Real` and
-  to nothing else. An integer, a date-as-text and a text cell are compared exactly.
-- **Order is a separate assertion.** `agree_on_content` says nothing about order and
-  `agree_on_order` says nothing else, so *a wrong number* and *the right rows in the wrong
-  order* stay two diagnoses rather than one. Call the content one first, or the first symptom of
-  a wrong number is reported as a sort order.
+- **The one approximation is named and scoped.**
+  [`RealTolerance`](crate::warehouse::agreement::RealTolerance) applies to `Value::Real` and to
+  nothing else. An integer, a date-as-text and a text cell are compared exactly.
+- **Order is a separate assertion.**
+  [`agree_on_content`](crate::warehouse::agreement::agree_on_content) says nothing about order
+  and [`agree_on_order`](crate::warehouse::agreement::agree_on_order) says nothing else, so *a
+  wrong number* and *the right rows in the wrong order* stay two diagnoses rather than one. Call
+  the content one first, or the first symptom of a wrong number is reported as a sort order.
 
 # What this does NOT decide
 
 Whether an order was promised at all. A plan that emits `ORDER BY` claims one, and a leg
-comparing an answer to a plan without one should not call `agree_on_order`. Nothing here can
-tell, because a `RowSet` does not carry the plan that produced it.
+comparing an answer to a plan without one should not call
+[`agree_on_order`](crate::warehouse::agreement::agree_on_order). Nothing here can tell, because
+a `RowSet` does not carry the plan that produced it.
 
-# Two limits worth reading before citing this
+# Three limits worth reading before citing this
 
 **A disagreement carries rows, which is the one place this module departs from the rule that an
 error carries nothing sensitive.** A differential failure that does not name the row it found is
@@ -7186,6 +7194,17 @@ under `cfg(test)` or the default-off `agreement` feature, so no shipped artefact
 but `checks.shipped-features` establishes that kind of claim by reading crate NAMES out of the
 binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
 fail if a composition root turned the feature on.
+
+**An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
+than as the range question it is.** Three are live: `sutura-exec-duckdb`'s `UBigInt` and
+`HugeInt` arms and `sutura-exec-datafusion`'s `UInt64` arm answer `Value::Integer` while the
+value fits an `i64` and `Value::Text` when it does not, and `sutura-exec-postgres` answers a
+scale-0 `NUMERIC` as `Value::Integer` where the other two answer a `Decimal` as
+`Value::Text`. Under the display form all three compared EQUAL, and that was the RECORDED
+reason for the display form. Here they are `ContentDisagreement::Multiplicity` - *one side
+answered a row 1 time(s) and the other 0* - naming neither the fallback nor the overflow behind
+it. So a `Multiplicity` over a wide count or a decimal column is a range question first: check
+whether one side overflowed its `i64` before looking for a wrong number.
 
 #### `struct RealTolerance`
 
