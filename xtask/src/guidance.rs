@@ -186,10 +186,6 @@ fn has_ext(path: &str, exts: &[&str]) -> bool {
         .is_some_and(|e| exts.iter().any(|want| e.eq_ignore_ascii_case(want)))
 }
 
-fn matches_any(patterns: &[&str], path: &str) -> bool {
-    patterns.iter().any(|p| repo::matches(p, path))
-}
-
 /// The value of `key` in `source`, with quotes and whitespace stripped.
 fn pinned_value(root: &Path, pin: &Pin) -> Option<String> {
     let text = std::fs::read_to_string(root.join(pin.source)).ok()?;
@@ -337,10 +333,10 @@ fn stale_phrases(root: &Path, files: &[String]) -> Vec<String> {
             continue;
         };
         for rule in FORBIDDEN {
-            if !rule.only.is_empty() && !matches_any(rule.only, rel) {
+            if !rule.only.is_empty() && !repo::matches_any(rule.only, rel) {
                 continue;
             }
-            if matches_any(rule.except, rel) {
+            if repo::matches_any(rule.except, rel) {
                 continue;
             }
             for (i, line) in text.lines().enumerate() {
@@ -371,7 +367,7 @@ fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
         };
         let mut stated = 0_usize;
         for rel in files {
-            if !matches_any(pin.mentioned_in, rel) {
+            if !repo::matches_any(pin.mentioned_in, rel) {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
@@ -557,7 +553,7 @@ mod tests {
             let value = super::pinned_value(&root, pin).expect("the pin value");
             let stated = files
                 .iter()
-                .filter(|rel| super::matches_any(pin.mentioned_in, rel))
+                .filter(|rel| crate::repo::matches_any(pin.mentioned_in, rel))
                 .filter_map(|rel| std::fs::read_to_string(root.join(rel)).ok())
                 .flat_map(|text| text.lines().map(|line| super::stated_versions(line, pin)).collect::<Vec<_>>())
                 .any(|versions| !versions.is_empty());

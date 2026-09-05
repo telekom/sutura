@@ -266,11 +266,12 @@ const TASKS: &[Task] = &[
         // diagnose: a gate hanging with no output. The compose tier routes every wait on a
         // container-runtime child through one function that carries a deadline, and nothing made
         // the NEXT call come through it - a `.output()` written into a sibling compiles, reviews
-        // clean and restores the hang. `disallowed-methods` cannot express it, because an entry
-        // there is workspace-wide and `xtask` waits on `git` and `cargo` without a bound on
-        // purpose. So it is path-scoped, and it starts GREEN.
+        // clean and restores the hang, and so does a pipe handed to a child and drained to an EOF
+        // that never comes. `disallowed-methods` cannot express it, because an entry there is
+        // workspace-wide and `xtask` waits on `git` and `cargo` without a bound on purpose. So it
+        // is path-scoped, and it starts GREEN.
         name: "check-bounded-wait",
-        description: "one place in the compose tier waits on a child process",
+        description: "one place in the compose tier can be blocked by a child process",
         kind: Kind::Hygiene(Reads::Code),
         run: bounded_wait::run,
     },

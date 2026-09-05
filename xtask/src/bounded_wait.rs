@@ -78,10 +78,17 @@
 //! `docker` spawns CLI plugins that inherit the write end and can hold it open past the kill. That
 //! argument is exactly this gate's subject, and until now nothing held it.
 //!
-//! **`.spawn()` is the more principled needle and is not available.** It is the one call that
-//! makes a child exist at all, but two files in the docker module spawn today - the presence probe
-//! and the bounded runner - so a gate keying on it would report two waiters over a tree that obeys
-//! the rule. It becomes available if those ever converge.
+//! **`.spawn()` is the more principled needle, and what blocks it is this rule's SHAPE rather
+//! than the tree.** It is the one call that makes a child exist at all. Two files in the docker
+//! module spawn today - the presence probe and the bounded runner - so keying on it reports two
+//! waiters over a tree that obeys the rule. But that is only true because ONE table answers two
+//! different questions: *does anything outside the docker module touch a child* (locality) and
+//! *does exactly one file inside it block* (the waiter count). Splitting [`BLOCKING`] by role -
+//! `.spawn()` counting for locality only - admits it, and would close a hole nothing else covers:
+//! `command.stdout(Stdio::from(file)).spawn()` in a sibling, then polling that file for a
+//! sentinel, blocks forever with no needle firing. **That is a design change and not a needle**,
+//! so it is written down here rather than half-done: the claim above is about this gate, not
+//! about `docker`.
 //!
 //! # Fails closed, in five directions
 //!
@@ -147,6 +154,10 @@
 //! `command . output ()` is found; the newline case is left to the mechanism that already owns that
 //! shape - `just fmt` joins a zero-argument method call back onto one line, and the `fmt` check
 //! fails a tree it would have reformatted.
+//!
+//! **Nothing asserts `RUNTIME` is inside `TIER` at the pattern level**, and a `RUNTIME` edited
+//! outside `TIER` would go permanently red on *no waiter* rather than naming its cause. A test
+//! holds the two constants as they stand; the general containment is not decidable over globs.
 
 use crate::Verdict;
 use crate::repo;
@@ -167,7 +178,7 @@ const RUNTIME: &[&str] = &["xtask/src/compose/docker.rs", "xtask/src/compose/doc
 /// What a needle's match means. Three cases: a name only a child carries, an ordinary name
 /// anything can carry, and a pipe that is not a wait at all. One sentence for all seven would be
 /// false about most of them, and it was - that is review finding two.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Blocks {
     /// A name `Command` and `Child` alone carry, so a match is the call it looks like.
     OnAChild,
@@ -199,10 +210,19 @@ impl Blocks {
 
 /// A call that can leave this thread at a child process's mercy, as it is written.
 struct Needle {
-    /// Matched with whitespace removed, so `command . output ()` is one site.
+    /// The text matched, whitespace removed - see [`wait_sites`].
     text: &'static str,
     /// Which of the three things a match here is.
     blocks: Blocks,
+}
+
+impl Needle {
+    /// One row of [`BLOCKING`]. A constructor rather than a struct literal so each row is one
+    /// line and the needle set is legible as a set - which is the point of a table whose whole
+    /// value is that adding to it is a visible architecture diff.
+    const fn new(text: &'static str, blocks: Blocks) -> Self {
+        Self { text, blocks }
+    }
 }
 
 /// Everything that can block this tier on a child process.
@@ -216,34 +236,13 @@ struct Needle {
 /// **Adding or removing one is an architecture decision**, the sentence `LEAKY` in
 /// `xtask/src/newtype_leaks.rs` carries for the same reason: the diff is where the argument happens.
 const BLOCKING: &[Needle] = &[
-    Needle {
-        text: ".output()",
-        blocks: Blocks::OnAnyReceiver,
-    },
-    Needle {
-        text: ".status()",
-        blocks: Blocks::OnAnyReceiver,
-    },
-    Needle {
-        text: ".wait_with_output()",
-        blocks: Blocks::OnAChild,
-    },
-    Needle {
-        text: ".try_wait()",
-        blocks: Blocks::OnAChild,
-    },
-    Needle {
-        text: ".wait()",
-        blocks: Blocks::OnAnyReceiver,
-    },
-    Needle {
-        text: "Stdio::piped()",
-        blocks: Blocks::PipeToAChild,
-    },
-    Needle {
-        text: "io::pipe()",
-        blocks: Blocks::PipeToAChild,
-    },
+    Needle::new(".output()", Blocks::OnAnyReceiver),
+    Needle::new(".status()", Blocks::OnAnyReceiver),
+    Needle::new(".wait_with_output()", Blocks::OnAChild),
+    Needle::new(".try_wait()", Blocks::OnAChild),
+    Needle::new(".wait()", Blocks::OnAnyReceiver),
+    Needle::new("Stdio::piped()", Blocks::PipeToAChild),
+    Needle::new("io::pipe()", Blocks::PipeToAChild),
 ];
 
 /// One needle, in one file of the tier, that is not a wait on a container-runtime child.
@@ -322,14 +321,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let problems = judged(scanned, &waiting);
     if problems.is_empty() {
         // Exactly one, or `judged` would have said which direction was wrong.
-        let waiter = waiting.iter().find(|found| in_runtime(&found.path));
-        let sites = waiter.map_or(0, |found| found.sites.len());
-        let named = waiter.map_or("", |found| found.path.as_str());
+        let (named, sites) = waiting
+            .iter()
+            .find(|found| in_runtime(&found.path))
+            .map_or(("", 0), |found| (found.path.as_str(), found.sites.len()));
         println!(
             "xtask check-bounded-wait: ok - {scanned} file(s) in the compose tier, one waiter \
              ({named}, {sites} site(s)), {} declared allowance(s) beside it",
             ALLOWED.len()
         );
+        // Named on GREEN, the convention `check-boundaries` states for the same reason: an
+        // allowlist a green run never mentions is one nobody re-reads.
+        for allowance in ALLOWED {
+            println!("  allowed  {} - `{}`: {}", allowance.path, allowance.needle, allowance.what);
+        }
         return Verdict::Pass;
     }
 
@@ -368,14 +373,16 @@ fn judged(scanned: usize, waiting: &[Waiting]) -> Vec<String> {
         .collect();
     match runtime.len() {
         0 => problems.push(format!(
-            "nothing matching {} waits on a child process - the wait this gate is about has left \
-             the module, or the scan stopped finding it",
+            "nothing matching {} can be blocked by a child process - the wait this gate is about \
+             has left the module, or the scan stopped finding it",
             RUNTIME.join(", ")
         )),
         1 => {}
+        // Not "wait": a second file matching only `Stdio::piped()` is this failure too, and
+        // saying it waits would send a reader looking for a `.output()` that is not there.
         found => problems.push(format!(
-            "{found} files in the docker module wait on a child process, and the property is that \
-             ONE does: {}",
+            "{found} files in the docker module can be blocked by a child process, and the \
+             property is that ONE is: {}",
             runtime.join(", ")
         )),
     }
@@ -451,17 +458,12 @@ fn explain(problems: &[String]) {
 
 /// Is this file part of the compose tier?
 fn in_tier(rel: &str) -> bool {
-    matched_by(TIER, rel)
+    repo::matches_any(TIER, rel)
 }
 
 /// Is this file part of the docker module?
 fn in_runtime(rel: &str) -> bool {
-    matched_by(RUNTIME, rel)
-}
-
-/// Does any of `patterns` match `rel`?
-fn matched_by(patterns: &[&str], rel: &str) -> bool {
-    patterns.iter().any(|pattern| repo::matches(pattern, rel))
+    repo::matches_any(RUNTIME, rel)
 }
 
 /// Every blocking site in `code`, as a 1-based line number and the needle found.
@@ -469,10 +471,21 @@ fn matched_by(patterns: &[&str], rel: &str) -> bool {
 /// Whitespace inside a line is removed before matching, so `command . output ()` is one site. A
 /// call broken across two lines is not - see the limit in this module's header, and the mechanism
 /// that owns that shape.
+///
+/// **A line with no `(` is skipped, and that is a property of [`BLOCKING`] rather than a guess:**
+/// removing whitespace only DELETES characters, so a line without `(` cannot produce a dense
+/// string containing a needle that has one. `every_needle_carries_the_parenthesis_the_scan_skips`
+/// is what stops the next needle from silently invalidating it. Measured over this tier: 3792 code
+/// lines, 1236 with a `(`, and the scan's own cost 3.40 ms to 1.14 ms.
 fn wait_sites(code: &[String]) -> Vec<(usize, &'static Needle)> {
     let mut found = Vec::new();
+    let mut dense = String::new();
     for (index, line) in code.iter().enumerate() {
-        let dense: String = line.chars().filter(|character| !character.is_whitespace()).collect();
+        if !line.contains('(') {
+            continue;
+        }
+        dense.clear();
+        dense.extend(line.chars().filter(|character| !character.is_whitespace()));
         for needle in BLOCKING {
             if dense.contains(needle.text) {
                 found.push((index.saturating_add(1), needle));
@@ -497,6 +510,10 @@ mod tests {
     /// A file in the tier that is neither the docker module nor an allowance.
     const SIBLING: &str = "xtask/src/compose/health.rs";
 
+    /// How many files were in scope. Only zero versus non-zero is behaviour - the dead-gate
+    /// direction - so every other case passes this rather than a number that looks significant.
+    const SCANNED: usize = 7;
+
     /// The declared needle with this text, so a fixture names a call rather than an index.
     fn needle(text: &str) -> &'static Needle {
         BLOCKING
@@ -518,6 +535,13 @@ mod tests {
         site(path, ".output()")
     }
 
+    /// The declared allowance, as the scan would report it. Present in most trees below so the
+    /// stale-allowance direction stays quiet and each test fails for its own reason - and derived
+    /// from `ALLOWED` rather than spelled out, because a literal gives no hint it is load-bearing.
+    fn declared() -> Waiting {
+        site(ALLOWED[0].path, ALLOWED[0].needle)
+    }
+
     /// The needles found in `source`, read the way the gate reads a file.
     fn found(source: &str) -> Vec<&'static str> {
         wait_sites(&code_lines(source))
@@ -528,27 +552,26 @@ mod tests {
 
     #[test]
     fn one_waiter_in_the_docker_module_is_the_property() {
-        let tree = [waits(RUNTIME_ROOT), waits("xtask/src/compose/lock.rs")];
-        assert!(judged(5, &tree).is_empty(), "{:?}", judged(5, &tree));
+        let tree = [waits(RUNTIME_ROOT), declared()];
+        let problems = judged(SCANNED, &tree);
+        assert!(problems.is_empty(), "{problems:?}");
     }
 
     #[test]
     fn the_waiter_may_move_into_the_docker_directory() {
         // The reason the docker half is a discovery and not a name: the waiter has already moved
         // once inside that module, and a gate naming the file would have gone red for the move.
-        let tree = [
-            waits("xtask/src/compose/docker/bounded.rs"),
-            waits("xtask/src/compose/lock.rs"),
-        ];
-        assert!(judged(6, &tree).is_empty(), "{:?}", judged(6, &tree));
+        let tree = [waits("xtask/src/compose/docker/bounded.rs"), declared()];
+        let problems = judged(SCANNED, &tree);
+        assert!(problems.is_empty(), "{problems:?}");
     }
 
     #[test]
     fn a_second_wait_beside_the_waiter_is_the_defect_this_exists_for() {
         // `.output()` written into a sibling: it compiles, it reviews clean, and it restores the
         // unbounded wait that hangs a gate with no output.
-        let tree = [waits(RUNTIME_ROOT), waits("xtask/src/compose/lock.rs"), waits(SIBLING)];
-        let problems = judged(6, &tree);
+        let tree = [waits(RUNTIME_ROOT), declared(), waits(SIBLING)];
+        let problems = judged(SCANNED, &tree);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].starts_with("xtask/src/compose/health.rs:1:"), "{problems:?}");
     }
@@ -563,7 +586,7 @@ mod tests {
                       let mut sink = String::new();\n\
                       child.stdout.take()?.read_to_string(&mut sink).ok()?;\n\
                       Some(sink)\n}\n";
-        assert_eq!(found(source), vec!["Stdio::piped()"], "{:?}", found(source));
+        assert_eq!(found(source), vec!["Stdio::piped()"]);
     }
 
     #[test]
@@ -574,7 +597,7 @@ mod tests {
         let source = "let (mut reader, writer) = std::io::pipe().ok()?;\n\
                       let mut child = command.stdout(Stdio::from(writer)).spawn().ok()?;\n\
                       reader.read_to_string(&mut sink).ok()?;\n";
-        assert_eq!(found(source), vec!["io::pipe()"], "{:?}", found(source));
+        assert_eq!(found(source), vec!["io::pipe()"]);
     }
 
     #[test]
@@ -582,7 +605,8 @@ mod tests {
         // `Stdio::from` is how the waiter gives its child the capture files, which is the FIX for
         // the pipe class - so the needle is a pipe's creation and never its handoff.
         let source = "Ok((Stdio::from(fresh(&self.stdout)?), Stdio::from(fresh(&self.stderr)?)))\n";
-        assert!(found(source).is_empty(), "{:?}", found(source));
+        let hits = found(source);
+        assert!(hits.is_empty(), "{hits:?}");
     }
 
     #[test]
@@ -590,35 +614,24 @@ mod tests {
         // The waiter hands its child three of these, so reading one as a pipe would make the gate
         // fire on the code it protects.
         let source = "let spawned = command.stdin(Stdio::null()).stdout(Stdio::null()).spawn();\n";
-        assert!(found(source).is_empty(), "{:?}", found(source));
+        let hits = found(source);
+        assert!(hits.is_empty(), "{hits:?}");
     }
 
     #[test]
-    fn a_pipe_is_not_reported_as_a_wait() {
-        // It is not one. A message asserting a wait would be false about the needle that catches
-        // the drain class, and a reader would look for a `.output()` that is not there.
-        let tree = [waits(RUNTIME_ROOT), waits(ALLOWED[0].path), site(SIBLING, "Stdio::piped()")];
-        let problems = judged(7, &tree);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("gives a child a pipe"), "{problems:?}");
-        assert!(!problems[0].contains("waits on a child process"), "{problems:?}");
-    }
-
-    #[test]
-    fn an_ordinary_method_name_is_reported_as_ambiguous_and_a_child_only_name_is_not() {
-        // The undeclared false positive on the first draft: a plain `Spared::status()` accessor
-        // over a `&'static str` was reported as `waits on a child process`, flat. The receiver is
-        // not knowable from a line, so the site says so rather than asserting a child.
-        let ambiguous = judged(7, &[waits(RUNTIME_ROOT), waits(ALLOWED[0].path), waits(SIBLING)]);
-        assert_eq!(ambiguous.len(), 1, "{ambiguous:?}");
-        assert!(ambiguous[0].contains("which a line scan cannot tell apart"), "{ambiguous:?}");
-
-        let named = judged(
-            7,
-            &[waits(RUNTIME_ROOT), waits(ALLOWED[0].path), site(SIBLING, ".try_wait()")],
-        );
-        assert_eq!(named.len(), 1, "{named:?}");
-        assert!(named[0].ends_with("`.try_wait()` waits on a child process"), "{named:?}");
+    fn a_reported_site_gets_its_own_kind_of_sentence_and_not_a_shared_one() {
+        // Both review findings were one message asserting a child for everything it matched: a
+        // pipe does not wait, and three of the names belong to anything. Asserted against
+        // `says()` rather than against copied fragments, so a reworded sentence cannot leave a
+        // stale expectation behind in one of three places.
+        for text in [".output()", ".try_wait()", "Stdio::piped()"] {
+            let needle = needle(text);
+            let tree = [waits(RUNTIME_ROOT), declared(), site(SIBLING, text)];
+            let problems = judged(SCANNED, &tree);
+            assert_eq!(problems.len(), 1, "{text}: {problems:?}");
+            let want = format!("{SIBLING}:1: `{text}` {}", needle.blocks.says());
+            assert_eq!(problems[0], want, "{text}");
+        }
     }
 
     #[test]
@@ -632,21 +645,25 @@ mod tests {
                 sites: vec![(1, needle(ALLOWED[0].needle)), (2, needle("Stdio::piped()"))],
             },
         ];
-        let problems = judged(7, &tree);
+        let problems = judged(SCANNED, &tree);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].starts_with(&format!("{}:2:", ALLOWED[0].path)), "{problems:?}");
     }
 
     #[test]
-    fn the_needle_count_this_module_and_the_skill_row_state_is_the_one_declared() {
-        // Both say SEVEN, five waits and two pipes. An eighth is an architecture decision and
-        // should be a prose diff too, so this is what makes the two move together.
-        // `check-guidance`'s gated counts would be the stronger mechanism and are not reachable
-        // from here: registering one needs lines `xtask/src/guidance/claims.rs` has not got, and
-        // splitting that table is its own change.
-        assert_eq!(BLOCKING.len(), 7);
-        let waits = BLOCKING.iter().filter(|found| found.blocks != Blocks::PipeToAChild).count();
-        assert_eq!(waits, 5);
+    fn the_split_this_module_states_is_five_waits_and_two_pipes() {
+        // What this holds and what it does NOT: the header says *the five calls on a `Command` or
+        // a `Child`*, and that split is what this pins. The TOTAL is held elsewhere and properly -
+        // `COUNTS` in xtask/src/guidance/claims/counts.rs derives it by counting this table's
+        // constructor calls and fails unless a page states it, so the row and the table cannot
+        // drift. That entry's own literal is deliberately not spelled here: it counts raw text,
+        // so a comment naming it would contribute to the number it checks - which it did, and
+        // the gate said `the tree has 8` on the first run.
+        // A test comparing this array to a literal beside it could never have held that row, and
+        // said it did until review measured otherwise.
+        let pipes = BLOCKING.iter().filter(|found| found.blocks == Blocks::PipeToAChild).count();
+        assert_eq!(pipes, 2, "{:?}", BLOCKING.iter().map(|found| found.text).collect::<Vec<_>>());
+        assert_eq!(BLOCKING.len() - pipes, 5);
     }
 
     #[test]
@@ -668,20 +685,16 @@ mod tests {
 
     #[test]
     fn a_wait_in_the_tier_root_is_reported_too() {
-        let tree = [waits(RUNTIME_ROOT), waits("xtask/src/compose/lock.rs"), waits(TIER_ROOT)];
-        let problems = judged(5, &tree);
+        let tree = [waits(RUNTIME_ROOT), declared(), waits(TIER_ROOT)];
+        let problems = judged(SCANNED, &tree);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains(TIER_ROOT), "{problems:?}");
     }
 
     #[test]
     fn a_second_file_inside_the_docker_module_is_reported_as_two_waiters() {
-        let tree = [
-            waits(RUNTIME_ROOT),
-            waits("xtask/src/compose/docker/bounded.rs"),
-            waits("xtask/src/compose/lock.rs"),
-        ];
-        let problems = judged(6, &tree);
+        let tree = [waits(RUNTIME_ROOT), waits("xtask/src/compose/docker/bounded.rs"), declared()];
+        let problems = judged(SCANNED, &tree);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].starts_with("2 files in the docker module"), "{problems:?}");
     }
@@ -690,9 +703,10 @@ mod tests {
     fn no_waiter_at_all_fails_closed() {
         // Not a pass. Either the wait left the tier - in which case this gate follows it or is
         // deleted - or the scan stopped seeing it, which is the same thing to a reader.
-        let problems = judged(5, &[waits("xtask/src/compose/lock.rs")]);
+        let problems = judged(SCANNED, &[declared()]);
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("waits on a child process"), "{problems:?}");
+        assert!(problems[0].contains("can be blocked by a child process"), "{problems:?}");
+        // The patterns, so a reader learns WHERE the gate looked and stopped finding one.
         assert!(problems[0].contains(RUNTIME_ROOT), "{problems:?}");
     }
 
@@ -708,7 +722,7 @@ mod tests {
     fn an_allowance_that_stopped_waiting_is_a_failure_in_the_other_direction() {
         // An entry that has stopped being true widens what is permitted while reading as a
         // considered decision - so it is red until somebody deletes it.
-        let problems = judged(5, &[waits(RUNTIME_ROOT)]);
+        let problems = judged(SCANNED, &[waits(RUNTIME_ROOT)]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("no longer matches it"), "{problems:?}");
         assert!(problems[0].contains(ALLOWED[0].path), "{problems:?}");
@@ -722,14 +736,26 @@ mod tests {
                       // let out = command.output()?;\n\
                       /* command.status() */\n\
                       pub fn compose() {}\n";
-        assert!(found(source).is_empty(), "{:?}", found(source));
+        let hits = found(source);
+        assert!(hits.is_empty(), "{hits:?}");
     }
 
     #[test]
     fn a_wait_inside_a_multi_line_string_is_not_a_wait() {
         // Which is what keeps this module's own fixtures out of the scan it defines.
         let source = "fn fixture() -> &'static str {\n    r#\"\nlet out = command.output()?;\n\"#\n}\n";
-        assert!(found(source).is_empty(), "{:?}", found(source));
+        let hits = found(source);
+        assert!(hits.is_empty(), "{hits:?}");
+    }
+
+    #[test]
+    fn every_needle_carries_the_parenthesis_the_scan_skips() {
+        // `wait_sites` skips a line with no `(` to avoid building a dense string per line. That is
+        // sound only while every needle contains one, so the assumption is held here rather than
+        // by the comment that states it.
+        for needle in BLOCKING {
+            assert!(needle.text.contains('('), "{} would be skipped by the scan", needle.text);
+        }
     }
 
     #[test]
@@ -773,6 +799,17 @@ mod tests {
         // A name that only starts the same way is not inside the tier.
         assert!(!in_tier("xtask/src/compose_notes.md"));
         assert!(!in_tier("xtask/src/compose/README.md"));
+    }
+
+    #[test]
+    fn every_docker_module_pattern_selects_files_the_tier_also_selects() {
+        // Otherwise the gate is permanently red on `no waiter` and the message names the symptom
+        // rather than the cause. Over the patterns as they stand - general containment is not
+        // decidable over globs, which is why the header declares it rather than claiming it.
+        for path in [RUNTIME_ROOT, "xtask/src/compose/docker/bounded.rs"] {
+            assert!(in_runtime(path), "{path} is not in the docker module");
+            assert!(in_tier(path), "{path} is in the docker module but outside the tier");
+        }
     }
 
     #[test]
