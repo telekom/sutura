@@ -2239,7 +2239,7 @@ one governed question about one metric. <code>sutura_app::Capability</code> is t
 are, so <strong>the two transports cannot disagree about what this deployment offers</strong>; each of them
 renders that source and each has a <code>both_transports_describe_the_same_tools</code> test asserting it did
 not deviate.</p>
-<p>Four properties are load-bearing and each has a test rather than a paragraph:</p>
+<p>Five properties are load-bearing and each has a test rather than a paragraph:</p>
 <ul>
 <li><strong>The schema is generated.</strong> <code>tool::input_schema</code> is <code>schemars::schema_for!</code> over a wire type
   in <code>wire</code> - there is no hand-written JSON object in this crate - and every tool's generated
@@ -2256,6 +2256,11 @@ not deviate.</p>
   three.</li>
 <li><strong><code>deny_unknown_fields</code> survives the transport.</strong> An argument named <code>sql</code>, <code>table</code> or
   <code>predicate</code> is a named parse error, asserted through a real client rather than assumed.</li>
+<li><strong>The configured number of questions execute at once, and no more.</strong> The bound is
+  <code>sutura_runtime::Admission</code>, built by the composition root from
+  <code>runtime.max_concurrent_queries</code> rather than by this crate, and the permit belongs to the
+  blocking work rather than to the future waiting for it. <code>server</code> carries both halves of that
+  argument and the limit on how far the second is exercised over the wire.</li>
 </ul>
 <h1 id="why-the-protocol-comes-from-a-dependency">Why the protocol comes from a dependency<a class="headerlink" href="#why-the-protocol-comes-from-a-dependency" title="Permanent link">&para;</a></h1>
 <p>MCP is JSON-RPC with a handshake, and framing it by hand is a few hundred lines. It was
@@ -2280,6 +2285,12 @@ this crate, and the handler is three methods written by hand.</p>
   it is refused rather than truncated. Whether an agent surface wants a lower advisory cap - and
   what number - is a real question <strong>nobody has measured</strong>, so the bound is left exactly where it
   is rather than guessed at here.</li>
+<li><strong>A bound on the SIZE of what arrives</strong>, which is <code>#266</code>'s <code>H4</code> and is a different thing from
+  the admission bound this crate now applies. rmcp's stdio transport reads a line off the
+  process's own standard input with no cap, so one enormous line is read before anything parses
+  it. Nothing here can bound it: the reader is the SDK's, and the boundary is the process - a
+  peer that can write to this pipe can already launch the process. It stays named rather than
+  claimed as covered.</li>
 <li><strong>Any notion of who is asking.</strong> <code>crate::principal</code> still answers
   <code>sutura_domain::identity::Subject::TheDeploymentItself</code>, truthfully: this transport speaks over a
   pipe, where there is no header a token could arrive in. <code>sutura_http::inbound</code> is where leg 1
@@ -2315,7 +2326,7 @@ throw away the only description of the fault that exists.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-serve_stdio"><code>fn serve_stdio</code><a class="headerlink" href="#fn-serve_stdio" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">admission</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_runtime</span><span class="p">::</span><span class="n">Admission</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Serves the agent surface over standard input and output, until the client disconnects.</p>
 <p>The transport an agent client launches a server over: it spawns the process and speaks the
@@ -2334,10 +2345,16 @@ header a token could arrive in, so this transport alone cannot choose who the pe
 composition root decides</strong> - <code>sutura</code>'s <code>mcp</code> subcommand passes <code>Permitted::every_capability</code>
 and prints that at startup - so the value lives next to the notice that states it rather than
 hidden in this function.</p>
-<p>rmcp serves requests concurrently - one task per request, unbounded - so several questions from
-one peer answer against the same <code>S</code> at once. The surface has no state a question mutates, so the
-concurrency is free; what it does mean is that the engine's working-set ceiling, not any
-transport bound, is what an agent flooding its one pipe cannot exceed.</p>
+<p><strong><code>admission</code> is required for the same reason and answers a different question.</strong> rmcp serves
+requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
+question a peer sends is executing at once. The surface has no state a question mutates, so the
+concurrency itself is free; what is not free is the blocking pool thread and the data system each
+question holds. <code>sutura_runtime::Admission</code> is the number of those that may be in flight, the
+composition root reads it from <code>runtime.max_concurrent_queries</code>, and one <code>Admission</code> bounds every
+transport a process serves because its clones share one permit set.</p>
+<p><strong>What that leaves to the engine, stated so the two are not confused:</strong> the working-set ceiling
+bounds how large one answer may get, and the admission bound is how many answers may be being
+produced. Neither cancels a question already inside the pool - see <code>server</code> and #160.</p>
 <p>Returns when the peer closes or is cancelled.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
 <p><code>NotServed::Handshake</code> if the client never completes <code>initialize</code>, and
@@ -2377,6 +2394,11 @@ apart.</p>
 <td>a tool result with <code>isError: true</code>, and no detail</td>
 <td>something went wrong, and the detail is a path or a table</td>
 </tr>
+<tr>
+<td>Every execution slot was taken for the whole admission window</td>
+<td>a tool result with <code>isError: true</code>, and a sentence saying to ask again</td>
+<td>the question was never judged, so it is not a refusal - and unlike the row above, waiting is the fix</td>
+</tr>
 </tbody>
 </table>
 <p><strong>A refusal is not an error and must not look like one.</strong> <code>sutura_app::surface::Surface::answer</code>
@@ -2398,6 +2420,35 @@ as "the data system is down", and the first is fixable by the caller while the s
 runtime from within a runtime panics. So the call goes to the blocking pool through
 <code>sutura_runtime::spawn_carrying_span</code>, which is the one call <code>clippy.toml</code> permits for this,
 because a bare <code>spawn_blocking</code> loses the request's span on a pool thread.</p>
+<h1 id="how-many-questions-may-be-executing-and-where-the-permit-lives">How many questions may be executing, and where the permit lives<a class="headerlink" href="#how-many-questions-may-be-executing-and-where-the-permit-lives" title="Permanent link">&para;</a></h1>
+<p><strong><code>sutura_runtime::Admission</code> and not a bound of this transport's own</strong>, because the resource
+is the <em>process</em>: one blocking pool, one set of data systems, and two independently sized
+semaphores would be two controls each reporting a limit the other can exceed. So the value
+arrives at <code>AgentSurface::new</code> from a composition root that read
+<code>runtime.max_concurrent_queries</code>, and every clone of an <code>Admission</code> shares one permit set -
+which is what lets one process serve two transports under one number.</p>
+<p><strong>The slot is taken before the blocking task is spawned and released INSIDE it.</strong> Taken inside
+would be a pool thread already occupied while waiting for permission to occupy one; released by
+the async worker would make it a bound on <em>starting</em> work rather than on running it, and
+<code>tokio</code> documents that a started blocking task cannot be aborted - so a caller that has gone
+away does not stop the question it asked. A permit handed back early is worse than no bound at
+all, because it reads as a control.</p>
+<p><strong>This defines the response to running out of admission and nothing about stopping work.</strong> A
+shed call is answered on the third channel above, inside the bounded admission window. What
+neither this nor the bound does is cancel a question that is already executing: the <code>Warehouse</code>
+port is synchronous and carries no deadline, so a question inside the pool runs to completion
+whatever the peer is told - and it keeps its slot until it does, which is exactly why the
+backlog is a number somebody chose rather than memory. Making running work stoppable is #160's
+subject, on the port rather than on either transport.</p>
+<p><strong>What this transport still does not bound is the size of what it reads</strong>, which is <code>#266</code>'s
+<code>H4</code>: <code>rmcp</code>'s stdio transport reads a line off the process's own input with no cap, and this
+change is about a different thing - how many questions execute at once.</p>
+<p><strong>The limit on how far the shedding is exercised, stated with it.</strong> <code>rmcp</code> 3.1.4 answers a
+<code>notifications/cancelled</code> by cancelling a token this handler does not read, and it spawns each
+request as a detached task - so on that SDK a peer that cancels or disconnects does not drop the
+future that is waiting for the answer. The property that the permit belongs to the work rather
+than to that future is therefore asserted by dropping the future in a test, not by cancelling a
+call over the wire.</p>
 <h1 id="what-this-slice-does-not-do-on-purpose">What this slice does NOT do, on purpose<a class="headerlink" href="#what-this-slice-does-not-do-on-purpose" title="Permanent link">&para;</a></h1>
 <ul>
 <li><strong>No row cap of its own.</strong> The answer cap is <code>max_rows + 1</code> and a result that hits it is
@@ -2450,7 +2501,7 @@ composition change rather than as a redesign of this handler.</p>
 <p>Holds the service behind an <code>Arc</code> because a tool call is answered on the blocking pool, so the
 port has to outlive the future that started the call.</p>
 <h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">admission</span><span class="p">:</span><span class="w"> </span><span class="nc">Admission</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Wraps a service, and states what the peer may do and how catalog prose is treated.</p>
 <p>Takes the <code>Arc</code> rather than making one, so a composition root serving two transports shares
@@ -2463,6 +2514,13 @@ root knows which it is building. See the module documentation for what the value
 <p><strong><code>prose</code> is required for the same reason, and it is a composition-root value.</strong> <code>sutura</code>'s
 <code>mcp</code> subcommand passes what this deployment renders; a <code>CatalogProse</code> with no default keeps
 <code>quoted</code> from being a posture chosen here for a deployment that meant something else.</p>
+<p><strong><code>admission</code> is required and is not built here, and that is the third instance of the same
+rule.</strong> A bound this file constructed would be a number chosen for every deployment that
+links it, and - worse - a <em>second</em> permit set in any process that also serves HTTP, where
+two limits each reporting a bound the other can exceed is not a bound. So the composition
+root reads <code>runtime.max_concurrent_queries</code> and <code>runtime.admission_timeout_seconds</code> and
+hands one <code>Admission</code> to whatever serves. See the module documentation for where the
+permit then lives.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>ServerHandler</code></p>
 <h2 id="module-tool">Module <code>tool</code><a class="headerlink" href="#module-tool" title="Permanent link">&para;</a></h2>

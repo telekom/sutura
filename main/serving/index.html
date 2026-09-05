@@ -3145,8 +3145,11 @@ tool that composes the in-process engine over a data directory rather than with 
 </span></code></pre></div>
 <p>An agent client launches that process and speaks the protocol on its pipes - the same two tools this
 page describes, from the same <code>sutura_app::Capability</code> declaration. The command prints at startup, on
-standard error, that it grants every capability to whoever can reach the process: a pipe has no header
-a token could arrive in, which is the limit stated beside the mode rather than left as a default.</p>
+standard error, that it grants every capability to whoever can reach the process and how many
+questions it will answer at once: a pipe has no header a token could arrive in, which is the limit
+stated beside the mode rather than left as a default, and the second number is
+<a href="#capacity"><code>runtime.max_concurrent_queries</code></a>, which bounds that surface exactly as it bounds this
+one.</p>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3426,6 +3429,12 @@ whoever asked - a caller well inside their own rate limit can meet it.</p>
 seconds for a slot is better served by a <code>503</code> they can retry than by a <code>408</code> twenty-five seconds
 later that says the same thing less clearly. Setting it <em>above</em> the request timeout is allowed and
 does nothing: the timeout layer answers first.</p>
+<p><strong>The bound is the process's and not this endpoint's</strong>, which is why the same two keys bound the agent
+surface the <code>mcp</code> command serves. What differs is how a shed question comes back: there is no status
+code on a pipe, so it is a tool result marked as an error and saying to ask again shortly, with the two
+numbers going to the log rather than into a model's context. And <code>server.request_timeout_seconds</code> has
+no counterpart there - nothing on that surface bounds the wait except the admission window - so
+everything under <em>what it does not bound</em> is true of it and there is no <code>408</code> above it.</p>
 <h3 id="what-it-does-not-bound">What it does not bound<a class="headerlink" href="#what-it-does-not-bound" title="Permanent link">&para;</a></h3>
 <p>Stated plainly, because each of these has been mistaken for the thing above.</p>
 <ul>
