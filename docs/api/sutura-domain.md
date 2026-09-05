@@ -622,8 +622,9 @@ metrics assembles, pins and validates. What is not legitimate is a bundle that d
 declaration, and that is `MetadataCapabilities::checked_against`'s to report.
 
 **`conditional` is 0011's *declared-and-empty* state, and it is separate from `declared` on
-purpose.** A source maps a schema the deployment authors (datahub's `sutura.*` namespace is the
-first), so whether a KIND is produced is a property of the deployment rather than of the code:
+purpose.** A source maps a schema the deployment authors (datahub's deployment-defined
+structured property is the first), so whether a KIND is produced is a property of the deployment
+rather than of the code:
 the adapter declares the kind, and a bundle that carries none is a faithful bundle rather than an
 aspirational declaration. `Self::of_may_provide` is what such an adapter writes. Everything
 else - the reference adapter, the goldens, an adapter over a fixed external schema - declares
@@ -707,8 +708,9 @@ pub fn of_may_provide(kinds: impl IntoIterator<Item>) -> Self
 
 The kinds a provider may supply, where the deployment decides which a bundle carries.
 
-**What a source whose content is deployment-authored writes** - datahub's `sutura.*`
-namespace - where the adapter can carry a kind but every given bundle may carry none of it.
+**What a source whose content is deployment-authored writes** - datahub's
+deployment-defined structured property - where the adapter can carry a kind but every given
+bundle may carry none of it.
 The kinds are declared (the *not declared* direction still catches content), and absent from
 a bundle is a faithful bundle rather than an aspirational declaration.
 

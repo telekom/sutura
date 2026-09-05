@@ -20,7 +20,9 @@ against that declaration rather than against the golden adapters' oracle.
 
 **Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.**
 `DataHub`'s `structuredProperty` is scalar-only, so a deployment cannot define a nested metric
-object; what it CAN define is one string-valued structured property named `sutura`, and the
+object; what it CAN define is one string-valued structured property - under a name of its own,
+`sutura` being the field this adapter's canonical shape carries it under rather than a urn this
+crate dictates - and the
 reader decodes its scalar value into the closed-vocabulary content a certified metric needs -
 the flat-to-nested assembly `document::SuturaProperty::assemble` implements and the recorded
 fixture is kept in. Where that shape is present, this adapter reads it into a certified
@@ -36,15 +38,21 @@ This crate contains everything `DataHubCatalog` DECIDES about the aspects it rea
 tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
 HTTP. What it does not contain is an HTTP client: `AspectReader` is the seam a real reader over
 `DataHub`'s versioned `OpenAPI` v3 entity surface will implement (with a personal access token as a
-bearer), and the read path's cost - how many requests a whole bundle takes - is explicitly the
-opening engineering question `docs/adr/0016` leaves open, to be measured against a provisioned
-instance the way `sutura-exec-bigquery`'s acceptance leg was. Until that lands, the only
-implementor of the port is the recorded fixture source in `fixture`. **And nothing serves it:**
-no composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency),
-and `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and
-tested; what is not is the read path against a provisioned instance and a served composition -
-the *Built and not wired* register in `.agents/skills/sutura/query-surface/SKILL.md` records
-it, and that register is the one place it may be read from - it is not an invariant.
+bearer). Until that lands, the only implementor of the port outside a test is the recorded
+fixture source in `fixture` - the other two are doubles, `tests::Stub` and the acceptance
+suite's `Composed` - so no code here shapes a request or maps a response. **And nothing serves it:** no
+composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency), and
+`sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and tested;
+what is not is the reader itself and a served composition - the *Built and not wired* register in
+`.agents/skills/sutura/query-surface/SKILL.md` records it, and that register is the one place it
+may be read from - it is not an invariant.
+
+**What that register no longer says is that the cost is unmeasured.** `docs/adr/0016`'s
+*Revision, 2026-09-04* has the numbers, off a provisioned instance: a bundle's metric half is ONE
+paged request carrying `structuredProperties` and `metricInfo` inline, not a request per metric -
+**and that surface is search-backed, so it is not read-your-writes.** A reader written against it
+pages an eventually-consistent view; the by-urn form is the immediate one. The limit belongs
+beside the cost rather than after it.
 
 # The declaration, and what it means for the bundle
 
@@ -90,8 +98,8 @@ Where a snapshot's aspects come from.
 **The fake seam.** Everything above this trait is decided and tested against recorded documents;
 a real implementor speaks to `DataHub`'s versioned `OpenAPI` v3 entity surface, decodes into
 `document::Snapshot`, and maps its own failures into `DataHubError::Read`. The only
-implementor today is the recorded source in `fixture`, which is why the read path's cost is not
-measured here - see the crate header.
+implementor today is the recorded source in `fixture`. The RESPONSE SHAPE that implementor has
+to map, and the surface's consistency, are measured rather than guessed - see the crate header.
 
 A port rather than a method on `DataHubCatalog` for the same reason the warehouse port exists:
 a catalog that could be swapped for a live source without the conversion changing is the point.
@@ -404,16 +412,28 @@ fixtures carry.
 pub struct SuturaProperty
 ```
 
-`DataHub`'s view of the deployment-defined metric content: ONE structured property named
-`sutura`, whose single scalar value is the JSON document below.
+`DataHub`'s view of the deployment-defined metric content: ONE structured property, whose single
+scalar value is the JSON document below.
 
 **This is what makes the scalar-only constraint literal rather than prose.** `DataHub`'s
 `structuredProperty` has no nested or record value type, so a deployment cannot define a nested
-object under `sutura` at all; what it can define is one string-valued property, and
-`Self::assemble` is the step that turns that scalar into the nested `SuturaContent` - the
-issue #202 mechanism, implemented here and exercised by a fixture recorded in this flat form
-rather than left to a sentence. The scalar payload is still bounded by the value-type limits a
-deployment's `DataHub` enforces; this crate adds none of its own.
+object at all; what it can define is one string-valued property, and `Self::assemble` is the
+step that turns that scalar into the nested `SuturaContent` - the issue #202 mechanism,
+implemented here and exercised by a fixture recorded in this flat form rather than left to a
+sentence.
+
+**The property's NAME is the deployment's and does not appear here.** `sutura` is the field
+`MetricAspect` carries this under on the adapter's own canonical shape; which structured
+property a reader maps onto it is `docs/adr/0016` decision 7's *not ours to say*, and
+`tests/provisioned.rs` registers one whose name shares nothing with this field precisely so the
+independence is measured.
+
+The scalar payload is bounded by the value-type limits a deployment's `DataHub` enforces - the
+platform names its own as `structuredProperties.keywordMaxLength`, because the value is indexed
+as an Elasticsearch keyword, so the bound is an index setting rather than a constant here.
+What is measured is that the refusal NAMES that setting; nothing has raised it and retried,
+so whether a deployment can move it is `DataHub`'s documentation and not this repository's
+measurement. This crate adds no bound of its own.
 
 #### Methods
 
@@ -458,10 +478,19 @@ statement of what that scalar means.
 vocabularies.** The `measure` is the `sutura-domain` `Measure` type itself - the closed set,
 written exactly as this repository writes it - the `grains` and `required_filters` are the
 closed `Grain` and `RequiredFilter` enums, and a `dimension` and an `anchor` mirror the markdown
-document's shapes with `deny_unknown_fields` at every depth refusing a property this adapter
-does not recognise rather than guessing. An aggregate out of the closed set, an unknown operator,
-an unparseable value, an unknown grain, an unclosed namespace key - all fail the decode before
-the conversion sees them.
+document's shapes. `deny_unknown_fields` sits on this document, on the measure and on the term
+inside it, on a filter, on a dimension, on the anchor and on the range inside the anchor, and
+refuses a property this adapter does not recognise rather than guessing. An aggregate out of the
+closed set, an unknown operator, an unparseable value, an unknown grain, an unknown key at any of
+those levels - all fail the decode before the conversion sees them, naming the key.
+
+**The range is where that used to stop**, which is worth recording because the claim read *at
+every depth* while it was one depth short: `sutura_domain::calendar::TimeRangeInput` carried no
+`deny_unknown_fields`, so a key written INSIDE the range object was discarded in silence rather
+than named, and the metric was certified from a document nobody had read in full. The attribute
+is on that domain shape now, which closes the same hole on the markdown catalog and question
+paths that decode the same type, and
+`a_key_inside_an_anchor_range_is_refused_through_the_load_path` is what holds it here.
 
 The three free strings - `model`, `time_column`, and each nested `column` - are the one thing
 this shape cannot close, and they are parsed as domain identifier types during the conversion
@@ -595,17 +624,22 @@ pub fn value(&self) -> &str
 The recorded fixture corpus and the fake reader that serves it.
 
 This is the only `AspectReader` implementor today, and it is the **fake** the port is tested
-against - recorded aspect documents, not mocked HTTP. `docs/adr/0016`'s transport note leaves the
-read path's cost open until a provisioned instance exists; until then this is what a
+against - recorded aspect documents, not mocked HTTP. Until a real reader exists this is what a
 `crate::DataHubCatalog` reads. The corpus is a bundle of models, one relationship and **one
-certified metric** - the metric is `revenue`, and it carries the deployment-defined `sutura`
-structured property that the adapter decodes into a domain `Metric`, which is the issue #202
-claim: `DataHub` provides metrics for a metric that carries the custom shape. The raw expression
-string beside it stays the promotion-candidate half and is never converted.
+certified metric** - the metric is `revenue`, and it carries the deployment-defined structured
+property that the adapter decodes into a domain `Metric`, which is the issue #202 claim:
+`DataHub` provides metrics for a metric that carries the custom shape. The raw expression string
+beside it stays the promotion-candidate half and is never converted.
+
+**The corpus is not only recorded, it is CONFIRMED against the platform.**
+`tests/provisioned.rs` writes this metric's scalar into a provisioned `DataHub`, reads the aspect
+back, and asserts the decoded `crate::document::MetricAspect` equals the one recorded here - so
+the fixture is faithful to the platform rather than only to itself.
 
 **The metric content is recorded in the FLAT form, and that is the point of keeping it as text.**
 `DataHub`'s `structuredProperty` is scalar-only, so a deployment defines metric content as one
-string-valued property named `sutura`; the corpus records exactly that - `"sutura": {
+string-valued property, under a name of its own; the corpus records the shape a reader hands over
+once it has mapped that property - `"sutura": {
 "string_value": "..." }` with the closed-vocabulary document as the scalar's text - and the read
 path exercises `document::SuturaProperty::assemble`, the scalar-to-nested step issue #202 is
 about, on every load. The documents are decoded through `serde_json` at read time, so the same
