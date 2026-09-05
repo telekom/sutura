@@ -340,11 +340,11 @@ fn reconstruct_and_run(
             &classify_base(&retry_out, retry_ok, scoped.tests()),
             &retry_out,
             true,
-            &scope.coverage.ratio(),
+            scope.coverage,
         );
     }
 
-    report_base(&outcome, &base_out, false, &scope.coverage.ratio())
+    report_base(&outcome, &base_out, false, scope.coverage)
 }
 
 /// Should the proof ask a second time, with the held-back files at base too?

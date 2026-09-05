@@ -64,6 +64,23 @@ pub(crate) enum Verdict {
     /// Invoked wrongly - bad or missing arguments. Distinct from a violation, because a
     /// mistyped command is not a repo problem.
     Usage,
+    /// The gate reached no verdict about the change: its precondition held, it ran, and what it
+    /// exists to measure was not measurable. Neither a violation nor a clean bill.
+    ///
+    /// WHY IT IS A THIRD EXIT CODE RATHER THAN A SENTENCE. A required CI step reads the exit code
+    /// and nothing else, so a gate that could not measure and exits 0 hands its reader a green
+    /// check over no evidence - measured twice on finished branches, and the record is
+    /// `github.com/telekom/sutura#307`. Failing instead was weighed and rejected: the changes that
+    /// land on `causality`'s inconclusive arms are legitimate ones (a harness move, a changed
+    /// public signature a held-at-HEAD test calls) and a gate that reddens correct work gets
+    /// disabled. So the decision moves to the venue, and the DEFAULT is closed: any consumer that
+    /// does not recognise this code fails on it, because 3 is not 0.
+    ///
+    /// **What it is not**: a venue may still choose to continue over it - `ci.yml`'s causality step
+    /// and `devenv.nix`'s `ship-check` both do, at one line each, and surface the verdict instead.
+    /// What changed is that continuing is now a stated decision in one readable place rather than
+    /// an exit code no reader can tell from a proof.
+    Inconclusive,
 }
 
 impl Verdict {
@@ -73,6 +90,7 @@ impl Verdict {
             Self::Pass => ExitCode::SUCCESS,
             Self::Fail => ExitCode::FAILURE,
             Self::Usage => ExitCode::from(2),
+            Self::Inconclusive => ExitCode::from(3),
         }
     }
 }
@@ -782,6 +800,17 @@ mod tests {
         assert_eq!(
             format!("{:?}", Verdict::Usage.exit_code()),
             format!("{:?}", ExitCode::from(2))
+        );
+        // AND IT IS NOT 0, which is the whole of #307: a gate that measured nothing may not hand
+        // a required step the same code a proof does. Asserted against `SUCCESS` as well as
+        // against 3, because the failure mode being closed here is someone mapping it back.
+        assert_eq!(
+            format!("{:?}", Verdict::Inconclusive.exit_code()),
+            format!("{:?}", ExitCode::from(3))
+        );
+        assert_ne!(
+            format!("{:?}", Verdict::Inconclusive.exit_code()),
+            format!("{:?}", ExitCode::SUCCESS)
         );
     }
 

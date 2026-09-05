@@ -139,12 +139,15 @@ impl Coverage {
         }
     }
 
-    /// The same sentence with a ZERO numerator, for an arm that returns before either run.
+    /// The same sentence with a ZERO numerator, for an arm whose base run produced no result.
     ///
     /// The numerator is what the filterset NAMES, which equals what was measured only once both
-    /// runs have happened. Two passing arms return earlier than that - nothing to revert, and no
-    /// base behaviour to compare against - and printing what the filter names there would be a
-    /// claim about a run that did not happen.
+    /// runs have happened and reported per-test results. Two passing arms return before either
+    /// run (nothing to revert, and no base behaviour to compare against), and two INCONCLUSIVE
+    /// ones reach a base run that produced nothing to attribute: a tree that did not build ran no
+    /// test at all. Printing what the filter named at any of the four is a claim about runs that
+    /// did not happen, which is what `6 of 6 added tests measured` said beside *the base tree does
+    /// not build*. `super::base::earned` is the mapping from outcome to wording.
     pub(crate) fn nothing_measured(&self) -> String {
         match *self {
             Self::Measured {
@@ -178,10 +181,12 @@ impl Coverage {
 /// What the two runs are scoped to, and how much of the diff that leaves unmeasured.
 ///
 /// One value rather than two parameters, so the filter and its own limit reach the reconstruction
-/// together. **What that buys is narrower than it sounds:** `super::base::report_base` takes the
-/// sentence as a `&str`, so nothing stops a caller passing an empty one. What is held is that the
-/// ratio is in REACH at every call site - not that it was printed, which is prose and is held by
-/// the review of these four modules.
+/// together. **What that buys is narrower than it sounds, and it is one step wider than it was:**
+/// `super::base::report_base` used to take the sentence as a `&str` chosen by this caller, so which
+/// wording each of its six arms printed was decided here and pinned by review. It takes the
+/// `Coverage` now and `super::base::earned` maps outcome to wording in one place, with a test on the
+/// mapping. What is still NOT held is that any arm printed it: that is prose, and the review of
+/// these four modules is what holds it.
 pub(crate) struct Scope<'s> {
     pub(crate) only: &'s str,
     pub(crate) coverage: &'s Coverage,
