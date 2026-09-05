@@ -155,6 +155,11 @@ impl Endpoints {
 #[derive(Debug)]
 pub enum DiscoveryError {
     /// No discovery file. Nothing has provisioned this worktree, or teardown removed it.
+    ///
+    /// **It names no task, and that is the fix rather than an omission.** This variant carries a
+    /// path and nothing else - no service, no worktree - so it cannot ask which venue answers. The
+    /// remedy belongs to `provisioned::Absent`, which derives one; why this line used to cite
+    /// `just dev-up` too is recorded at `provisioned::Venue::advice`.
     NotProvisioned {
         /// Where the file would have been.
         path: PathBuf,
@@ -220,7 +225,7 @@ impl std::fmt::Display for DiscoveryError {
         match *self {
             Self::NotProvisioned { ref path } => write!(
                 f,
-                "no services are provisioned for this worktree ({} is absent) - run `just dev-up`",
+                "no services are provisioned for this worktree ({} is absent)",
                 path.display()
             ),
             Self::Unreadable { ref path, .. } => write!(f, "could not read {}", path.display()),

@@ -33,6 +33,14 @@
 //! reach: no second dataset and no second project, because the acceptance credential's IAM refuses
 //! `datasets.create`.
 //!
+//! **And since `telekom/sutura#325`'s F2, one more thing nothing local can reach: a digit-leading
+//! quoted ALIAS is accepted and answered under that name.** The internal federation labels are a
+//! namespace no question can name precisely because every one of them starts with the character the
+//! identifier parser refuses for portability - so the scheme depends on each target accepting it as a
+//! select alias, which `every_leg_statement_parses_here` asks four PARSERS and no service.
+//! [`an_internal_label_survives_as_an_alias_at_the_service`] asks the one target whose documentation
+//! restricts a column NAME to a letter or an underscore first. Same table, same numbers, two labels.
+//!
 //! **The leg the records ask for is a different piece of work, and it is now BUILT - in
 //! `tests/corpus.rs`, beside this one.** It is #78's importer shape pointed at a dataset: the example
 //! fixtures loaded into four tables, the corpus questions run, the rows compared against the engine's.
@@ -103,6 +111,10 @@
 //! | `SUTURA_BQ_BILLING_PROJECT` | the project the job is billed to; **only where the credential names none** | both |
 //! | `SUTURA_BQ_DATASET` | the dataset an unqualified table resolves in, inside that project | both |
 //! | `SUTURA_BQ_TABLE` | a table in it with a `DATE` column `day` and an `INT64` column `amount` | this one |
+//! | `SUTURA_BQ_WIF_AUDIENCE` | the workload identity pool provider audience the asker's token is exchanged against | the two-subjects leg |
+//! | `SUTURA_BQ_WIF_SCOPE` | the scope the exchanged credential is minted for | the two-subjects leg |
+//! | `SUTURA_BQ_SUBJECT_A_TOKEN` | principal A's own OIDC `id_token`, whose grant sees one row | the two-subjects leg |
+//! | `SUTURA_BQ_SUBJECT_B_TOKEN` | principal B's own OIDC `id_token`, whose grant sees the other row | the two-subjects leg |
 //!
 //! The table's shape is two columns because that is the smallest thing a real plan can be asked
 //! about: a time bucket needs a `DATE`, and a measure needs something to sum. **A `TIMESTAMP` will
@@ -136,38 +148,42 @@
 #[cfg(test)]
 mod support;
 
+// The names, the environment fixture and the plan this leg asks - `tests/fixture/mod.rs`.
+//
+// Split out when a merge took this file past the 1000-line ceiling `cargo xtask max-lines`
+// enforces, which is the gate's own instruction rather than a judgement about cohesion: nothing
+// under `crates/` can be listed in `devco/max-lines-ignore`. Declared HERE ONLY, unlike `support`:
+// `dead_code` is `deny` per target, so an item the corpus leg had no use for would fail THAT
+// target's build - the same reason `SUTURA_BQ_TABLE` is read on this side of the split.
+#[cfg(test)]
+mod fixture;
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
-    use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::model::{
-        Aggregate, ColumnName, DatasetName, Grain, MetricName, ModelName, ProjectName, QualifiedTable, SourceName, TableName,
-        TableQualifier,
-    };
+    use sutura_domain::model::{DatasetName, ModelName, QualifiedTable, SourceName, TableQualifier};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
-    use sutura_domain::plan::{
-        Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-        StatementTables,
-    };
+    use sutura_domain::plan::Executable;
+    use sutura_domain::plan::federated::InternalLabel;
     use sutura_domain::warehouse::preflight::TablesPresent;
-    use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse};
+    use sutura_domain::warehouse::{PreFlight, Warehouse};
+
+    use sutura_domain::identity::{
+        Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
+    };
+    use sutura_domain::source::SourcePosture;
+    use sutura_exec_bigquery::{BigQueryWarehouse, WorkloadIdentity, WorkloadIdentityBroker};
 
     use sutura_app::Warehouses;
     use sutura_app::preflight::{Verdict, ask};
     use sutura_catalog_local::LocalCatalog;
     use sutura_exec_bigquery::BigQueryError;
-    use sutura_exec_bigquery::wire::WireError;
+    use sutura_exec_bigquery::transport::{DatasetAddress, JobTransport as _, ListingTotal};
+    use sutura_exec_bigquery::wire::{BigQueryWire, StsOverHttp, WireAgent, WireError};
 
-    use crate::support::{Connection, Wired, bounds, named, opened, presented};
-
-    /// A table name no dataset holds, and the one name in this file that needs no masking.
-    ///
-    /// **A constant rather than four literals**, because four legs ask the same question - *what does
-    /// this dataset do with a name it does not hold* - and a copy that drifted by a character would be
-    /// a leg passing for the wrong reason: `preflight` reports an unknown name absent whatever it is,
-    /// so nothing here would go red.
-    const NO_SUCH_TABLE: &str = "sutura_acceptance_no_such_table";
+    use crate::fixture::{Fixture, NO_SUCH_TABLE, absent_table, no_such_table, plan, plan_in_the_internal_namespace, source};
+    use crate::support::{Wired, bounds, opened, presented};
 
     /// The model the seam leg's bundles declare over the table the dataset really holds.
     const MODEL_ON_A_HELD_TABLE: &str = "held_here";
@@ -176,146 +192,44 @@ mod tests {
     /// print, because an operator fixes a `table:` by opening the model that wrote it.
     const MODEL_ON_AN_ABSENT_TABLE: &str = "not_here";
 
-    /// What this leg needs from the environment: the shared [`Connection`], plus the one variable only
-    /// this leg reads.
+    /// The two-principal leg's own environment: the two subjects' tokens and the provider to exchange
+    /// them against, or `None` when none of it is set.
     ///
-    /// **The environment reading itself moved to `tests/support/mod.rs` when the corpus leg arrived**,
-    /// and the argument for FAILING rather than skipping moved with it - it applies to both legs
-    /// identically and there must be one copy of it. `SUTURA_BQ_TABLE` stayed here, because the corpus
-    /// leg creates its own tables and has no use for it: a shared module is compiled once per target,
-    /// and `dead_code` is `deny`.
-    struct Fixture {
-        connection: Connection,
-        table: TableName,
-    }
-
-    impl Fixture {
-        /// The credential and the three names, or a panic saying exactly what is missing.
-        fn required() -> Self {
-            Self {
-                connection: Connection::required(),
-                table: TableName::parse(named(
-                    "SUTURA_BQ_TABLE",
-                    "a table with a DATE column `day` and an INT64 column `amount`",
-                ))
-                .expect("a table name parses"),
-            }
-        }
-
-        /// The table as an unqualified name, resolved by the job's `defaultDataset`.
-        ///
-        /// The shape every leg in this file used before qualification existed, kept so the qualified
-        /// legs have something to be COMPARED against: a qualified read that returns the right numbers
-        /// is only evidence beside an unqualified read that returns the same ones.
-        fn unqualified(&self) -> QualifiedTable {
-            QualifiedTable::from(self.table.clone())
-        }
-
-        /// `dataset.table` - the same table, named without relying on the job's default.
-        fn in_dataset(&self) -> QualifiedTable {
-            QualifiedTable::new(
-                Some(TableQualifier::in_dataset(
-                    DatasetName::parse(self.connection.dataset.as_str()).expect("a dataset id is also a dataset name"),
-                )),
-                self.table.clone(),
-            )
-        }
-
-        /// `project.dataset.table` - the same table, fully qualified.
-        ///
-        /// **The claim this file was extended for.** The path is built from the fixture's OWN project
-        /// and dataset, so no value here is written into the repository - which is the same rule the
-        /// two variables above are read under.
-        fn in_project(&self) -> QualifiedTable {
-            self.qualified_in_project(self.connection.dataset.as_str(), self.table.clone())
-        }
-
-        /// `project.dataset.table` in the fixture's OWN project, for any dataset and table.
-        ///
-        /// **One place parses the project id, which is why this is a method and not a second literal
-        /// in a test body.** [`Self::in_project`] asks it about the real dataset; the soft-edge leg
-        /// asks it about one the project does not hold. Two copies of the same
-        /// `ProjectName::parse(billing_project)` would be two answers to *which project pays*, which
-        /// is the live bug `x-goog-user-project` already cost this adapter once.
-        fn qualified_in_project(&self, dataset: &str, table: TableName) -> QualifiedTable {
-            QualifiedTable::new(
-                Some(TableQualifier::in_project(
-                    ProjectName::parse(self.connection.billing_project.as_str()).expect("a project id is also a project name"),
-                    DatasetName::parse(dataset).expect("a dataset id is also a dataset name"),
-                )),
-                table,
-            )
+    /// **`None` means SKIP, and that is a deliberate narrowing of these legs' fail-on-missing.** Those
+    /// legs run in a job that always has their environment, so an absent value there is a
+    /// misconfiguration; this leg's environment belongs to the workload-identity infra (`#106`/`#122`/
+    /// `#123`) not landed with this change, so before it exists a hard failure would red a LIVE
+    /// acceptance job. Hence: all four absent -> skip; all four present -> run; anything partial ->
+    /// panic, because a half-configured exchange must not silently pass.
+    fn subjects_env() -> Option<SubjectsEnvironment> {
+        let read = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
+        let subject_a = read("SUTURA_BQ_SUBJECT_A_TOKEN");
+        let subject_b = read("SUTURA_BQ_SUBJECT_B_TOKEN");
+        let audience = read("SUTURA_BQ_WIF_AUDIENCE");
+        let scope = read("SUTURA_BQ_WIF_SCOPE");
+        match (&subject_a, &subject_b, &audience, &scope) {
+            (None, None, None, None) => None,
+            (Some(a), Some(b), Some(aud), Some(sc)) => Some(SubjectsEnvironment {
+                subject_a: a.clone(),
+                subject_b: b.clone(),
+                audience: aud.clone(),
+                scope: sc.clone(),
+            }),
+            _ => panic!(
+                "the two-subjects leg is partially configured: set all four of SUTURA_BQ_SUBJECT_A_TOKEN, \
+                 SUTURA_BQ_SUBJECT_B_TOKEN, SUTURA_BQ_WIF_AUDIENCE and SUTURA_BQ_WIF_SCOPE, or remove them \
+                 all - a half-configured exchange must not pass"
+            ),
         }
     }
 
-    fn source() -> SourceName {
-        SourceName::parse("warehouse").expect("a source name is a source name")
-    }
-
-    /// [`NO_SUCH_TABLE`], parsed - the bare name, for a caller that qualifies it itself.
-    fn no_such_table() -> TableName {
-        TableName::parse(NO_SUCH_TABLE).expect("a table name parses")
-    }
-
-    /// [`NO_SUCH_TABLE`] as an unqualified path, which is the shape four legs ask about.
-    ///
-    /// **Unqualified on purpose, in every one of them.** `preflight` partitions an unaddressable path
-    /// into the absent set BEFORE anything is listed, so a name qualified into a dataset that is not
-    /// there could answer *absent* without a call ever being made. Resolved by the source's own
-    /// default dataset, the answer comes back from a real listing.
-    fn absent_table() -> QualifiedTable {
-        QualifiedTable::from(no_such_table())
-    }
-
-    /// A plan over the developer's table, built the way the compiler builds one.
-    ///
-    /// One bucket, one measure, and the two range bounds as predicates - because a `TimeRange` has no
-    /// unbounded form, so every real plan carries them and the generator refuses one with no
-    /// predicate.
-    fn plan(table: &QualifiedTable) -> QueryPlan {
-        // Every column is qualified by the table's BARE name, because `FROM a.b.c` gives the reference
-        // an implicit alias of `c`. That is a claim about GoogleSQL that no local test can check, and
-        // `the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers` is what checks it.
-        let column = |name: &str| PlanColumn::new(table.name().clone(), ColumnName::parse(name).expect("a column name parses"));
-        // **Under `MAX_RANGE_DAYS`, which the previous version was not.** A hundred-year span is a
-        // question this surface REFUSES as `TimeRangeTooLong` before an adapter ever sees it, so
-        // asking a real endpoint one was asking something no caller could ask - which made
-        // "a statement this repository generated" generous. Ten years less a day is the widest a
-        // question can legitimately be.
-        let from = Date::parse("2016-09-01").expect("an ISO date parses");
-        let until = Date::parse("2026-08-30").expect("an ISO date parses");
-        QueryPlan::new(
-            source(),
-            MetricName::parse("total_amount").expect("a metric name parses"),
-            StatementTables::only(table.clone()),
-            PlanBucket::new(String::from("period"), Grain::Month, column("day")),
-            Vec::new(),
-            PlanMeasure::Simple {
-                term: PlanTerm::Aggregate {
-                    aggregate: Aggregate::Sum,
-                    column: column("amount"),
-                },
-            },
-            String::from("total_amount"),
-            vec![
-                PlanFilter::new(
-                    PredicateOrigin::Definition,
-                    PlanPredicate::AtOrAfter {
-                        column: column("day"),
-                        param: 0,
-                    },
-                ),
-                PlanFilter::new(
-                    PredicateOrigin::Definition,
-                    PlanPredicate::Before {
-                        column: column("day"),
-                        param: 1,
-                    },
-                ),
-            ],
-            vec![ParamValue::Date(from), ParamValue::Date(until)],
-            TimeRange::new(from, until).expect("a bounded range is a range"),
-        )
+    /// The two principals and the provider, as one value so the four-read guard and its users cannot
+    /// disagree about which combination is complete.
+    struct SubjectsEnvironment {
+        subject_a: String,
+        subject_b: String,
+        audience: String,
+        scope: String,
     }
 
     /// The adapter, wired to the endpoint through the credential the environment supplied.
@@ -375,7 +289,41 @@ mod tests {
             "the projected labels are the plan's"
         );
 
-        assert_the_fixtures_numbers("the unqualified read", &rows);
+        assert_the_fixtures_numbers("the unqualified read", ["period", "total_amount"], &rows);
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn an_internal_label_survives_as_an_alias_at_the_service() {
+        // **The half of `telekom/sutura#325`'s F2 that no parse check can reach.** The internal
+        // federation labels are a namespace no question can name because every one of them starts
+        // with a digit - the character `InvalidIdentifier::BadFirstCharacter` refuses *because* it is
+        // "legal in some dialects and not others, so accepting it would make a model portable by
+        // luck". So the whole namespace rests on every target accepting that character in the one
+        // position the generator puts it: a quoted select alias.
+        //
+        // `every_leg_statement_parses_here` asks `polyglot_sql` and its own doc says what that is
+        // worth - a failure at the service "is otherwise only discoverable by running it". This is
+        // the running of it, and BigQuery is the target that had to be asked rather than reasoned
+        // about, because it is the one whose documentation restricts a COLUMN NAME to a letter or an
+        // underscore first. Asked by hand first, 2026-09-05, twice - bare aliases and then this
+        // statement's own shape, each as a dry run and as a real job: accepted, and the result schema
+        // comes back with the field names the statement asked for. This cell is what keeps that true;
+        // `label.rs` carries the transcripts and the two targets still asserted at the parser only.
+        //
+        // Read back rather than merely accepted: a service that had silently renamed the columns
+        // would satisfy an acceptance-only assertion, and the combiner reads leg results BY LABEL.
+        let fixture = Fixture::required();
+        let table = fixture.unqualified();
+        let warehouse = warehouse(fixture);
+        let plan = plan_in_the_internal_namespace(&table);
+        let link = InternalLabel::Link.label();
+        let leaf = InternalLabel::Leaf(0).label();
+
+        let rows = warehouse
+            .execute(Executable::Query(&plan), &presented())
+            .expect("the endpoint accepted a digit-leading quoted alias");
+        assert_the_fixtures_numbers("the internal namespace", [link.as_str(), leaf.as_str()], &rows);
     }
 
     /// The fixture's own numbers, whichever way its table was named.
@@ -389,12 +337,11 @@ mod tests {
     /// anything:** what they claim is that a fully qualified read returns *the same* numbers as the
     /// unqualified one, and three separately written expectations could drift into three different
     /// claims. `named` says which leg is speaking, because a failure has to name the path shape.
-    fn assert_the_fixtures_numbers(named: &str, rows: &sutura_domain::warehouse::RowSet) {
-        assert_eq!(
-            rows.columns(),
-            ["period", "total_amount"],
-            "{named}: the projected labels are the plan's"
-        );
+    /// `labels` is a parameter rather than a constant because one leg projects the same numbers under
+    /// the internal federation namespace's labels - the point of that leg is the alias, so the labels
+    /// it expects are the assertion and cannot be hard-coded here.
+    fn assert_the_fixtures_numbers(named: &str, labels: [&str; 2], rows: &sutura_domain::warehouse::RowSet) {
+        assert_eq!(rows.columns(), labels, "{named}: the projected labels are the plan's");
         let mut answered: Vec<(String, String)> = Vec::new();
         for row in rows.rows() {
             assert_eq!(row.len(), 2, "{named}: a row is as wide as the schema");
@@ -449,7 +396,7 @@ mod tests {
             let rows = warehouse
                 .execute(Executable::Query(&plan), &presented())
                 .unwrap_or_else(|e| panic!("{named}: the endpoint did not answer: {e:?}"));
-            assert_the_fixtures_numbers(named, &rows);
+            assert_the_fixtures_numbers(named, ["period", "total_amount"], &rows);
         }
     }
 
@@ -814,5 +761,213 @@ mod tests {
             .next()
             .expect("a vector of one has a first element")
             .into_verdict()
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project with a Workload Identity Federation provider and two granted principals, named in the developer's own environment"]
+    fn two_subjects_with_different_grants_read_two_different_row_sets() {
+        // **The acceptance criterion issue 87 exists to make provable.** Two principals with
+        // deliberately different row-level grants (one row visible to A and not to B) each asking the
+        // same plan through the composition this repository SHIPS - the exchanging broker and the
+        // adapter over the wire to a real STS and dataset. The dataset's row policy is what makes the
+        // two answers differ; the exchange is what makes each answer run as its asker rather than as
+        // the process. It needs the workload-identity infra not landed here (`#106`/`#122`/`#123`:
+        // the pool, provider, the two principals and the row policy), so it is `#[ignore]`d and
+        // guarded by [`subjects_env`]: SKIP while that infra is absent, FAIL on a partial
+        // configuration. No identifier, token or provider name is written here.
+        let Some(env_vars) = subjects_env() else {
+            // No WIF provider configured yet - the state before the `#106`/`#122`/`#123` infra lands.
+            // Skipping is honest for a job with no principal to ask with; the other legs fail on a
+            // missing value only because their environment always exists.
+            eprintln!(
+                "SKIPPED - two-subjects leg: no SUTURA_BQ_* workload-identity variables set, so there is no provider to exchange against"
+            );
+            return;
+        };
+        // The two principals' tokens and the provider, out of the guarded value.
+        let SubjectsEnvironment {
+            subject_a,
+            subject_b,
+            audience,
+            scope,
+        } = env_vars;
+        let fixture = Fixture::required();
+        let table = fixture.unqualified();
+        let plan = plan(&table);
+        let connection = fixture.connection;
+        let bounds = bounds();
+
+        // The running composition, exactly as `sutura-serve`'s `broker::build_broker` and
+        // `build_bigquery` compose it: one pinned agent and bounds behind both the exchange and the
+        // wire, the broker exchanging each principal's own token into the leg, and the adapter opened
+        // under the `impersonation-at-source` posture that accepts a subject token as the job's bearer.
+        let agent = WireAgent::pinned(bounds);
+        let broker = WorkloadIdentityBroker::empty(StsOverHttp::new(agent))
+            .with_floor(30)
+            .impersonating(source(), WorkloadIdentity::of(audience, scope));
+        let warehouse = BigQueryWarehouse::new(
+            source(),
+            SourcePosture::ImpersonationAtSource,
+            connection.billing_project,
+            connection.dataset,
+            BigQueryWire::new(WireAgent::pinned(bounds), connection.credentials),
+        );
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("a clock that reads the present")
+            .as_secs();
+        // One subject id per principal: the token is what Google's STS sees and exchanges, and the
+        // subject id is what this answer is recorded as, so they have to be told apart here. The
+        // subject is rebuilt for the agreement check rather than shared by reference - `request`
+        // consumes the chain, exactly as the broker's own suite builds it twice.
+        let rows_for = |token: &str, id: &str| -> Vec<(String, String)> {
+            let chain = |id: &str| {
+                PrincipalChain::of(Subject::Verified {
+                    id: SubjectId::parse(id).expect("a subject id parses"),
+                })
+            };
+            let context = RequestContext::with_assertion(chain(id), Secret::new(String::from(token)));
+            let minted = broker
+                .mint(&context, &SourceSet::of(source()))
+                .expect("the exchange answered - an error here is a provider that refused, not a grant");
+            let agreed = minted
+                .agreeing_with(chain(id).subject(), &SourceSet::of(source()), now)
+                .expect("the grant agrees with the request");
+            let Agreed::Granted { credentials } = agreed else {
+                panic!("an impersonating source with an assertion is granted");
+            };
+            let presented = credentials.presented_for(&source()).expect("a leg");
+            // The presentation owns a `Secret`, and the grant lent it by reference; the clone hands
+            // one leg its own credential without disturbing the grant's record.
+            let Presented::SubjectToken { material } = presented else {
+                panic!("an impersonating source gets a subject token");
+            };
+            let rows = warehouse
+                .execute(
+                    Executable::Query(&plan),
+                    &Presented::SubjectToken {
+                        material: material.clone(),
+                    },
+                )
+                .expect("the endpoint answered the query");
+            // **This cell compares the DISPLAY form, and it is deliberately not under
+            // `sutura_domain::warehouse::agreement`'s policy - the feature is on in this crate, so
+            // that is a decision rather than an absence.** The claim here is that two answers
+            // DIFFER, and for that direction the display form is the CONSERVATIVE comparison:
+            // erasing the variant can only make two row sets compare more equal, so it can only
+            // make `assert_ne!` and the one-row-only-on-A check below harder to satisfy, never
+            // easier. A type-aware comparison would accept a cell-type-only difference as evidence
+            // of a grant difference, which is not what a grant difference is. Both assertions fail
+            // CLOSED, which is why the erasure F4 removes from the two row-agreement legs is left
+            // standing here: there it manufactured agreement, here it can only withhold it.
+            let mut answered: Vec<(String, String)> = Vec::new();
+            for row in rows.rows() {
+                let (Some(period), Some(total)) = (row.first(), row.get(1)) else {
+                    panic!("a two-column row has two cells");
+                };
+                answered.push((period.render(), total.render()));
+            }
+            answered.sort();
+            answered
+        };
+
+        let from_a = rows_for(&subject_a, "principal-a@example.com");
+        let from_b = rows_for(&subject_b, "principal-b@example.com");
+        assert!(
+            !from_a.is_empty(),
+            "principal A's grant must see at least one row, or the fixture is wrong"
+        );
+        assert!(
+            !from_b.is_empty(),
+            "principal B's grant must see at least one row, or the fixture is wrong"
+        );
+        // The claim this leg exists to make: two grants, two row sets. If a service answered both as
+        // the deployment's own identity - reading every row as one identity - these would be equal.
+        assert_ne!(
+            from_a, from_b,
+            "two principals with deliberately different grants must read different row sets"
+        );
+        // One row visible to A and not to B (the fixture the issue specifies), rather than an
+        // ordering accident across two otherwise identical sets.
+        assert!(
+            from_a.iter().any(|row| !from_b.contains(row)),
+            "the grant difference must be visible in the rows themselves, not an accident of the answer's shape"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried() {
+        // **The measurement `docs/adr/0018` deferred to a run that could not make it**, which is
+        // issue #263: the record said a `totalItems` cross-check would tell an empty dataset from a
+        // document whose shape the service changed, and deferred the question to the listing leg
+        // above - which asserts on `TablesPresent` while the decoder read no such field, so no value
+        // reached an assertion, a panic message or a log line in either direction.
+        //
+        // **Below the domain port on purpose, and that is a finding rather than a shortcut.**
+        // `TablesPresent` carries no count and should not: the number is a fact about one service's
+        // document. So the total is observable only where the transport answers, which is also where
+        // the decision that reads it will have to live.
+        //
+        // **What it costs, stated rather than rounded to nothing:** one more `tables.list` - a
+        // metadata read, billed for nothing - plus a second credential file read and **a second
+        // token exchange**, because `Credential::bearer` caches nothing and mints per call. A leg of
+        // its own rather than a fold into the one above, because that one holds a `Warehouse` and
+        // this question is a rung below it, and because two independently named legs is what lets a
+        // reader see which claim a red run broke.
+        //
+        // **The cost that is not wall clock: this is a THIRD composition, where
+        // `tests/support/mod.rs` states that having one is the point** - agent, credential,
+        // transport and warehouse assembled once so both legs are evidence for the same composition
+        // rather than for two that resemble each other. It cannot reuse `opened`:
+        // `BigQueryWarehouse` exposes no transport accessor, and a `wire(connection)` helper in
+        // `support` would be an item `corpus.rs` never calls, which `dead_code = "deny"` fails. So
+        // the exception is real, and so is its price - a change to HOW the wire is composed leaves
+        // this leg green against the shape it hard-codes. Only `bounds()` is shared, which is the
+        // one that spends money.
+        let fixture = Fixture::required();
+        // The same project in both roles, which mirrors `BigQueryWarehouse::addressed`'s unqualified
+        // branch - the rule that carried a live quota-project bug, so it is named rather than
+        // re-derived: `billed_to` differs from `project` only where a path names another project.
+        let at = DatasetAddress::of(
+            fixture.connection.billing_project.clone(),
+            fixture.connection.billing_project,
+            fixture.connection.dataset,
+        );
+        let wire = BigQueryWire::new(WireAgent::pinned(bounds()), fixture.connection.credentials);
+        let held = wire
+            .list_tables(&at)
+            .expect("the dataset answered the listing - a refusal here is a grant, not a missing table");
+
+        // Printed so the run's own output IS the measurement rather than a claim about it - a fixed
+        // word from a closed match plus two counts, never a resource name. What a green run says is
+        // that this service populates the field at all, which nothing here had seen until the
+        // `bigquery-acceptance` job answered `Accounted` on 2026-09-04.
+        println!(
+            "bigquery-acceptance: tables.list answered {:?} over {} usable table id(s)",
+            held.total(),
+            held.named().len()
+        );
+
+        // The control, and it is what stops the assertion below being satisfied by a listing that
+        // named nothing: a total reported beside no readable id is the shape change itself.
+        assert!(
+            held.holds(fixture.table.as_str()),
+            "the listing named the fixture table, so this is a real listing of a real dataset"
+        );
+        // **The claim this leg exists to settle**, and it is red rather than silent if the service
+        // does not populate the field: a cross-check whose input is never sent has no teeth, and a
+        // log line nobody reads is how that would go unnoticed for a release.
+        assert!(
+            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable),
+            "the service reported no total this crate could read, so the cross-check has no input: {:?}",
+            held.total()
+        );
+        // **Not asserted: that the total is EXACT.** A dataset being written to while it is listed
+        // moves the number, and this dataset is written to by the corpus leg beside this one - so
+        // requiring `Accounted` would be a leg that fails for a reason outside the diff. What is
+        // required is that the two are comparable at all; `wire::tables`' own suite holds what each
+        // verdict means, against documents rather than against a race.
     }
 }

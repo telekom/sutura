@@ -13,19 +13,24 @@ mod arrow_major;
 mod attribution;
 mod boot_order;
 mod boundaries;
+mod bounded_wait;
 mod branches;
 mod causality;
 mod changes;
 mod commit_msg;
 mod compose;
 mod crap;
+mod default_feature_tests;
 mod default_features;
 mod docs;
+mod examples;
 mod fmt;
 mod gate_classification;
 mod guidance;
+mod hook_coverage;
 mod hooks;
 mod line_endings;
+mod markdown;
 mod max_lines;
 mod newtype_leaks;
 mod pins;
@@ -156,7 +161,7 @@ const TASKS: &[Task] = &[
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
         // rather than evaluated, one value that has to be the same in both.
         name: "check-warm-start",
-        description: "the causality gate builds where nix warms its target directory",
+        description: "the warm start's directory, stamp and profile agree with what reads them",
         kind: Kind::Hygiene(Reads::Code),
         run: warm_start::run,
     },
@@ -204,12 +209,23 @@ const TASKS: &[Task] = &[
         // rather than hygiene for `check-attribution-current`'s reason: it invokes cargo, so it
         // needs a resolvable registry and a target directory the nix sandbox has not got, so `just
         // gates` is its caller. The lane it covers is the one every other compiling gate is blind
-        // to; CI reaches it as `nix run .#default-features`, which is also why this one takes an
-        // OPTIONAL `--profile <name>` and stays standalone - the module's header carries the rest.
+        // to; CI reaches it as `nix run .#default-features` inside the one required job, and it
+        // takes no argument there - the profile is derived, not passed. The module's header says why.
         name: "check-default-features",
         description: "every shipped package compiles and lints at cargo's default features",
         kind: Kind::Standalone,
         run: default_features::run,
+    },
+    Task {
+        // The other half of the line above, and it is a separate task because the two cost
+        // different amounts: that one stops at metadata, this one links and RUNS. Standalone for
+        // the same reason, and it reads the same declaration. What it closes is a whole category
+        // of test that was compiled by that gate and executed by no venue at all - the module's
+        // header carries the count and the measurement.
+        name: "check-default-feature-tests",
+        description: "every shipped package runs its tests at cargo's default features",
+        kind: Kind::Standalone,
+        run: default_feature_tests::run,
     },
     Task {
         // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
@@ -260,6 +276,20 @@ const TASKS: &[Task] = &[
         description: "the pre-flight runs after the credential and before the transport",
         kind: Kind::Hygiene(Reads::Code),
         run: boot_order::run,
+    },
+    Task {
+        // The third of that shape, and the one whose failure mode is the most expensive to
+        // diagnose: a gate hanging with no output. The compose tier routes every wait on a
+        // container-runtime child through one function that carries a deadline, and nothing made
+        // the NEXT call come through it - a `.output()` written into a sibling compiles, reviews
+        // clean and restores the hang, and so does a pipe handed to a child and drained to an EOF
+        // that never comes. `disallowed-methods` cannot express it, because an entry there is
+        // workspace-wide and `xtask` waits on `git` and `cargo` without a bound on purpose. So it
+        // is path-scoped, and it starts GREEN.
+        name: "check-bounded-wait",
+        description: "one place in the compose tier can be blocked by a child process",
+        kind: Kind::Hygiene(Reads::Code),
+        run: bounded_wait::run,
     },
     Task {
         name: "line-endings",
@@ -327,6 +357,14 @@ const TASKS: &[Task] = &[
         run: docs::run,
     },
     Task {
+        // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the
+        // Rust that reaches for them. A `docs/*.md`-only diff can change neither.
+        name: "check-examples",
+        description: "every directory under examples/ is reached by a test",
+        kind: Kind::Hygiene(Reads::Code),
+        run: examples::run,
+    },
+    Task {
         // `Reads::Prose`, and it has to be: the page it reads is a `docs/*.md` one, so the
         // classification it holds is itself deferred by the skip it describes. That is not a
         // circularity - the `main` push runs it unconditionally, and a wrong classification
@@ -390,6 +428,20 @@ const TASKS: &[Task] = &[
         description: "what a diff requires; --since <ref>, or paths (fails open)",
         kind: Kind::Standalone,
         run: changes::run_classify,
+    },
+    Task {
+        // Beside `classify` because it reads the same diff, and STANDALONE because it reads a
+        // prek LOG - an argument, produced by a run that has already happened, which no
+        // argument-free sweep can have. It exists because `just ship-check` said `green` over a
+        // diff five of its ten hooks never looked at, and printed neither number.
+        //
+        // FAILS CLOSED where `classify` fails open, and the two directions are deliberate: that
+        // gate widens what runs when it cannot read a diff; this one reports what a run covered,
+        // where an unreadable diff would declare every surface untouched and every gap absent.
+        name: "hook-coverage",
+        description: "what a diff-scoped hook run left uninspected; --since <ref> [--log <stage>:<path>]... [--ran <task>]... [--surface-tasks]",
+        kind: Kind::Standalone,
+        run: hook_coverage::run,
     },
     Task {
         name: "changed-packages",

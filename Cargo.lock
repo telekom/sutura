@@ -3729,6 +3729,7 @@ dependencies = [
  "sutura-semantic",
  "sutura-sql",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3856,6 +3857,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sutura-app",
+ "sutura-config",
  "sutura-domain",
  "sutura-runtime",
  "thiserror 2.0.20",

@@ -237,7 +237,11 @@ fn apply_consumers(result: &mut Classification) {
 
 /// Changed paths from git. `None` when git cannot answer, which the caller must treat as
 /// "run everything" rather than "nothing changed".
-fn changed_paths(since: &str) -> Option<Vec<String>> {
+///
+/// `pub(crate)` for `crate::hook_coverage`, which needs the same answer for a different question -
+/// which SURFACES a diff touches - and a second invocation with its own flags would be a second
+/// answer. The `--no-renames` note below is exactly why that matters.
+pub(crate) fn changed_paths(since: &str) -> Option<Vec<String>> {
     let out = std::process::Command::new("git")
         // `--no-renames` is load-bearing. With rename detection on - the default - a move is
         // reported as its DESTINATION only, so moving a file out of `crates/` into `docs/`
@@ -374,7 +378,10 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
 const NON_MEMBER_PATHS: &[&str] = &["vendor/"];
 
 /// Is this path outside every workspace member?
-fn is_non_member(path: &str) -> bool {
+///
+/// `pub(crate)` for `causality`, which needs the same answer for a different reason: a file cargo
+/// never compiles carries no test any run can reach.
+pub(crate) fn is_non_member(path: &str) -> bool {
     NON_MEMBER_PATHS.iter().any(|prefix| path.starts_with(prefix))
 }
 
@@ -399,7 +406,11 @@ fn owning_package(root: &std::path::Path, path: &str) -> Option<String> {
 
 /// The `name` under `[package]`. Hand-parsed because xtask has no TOML dependency, and the
 /// shape it needs to read is two lines of a file this repo controls.
-fn package_name(manifest: &str) -> Option<String> {
+///
+/// `pub(crate)` for `causality::scoped`, which resolves the same question through a post-image
+/// reader rather than the filesystem. The WALK differs and stays separate; the manifest shape is
+/// what could rot, and one reader for it is enough.
+pub(crate) fn package_name(manifest: &str) -> Option<String> {
     let mut in_package = false;
     for line in manifest.lines() {
         let t = line.trim();

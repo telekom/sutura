@@ -66,24 +66,6 @@ let
   # deliberately not chased: widening the deps build to `--all-features` would change what
   # every check builds.
   #
-  # HOW MUCH IT REUSES DEPENDS ON WHAT THE CONSUMER ASKS FOR, and one consumer gets far less than
-  # the number above. `buildDepsOnly` builds its units at the WORKSPACE-WIDE feature union, so a
-  # consumer asking for that same union reuses nearly all of them - `checks.clippy` recompiles 29.
-  # `apps.default-features` deliberately asks the opposite question: one shipped package at a time
-  # with no feature flags, which is what `nix/shipped.nix` publishes, and the v2 resolver gives
-  # each package a NARROWER feature set and therefore a different `-C metadata` for much of the
-  # graph. MEASURED in CI, 2026-09-03: its `cargo check` pass compiled 104 units in 38.27 s for
-  # `sutura-cli` and 89 in 41.00 s for `sutura-serve`, against `cargo tree --edges normal,build`
-  # graphs of 261 and 301 packages - so about a third of each graph, and the EXPENSIVE third,
-  # because the whole arrow/parquet/datafusion stack misses: 27 s of that first 38 s. Its two
-  # clippy passes are 3.96 s and 4.46 s only because cargo runs clippy-driver on the primary
-  # package alone, so they consume what the check pass beside them just produced.
-  #
-  # Widening that gate to the whole workspace would match this closure and destroy the gate, since
-  # cross-member feature unification is the blindness it exists to remove. The unpack is still
-  # worth paying there - `apps.causality` runs in the same job and only the first of the two pays
-  # it - but do not cost that step as though it reused the closure whole.
-  #
   # THE SAME DERIVATIONS THE CHECKS USE, as interpolations rather than copied paths. flake.nix
   # passes `ciArtifacts` - what `clippy`, `nextest`, `doctest`, `hygiene`, `crap` and `api-docs`
   # each hand crane as `cargoArtifacts` - and `craneLib.vendorCargoDeps ciArgs`, the vendor
@@ -123,32 +105,6 @@ let
     # The app's own `cargo run -p xtask` compiles here too, rather than into a second
     # directory that would have to build xtask's dependencies from scratch.
     export CARGO_TARGET_DIR="$warmTarget"
-
-    # THE ONE ARTIFACT THE UNPACK CANNOT BE TRUSTED WITH, and it is here rather than in the app
-    # that first hit it because it is a property of THIS unpack and not of that gate.
-    # `utoipa-swagger-ui`'s build script embeds an ABSOLUTE `OUT_DIR` path into the rust-embed
-    # `#[folder]` attribute it generates (`<target>/ci/build/utoipa-swagger-ui-*/out/embed.rs`).
-    # The closure above was produced in a sandbox whose source root is `/build/source`, so any
-    # consumer that then RECOMPILES the crate - a different feature set, or a `cargo check` unit,
-    # which is a different unit from the `cargo build` one the closure carries - reuses that stale
-    # `embed.rs` and fails with `#[derive(RustEmbed)] folder ... does not exist`. Purging the
-    # crate's build output makes `build.rs` rerun and regenerate it against the current root.
-    #
-    # `apps.causality` carried these lines inline and `apps.bigquery-acceptance` did not. It is here
-    # because it is a property of THIS unpack rather than of any one app - but not for the reason an
-    # earlier version of this comment gave. That said "both compile `sutura-http`, so both were
-    # exposed and one was patched", and it is false: `apps.bigquery-acceptance` runs
-    # `-p sutura-exec-bigquery`, and `sutura-http` is in neither its dependency nor its
-    # dev-dependency graph - `cargo tree -p sutura-exec-bigquery --all-features -e normal,dev -i
-    # sutura-http` answers "did not match any packages". That app was never exposed.
-    #
-    # The honest owner is the new one: `apps.default-features` DOES recompile
-    # `utoipa-swagger-ui v9.0.2`, measured in its own job log, because a different feature set is a
-    # different compilation unit from the one the closure carries. So this belongs to shared env
-    # because two apps now need it, not because all three were ever at risk.
-    rm -rf -- "$warmTarget/ci/build/utoipa-swagger-ui-"* \
-              "$warmTarget/ci/.fingerprint/utoipa-swagger-ui-"* \
-              2>/dev/null || true
   '';
 in
 {

@@ -151,17 +151,21 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
 }
 
 /// A crate that calls the driving port, and where its own source lives.
+///
+/// `pub(super)` because [`super::answer_path`] asks the same question of the same set: who calls
+/// the driving port. A second derivation of it would be a second thing to keep in step, and the
+/// two rules would then disagree about who is covered the day a fifth transport is written.
 #[derive(Debug)]
-struct Caller {
+pub(super) struct Caller {
     /// The package name.
-    name: String,
+    pub(super) name: String,
     /// Repo-relative `src` directory, with a trailing slash so a prefix test cannot match a
     /// sibling whose name merely starts the same way.
-    src: String,
+    pub(super) src: String,
 }
 
 /// Workspace members declaring a normal dependency on [`APPLICATION`].
-fn callers_of_the_application(meta: &serde_json::Value, root: &Path) -> Result<Vec<Caller>, String> {
+pub(super) fn callers_of_the_application(meta: &serde_json::Value, root: &Path) -> Result<Vec<Caller>, String> {
     let packages = meta
         .get("packages")
         .and_then(|p| p.as_array())
@@ -238,7 +242,7 @@ fn public_traits(text: &str) -> Vec<(usize, &str)> {
 
 /// Is this path a Rust source file? Case-insensitive, because half of this repo is developed on a
 /// case-insensitive filesystem and a case-sensitive test there is a silent hole.
-fn is_rust(rel: &str) -> bool {
+pub(super) fn is_rust(rel: &str) -> bool {
     Path::new(rel)
         .extension()
         .and_then(std::ffi::OsStr::to_str)

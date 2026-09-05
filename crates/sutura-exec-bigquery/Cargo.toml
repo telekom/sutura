@@ -84,6 +84,29 @@ name = "corpus"
 path = "tests/corpus.rs"
 required-features = ["wire", "fixtures"]
 
+# The TWO-PRINCIPAL cell - the one leg here whose claim is about identity rather than about SQL.
+#
+# A third target rather than more of `acceptance.rs`, for the same two reasons the corpus leg is one:
+# that file is already the largest in this crate's `tests/` (`wc -l crates/sutura-exec-bigquery/tests/*.rs`
+# on 2026-09-04: 818, against the 1000-line ceiling `cargo xtask max-lines` holds), and this leg
+# proves a different thing over a different fixture - a table with row access policies, in a dataset
+# the other two legs never open.
+#
+# `wire` only, and NOT `fixtures`: this leg deliberately loads nothing. `load_fixture` renders
+# `CREATE OR REPLACE TABLE`, which drops a table's row access policies - so the loader that seeds the
+# corpus would disarm the grant this cell asserts on. The file's header carries that argument.
+#
+# It is NOT picked up by `nix run .#bigquery-acceptance`: that app filters this BINARY out and this
+# target has its own app and its own `just bigquery-two-principals`. Filtering by binary rather than
+# by test name is what keeps *no list to extend* true of both: a test added to either target is
+# reached without a count anywhere. The reason is a developer's, not a purist's - this leg needs five
+# values and two key documents the other two do not, and one task that demanded all of them would
+# make the legs somebody CAN run unreachable.
+[[test]]
+name = "two_principals"
+path = "tests/two_principals.rs"
+required-features = ["wire"]
+
 [dependencies]
 sutura-domain = { workspace = true }
 # Rendering, shared with every other SQL adapter, for the reason `sutura-exec-duckdb` states: this
@@ -123,6 +146,11 @@ base64 = { workspace = true, optional = true }
 # deliberately no `sutura-exec-duckdb` here: the engine is the reference, which is
 # `crates/sutura-app/tests/differential.rs`'s own reasoning.
 [dev-dependencies]
+# Already a normal dependency; this entry asks for one FEATURE. `warehouse::agreement` is the typed
+# row comparison this leg's row check makes, and it is SHARED with
+# `crates/sutura-app/tests/differential.rs` rather than copied - the copy is what let both of them
+# compare cells through a display form and call a null equal to the word `null`.
+sutura-domain = { workspace = true, features = ["agreement"] }
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
 # THE engine, and the far side of the comparison. A data source exists to run a subplan of what the

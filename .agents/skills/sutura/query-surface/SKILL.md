@@ -87,26 +87,52 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   loads, models and prose and joins, no metrics. Where the deployment defines a string-valued
   `sutura` structured property, that ONE scalar JSON document carries the whole metric - measure,
   time column, grains, required filters, dimensions with their allowlists, anchor and prose -
-  certified over the domain's closed vocabularies, with `deny_unknown_fields` at every depth.
-  `docs/adr/0016`'s 2026-09-02 amendment is the record. **The two halves that do not exist:** a real
-  `AspectReader` over DataHub's versioned OpenAPI v3 entity surface - the only implementor is the
-  recorded fixture source, so the read path's cost is unmeasured and the decisions are proven against
-  recorded documents rather than a live instance - and a composition root, because `sutura-serve`
-  refuses `catalog.kind: datahub` by name and the crate's only dependant is `sutura-app`, as a
-  dev-dependency. **Do not read the declaration as availability:** what is proved is that the adapter
-  decides correctly against a fake reader.
-- **The provisioned DataHub tier proves the VENUE and not the reader.** `just dev-up-datahub` stands
-  up DataHub 1.7.0 behind a compose profile - upstream's own `quickstart-backend` selection minus its
-  actions container - and `just datahub-acceptance` gets a `2xx` off `openapi/v3/entity/dataset`.
-  That is reachability, and it is the whole of it. **Still absent:** any HTTP `AspectReader`; any
-  ingest, so the instance is empty and nothing says a `sutura` structured property survives a round
-  trip; any authentication (`METADATA_SERVICE_AUTH_ENABLED: "false"`, so the auth half is untested);
-  any frontend, so there is no UI; and any CI job, because the nix sandbox has no docker socket. **A
-  tier that boots is not a read path.** Per-worktree parallelism holds for the CONTAINERS - project
-  name from a path digest, ephemeral published ports, named volumes, all gated - but NOT for
-  discovery: `.sutura-dev/endpoints.json` has two writers and each rewrites it wholesale, **in both
-  directions** - measured, a live nix postmaster absent from a file `xtask dev-up` had just
-  rewritten, and the reverse for the whole of `just test`. Nothing gates that.
+  certified over the domain's closed vocabularies, with `deny_unknown_fields` at every depth,
+  including inside an anchor's range, which is where *every depth* was one depth short until the
+  attribute reached `calendar::TimeRangeInput`. `docs/adr/0016`'s amendment and its 2026-09-04
+  revision are the record. **The two halves that do not exist:** a real `AspectReader` over
+  DataHub's versioned OpenAPI v3 entity surface - the only implementor outside a test is the recorded
+  fixture source, so no library code shapes a request or maps a response - and a composition root,
+  because
+  `sutura-serve` refuses `catalog.kind: datahub` by name and the crate's only dependant is
+  `sutura-app`, as a dev-dependency. **Do not read the declaration as availability:** what is proved
+  is that the adapter decides correctly against a fake reader.
+- **The provisioned DataHub tier proves the VENUE and the PLATFORM's half, and not a read path.**
+  `just dev-up-datahub` stands up DataHub 1.7.0 behind a compose profile - upstream's own
+  `quickstart-backend` selection minus its actions container - and `just datahub-acceptance` gets a
+  `2xx` off `openapi/v3/entity/dataset` **and** round-trips the recorded corpus's own document
+  through a structured property registered under a name the TEST chooses and the library never
+  spells: accepted by the platform's validator, served back, decoded through the adapter's own
+  `MetricAspect` into a certified `Metric`, with `SINGLE` cardinality, the declared value type and
+  the scalar's ceiling all refused server-side - the ceiling named by the platform as its
+  Elasticsearch `keywordMaxLength`, an index setting rather than a constant here - what was
+  measured is that the refusal NAMES it, not that raising it works. **Still absent:** any HTTP
+  `AspectReader`, so the requests and the response mapping live in the test rather than in `src/`,
+  and the structural half of that snapshot is still the recorded corpus; any authentication
+  (`METADATA_SERVICE_AUTH_ENABLED: "false"`, so the auth half is untested); any frontend, so there is
+  no UI; and any CI job, because the nix sandbox has no docker socket. **A platform that accepts the
+  document is not a read path**, and the acceptance cells are `#[ignore]`d, so they are evidence of
+  whatever the last `just datahub-acceptance` run reported and of nothing in the default suite - run
+  without `SUTURA_DEV_REQUIRE_TIER=1` they report `ok` having asserted nothing, which is why the task
+  sets it.
+- **Two DataHub read surfaces, and only one is read-your-writes** - measured 2026-09-04 by
+  `just datahub-acceptance` against 1.7.0, and it is the caveat the read path's COST claim needs.
+  `GET openapi/v3/entity/metric/{urn}` answers a synchronous upsert immediately. The PAGED
+  `GET openapi/v3/entity/metric?aspects=..` is search-backed - it answers `facets` and `totalCount` -
+  and lagged the same write by ~2.2 s. So a page per entity type is the right cost for a bundle and
+  it is eventually consistent, which is the whole reason the acceptance cell polls that surface to a
+  deadline and asks the by-urn one exactly once. **The version of that cell before this was red for
+  exactly this reason** and had been reported as measured: it wrote, paged once, and only passed on a
+  re-run whose index was already warm.
+- **DataHub tier parallelism holds for the CONTAINERS and not for DISCOVERY** - project name from a
+  path digest, ephemeral published ports, named volumes, all gated - but
+  `.sutura-dev/endpoints.json` has two writers and **one of them still rewrites it wholesale**.
+  `xtask dev-up` serialises the whole document from the docker services it read, so a live nix
+  postmaster is absent from the file it leaves - measured 2026-09-03. The reverse direction is gone
+  (`nix/tier-endpoints.nix` merges per service), and the consequence for the SUITE is gone for the
+  Postgres tier alone: `just test` reads that state as *unclaimed* and republishes the entry, which
+  `checks.postgres-tier` holds. What nothing gates is the wholesale write itself, so any other nix
+  tier's entry - `just keycloak-tier`'s - is still dropped by a `dev-up` and stays dropped.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
   Everything above the wire is decided and tested against a fake; the wire exists behind a
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green
@@ -115,5 +141,22 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   rather than off a manifest. The `data_systems:` golden axis therefore gains no entry - that
   registry's rule is that a cell which cannot execute reads as coverage. The DIALECT axis does have
   one.
+- **The listing's `totalItems` cross-check is decoded and decided on by nothing.** `HeldTables`
+  carries a `ListingTotal` up the transport port, and a real listing populates it - measured in the
+  `bigquery-acceptance` job, 2026-09-04. **No shipped path reads it:** `preflight` compares the ids
+  and ignores the total, so a document carrying no entries beside a non-zero total still refuses a
+  deployment with *every table is absent* rather than naming the shape change. `docs/adr/0018` argues
+  why refusing is not obviously the safe direction - an `Err` out of `preflight` **is** the warning
+  half - so this stays here until that decision is taken, tracked as `telekom/sutura#275`. Read the
+  record as *the input now arrives*, never as *a shape change is told apart*. A test pins the
+  non-decision; **no gate does**, which is this register's own limit.
+  **What the total is compared against is readable table IDS, not entries, and that was a review
+  finding rather than a design:** counting entries read a document whose `tableReference` the service
+  renamed as `Accounted` over zero ids - clean, while the pre-flight reported every table absent -
+  because there is no `deny_unknown_fields` on a service-defined document. An id `usable_table_id`
+  rejects still counts, or an ordinary dataset reads short. **Three things the value still cannot
+  tell apart:** a service that re-spelled the count as well (`Unreported`/`Unreadable`), a dataset
+  every id of which this crate drops (`Accounted` beside no ids, by design), and, where the identified
+  count is non-zero, a shape change from a create-or-delete race.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.

@@ -38,6 +38,20 @@ use crate::Verdict;
 use crate::repo;
 use std::collections::BTreeSet;
 
+// The three places CI invokes something from. Shared with `crate::venues`, which asks a different
+// question of the same files - see that module's header for why one walk rather than two.
+pub(crate) mod sources;
+// One job of a workflow, and one step inside it. Its own module because what it reads is a
+// workflow's STRUCTURE rather than the flake references this file scans for, and two gates need
+// the same reader: `venues::acceptance` for the acceptance job's properties, and
+// `default_feature_tests` for whether a step still invokes it.
+pub(crate) mod step;
+
+// Which jobs GATE a merge, and which only look as though they do. Its own file for the reason
+// `shipped::refusal` is: this one is against the unexemptable 1000-line cap. It reads a different
+// authority - `devco/required-contexts`, a record of an API answer - and its fixtures come with it.
+mod contexts;
+
 /// Which output namespace a reference points into.
 ///
 /// `Runnable` and not `App`: `nix run .#name` resolves an app OR a package with a matching main
@@ -118,6 +132,26 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
+    // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
+    // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
+    // readers and checked by nothing - and it was false.
+    let unclassified = contexts::problems(&root);
+    if !unclassified.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
+            unclassified.len()
+        );
+        for problem in &unclassified {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A job nobody requires gates nothing, and a required context nothing reports is a");
+        eprintln!("permanently pending merge. Which of the two a job is belongs in the record, not in");
+        eprintln!("a reader's assumption - see the header of devco/required-contexts for what that");
+        eprintln!("record can and cannot hold.");
+        return Verdict::Fail;
+    }
+
     let missing: Vec<&Reference> = references
         .iter()
         .filter(|r| {
@@ -131,7 +165,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if missing.is_empty() {
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified",
             references.len()
         );
         return Verdict::Pass;
@@ -531,90 +565,27 @@ struct Scan {
     files: usize,
 }
 
-/// Every `nix run .#` / `nix build .#` reference in `.github`, and how many files were read.
+/// Every `nix run .#` / `nix build .#` reference CI can reach, and how many files were read.
 ///
 /// A function rather than the body of `run`, so a test can assert WHERE the references came from.
-/// The composite-action half is only observable that way: a gate that walked one directory and a
-/// gate that walks two return the same verdict on a correct tree, which is exactly how the hole
-/// this closes went unnoticed.
+/// The composite-action and shell halves are only observable that way: a gate that walked one
+/// directory and a gate that walks three return the same verdict on a correct tree, which is
+/// exactly how both of those holes went unnoticed.
+///
+/// **The walk itself is [`sources`]' and not this gate's**, because `check-venues` now asks the
+/// same question of the same files - *does CI invoke this* - and two walks would be two answers.
+/// That module's header carries which three places, and why a missing one is a failure in one case
+/// and legitimate in the other two.
 fn gather(root: &std::path::Path) -> Option<Scan> {
+    let read = sources::ci_sources(root)?;
     let mut references = Vec::new();
-    let mut files = 0_usize;
-    let Ok(entries) = std::fs::read_dir(root.join(".github").join("workflows")) else {
-        eprintln!("xtask check-workflows: no .github/workflows directory");
-        return None;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let yaml = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e == "yml" || e == "yaml");
-        if !yaml {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let name = path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        files = files.saturating_add(1);
-        collect(&text, &name, &mut references);
+    for source in &read {
+        collect(&source.text, &source.label, &mut references);
     }
-
-    // AND THE LOCAL COMPOSITE ACTIONS, which is a hole this gate had rather than a widening of
-    // what it claims. `nix run .#cosign` has lived in `.github/actions/attest-and-sign` since that
-    // sequence was split out of `release.yml`, and this scan read `.github/workflows` only - so
-    // the one reference that publishes a release was the one reference nothing checked. Splitting
-    // a step into an action is how a reference leaves this gate's sight, and the split is exactly
-    // what this repository does when a workflow reaches the 1000-line cap, so it will happen
-    // again. Named by their DIRECTORY, because every one of these files is called `action.yml` and
-    // a failure saying `action.yml:118` names nothing a reader can open.
-    //
-    // A missing `.github/actions` is not a failure, unlike a missing `.github/workflows`: a
-    // repository with no composite action is a repository with none, and this gate must not start
-    // failing on one.
-    let actions = root.join(".github").join("actions");
-    for entry in std::fs::read_dir(&actions).into_iter().flatten().flatten() {
-        let dir = entry.path();
-        for candidate in ["action.yml", "action.yaml"] {
-            let Ok(text) = std::fs::read_to_string(dir.join(candidate)) else {
-                continue;
-            };
-            let label = dir.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-            files = files.saturating_add(1);
-            collect(&text, &format!("actions/{label}"), &mut references);
-        }
-    }
-
-    // AND THE SHARED SHELL SCRIPTS UNDER `nix/`, which is the same hole one level over - and this
-    // change is what opened part of it. `ci.yml`'s workflow-analysis body moved into
-    // `nix/lint-workflows.sh` to stay under the 1000-line cap, and five `nix run .#` references
-    // went with it: this gate's count dropped from 60 to 55 and nothing failed. `nix/run-gate.sh`
-    // was already in that position with three of its own - `.#deny`, `.#betterleaks` and `.#crap`,
-    // which decide whether the supply-chain gate, the secret sweep and the CRAP score run at all.
-    //
-    // THE LESSON, since it has now happened twice: a reference leaves this gate's sight whenever a
-    // step moves out of a workflow, and moving steps out is exactly what a hard line cap forces.
-    // So the scan follows the shell rather than the file type it started with.
-    let scripts = root.join("nix");
-    for entry in std::fs::read_dir(&scripts).into_iter().flatten().flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("sh") {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let label = path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        files = files.saturating_add(1);
-        collect(&text, &format!("nix/{label}"), &mut references);
-    }
-
-    Some(Scan { references, files })
+    Some(Scan {
+        references,
+        files: read.len(),
+    })
 }
 
 /// Find every `nix run .#...` and `nix build .#...` in one workflow.

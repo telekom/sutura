@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use sutura_app::prompt::{CatalogProse, PromptInputs, Tool};
+use sutura_app::surface::{LocalService, Surface as _};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 use sutura_domain::measure::RequiredFilter;
@@ -22,6 +23,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::Value;
+use sutura_runtime::TracingAuditSink;
 use sutura_semantic::Compiled;
 use sutura_sql::Dialect;
 
@@ -145,8 +147,11 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
             println!(
                 "  anchor     {}",
                 metric
+                    // `{:?}` on the value, for the reason `RequiredFilter`'s `Display` gives: this
+                    // is the line somebody reads to decide whether a metric still means what it
+                    // claimed, and quoting is what makes the spacing of a certified number visible.
                     .anchor()
-                    .map_or_else(|| String::from("none"), |a| format!("{} over {}", a.value(), a.range()))
+                    .map_or_else(|| String::from("none"), |a| format!("{:?} over {}", a.value(), a.range()))
             );
         }
         Ok(())
@@ -154,6 +159,11 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
 }
 
 /// `describe <dir> <metric>`: one metric in full, prose included.
+///
+/// **`prompt.catalog_prose` is deliberately not read here, and the reader is why.** That setting
+/// decides who may put words in front of an AGENT; this command prints to a terminal for somebody
+/// who named the catalog directory on the command line and can therefore read the documents
+/// themselves. Withholding the prose from them would omit nothing they do not already have.
 pub(crate) fn describe(args: &[String]) -> ExitCode {
     report((|| {
         let usage = "describe <catalog-dir> <metric>";
@@ -255,11 +265,7 @@ type ResolvedPromptText = (CatalogProse, Option<String>);
 /// written down, so absence means the operator's rules are missing from a document that says it
 /// carries them, and serving that quietly is the failure this repository refuses everywhere else.
 fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPromptText, String> {
-    let prose = if settings.catalog_prose().is_quoted() {
-        CatalogProse::Quoted
-    } else {
-        CatalogProse::Omitted
-    };
+    let prose = catalog_prose(settings.catalog_prose());
     let instructions = match settings.instructions_file() {
         None => None,
         Some(configured) => {
@@ -274,6 +280,24 @@ fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPro
         }
     };
     Ok((prose, instructions))
+}
+
+/// The word an operator wrote, as the type that acts on it.
+///
+/// **The one place the two vocabularies meet, and an exhaustive match rather than a question asked
+/// of one variant** - `is_quoted()` inside an `if` reads every future spelling as the `else`, which
+/// on this setting means it reads it as *omitted* and silently withholds prose nobody asked to
+/// withhold. Here a third variant is a compile error.
+///
+/// It is a function and not an inline conversion because it has two callers, and the second one is
+/// the point: `crate::mcp` served `CatalogProse::Quoted` as a constant and read the setting nowhere,
+/// so a deployment that had dropped its catalog prose got every description over the agent surface
+/// (`#266`'s `H1`). A conversion with one home cannot be forgotten in a second root.
+pub(crate) const fn catalog_prose(setting: sutura_config::CatalogProse) -> CatalogProse {
+    match setting {
+        sutura_config::CatalogProse::Quoted => CatalogProse::Quoted,
+        sutura_config::CatalogProse::Omitted => CatalogProse::Omitted,
+    }
 }
 
 /// `compile <dir> <question> [dialect]`: the statement, without a data system.
@@ -335,7 +359,13 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let question_path = arg(args, 1, "question.yaml", usage)?;
         let data = args.get(2).map(PathBuf::from);
 
-        let pinned = load(Path::new(&root))?;
+        // The catalog READER and not the bundle, because the service's constructor is what loads it:
+        // `LocalService::start` takes the port, re-runs every anchor, and hands back a service only
+        // if the bundle is fit to serve. The bundle is still needed here, before the engine exists,
+        // to know which tables to attach - which is the same double load `crate::mcp` and
+        // `sutura-serve` both do, and `refuse_unattached` below is what closes the gap it leaves.
+        let catalog = catalog_reader(Path::new(&root))?;
+        let pinned = catalog.load().map_err(|e| render(&e))?;
         let question = read_question(Path::new(&question_path))?;
         let settings = crate::sources::configured()?;
         // **The exhaustive match is the caller's, and that is what erasing later would have cost.**
@@ -350,58 +380,100 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             settings.server().request_timeout(),
             data.as_deref(),
         )? {
-            crate::sources::Opened::Files(opened) => answered(pinned, &question, &opened, settings.runtime()),
+            crate::sources::Opened::Files(opened) => answered(&catalog, &question, opened, settings.runtime()),
             #[cfg(feature = "bigquery")]
-            crate::sources::Opened::BigQuery(opened) => answered(pinned, &question, &opened, settings.runtime()),
+            crate::sources::Opened::BigQuery(opened) => answered(&catalog, &question, opened, settings.runtime()),
         }
     })())
 }
 
-/// Verifies the bundle against the data system that was opened, answers the question, and prints it.
+/// The service this binary composes, over one of the adapters it links.
 ///
-/// Generic in the adapter, so the two arms above share every line after them. It takes the bundle by
-/// value because `verify_and_validate` consumes it: the only constructor of `Validated` is the one
-/// that re-ran every anchor, which is what stops an arrangement of these lines that skips the check.
+/// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
+/// and the broker are the three collaborators every command here composes. Generic in the warehouse
+/// since the `bigquery` feature landed; the other two are this binary's own choice and never vary.
+pub(crate) type Composed<W> = LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker>;
+
+/// Starts the service over what a command opened, and refuses a bundle the engine cannot serve.
+///
+/// **The ONE place this binary builds a service, which is what makes the audit row true for both
+/// commands rather than for whichever one was written last.** [`LocalService::start`] takes an audit
+/// sink and has no form that omits one, and `Surface::answer` writes one record per outcome before
+/// its `Ok` - so a command that answers through here cannot answer without recording. `query` used
+/// to call `sutura_app::answer` itself and drop the deadline with `into_outcome`, which is issue
+/// #266's A1: the one shipped command a person runs on a terminal answered with no record while the
+/// invariants row named a mechanism it was outside of. `cargo xtask check-boundaries` is what stops
+/// the direct call coming back.
+///
+/// `catalog` is handed over rather than a bundle rebuilt, because the constructor loads it again and
+/// re-runs every anchor - that is its contract - so the two loads cannot disagree about the version
+/// or the source name. [`crate::sources::refuse_unattached`] closes the one gap that remains: a
+/// model added to the catalog directory between a caller's own load and the load inside `start`
+/// would otherwise be served with no table registered behind it, failing its first question at query
+/// time. Skipped for a data system nothing was attached to, which is the narrowing
+/// `crate::sources::OpenedWith` documents - nothing to compare is not the same as nothing missing.
+///
+/// **For `query` that is a behaviour change and not a refactor**, which the commit that introduced
+/// this function understated: the honest sentence is that `query` gains the refusals `mcp` already
+/// had. A bundle this command previously served, and then failed on at query time, is now refused
+/// here. Right direction, and a reader of a diff deserves to be told rather than reassured.
+///
+/// **The working-set number is `runtime.working_set_max_bytes` and not a `1 << 30` literal** - a
+/// review correction, and the same one `crate::sources` took. The answer path reads it only on the
+/// federated leg, which both commands refuse, so nothing observable changes today; what changes is
+/// that an operator who lowered that key is not quietly ignored by the one number this call passes.
+///
+/// The sink is [`TracingAuditSink`] and this binary installs no subscriber, so a record is written
+/// onto a dispatcher that discards it until a composition installs one. That is the honest default
+/// and it is the limit the invariants row states: a written record is not a retained one.
+pub(crate) fn started<W>(
+    catalog: &LocalCatalog,
+    opened: crate::sources::OpenedWith<W>,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<Composed<W>, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    let service = LocalService::start(
+        catalog,
+        opened.engines,
+        TracingAuditSink::new(),
+        opened.broker,
+        runtime.working_set().bytes().get() as u64,
+    )
+    .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
+    if let Some(attached) = opened.attached {
+        crate::sources::refuse_unattached(&crate::sources::served_tables(service.definitions()), &attached)?;
+    }
+    Ok(service)
+}
+
+/// Answers the question through the service and prints the outcome.
+///
+/// Generic in the adapter, so the two arms above share every line after them. The composition is
+/// [`started`], which both commands go through; what is left here is the driving port - a question
+/// read from a path on the command line and a table written to standard output.
 fn answered<W>(
-    pinned: PinnedDefinitions,
+    catalog: &LocalCatalog,
     question: &Query,
-    opened: &crate::sources::OpenedWith<W>,
+    opened: crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
 ) -> Result<(), String>
 where
-    W: sutura_domain::warehouse::Warehouse,
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
 {
-    // The governance is not an order this function has to remember. One call runs the anchors against
-    // the engine it was handed and hands back a bundle only if every one reproduced its number;
-    // `sutura_app::answer` takes nothing else. A corrupted anchor stops here rather than answering.
-    let validated = sutura_app::verify_and_validate(pinned, &opened.engines)
-        .map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
+    let service = started(catalog, opened, runtime)?;
     // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller, and
     // the identity the data system is reached under is the process's own.
-    let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
-    // The broker comes off the same value the engines did, which is the whole point of `OpenedWith`
+    //
+    // The broker came off the same value the engines did, which is the whole point of `OpenedWith`
     // carrying it: there is no path here that executes without a credential - `Warehouse::execute`
     // has no signature for it - and what the leg presents agrees with what the adapter was opened
     // under because ONE decision produced both.
-    //
-    // `into_outcome` because this command writes no audit record: the deadline `Answered` also
-    // carries is for a sink, and this binary answers one question on a terminal and exits.
-    //
-    // **The working-set number is `runtime.working_set_max_bytes` and no longer a `1 << 30` literal**
-    // - a review correction, and the same one `sources::working_set` took. `answer` reads it only on
-    // the federated path, which this command refuses, so nothing observable changes today; what
-    // changes is that an operator who lowered that key has not been quietly ignored by the one number
-    // this call passes. A literal here was the duplicate that drifts, one accessor from the value.
-    let outcome = sutura_app::answer(
-        &validated,
-        question,
-        &context,
-        &opened.broker,
-        &opened.engines,
-        runtime.working_set().bytes().get() as u64,
-    )
-    .map_err(|e| render(&e))?
-    .into_outcome();
+    let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
+    let outcome = service.answer(&context, question).map_err(|e| render(&e))?;
     print_outcome(&outcome)
 }
 
@@ -475,7 +547,28 @@ mod tests {
     use sutura_domain::model::{DimensionName, MetricName};
     use sutura_domain::query::{MAX_RANGE_DAYS, RefusalReason};
 
-    use super::{prompt_inputs, render_refusal};
+    use super::{catalog_prose, prompt_inputs, render_refusal};
+
+    /// The two spellings of one decision agree, and this crate is the only place that can say so.
+    ///
+    /// `sutura_config` parses the word an operator wrote and `sutura_app` owns the type that acts on
+    /// it, and neither crate can see the other - which is what keeps a driving port from being owned
+    /// by a caller. So the claim *a surface echoing the setting echoes the operator's own word* has
+    /// its mechanism here, in the one member that depends on both, rather than in a comment on
+    /// either side.
+    ///
+    /// **What this loop proves is narrower than it reads, and the narrower claim is the true one:**
+    /// the two spellings agree for every name currently offered to an operator. It walks
+    /// `sutura_config::CatalogProse::NAMES`, which is hand-written, and `parse` has a `_ =>` arm - so
+    /// nothing here grows when the enum does. *A third variant cannot be added on one side alone* is
+    /// held by the exhaustive match in [`catalog_prose`], as a compile error, and by nothing else.
+    #[test]
+    fn the_two_spellings_of_the_prose_setting_are_one_vocabulary() {
+        for name in sutura_config::CatalogProse::NAMES {
+            let configured = sutura_config::CatalogProse::parse(name).expect("an accepted spelling parses");
+            assert_eq!(catalog_prose(configured).as_str(), configured.as_str(), "{name}");
+        }
+    }
 
     #[test]
     fn the_prompt_settings_reach_the_renderer() {

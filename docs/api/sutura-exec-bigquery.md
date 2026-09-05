@@ -145,6 +145,23 @@ composition, and a generic keeps the transport's own error type visible in `BigQ
 ### Methods
 
 ```rust
+pub fn drop_table(&self, table: &TableName) -> Dropped<<T as >::Error>
+```
+
+Removes one table from the connection's dataset.
+
+**The tidy half of per-run fixture cleanup.** A run names its tables with a per-run suffix
+(see `tests/corpus.rs`), so what it removes is its OWN tables and never a colleague's. The
+`crate::importer` header states the guarantee half - every `CREATE` also carries a 24-hour
+expiration, because `panic = "abort"` means a cancelled runner never reaches this method and
+the expiration is what still cleans up after it.
+
+It takes a table name and never a statement, for the same reason `load_fixture` does: the
+statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
+
+Behind the same `fixtures` feature and in the same impl block, for the same two reasons.
+
+```rust
 pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
 ```
 
@@ -187,6 +204,12 @@ of its own.
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -452,6 +475,109 @@ Not the one the read is attributed to - `Self::billed_to` is.
 
 `Clone`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
 
+### `struct HeldTables`
+
+```rust
+pub struct HeldTables
+```
+
+Every table one dataset holds, by the id it knows each under - and what the listing said about
+how many there were supposed to be.
+
+**A struct rather than the `BTreeSet<String>` alias it was, and the second field is the whole
+reason.** The set alone cannot tell an EMPTY dataset from a document whose shape the service
+changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
+absent*. `ListingTotal` is what the two can be told apart by.
+
+**And exactly that far, which is the limit next to the claim.** It reaches a shape change the
+same document still reports a readable count beside: a service that re-spelled `totalItems` as
+well leaves `ListingTotal::Unreported` or `ListingTotal::Unreadable`, and those say *nothing
+to compare* rather than *empty dataset*. Nor does it reach a dataset every one of whose ids this
+crate drops - that is `ListingTotal::Accounted` beside no ids, deliberately, because it is an
+ordinary dataset no model in the bundle could have named anyway.
+
+**Why it travels on the answer rather than being decided here, which is not the same as *it
+could not be*:** `JobTransport::listing_was_refused` is proof that this port can hold a
+decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
+that the choice is not settled - `docs/adr/0018` states why refusing is not obviously the safe
+direction - and a transport that turned the value into a verdict would have taken it.
+
+The set is still what the pre-flight asks with, and `Self::holds` is its only question;
+`Self::named` is for a diagnostic and for a test, not for a count anything concludes from.
+
+#### Methods
+
+```rust
+pub fn holds(&self, id: &str) -> bool
+```
+
+Whether the dataset holds a table under exactly this id.
+
+Case-SENSITIVE, because `GoogleSQL` does not fold a table name - `BigQueryWarehouse::preflight`
+carries the argument, and this is the call it makes.
+
+```rust
+pub const fn named(&self) -> &BTreeSet<String>
+```
+
+Every id the listing named.
+
+```rust
+pub const fn of(named: BTreeSet<String>, total: ListingTotal) -> Self
+```
+
+The ids a listing named, and what its own total said about them.
+
+```rust
+pub const fn total(&self) -> ListingTotal
+```
+
+What the listing's own reported total said about the ids the same document carried.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum ListingTotal`
+
+```rust
+pub enum ListingTotal
+```
+
+What a listing's own reported total said, against the entries of the same document whose table
+id it could read.
+
+**Four variants rather than an `Option<u64>`, because each says something different about what a
+caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
+have merged with the answer. A reader has to name the case, for the reason
+`sutura_domain::source::AnchorIdentity` names `NoneDeclared` rather than answering `None`.
+
+**The comparison is against the entries that carried a table id this crate could READ - neither
+the ids the listing NAMED nor the entries it merely counted**, and each half of that is a wrong
+claim avoided. An id outside `usable_table_id`'s accepted set is DROPPED from the named set, and
+`BigQuery` permits such an id, so comparing against the named set would report an ordinary
+dataset as short of its own total. The entry count is the mistake the other way, and it was this
+type's first shape: a document whose `tableReference` the service renamed or nested carries
+entries and no readable id, which read `Self::Accounted` over no ids at all - the pre-flight
+reporting every table absent while the cross-check read clean. An entry with no readable id is
+the shape signal; an id `usable_table_id` rejected is the legitimate drop, and it still counts.
+
+The same cross-check one document over is `crate::BigQueryError::Incomplete`, which compares
+`delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
+here so a reader who greps one finds the other: that one refuses because a short result set is a
+wrong number, and this one cannot, because a short listing is a boot warning.
+
+#### Variants
+
+- `Unreported` - The document carried no total at all, so an empty listing and an empty dataset are one value.
+- `Unreadable` - It carried a total this crate could not read as a count.
+- `Accounted` - It reported a total, and carried a readable table id for every table the total claims.
+- `Short` - It reported MORE tables than the same document carried readable table ids for.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `enum NamedResource`
 
 ```rust
@@ -656,14 +782,6 @@ nothing; `list_tables` sends a metadata read rather than a statement, which is w
 cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
 statement-issuing method - present only in a build that loads fixtures, so no deployment can
 reach it.
-
-### `type_alias HeldTables`
-
-Every table one dataset holds, by the id it knows each under.
-
-A name rather than the type, because `Result<BTreeSet<String>, _>` is over the `type_complexity`
-threshold this workspace tightened - the same reason `crate::BigQueryWarehouse`'s `Mapped`
-exists - and because *table ids* is what the set means where `BTreeSet<String>` is not.
 
 ## Module `wire`
 
@@ -1163,8 +1281,12 @@ transport is generic in it.
 
 It is a port on the first day rather than a `String` field, so *which* credential shape a
 deployment holds is a choice of implementor. `Bearer` carries the deadline because a minted token
-has one, and `crate::BigQueryWarehouse`'s `IMPERSONATION` still says `NoPlaceForASubject` because
-nothing mints one.
+has one, and whether this adapter has anywhere for a subject's own credential to arrive is
+declared by `crate::BigQueryWarehouse`'s `IMPERSONATION` rather than by anything this port
+decides - and that declaration is deliberately the only copy of the value. This sentence used to
+carry a second copy and stated the OPPOSITE of it for three commits, on a published page;
+`check-guidance` refuses the shape now, so the correction is to stop encoding the value rather
+than to keep two copies in step.
 
 **What this is NOT, and the correction is review's rather than a hedge:** this port is not yet the
 seam at which per-subject execution arrives as *merely another implementor*. Three signatures say

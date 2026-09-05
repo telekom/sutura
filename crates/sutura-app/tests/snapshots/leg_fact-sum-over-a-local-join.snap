@@ -27,7 +27,7 @@ fact:
       column:
         table: dim_product
         column: product_family
-    - label: customer_key
+    - label: 0_link
       column:
         table: fct_subscription_monthly
         column: customer_key
@@ -38,7 +38,7 @@ fact:
           column:
             table: fct_subscription_monthly
             column: mrr_cents
-      label: recurring_revenue
+      label: 0_leaf_0
   filters:
     - origin: definition
       predicate:

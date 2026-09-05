@@ -423,7 +423,7 @@ than by an intention.
 | Bullet | Where it stands |
 | --- | --- |
 | the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison. Measured: **22 accepted, 9 refused by the compiler before a statement existed** |
-| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
+| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT - *exactly* in the sense the **ninth amendment** narrows, which is rendered content and not cell type - with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
 | the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
 | the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
 | *(not one of the four)* the **anchors** hold | Measured: **6 anchors reproduced by the endpoint**, the same verdict the engine reaches |
@@ -589,14 +589,14 @@ rather than anything this repository can carry.
   `bigquery` feature on a binary `nix` does not package, and the image and all four cross binaries are
   `sutura-cli`, which links the engine only. So no published artifact opens a dataset, and a green here
   says nothing about one that does.
-- **NEW: this leg WRITES, and two runs against one dataset will race.** Four tables named after the
-  example models - `dim_customer`, `dim_product`, `fct_subscription_monthly` and `fct_usage_daily` -
-  are replaced on every run. The names are fixed rather than suffixed because the generator renders a
-  model's table unqualified and the job's `defaultDataset` resolves it, so a per-run name would need
-  the catalog to change. The dataset this is pointed at should therefore hold nothing else under those
-  names, and a second concurrent job in the same dataset is a defect nothing here prevents. The names
-  themselves are committed fixtures rather than resources, so unlike the project and the dataset they
-  need no `::add-mask::` in a public log.
+- **This leg WRITES, and two runs against one dataset will race** - *and, since #119, no longer.*
+  Four tables named after the example models - `dim_customer`, `dim_product`,
+  `fct_subscription_monthly` and `fct_usage_daily` - used to be replaced on every run under names
+  that were fixed because the generator rendered them unqualified and the job's `defaultDataset`
+  resolved them. The seventh amendment below is the closure: every table is now suffixed with the
+  run's own token, and a per-run table name stays safe to print because only the dataset and the
+  project are resources. The committed fixture names themselves need no `::add-mask::` in a public
+  log.
 
 ## Fourth amendment, 2026-08-31: the finding is fixed, and the leg's tolerance is deleted rather than relaxed
 
@@ -657,6 +657,10 @@ place**, and the tally is the one predicted to the number:
 bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agreed, 1 excluded,
                  31 in the corpus
 ```
+
+**Read `exactly` as the ninth amendment narrows it.** The comparison behind this tally was
+render-based, so it establishes acceptance, rendered row content and ORDER - and says nothing about
+cell type. No number is restated for the typed policy that replaced it.
 
 All five questions the third amendment named now agree **exactly** - `recurring-revenue-by-region-and-family`
 at 19 rows, `recurring-revenue-by-region` at 6, `recurring-revenue-by-segment` at 4,
@@ -1132,24 +1136,291 @@ where the documented source build did not compile.
 
 **Two couplings this lane rests on. One is held now, and it was not when the lane landed.**
 
-**WHICH FEATURES ARE PROBED - held, by `cargo xtask check-shipped-binaries`.** `ci.yml`'s refusal
-is *the manifest has at least one row*, and that was read as *a probe cannot silently disappear*.
-It is not the same claim: zero rows means *the CLI probe is gone* only because the other binary
+**WHICH FEATURES ARE PROBED - held, by `cargo xtask check-shipped-binaries`.** The refusal in
+`.github/workflows/cross-link.yml` is *the manifest has at least one row*, and that was read as *a
+probe cannot silently disappear*. It is not the same claim: zero rows means *the CLI probe is gone* only because the other binary
 declares none, which is a property of today's data rather than of the construction. Declare a probe
 for `sutura-serve` and delete `"bigquery"` from `sutura-cli`'s, and the manifest is still non-empty
-- the four `cross` jobs go green and this record's claim reverts to *assumed* with no signal at all.
+- the four link legs go green and this record's claim reverts to *assumed* with no signal at all.
 The coupling that closes it is the one nothing checked: a page tells a reader to run
 `cargo build --release -p sutura-cli --features bigquery`, and `probeFeatures` had to contain that
 feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
 fails, and so does a tree where no page documents such a build at all, because a reconciliation
 against nothing passes everything.
 
-**WHICH TRIPLES ARE PROBED - still not held.** `ci.yml`'s `cross` matrix spells the four triples as
-literals, as `release.yml`'s does, and `check-shipped-binaries` reconciles the shipped BINARIES
-between those files and `nix/shipped.nix` - not the TARGETS. So a triple added to `crossTargets` and
-to `release.yml` but not to `ci.yml` would ship having been linked by nothing, with the feature or
-without it, and the only thing saying otherwise is a comment above the matrix. The reverse direction
-does fail closed, freely: a matrix target that is not a release target has no
+**WHICH TRIPLES ARE PROBED - still not held.** The link matrix in
+`.github/workflows/cross-link.yml` spells the four triples as literals, as `release.yml`'s does, and
+`check-shipped-binaries` reconciles the shipped BINARIES between those files and `nix/shipped.nix` -
+not the TARGETS. So a triple added to `crossTargets` and to `release.yml` but not to
+`cross-link.yml` would ship having been linked by nothing, with the feature or without it, and the
+only thing saying otherwise is a comment above that matrix. **The matrix moved out of `ci.yml` and
+this pointer moved with it** - which is the second failure mode of a coupling held by prose: not
+only can the comment go, the sentence naming where to read it can be left behind. `cross:` in
+`ci.yml` is now a three-key caller with no `strategy.matrix` in it at all, so a reader sent to that
+file finds nothing to add a triple to. The reverse direction does fail closed, freely: a matrix
+target that is not a release target has no
 `feature-probes-<triple>` attribute, so `nix build` fails. The gate's own header argues a matrix
 cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
 reconciling this pair too. It is the same shape as the rule above and is a separate change.
+
+## Seventh amendment, 2026-09-04: the acceptance leg is re-entrant, and two runs no longer race
+
+**Status of the amendment: accepted.** The third amendment's "NEW" bullet - *this leg WRITES, and two
+runs against one dataset will race* - stopped being true in #119, and this is its record. The bullet
+itself now points here; a merged record that quietly stops being true is worse than one wrong from
+the start, and the race was the one way this leg could fail for a reason that looked like a product
+bug.
+
+### The mechanism: a per-run table suffix, applied before the plan is compiled
+
+Every corpus table is now named with a token unique to the run (`GITHUB_RUN_ID` in CI, a clock+pid
+value locally) and a per-test leg (`accept`, `rows`, `anchors`) - `dim_customer_<token>_rows`, and so
+on. The suffixed names live in the DEFINITIONS: the leg rebuilds a `PinnedDefinitions` whose models'
+tables carry the suffix, and both the engine and `BigQuery` compile against that bundle, so the plan
+and the dataset agree (only the models' tables change; relationships and metrics are cloned verbatim,
+and `pin` recomputes the digest). Two runs, or this leg's own three tests under nextest's default
+parallelism, each create, read and drop only their own tables.
+
+### The two mechanisms that keep it clean, and why both are there
+
+- **Each `CREATE` sets a 24-hour table expiration.** This is the GUARANTEE half, and it exists for a
+  reason specific to this crate: the shipped profiles run `panic = "abort"`, so a cancelled runner
+  never unwinds - a `Drop` guard that would clean up is skipped before it runs. Table expiration is
+  the mechanism that survives that: the table self-deletes after the interval whether or not anybody
+  drops it.
+- **Each run DROPs its own tables when it finishes.** This is the TIDY half - a complete run leaves
+  nothing behind even for the 24-hour interval. It is not the guarantee, because an abort skips it;
+  the expiration is.
+
+### The per-run table name is safe to print
+
+The suffixed names are committed-fixture-names-plus-tokens, not resources: only the dataset and the
+project are resources. A run prints its table names as they load, which is what lets a log say which
+run wrote them; the dataset and project are still masked in CI, and a table name never carries them.
+
+### The belt: a CI concurrency group shared across refs
+
+`ci.yml`'s `bigquery-acceptance` job now carries a job-level `concurrency` group keyed on the
+dataset (`vars.SUTURA_BQ_DATASET`), not on the ref, with `cancel-in-progress: false`. Two in-repo
+runs against the one `bq-test` dataset therefore QUEUE rather than interleave. It is the belt, not
+the braces: the per-run suffix is what makes them safe, and the developer's own local run is a
+concurrent writer the group cannot serialise - its per-run table names announce it on the shared
+dataset, and the `just bigquery-acceptance` comment says that in one sentence.
+
+### What becomes provable, and how
+
+`just bigquery-acceptance` twice concurrently, locally, both green - the table names differ per run,
+and each run drops its own. The CI job is green on a branch, its printed table names carrying the
+run suffix.
+
+### Not in scope
+
+Cross-dataset fixtures (#118) and the conformance packs (#116) are still future work; this change
+makes the first safe to add rather than doing it.
+
+## Eighth amendment, 2026-09-04: the two-principal cell exists, and what it is *not*
+
+**Status of the amendment: accepted; the cell is written and has not been run.** The sixth amendment
+said the cell's two prerequisites were provisioned and that "what is still required is the cell
+itself". This is that cell - issue #123 - and this amendment records three decisions taken while
+writing it, one measurement that closed a question the wrong way, and the two things a human still
+has to do.
+
+### What the cell is, and the one sentence that keeps it honest
+
+`crates/sutura-exec-bigquery/tests/two_principals.rs`, reached by `just bigquery-two-principals` and
+by `nix run .#bigquery-two-principals`. One `QueryPlan` value, borrowed twice, so **the statement is
+the same statement and not two that resemble each other** - and each leg presents a bearer minted
+from that principal's own service-account key through this crate's own `Credential`, which is issue
+#123's second bullet answered by reusing the credential path a deployment runs rather than by
+hand-rolling a token exchange.
+
+**It is leg 2's SOURCE half and not leg 2.** The two principals are service accounts whose private
+keys the leg holds, so nothing was exchanged and nobody asked. What a green run would establish is
+that a real data system applies the row grant of the principal whose bearer this adapter *presented*
+rather than the identity the transport holds; what it says about a caller is nothing.
+`docs/where-identity-is-proven.md` carries that as a venue of its own with five exclusions, and it
+deliberately does **not** move the *two subjects read two different row sets* row up to it: two
+principals is not two subjects, and eliding those is the overstatement that page exists to prevent.
+
+### Three decisions, and the reason each went the way it did
+
+**It has its own task and its own nix app rather than being a third leg inside
+`just bigquery-acceptance`.** It needs five values and two key documents the other two legs do not,
+and one task demanding all of them would make the legs a developer holding one credential *can* run
+unreachable. Both apps filter on the test BINARY and not on a test list, so the property the
+acceptance app's comment states survives: a test added to either target is reached without a count
+anywhere being edited.
+
+**It does not seed the table, though issue #123 asked it to.** `BigQueryWarehouse::load_fixture`
+renders `CREATE OR REPLACE TABLE`, and replacing a table drops its row access policies - so the one
+loader this crate has would disarm the grant the cell asserts on, and the run after it would compare
+two identical row sets. There is no arbitrary-SQL entry point to reach for instead, deliberately.
+So the rows belong to whoever owns the policies: the predicate and the rows it selects are two halves
+of one grant, and splitting them across the stack and a test file is how they drift. The stack seeds
+one row per principal beside the two `RowAccessPolicy` resources, and the cell's non-emptiness
+assertion is what refuses to read an unseeded table as a pass.
+
+**The control leg accepts two outcomes and prints which it got.** What the endpoint answers a
+principal no policy grants decides how strong that control is, and it is unmeasured: documented
+behaviour is no rows, the observable alternative is a refusal, and both are *not reading either
+principal's rows*. The first green run narrows it to one sentence; until then the test says so at the
+assertion rather than guessing.
+
+**Two outcomes is what the sentence said and fourteen is what the code accepted**, which review
+found. `let Ok(rows) = ... else { return; }` took every `BigQueryError` variant as evidence of a
+refusal - and the sharpest of them are not refusals at all: `UnmappedType`, `NotAnInteger` and their
+siblings mean the endpoint answered and rows came back, so a deployment that had just read the
+policied table printed *the deployment's own identity was refused* and passed the control without
+looking at what it read. `Render` and `PresentedDisagreesWithPosture` are defects in the test file
+and were green; one `Endpoint` timeout left the cell with no control while both subject legs passed.
+It is an exhaustive `match` now, in `wire::tables::was_refused`'s shape and for its reason - a new
+variant is a compile error at that line rather than a new way to pass - accepting only a `403` that
+is not `rateLimitExceeded`/`quotaExceeded`. **`401` is deliberately refused too:** a credential that
+cannot authenticate leaves the control unable to distinguish anything while reading as though it
+had. The limit that survives is on the page beside the claim: a `403` does not say WHICH grant was
+missing, so a missing row grant and a missing `bigquery.jobUser` are indistinguishable here.
+
+### The measurement that closed a question the wrong way
+
+The three behaviours the cell rests on were probed from a developer machine against the acceptance
+project, with the credential that machine holds. Creating a table, `INSERT`ing into it and reading it
+back all work. **Creating a row access policy does not:** the acceptance credential is refused
+`bigquery.rowAccessPolicies.create` - `Access Denied ... Permission bigquery.rowAccessPolicies.create
+denied on table` - so a policy cannot be created, replaced or inspected from a developer machine at
+all. Two consequences, and both are limits rather than defects:
+
+- **whether `INSERT` works on a table that HAS row access policies was not measured**, because no
+  policy could be created to try it against. The seeding decision above makes it the stack's problem
+  rather than the test leg's - but **it does not close the question, and an earlier wording of this
+  bullet read as though it had.** Review found the three resources unordered: the seed job and the
+  two policies each depended on the table alone and the policies were bound to no name, so pulumi
+  created all three concurrently and which path `up` took was the scheduler's choice. The ordering
+  is declared now - the job first, both policies `depends_on` it, and the principals' read grant
+  waits for both policies so a fresh `up` never leaves a principal able to read an unpolicied table.
+  **What remains, stated rather than moved:** the policies persist, so from the second apply onwards
+  a changed grouping value re-digests the job against a table that already carries them, and the
+  `INSERT` runs on a policied table deterministically. `just infra-up` after a config change is the
+  first place anyone can observe it. **Whoever gets there: record the answer here.** If it is
+  refused, `up` fails on the resource the whole fixture depends on; if it is accepted but filtered,
+  the cell reports *principal A read no rows at all* and points two steps from the cause;
+- **the policied dataset is not listable from a developer machine either**, so the cell's own
+  configuration cannot be discovered locally and no local run of it is possible. That is why the
+  venue page says the claim is not answered yet rather than that the run failed.
+
+### What is left for a human, and neither is code
+
+1. **The `bq-test` environment has to carry five more values** - the policied dataset and table, the
+   grouping column, and the grouping value each policy grants. `sync-bq-test-env.sh` exports them
+   from the stack now, so `just infra-set` is the mechanism; it needs the pulumi state, which lives
+   with whoever ran `just infra-up`.
+2. **The CI job has to run the leg, and that change is WRITTEN and must not merge yet.** It is a
+   separate pull request stacked on this one rather than a future one - the sentence this item first
+   carried said it had not happened, and it had - and it stays in draft for the reason it was kept
+   separate: wiring a job to five variables that do not exist yet turns the `bigquery-acceptance` job
+   red on every push until somebody sets them, and a job that is red for a configuration reason is a
+   job people learn to ignore. The order is the environment first, the job second.
+
+   **The cap decision this item used to carry has evaporated, and the sequence is worth recording
+   because it is the ordinary case rather than an accident.** An earlier wording said
+   `.github/workflows/ci.yml` was *over* the 1000-line cap
+   [#285](https://github.com/telekom/sutura/issues/285) is about, in the present tense, and paired
+   it with `987 → 1042`. Neither was true of any tree this record shipped in: measured with
+   `wc -l`, the file was **999** on `main` and at this record's own head, and this change touches no
+   workflow at all. Then [#289](https://github.com/telekom/sutura/pull/289) landed and took it to
+   **856** - `wc -l .github/workflows/ci.yml` on `main` at `fd5959ea`, and on this branch after
+   carrying that merge in. So there is **143 lines of headroom** and no cap decision for the job
+   change to make: `devco/max-lines-ignore` needs no `[warn]` entry for this workflow, and one added
+   before #289 landed should come out. That file is for generated and vendored output, where length
+   is a function of what is described; a hand-written workflow in it is a promise to split, and a
+   promise nobody needs is worse than none.
+
+   **The transferable half:** a line count written in the present tense is a measurement with no
+   date, and nothing in this repository derives it. Write the command and the commit beside the
+   number, or the number is a claim that rots on somebody else's merge.
+
+### What review of the cell found, recorded because each was a claim rather than a bug
+
+Two rounds, and no count in this heading on purpose - it was *three* and then it was not. The second
+round's other findings are recorded where they belong rather than listed again here: the control leg
+accepting fourteen error variants is under *Three decisions* above, the seed job and the two policies
+being unordered is under *The measurement that closed a question the wrong way*, and four citations
+pointing at the seventh amendment when this one is the eighth were simply wrong and are corrected.
+
+**A verdict was carrying two states.** The venue page's `can` meant *the venue is capable and the
+standing test lives somewhere else*, and this cell needed *the standing test lives here and nothing
+has run it*. Those are not the same and only the first is evidence, so `cargo xtask check-venues`
+grew a sixth verdict - `unrun` - which it refuses from a venue nothing reaches and which the venue's
+own section has to use in that word.
+
+**And the first version of those rules held a spelling rather than the transition, which review of
+this cell found.** All three read the page: nothing read whether a run had happened, so the sentence
+*the change that carries the first green run moves that cell* was still a sentence nothing read -
+which is what it had just been criticised for being. The closure is a fourth rule with a mechanism:
+the venue's `Reached by` task is resolved against every `just <task>` and `nix run .#<app>` the
+workflows, the local composite actions and the shared `nix/` shell invoke - one walk, shared with
+`check-workflows`, because a step moving out of a workflow is the recorded way a reference leaves a
+gate's sight - and an `unrun` cell whose venue is among them is refused. Measured by wiring
+`nix run .#bigquery-two-principals` into `ci.yml` and re-running the gate: it fails naming this
+venue, and passes again with the line removed.
+
+**The rule is one-sided, and the side it does not hold is stated on the page beside the claim.** An
+invocation is not a green run: a wired job that always skips reddens the cell, and a hand-run is
+invisible to it. The authority for *did this pass* is the GitHub API, unreachable from
+`checks.hygiene` for the same reason `nix eval` is unreachable from `check-workflows`. So moving the
+cell to `yes` stays review's, with the run named beside it; what stopped being possible is leaving
+it at `unrun` while a job runs it.
+
+**One assertion in the cell could not fail.** With each answer asserted to be exactly its own
+principal's grouping value, and the fixture control already refusing a pair whose values are equal,
+disjointness followed. It is deleted rather than kept: an assertion that cannot go red reads as an
+independent check and is not one, and it made the page and this record advertise three where there
+are two.
+
+**The step this amendment asks for nearly broke the venue that HAS a green run.** The two policied
+resource names were added to the masking step's emptiness guard, which exits non-zero and runs
+before the shared-key leg - so an unset value belonging to a venue with no run would have stopped
+the only BigQuery venue with evidence. Masked there, guarded in the cell's own step. `check-venues`
+was satisfied either way, which is why review and not the gate found it, and it is the sharpest
+example of this record's own warning about a job red for a configuration reason.
+
+### And two limits this cell does not close, named so they are not read as closed
+
+**`check-venues` reads ONE credential path.** It takes the job's `GOOGLE_APPLICATION_CREDENTIALS`,
+so *written under `$RUNNER_TEMP` and removed* and *the file is a second copy of the secret* are held
+for the CI key and by review for the two principal keys placed beside it. Deriving the credential set
+from the job is the fix, and the split it was waiting on has landed: `xtask/src/venues/acceptance.rs`
+is 672 lines now, with the five properties in `acceptance/properties.rs` (#323).
+
+**Nothing checks that the two nextest filters are complements.** `binary(two_principals)` and
+`not binary(two_principals)` appear in two `just` recipes and two flake apps, and no gate reads a
+nextest filter expression - so renaming the target would silently un-filter the acceptance app.
+Two nextest profiles carrying the pair once, next to the tests, is the shape that would close it.
+
+## Ninth amendment, 2026-09-05: what *exactly* meant on the measured run, and what it did not
+
+**Status of the amendment: accepted; it corrects a published claim and carries no live run.** The
+fourth amendment above records `21 answers agreed exactly on content AND order`, and the third
+amendment's status cell read *Answered for CONTENT, exactly*. Both are narrowed here, because the
+comparison that produced them was not exact in the sense either sentence invites.
+
+**The comparator of that day compared cells through `Value::render`, which is a display form.**
+`Value::Null` and `Value::Text("null")` both render `null`; `Value::Integer(1)` and `Value::Text("1")`
+both render `1`. A cell the endpoint answered as text where the engine answered a number - or as the
+word `null` where the engine answered nothing at all - was therefore counted as agreement on that
+run. The 21 are evidence about **acceptance**, about **rendered row content** and about **ORDER**,
+and about nothing else. The status cell's *exactly* has to be read that way, which is why it now says
+so at the cell rather than here alone.
+
+**Both legs share one typed policy now.** `sutura_domain::warehouse::agreement`, behind a default-off
+feature and `cfg(test)`: the variant is part of the comparison key, and the one approximation is
+named and scoped - `RealTolerance::DIFFERENTIAL`, thirteen significant digits, reaching `Value::Real`
+and no other variant.
+
+**No number is restated for it, deliberately.** Nothing has run the corpus leg against the real
+dataset since the policy changed, so the tally above stays as the transcript of the run that made it
+and this amendment corrects the reading rather than replacing the measurement. What is measured for
+the typed policy is that module's own suite plus two cells per leg asserting that a null and the word
+`null`, and an integer and its own text, are refused **by the content comparison** - the diagnosis
+named in the expected panic, not merely that some panic fired. The next `bigquery-acceptance` run is
+what would restate the number with *exactly* meaning what it says.

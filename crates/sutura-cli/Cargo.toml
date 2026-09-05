@@ -46,9 +46,12 @@ path = "src/main.rs"
 # `nix/shipped.nix`'s `binaries` - so this crate is in it - and runs `cargo check` AND `cargo clippy`
 # at the DEFAULT set: that is what compiles the `cfg(not(feature = "bigquery"))` half of
 # `src/sources/bigquery.rs` and the one-variant `Opened` beside it, and clippy is in there because
-# `cargo check` cannot see a lint. It runs in CI too, as `nix run .#default-features` in the required
-# `ci` job, so this lane's lint half is a required check rather than the four `cross` link builds
-# alone.
+# `cargo check` cannot see a lint. **Neither of them RUNS anything**, both stopping at metadata, so
+# the `cfg(not(feature = "bigquery"))` TEST in `src/sources/bigquery.rs` was compiled by that gate
+# and executed by no venue at all until `cargo xtask check-default-feature-tests` - same package
+# list, same set, and it links and runs. Both reach CI now, as `nix run .#default-features` and
+# `nix run .#default-feature-tests` in the required `ci` job, so this lane's lint half is a required
+# check rather than the four `cross` link builds and a developer's memory.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
 [dependencies]
@@ -81,7 +84,8 @@ sutura-mcp = { workspace = true }
 # `TracingAuditSink`, the implementor of the `AuditSink` the service requires, plus the async
 # runtime that drives `serve_stdio`. The sink writes to `tracing`; a locally launched process has no
 # subscriber, so records go nowhere until a composition installs one - the same posture the `query`
-# command takes when it writes none.
+# command takes, which since issue #266's A1 composes the same service rather than writing no
+# record at all.
 sutura-runtime = { workspace = true }
 # The runtime `serve_stdio` runs in. `rt-multi-thread` is on in this binary regardless - the engine
 # drives its own current-thread runtime but the workspace resolves the feature through it - so this
@@ -106,9 +110,19 @@ insta = { workspace = true }
 # The far side of the `mcp` handshake test: a real MCP client from the same SDK, over an in-memory
 # pipe. Nothing this crate wrote sits between the assertion and the protocol.
 rmcp = { workspace = true, features = ["client"] }
-# The request JSON in that test, and the tool result's structured content.
+# The request JSON in that test, and the tool result's structured content. Also the audit records
+# `src/audit.rs` reads back: a record is asserted by KEY, which needs the line parsed.
 serde_json = { workspace = true }
+# `testing::Capture`, the writer `src/audit.rs` puts a subscriber over. Declared again HERE rather
+# than as a feature on the normal dependency above, which is what keeps `test-capture` out of the
+# shipped build: dev-dependencies are not in the graph a `cargo build` resolves. The same
+# arrangement `sutura-http` uses, and for the same reason - a second copy of that writer would be a
+# second thing to keep in step.
+sutura-runtime = { workspace = true, features = ["test-capture"] }
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
+# `subscriber::with_default`, which is what scopes that subscriber to the thread the command runs
+# on. Only a test installs one: this binary deliberately installs none.
+tracing = { workspace = true }
 
 [lints]
 workspace = true

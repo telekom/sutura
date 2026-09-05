@@ -13,9 +13,12 @@
 //!   really executed;
 //! - **the rows agree with the engine's for the same plan** - `crates/sutura-app/tests/differential.rs`
 //!   pointed at a second data source, comparing ROWS rather than batches for the reason that file
-//!   gives. **The CONTENT and the ORDER are both compared exactly, with no tolerance for either** -
-//!   see *What its first real run FOUND* below for the one divergence this leg measured, and the
-//!   generator change that closed it.
+//!   gives. **The CONTENT and the ORDER are both compared, cell type included, and the one
+//!   approximation is named**: `RealTolerance::DIFFERENTIAL` cuts a `Value::Real` and reaches no
+//!   other variant. This bullet read *with no tolerance for either* until the float cut inside the
+//!   comparator was noticed, which is an overstated control and therefore its own defect. See *What
+//!   its first real run FOUND* below for the one divergence this leg measured, and the generator
+//!   change that closed it.
 //!
 //! **So the constructs the smoke leg says nothing about are covered here, and they are the ones a live
 //! run is worth most for.** The corpus renders, for `BigQuery`: 12 `LEFT JOIN`s, 6 `COUNT(DISTINCT`, 4
@@ -58,17 +61,26 @@
 //! **It is FIXED, in the generator rather than here, and this leg no longer tolerates it.** The plan's
 //! `ORDER BY` now states the placement - `sutura_sql::generate`'s `ordered_nulls_last`, emitted by
 //! both `generate` and `generate_leg` - so all four dialects converge on the engine's own order and
-//! `agreement_between` compares CONTENT and ORDER exactly, with no tolerance for either. The
-//! measurement that used to be asserted here (*at least one question diverges on null placement*) is
-//! gone rather than relaxed: a divergence in either now fails.
+//! `agreement_between` compares CONTENT and ORDER through the shared policy. The measurement that
+//! used to be asserted here (*at least one question diverges on null placement*) is gone rather than
+//! relaxed: a divergence in either now fails.
 //!
-//! **Measured in CI on 2026-08-31 with the exact comparison in place**, and the five questions above
-//! are the five that moved into the first number:
+//! **Measured in CI on 2026-08-31**, and the five questions above are the five that moved into the
+//! first number:
 //!
 //! ```text
 //! bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agreed, 1 excluded,
 //!                  31 in the corpus
 //! ```
+//!
+//! **What `exactly` meant on that run is NOT what it means above, and the difference is this
+//! branch.** That tally was produced by the render-based comparison, which could not tell
+//! `Value::Null` from `Value::Text("null")` or `Value::Integer(1)` from `Value::Text("1")` - so a
+//! cell-type divergence on any of the 21 was counted as agreement. Read it as evidence about
+//! acceptance, about rendered row content and about ORDER, and about nothing else. **No live number
+//! is claimed for the typed policy**: nothing has run this leg against a real dataset since, so what
+//! is measured for it is `sutura_domain::warehouse::agreement`'s own suite plus the two cells at the
+//! bottom of this file, and the next live run is what would restate the tally.
 //!
 //! `docs/adr/0017`'s THIRD amendment records the finding and its FOURTH records this closure. The
 //! numbering is worth getting right rather than approximating: the constant deleted from this file
@@ -143,11 +155,20 @@
 //!
 //! **It WRITES to the dataset**, which the smoke leg does not, and the consequence is worth stating:
 //! four tables named after the example models - `dim_customer`, `dim_product`,
-//! `fct_subscription_monthly` and `fct_usage_daily` - are replaced on every run. The names are fixed
-//! because the generator renders them unqualified and the job's `defaultDataset` resolves them, so
-//! **two runs against one dataset at the same time will race**, and the dataset this is pointed at
-//! should hold nothing else under those names. The names are committed fixtures rather than resources,
-//! so unlike the dataset and the project they need no masking in a public log.
+//! `fct_subscription_monthly` and `fct_usage_daily` - are replaced on every run. **That has been
+//! true, and it stopped being a race in the diff that closes #119:** every table is now named with
+//! the run's own token - `dim_customer_<token>_<leg>` and friends - so two runs against one dataset
+//! at the same time create, read and drop only their own tables and never touch each other's. The
+//! committed names above are the stem the suffix is appended to; the generator still renders them
+//! unqualified and the job's `defaultDataset` resolves them, but the run's suffixed bundle drives
+//! the plan, so the tables a run reads are its own. Each `CREATE` also carries a 24-hour expiration,
+//! so a run that is CANCELLED - which `panic = "abort"` makes the explicit DROP unable to reach -
+//! still leaves nothing behind after a bounded interval.
+//!
+//! The per-run table names remain committed-fixture-names-plus-tokens rather than resources: only
+//! the dataset and the project are resources, and only those need masking in a public log. The
+//! dataset a developer points this at is still shared with CI by configuration, so the table names
+//! a run prints include its token - a log says WHICH run wrote them.
 
 // The corpus reaches OUTSIDE this crate, into `examples/single-player`. The source filter in
 // `flake.nix` names `crates/*/tests` and `examples/` separately, so this leg depends on BOTH clauses -
@@ -158,6 +179,13 @@
 #[cfg(test)]
 mod support;
 
+// The per-run table naming harness, which is the mechanism this leg's re-entrancy rests on. Its own
+// module because it is a pure function of a bundle and a token - no endpoint - and its own file
+// rather than more of this one because this file is at the 1000-line cap. Every `#[test]` over it
+// stays here: `.agents/skills/sutura/gates` records why moving assertions instead orphans them.
+#[cfg(test)]
+mod naming;
+
 // `cfg(test)` around the whole file, which is the house pattern rather than a preference: clippy
 // honours `allow-expect-in-tests` only for code inside a `#[cfg(test)]` item, and
 // `tests_outside_test_module` wants the `#[test]` functions there too.
@@ -165,14 +193,16 @@ mod support;
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use sutura_domain::model::{SourceName, TableName};
+    use sutura_domain::model::{InvalidIdentifier, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::Executable;
     use sutura_domain::query::{Query, ToolOutcome};
+    use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
     use sutura_domain::warehouse::{PreFlight, RowSet, Value, Warehouse as _};
 
     use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline};
 
+    use crate::naming::{build_token, ci_run_id, run_token, suffixed_bundle, suffixed_table};
     use crate::support::{Connection, Wired, bounds, opened, presented};
 
     /// What the fixture LOADS are bounded by, which is not what the questions are bounded by.
@@ -269,27 +299,43 @@ mod tests {
             .expect("the example catalog loads")
     }
 
-    /// One table name and the committed CSV behind it, per model in the bundle.
-    fn fixture_tables(pinned: &PinnedDefinitions) -> Vec<(TableName, PathBuf)> {
-        pinned
+    /// Each suffixed fixture: the table this run wrote, and the committed CSV behind it.
+    ///
+    /// The two bundles iterate their models in the same order - both are `BTreeMap`s keyed by the
+    /// unchanged `ModelName`, one for the committed bundle and one for the suffixed - so zipping them
+    /// pairs every suffixed table with the CSV file of the same model. That is how the loader knows
+    /// which committed bytes to move into a per-run table.
+    fn run_fixtures(committed: &PinnedDefinitions, suffixed: &PinnedDefinitions) -> Vec<(TableName, PathBuf)> {
+        let csvs: Vec<PathBuf> = committed
             .definitions()
             .models()
             .values()
             .map(|model| {
-                let table = model.table_name().clone();
-                let csv = example_root().join("data").join(format!("{table}.csv"));
-                (table, csv)
+                let committed = model.table_name();
+                example_root().join("data").join(format!("{committed}.csv"))
             })
+            .collect();
+        suffixed
+            .definitions()
+            .models()
+            .values()
+            .map(|model| model.table_name().clone())
+            .zip(csvs)
             .collect()
     }
 
-    /// The engine, opened over the committed CSVs.
+    /// The engine, opened over the committed CSVs under this run's suffixed table names.
+    ///
+    /// The plan (from the suffixed bundle) reads tables named `dim_customer_<token>_<leg>`, so the
+    /// engine has to register files under those SAME names - attaching under the committed names
+    /// would make the engine read tables the plan never asks for and answer everything `Empty`.
+    /// `run_fixtures` supplies that pairing: suffixed table to committed CSV.
     ///
     /// A gibibyte for the working set, which is `sutura_config::WorkingSetCeiling::DEFAULT_BYTES` -
     /// written as a literal rather than read from that crate, for the reason the golden suite gives:
     /// this leg must not acquire a dependency on the settings tree to obtain one number. The corpus is
     /// a few hundred rows, so no question in it comes near the bound.
-    fn engine(pinned: &PinnedDefinitions) -> Engine {
+    fn engine(committed: &PinnedDefinitions, suffixed: &PinnedDefinitions) -> Engine {
         let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
         let engine = Engine::new(
             source(),
@@ -297,7 +343,7 @@ mod tests {
             sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
         )
         .expect("an in-process engine starts");
-        for (table, csv) in fixture_tables(pinned) {
+        for (table, csv) in run_fixtures(committed, suffixed) {
             engine
                 .attach_csv(&table, &csv)
                 .unwrap_or_else(|e| panic!("the engine could not attach {}: {e}", csv.display()));
@@ -380,19 +426,25 @@ mod tests {
         ))
     }
 
-    /// The corpus, in the dataset - four tables replaced from the committed CSVs.
+    /// The corpus, in the dataset - this run's suffixed tables replaced from the committed CSVs.
     ///
     /// Asserts every model's fixture moved at least one row, because an empty table would make every
     /// comparison below agree about nothing. The count comes from the CSV rather than from the
     /// endpoint; what proves the endpoint STORED them is the row comparison itself.
-    fn load_the_corpus(pinned: &PinnedDefinitions, warehouse: &Wired) -> usize {
+    ///
+    /// The tables are named *with* this run's token (see [`crate::naming::suffixed_table`]), so two concurrent
+    /// runs - or this leg's own three tests under nextest's default parallelism - replace only their
+    /// own tables. Each `CREATE` also carries a 24-hour expiration, so a cancelled run's tables
+    /// self-delete even though `panic = "abort"` skips the explicit DROP.
+    fn load_the_corpus(committed: &PinnedDefinitions, suffixed: &PinnedDefinitions, warehouse: &Wired) -> usize {
         let mut loaded = 0_usize;
-        for (table, csv) in fixture_tables(pinned) {
+        for (table, csv) in run_fixtures(committed, suffixed) {
             let rows = warehouse
                 .load_fixture(&table, &csv)
                 .unwrap_or_else(|e| panic!("the fixture {table} did not load: {e:?}"));
             assert!(rows > 0, "the fixture for {table} carried no rows");
-            // The TABLE name, which is a committed fixture name, and never the dataset or the project.
+            // The TABLE name, which is a committed fixture name plus this run's token, and never the
+            // dataset or the project - which is what makes it safe to print in a public log.
             println!("bigquery-corpus: loaded {rows} rows into {table}");
             loaded = loaded.saturating_add(rows);
         }
@@ -400,78 +452,101 @@ mod tests {
         loaded
     }
 
-    /// A result as comparable text.
+    /// Drops this run's suffixed tables - the tidy half of per-run cleanup.
     ///
-    /// Lifted from `crates/sutura-app/tests/differential.rs`, whose reasoning applies unchanged and is
-    /// worth restating because it is what makes this a ROW comparison: rendered rather than compared as
-    /// `Value`, because two sides legitimately return different Rust types for the same number, and
-    /// `Value::render` is the one canonical form both are already required to agree on.
+    /// **Why it exists beside the expiration:** the expiration guarantees a cancelled run leaves
+    /// nothing after a bounded interval, but a COMPLETE run should not leave its own tables behind
+    /// even for that interval. So a run drops them when it finishes. A drop failure is reported
+    /// rather than silently swallowed - the grant that created the table is the one that drops it.
     ///
-    /// **Floats are cut to twelve significant digits, and that is not a loosening.** Summing the same
-    /// rows in a different order changes the last place of an `f64`, and neither side promises an
-    /// order. Twelve digits is far beyond any figure a metric reports and far short of the noise;
-    /// integers, dates and text are untouched, so an exact count stays exactly compared.
-    fn rendered(rows: &RowSet) -> Vec<Vec<String>> {
-        rows.rows()
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|value| match *value {
-                        Value::Real(v) => format!("{v:.12e}"),
-                        ref other => other.render(),
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-
-    /// The rows as a set, for comparing WHAT was answered rather than in what order.
-    ///
-    /// Kept even though the ORDER is now compared exactly, because it is what separates the two
-    /// diagnoses: *different rows* is a wrong number and *same rows, different order* is a generator
-    /// that stopped saying how to sort them. One assertion for both would report the first as the
-    /// second.
-    fn as_a_set(rows: &[Vec<String>]) -> Vec<&Vec<String>> {
-        let mut out: Vec<&Vec<String>> = rows.iter().collect();
-        out.sort();
-        out
+    /// It is never reached on a cancelled run - `panic = "abort"` skips it - which is exactly why
+    /// the expiration, not this method, is the guarantee.
+    fn drop_the_corpus(suffixed: &PinnedDefinitions, warehouse: &Wired) {
+        for table in suffixed.definitions().models().values().map(|m| m.table_name().clone()) {
+            warehouse
+                .drop_table(&table)
+                .unwrap_or_else(|e| panic!("the fixture table {table} did not drop: {e:?}"));
+        }
     }
 
     /// The two sides of one question, compared - and it panics rather than reporting a disagreement,
     /// because a disagreement here is what this leg exists to fail on.
     ///
-    /// A function rather than an arm inside the loop, for `clippy::too_many_lines`' reason and because
-    /// what it decides is worth reading in one place: **the CONTENT and the ORDER are both compared
-    /// exactly, and there is no tolerance for either.** It returns nothing, because there is no longer
-    /// a second degree of agreement for a caller to count - see *What its first real run FOUND* in the
-    /// module header for the one that used to be here and what closed it.
+    /// **What makes two answers the same answer is `sutura_domain::warehouse::agreement`, and this
+    /// leg no longer has an opinion of its own.** It used to: a `rendered()` copied from
+    /// `crates/sutura-app/tests/differential.rs`, comparing every cell through `Value::render`. That
+    /// is a DISPLAY form, so the variant was erased on both sides of the copy - a `Null` and the text
+    /// `"null"` compared equal, and so did `Integer(1)` and the text `"1"`. **The comparisons this
+    /// file makes against a live dataset inherited that**, which is why the policy now lives in one
+    /// module with its own tests and both legs call it.
+    ///
+    /// **The CONTENT and the ORDER are both compared, and the ONE approximation is
+    /// `RealTolerance::DIFFERENTIAL`** - twelve digits after the point on a `Value::Real` and nothing
+    /// else, because two sides summing the same rows in different orders differ in the last place of
+    /// an `f64`. The module header used to say *no tolerance for either*, which was an overstatement
+    /// of the control: the float cut was already there, inside `rendered`.
+    ///
+    /// Content first, so a wrong number is never reported as a sort order - *different rows* is a
+    /// wrong number and *same rows, different order* is a generator that stopped saying how to sort
+    /// them. It returns nothing, because there is no longer a second degree of agreement for a caller
+    /// to count - see *What its first real run FOUND* in the module header for the one that used to be
+    /// here and what closed it.
     fn agreement_between(name: &str, from_engine: &RowSet, from_bigquery: &RowSet) {
-        assert_eq!(
-            from_engine.columns(),
-            from_bigquery.columns(),
-            "{name}: the engine and BigQuery labelled the result differently"
-        );
-        let (here, over_there) = (rendered(from_engine), rendered(from_bigquery));
+        if let Err(disagreement) = agree_on_content(from_engine, from_bigquery, RealTolerance::DIFFERENTIAL) {
+            panic!("{name}: the engine and BigQuery returned different rows - {disagreement}");
+        }
+        if let Err(disagreement) = agree_on_order(from_engine, from_bigquery, RealTolerance::DIFFERENTIAL) {
+            panic!(
+                "{name}: the engine and BigQuery returned the same rows in different orders, and the \
+                 plan's ORDER BY claims one order - {disagreement}"
+            );
+        }
+        println!("bigquery-corpus: {name} agrees, {} row(s)", from_engine.rows().len());
+    }
 
-        // **The CONTENT, compared exactly.** A wrong number has to be produced twice, the same way, by
-        // two things that share nothing below the plan. First, so that a wrong number is not reported
-        // as a sort order.
-        assert_eq!(
-            as_a_set(&here),
-            as_a_set(&over_there),
-            "{name}: the engine and BigQuery returned different rows"
-        );
+    /// One cell, as a whole result, for the two comparisons below.
+    fn one_cell(label: &str, cell: Value) -> RowSet {
+        RowSet::new(vec![String::from(label)], vec![vec![cell]]).expect("a one-cell result is rectangular")
+    }
 
-        // **The ORDER, compared exactly - which this leg's first real run could not do.** A plan that
-        // emits `ORDER BY` claims an order, so two data systems answering one plan in two orders is a
-        // defect whatever the reason. The reason it used to have was null placement, and the generator
-        // states it now.
-        assert_eq!(
-            here, over_there,
-            "{name}: the engine and BigQuery returned the same rows in different orders, and the plan's \
-             ORDER BY claims one order"
+    /// **The comparison this leg makes against a live dataset is type-aware, and this is where that
+    /// stops being a claim.**
+    ///
+    /// NOT `#[ignore]`d, unlike the three legs below, and that is the point: [`agreement_between`] is
+    /// a pure function of two results, so the property is checked on every `just test` with no
+    /// credential, no dataset and no network. Against the comparator this replaced both of these
+    /// PASSED - which is what made the finding worth a fix rather than a note.
+    ///
+    /// **The `expected` string names the CONTENT diagnosis, and it has to.** It stopped at *the
+    /// engine and `BigQuery`* first, which is a prefix of both panics [`agreement_between`] can
+    /// raise - so with `agree_on_content` made vacuous these two cells stayed green on the order
+    /// panic while five of `sutura_domain::warehouse::agreement`'s own tests reddened. That is the
+    /// same shape one file over: a cell passing for the wrong reason reads as coverage.
+    #[test]
+    #[should_panic(
+        expected = "a-null-is-not-the-word-null: the engine and BigQuery returned different rows - one \
+                    side answered a row 1 time(s) and the other 0 time(s)"
+    )]
+    fn a_null_and_the_word_null_do_not_agree_in_this_leg_s_comparison() {
+        agreement_between(
+            "a-null-is-not-the-word-null",
+            &one_cell("region", Value::Null),
+            &one_cell("region", Value::Text(String::from("null"))),
         );
-        println!("bigquery-corpus: {name} agrees, {} row(s)", here.len());
+    }
+
+    /// The other half of the same hole: a count and the text of that count.
+    #[test]
+    #[should_panic(
+        expected = "an-integer-is-not-its-text: the engine and BigQuery returned different rows - one \
+                    side answered a row 1 time(s) and the other 0 time(s)"
+    )]
+    fn an_integer_and_its_own_text_do_not_agree_in_this_leg_s_comparison() {
+        agreement_between(
+            "an-integer-is-not-its-text",
+            &one_cell("subscriptions", Value::Integer(1)),
+            &one_cell("subscriptions", Value::Text(String::from("1"))),
+        );
     }
 
     /// An error and every cause beneath it, as one string.
@@ -496,6 +571,162 @@ mod tests {
     /// can grep for, rather than a condition spelled out at the assertion.
     const DIVIDES_BY_ZERO: &str = "revenue-per-churned-subscription-january";
 
+    /// The re-entrancy fix, tested locally without ever touching a dataset.
+    ///
+    /// **This is the deterministic half of what #119 makes provable.** `just bigquery-acceptance`
+    /// twice concurrently is the measurement, but the mechanism that makes the two runs not see each
+    /// other's tables is derived from the committed bundle, which needs no network. Two runs - or
+    /// this leg's two shells - differ in their token; two tests within one run differ in their leg.
+    /// Both together have to produce DISTINCT legal table names every model resolves to, and the
+    /// suffixed bundle they compile against has to still assemble (relationships and metrics are
+    /// cloned, the digest is recomputed), or the acceptance legs below would be exercising tables the
+    /// plan never names.
+    #[test]
+    fn two_runs_of_the_acceptance_leg_at_once_do_not_see_each_other_s_tables() {
+        let committed = bundle();
+        // **Two runs and two tests, all four distinct.** Different tokens are two CI runs or a CI
+        // run and a local one; different legs are this file's own three tests under nextest's
+        // parallelism. If any pair collides, two processes could replace the table the other reads.
+        let pairs = [
+            ("runonetoken", "rows"),
+            ("runonetoken", "accept"),
+            ("runtwotoken", "rows"),
+            ("runtwotoken", "anchors"),
+        ];
+        let mut names: Vec<TableName> = Vec::new();
+        for &(token, leg) in &pairs {
+            let suffixed = suffixed_bundle(&committed, token, leg);
+            for model in suffixed.definitions().models().values() {
+                names.push(model.table_name().clone());
+            }
+        }
+        assert!(
+            names.len() >= 8,
+            "two runs of four models should produce at least eight table names, got {}",
+            names.len()
+        );
+        // **Distinct in the whole space at once.** A collision anywhere - same table name for two
+        // different (token, leg) pairs - is exactly the race. Turned into a set, NO name may be lost:
+        // the set's size has to equal the list's length, so any duplicate would shrink it.
+        let set: std::collections::BTreeSet<TableName> = names.iter().cloned().collect();
+        assert_eq!(
+            set.len(),
+            names.len(),
+            "two runs shared a table name: {} distinct among {}",
+            set.len(),
+            names.len()
+        );
+    }
+
+    /// The token source itself is pinned, because distinctness is what the whole fix rests on.
+    ///
+    /// The suffixing logic is tested above with fixed strings; this one pins the value that makes
+    /// "two runs have distinct table names" true in production - the generated token. Two runs at
+    /// different instants (differing clocks) must differ, and a fabricated CI run id must differ
+    /// from the local fallback, or the leg would race for a reason no fixed-string test can see.
+    #[test]
+    fn the_run_token_is_distinct_across_runs_and_sources() {
+        // Two local runs: same process, different instants. The clock differs, so the tokens differ
+        // - unless the separator-less join below collided, which `_` prevents by construction.
+        let first = build_token(None, 1_700_000_000_000_000_000, 42);
+        let second = build_token(None, 1_700_000_000_000_000_001, 42);
+        assert_ne!(first, second, "two local runs at different instants shared a token: {first}");
+
+        // A fabrication of distinctness: CI and local produce different tokens for the same clock
+        // and pid, so a machine that believes it is CI cannot collide with a local run.
+        let ci = build_token(Some("1234567890"), 1_700_000_000_000_000_000, 42);
+        assert_ne!(ci, first, "a CI run and a local run at the same instant shared a token: {ci}");
+
+        // And what the CI branch advertises: the run id is the token, so a log says which run.
+        assert_eq!(ci, "1234567890");
+    }
+
+    /// The CI branch is taken only when GitHub says it is CI, and that is a test, not a paragraph.
+    ///
+    /// **A run id alone is not proof of CI.** A developer with a stale `GITHUB_RUN_ID` exported would
+    /// otherwise have both of their runs collapse onto one token and race for one set of tables -
+    /// the defect the per-run suffix exists to remove. `GITHUB_ACTIONS` is `"true"` in every GitHub
+    /// Actions job and set by nothing else, so requiring both means the run id is used exactly when
+    /// GitHub supplies it. Asserted on the pure decision rather than through `std::env`, because a
+    /// test that mutates the process environment makes its own result depend on the other tests'.
+    #[test]
+    fn a_run_id_without_the_ci_flag_is_a_stale_export_rather_than_a_run() {
+        assert_eq!(
+            ci_run_id(Some("true"), Some("1234567890")).as_deref(),
+            Some("1234567890"),
+            "a real CI pair did not yield the run id"
+        );
+        assert_eq!(
+            ci_run_id(None, Some("1234567890")),
+            None,
+            "a run id with no CI flag was trusted - two local runs would collapse onto one token"
+        );
+        assert_eq!(
+            ci_run_id(Some("false"), Some("1234567890")),
+            None,
+            "GITHUB_ACTIONS=false was read as CI"
+        );
+        assert_eq!(
+            ci_run_id(Some("true"), None),
+            None,
+            "CI with no run id has to fall back to the clock, not to an empty suffix"
+        );
+        assert_eq!(
+            ci_run_id(Some("true"), Some("   ")),
+            None,
+            "a blank run id became a token, and a blank suffix is the collision"
+        );
+        // Trimmed, because the token becomes part of a table name and whitespace is not legal there.
+        assert_eq!(ci_run_id(Some("true"), Some(" 42 ")).as_deref(), Some("42"));
+    }
+
+    /// The ceiling on a per-run table name is owned by [`TableName::parse`], and this pins that.
+    ///
+    /// **It asserts nothing about a length itself, deliberately.** A re-check here would be dead
+    /// code: a name over the ceiling never gets past [`crate::naming::suffixed_table`] to be
+    /// measured, so the boundary belongs to the parse and the honest thing to pin is that BOTH
+    /// token shapes this leg can generate get through it, and that an over-long one comes back
+    /// as `TooLong` **carrying the limit** - named, so a panic from elsewhere in the assembly
+    /// cannot pass for it. A data system silently truncates a longer name, and a plan naming a
+    /// table the load did not write is a wrong number rather than a failure.
+    #[test]
+    fn a_per_run_table_name_that_would_exceed_the_ceiling_is_refused_not_truncated() {
+        // The widest LOCAL token that can exist: a 2026 clock is 16 hex digits and `u32::MAX` is
+        // the widest pid any platform can hand us. The local branch is the longer of the two - and
+        // the one nothing else here puts through the parse, so without this the local leg would
+        // panic on its first table while every deterministic test in this file stayed green. That
+        // is the same defect review found one level up, in the token's own source.
+        let widest = build_token(None, 1_777_000_000_000_000_000, u32::MAX);
+        // Every committed fixture name rather than one, since the ceiling is reached by the LONGEST.
+        let committed = bundle();
+        for model in committed.definitions().models().values() {
+            let name = model.table_name();
+            // A realistic CI run id, which is the shape `just bigquery-acceptance` ships under CI.
+            assert!(
+                suffixed_table(name, "1234567890", "rows").is_ok(),
+                "a realistic CI token was refused for {name}"
+            );
+            assert!(
+                suffixed_table(name, &widest, "anchors").is_ok(),
+                "the local token at its widest was refused for {name}: {widest}"
+            );
+        }
+
+        // The other direction, and the refusal is NAMED rather than merely counted: an absurd token
+        // pushes the name past the ceiling, and what comes back has to be the parse's own `TooLong`
+        // with the limit on it. `is_err()` alone would pass on any refusal at all.
+        let refused = suffixed_table(
+            &TableName::parse("fct_usage_daily").expect("a fixture name parses"),
+            &"x".repeat(50),
+            "rows",
+        )
+        .err();
+        assert!(
+            matches!(refused, Some(InvalidIdentifier::TooLong { limit: 63, .. })),
+            "an over-long per-run name was not refused as TooLong at 63: {refused:?}"
+        );
+    }
+
     #[test]
     #[ignore = "needs a real BigQuery project and dataset, named in the developer's own environment"]
     fn every_corpus_statement_the_compiler_produces_is_accepted_by_the_endpoint() {
@@ -509,14 +740,19 @@ mod tests {
         // comes first. That is not incidental: a dry run against a dataset with no fixture tables
         // fails with `notFound`, which is the shape a developer would otherwise read as a generator
         // defect.
-        let pinned = bundle();
+        //
+        // Every table is named with THIS run's token (so two concurrent runs never collide) and the
+        // whole leg compiles against a bundle rebuilt with those suffixed names, so the plan and the
+        // dataset agree. The tables are dropped when the test finishes.
+        let token = run_token();
+        let committed = bundle();
+        let pinned = suffixed_bundle(&committed, &token, "accept");
         let warehouse = opened(source(), Connection::required(), bounds());
-        let loaded = load_the_corpus(&pinned, &loader());
+        let loaded = load_the_corpus(&committed, &pinned, &loader());
         assert!(
             loaded > 1000,
             "the example corpus is over a thousand rows and {loaded} loaded"
         );
-
         let mut accepted = 0_usize;
         let mut refused_by_the_compiler = 0_usize;
         for path in questions() {
@@ -559,6 +795,7 @@ mod tests {
             refused_by_the_compiler > 0,
             "no question was refused by the compiler, so the corpus this ran is not the corpus"
         );
+        drop_the_corpus(&pinned, &loader());
         println!("bigquery-corpus: {accepted} corpus statements accepted, {refused_by_the_compiler} refused before rendering");
     }
 
@@ -573,17 +810,23 @@ mod tests {
         // This is the check that reaches `ISOWEEK` and `DATE_TRUNC`'s argument order. Both render and
         // parse cleanly when wrong - `docs/adr/0017` measured that - so a golden cannot see them and
         // this can: a Sunday bucketed into the wrong week is a different row here.
-        let pinned = bundle();
+        // Every table is named with THIS run's token and a per-test leg suffix, so this test and
+        // its two siblings run under nextest's default parallelism without touching each other's
+        // tables. The plan is compiled against the suffixed bundle, the engine reads the same
+        // suffixed names, and the tables are dropped when the test finishes.
+        let token = run_token();
+        let committed = bundle();
+        let pinned = suffixed_bundle(&committed, &token, "rows");
         let warehouse = opened(source(), Connection::required(), bounds());
-        let loaded = load_the_corpus(&pinned, &loader());
+        let loaded = load_the_corpus(&committed, &pinned, &loader());
         assert!(
             loaded > 1000,
             "the example corpus is over a thousand rows and {loaded} loaded"
         );
 
-        let engine = sutura_app::Warehouses::of(engine(&pinned));
+        let engine = sutura_app::Warehouses::of(engine(&committed, &pinned));
         let there = sutura_app::Warehouses::of(warehouse);
-        let validated = sutura_app::verify_and_validate(pinned, &engine).expect("the anchors hold against the engine");
+        let validated = sutura_app::verify_and_validate(pinned.clone(), &engine).expect("the anchors hold against the engine");
         let locally = GrantsWhatEachSideDeclares {
             presented: posture_of_the_engine_presented,
         };
@@ -671,6 +914,7 @@ mod tests {
             excluded, 1,
             "the divide-by-zero question is the only exclusion and it has to be reached"
         );
+        drop_the_corpus(&pinned, &loader());
         println!(
             "bigquery-corpus: {compared} answers agreed exactly on content AND order, {refused} refusals \
              agreed, {excluded} excluded, {total} in the corpus"
@@ -687,15 +931,20 @@ mod tests {
         // data system computes it - and `verify_anchors` reaching the same verdict on both sides is
         // what would catch an arithmetic difference that a row comparison over this corpus happened
         // not to touch.
-        let pinned = bundle();
+        // Every table is named with THIS run's token and this test's own leg suffix, so the three
+        // corpus tests run concurrently without colliding. The tables are dropped when the test
+        // finishes.
+        let token = run_token();
+        let committed = bundle();
+        let pinned = suffixed_bundle(&committed, &token, "anchors");
         let warehouse = opened(source(), Connection::required(), bounds());
-        let loaded = load_the_corpus(&pinned, &loader());
+        let loaded = load_the_corpus(&committed, &pinned, &loader());
         assert!(
             loaded > 1000,
             "the example corpus is over a thousand rows and {loaded} loaded"
         );
 
-        let engine = sutura_app::Warehouses::of(engine(&pinned));
+        let engine = sutura_app::Warehouses::of(engine(&committed, &pinned));
         let there = sutura_app::Warehouses::of(warehouse);
         let locally = sutura_app::verify_anchors(&pinned, &engine);
         let remotely = sutura_app::verify_anchors(&pinned, &there);
@@ -712,8 +961,10 @@ mod tests {
         // the anchors rather than being handed the report above, which is the point: a report is
         // evidence a caller could have written by hand, and a `Validated` bundle is not.
         drop(
-            sutura_app::verify_and_validate(pinned, &there).expect("a data system that reproduced every anchor is fit to serve"),
+            sutura_app::verify_and_validate(pinned.clone(), &there)
+                .expect("a data system that reproduced every anchor is fit to serve"),
         );
+        drop_the_corpus(&pinned, &loader());
         println!(
             "bigquery-corpus: {} anchor(s) reproduced by the endpoint",
             locally.checks().len()

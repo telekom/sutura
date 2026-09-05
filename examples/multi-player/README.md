@@ -36,9 +36,13 @@ The catalog is DataHub, read by `sutura-catalog-datahub` - the first **declaring
 It provides `Structure`, `Descriptions` and `Relationships` unconditionally, and the metric kinds as
 **declared-and-empty may-provide** declarations (`docs/adr/0016`, issue #202): a certified metric
 comes from the deployment itself. `DataHub`'s `structuredProperty` is scalar-only, so a deployment
-defines metric content as **one string-valued structured property named `sutura`** whose value is a
-JSON document over the domain's closed vocabularies. What the deployment defines for the example's
-metric looks like this - the canonical shape `sutura-catalog-datahub` decodes:
+defines metric content as **one string-valued structured property, under a name of its own** whose
+value is a JSON document over the domain's closed vocabularies. The name is genuinely the
+deployment's: `sutura` below is the field on `sutura-catalog-datahub`'s own canonical shape, not a
+urn this repository dictates, and the acceptance cell in
+`crates/sutura-catalog-datahub/tests/provisioned.rs` registers a property whose name shares nothing
+with it so that independence is measured rather than asserted. What the deployment defines for the
+example's metric arrives as this - the canonical shape `sutura-catalog-datahub` decodes:
 
 ```json
 {

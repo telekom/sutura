@@ -166,25 +166,40 @@ mod tests {
     /// either way - every path out of an [`Agent`], a clean [`Agent::close`] or a panicking
     /// assertion, waits on the child.
     fn spawn() -> Agent {
+        spawn_configured(None)
+    }
+
+    /// The same, over a deployment's own settings tree.
+    ///
+    /// **`Some(dir)` is the only way to test a value this command READS rather than one a test
+    /// hands it.** `crate::sources::configured` resolves `SUTURA_CONFIG_DIR` inside the spawned
+    /// process, so a setting supplied here arrives the way an operator writes it - through
+    /// `base.yaml`, `Settings::load`, `serve` and the wire - and a fix that moved the defect one
+    /// frame out would be red. That is `#266`'s `H1` reviewed: the first attempt passed the setting
+    /// to the function under test, which proves the argument.
+    fn spawn_configured(config_dir: Option<&Path>) -> Agent {
         let example = example_root();
-        // **The two variables are REMOVED, not merely unset by convention.** This command reads the
-        // deployment's settings tree since #121, so a developer's exported `SUTURA_CONFIG_DIR` - the
-        // one an operator running `sutura-serve` on the same machine has - reached this child and
-        // turned six passing tests red on "two answers to one question", and
-        // `SUTURA_ENVIRONMENT=production` turned them red on an access token. Found by review.
-        // `env_remove` because `std::env::set_var` is `unsafe` in this edition and the workspace
-        // forbids it: what a test can do is decide what the CHILD sees.
-        let mut child = Command::new(env!("CARGO_BIN_EXE_sutura"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_sutura"));
+        command
             .arg("mcp")
             .arg(example.join("catalog"))
             .arg(example.join("data"))
-            .env_remove(sutura_config::CONFIG_DIR_VARIABLE)
+            // **REMOVED, not merely unset by convention**, and `SUTURA_CONFIG_DIR` below for the same
+            // reason. This command reads the deployment's settings tree since #121, so a developer's
+            // exported `SUTURA_CONFIG_DIR` - the one an operator running `sutura-serve` on the same
+            // machine has - reached this child and turned six passing tests red on "two answers to
+            // one question", and `SUTURA_ENVIRONMENT=production` turned them red on an access token.
+            // Found by review. `env_remove` because `std::env::set_var` is `unsafe` in this edition
+            // and the workspace forbids it: what a test can do is decide what the CHILD sees.
             .env_remove(sutura_config::ENVIRONMENT_VARIABLE)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("the composed binary starts");
+            .stderr(Stdio::piped());
+        match config_dir {
+            None => command.env_remove(sutura_config::CONFIG_DIR_VARIABLE),
+            Some(dir) => command.env(sutura_config::CONFIG_DIR_VARIABLE, dir),
+        };
+        let mut child = command.spawn().expect("the composed binary starts");
 
         let stdin = child.stdin.take().expect("standard input was piped");
         let stdout = child.stdout.take().expect("standard output was piped");
@@ -633,6 +648,133 @@ mod tests {
             "{listed}"
         );
 
+        assert!(agent.close().success(), "the process did not exit cleanly");
+    }
+
+    /// A settings tree with one `base.yaml` in it, the way a deployment supplies one.
+    ///
+    /// `CARGO_TARGET_TMPDIR` is defined for an integration target and lives inside `target/`, which
+    /// is the same choice `tests/declared_source.rs` makes: the file a subprocess reads is under the
+    /// directory a build already owns rather than in a shared system temporary.
+    fn settings_tree(case: &str, base_yaml: &str) -> PathBuf {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(case);
+        std::fs::create_dir_all(&dir).expect("a directory under the target dir is creatable");
+        std::fs::write(dir.join("base.yaml"), base_yaml).expect("the settings file is writable");
+        dir
+    }
+
+    /// One `describe_catalog` reply off the spawned binary's pipes, both halves of it.
+    ///
+    /// The text block is the first content block; `sutura_mcp::wire::CatalogContent` sends both and
+    /// this suite reads both, because `#266`'s `H1` was one half honouring a setting the other half
+    /// had never been given.
+    fn described_catalog(config_dir: Option<&Path>) -> (serde_json::Value, String) {
+        let mut agent = spawn_configured(config_dir);
+        drop(agent.initialize());
+        let result = agent.call(Capability::DescribeCatalog, &serde_json::json!({}));
+        assert_ne!(result["isError"], serde_json::json!(true), "{result}");
+        let text = result["content"][0]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the catalog reply carries no text block: {result}"))
+            .to_owned();
+        let structured = result["structuredContent"].clone();
+        assert!(
+            structured.is_object(),
+            "the catalog reply carries no structured content: {result}"
+        );
+        assert!(agent.close().success(), "the process did not exit cleanly");
+        (structured, text)
+    }
+
+    /// A dimension description the example catalog really carries, on `recurring_revenue`.
+    const EXAMPLE_PROSE: &str = "Where the customer is.";
+
+    #[test]
+    fn a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface() {
+        // **`#266`'s `H1`, at the only layer that can prove it: a settings FILE this process read.**
+        // The chain under test is `base.yaml` -> `Settings::load` -> `crate::mcp::serve` ->
+        // `mcp_service` -> `serve_stdio` -> `CatalogContent::of`, and nothing in it is supplied by
+        // this test except the file. The review that blocked the first attempt is why: a test that
+        // hands `mcp_service` the value it wants to see stays green with the read back to a
+        // constant, which is the defect one frame out.
+        //
+        // Both directions in one test, because either alone is a control nobody can trust. An
+        // omission that withheld everything whatever the operator asked for would be an outage, and
+        // a test that only checked the omission would pass against a catalog with no prose in it.
+
+        // The default: no settings tree at all, so `prompt.catalog_prose` resolves to its embedded
+        // default and the catalog's own words reach the agent on both halves.
+        let (structured, text) = described_catalog(None);
+        assert_eq!(structured["catalog_prose"], "quoted", "{structured}");
+        let flat = structured.to_string();
+        assert!(
+            flat.contains(EXAMPLE_PROSE),
+            "the default withheld the catalog's prose from the structured half: {flat}"
+        );
+        // Quoted, not spliced - `docs/adr/0022`'s text half, asserted through the process.
+        assert!(text.contains(&format!("> {EXAMPLE_PROSE}")), "{text}");
+
+        // And the operator's own file, which is the half that shipped every description.
+        let dir = settings_tree("mcp-catalog-prose-omitted", "prompt:\n  catalog_prose: omitted\n");
+        let (structured, text) = described_catalog(Some(&dir));
+        assert_eq!(structured["catalog_prose"], "omitted", "{structured}");
+        let flat = structured.to_string();
+        // FLAT rather than an index into `metrics[0].description`: an index steps over a
+        // description one level down on a dimension, which is the blindness the standing regression
+        // test had - it read `content.first()` and never the structured half at all.
+        assert!(!flat.contains(EXAMPLE_PROSE), "a description survived the omission: {flat}");
+        assert!(
+            !flat.contains("description"),
+            "a description field survived the omission: {flat}"
+        );
+        assert!(!text.contains(EXAMPLE_PROSE), "{text}");
+        assert!(text.contains("NOT included"), "{text}");
+        // What survives is what a caller needs in order to ask a valid question. Withholding this
+        // too would trade a prose channel for refusals.
+        assert!(flat.contains("recurring_revenue"), "{flat}");
+        assert!(flat.contains("central"), "{flat}");
+    }
+
+    #[test]
+    fn a_deployments_execution_bound_reaches_the_spawned_surface() {
+        // **`#325`'s `F7` at the layer that can prove the WIRING: a settings file this process
+        // read.** The chain is `base.yaml` -> `Settings::load` -> `crate::mcp::serve` ->
+        // `mcp_service` -> `Admission::from_settings` -> `serve_stdio`, and the only thing this test
+        // supplies is the file. What the number then DOES to a question in flight is
+        // `sutura_mcp::server`'s own suite, over a fake that can be held - the same split the prose
+        // test above states: this one holds the process, that one holds the behaviour. A real engine
+        // answers the example in milliseconds, so nothing here could keep eight questions inside the
+        // port long enough to see a ninth shed.
+        //
+        // Read off the startup notice, which is where the process states its own limits on the log
+        // channel. Two documents, because that is what tells a read from a constant.
+        let embedded = sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
+            .expect("the embedded defaults load")
+            .runtime()
+            .max_concurrent_queries()
+            .count();
+        let mut agent = spawn_configured(None);
+        let notice = agent.expect_log("grants every capability");
+        assert!(
+            notice.contains(&format!("at most {embedded} questions")),
+            "the notice does not state the embedded bound of {embedded}: {notice}"
+        );
+        // Handshaken before the pipe is closed, and not for tidiness: `serve_stdio` is waiting for
+        // `initialize`, so an end-of-file before it is a handshake failure and a non-zero exit. The
+        // notice is printed before that wait, which is why it can be read first.
+        drop(agent.initialize());
+        assert!(agent.close().success(), "the process did not exit cleanly");
+
+        // And a deployment that says something else gets what it said. Three, which no default
+        // carries, so a root that read nothing fails this half.
+        let dir = settings_tree("mcp-admission-bound", "runtime:\n  max_concurrent_queries: 3\n");
+        let mut agent = spawn_configured(Some(&dir));
+        let notice = agent.expect_log("grants every capability");
+        assert!(
+            notice.contains("at most 3 questions"),
+            "the configured bound did not reach the served surface: {notice}"
+        );
+        drop(agent.initialize());
         assert!(agent.close().success(), "the process did not exit cleanly");
     }
 

@@ -40,13 +40,14 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # registration below is compiled, linted and tested on every run, and only the four cross builds and
 # a bare `cargo build` are unchanged.
 #
-# **The limit, and it is the same one `tls` already has: no gate compiles this crate with the feature
-# OFF.** Every check passes `--all-features` and the release derivations build `--package sutura-cli`,
-# so the `cfg(not(feature = "bigquery"))` half of `open_bigquery` - and the one-variant
-# `OpenedSources` beside it - are held by `cargo check -p sutura-serve` on a developer's machine and
-# by review. Closing it means a second compile of one binary in CI, which is a cost this feature is
-# not worth on its own; it is written down here so the next feature on this crate does not have to
-# rediscover it.
+# **Two gates read this crate with the feature OFF, and they are the only ones that do.** Every check
+# passes `--all-features`, so the `cfg(not(feature = "bigquery"))` half of `open_bigquery` - and the
+# one-variant `OpenedSources` beside it - is covered by `cargo xtask check-default-features` for the
+# compile and the lint, and its test by `cargo xtask check-default-feature-tests`, which the first
+# only compiled. Both derive their package list from `nix/shipped.nix`, which names this crate, and
+# both run in `just gates`; only the second has a `ci.yml` step, so the compile half's CI venue is
+# still the four `cross` link builds and its lint half has none. Beyond that: the host triple only,
+# and nothing about a feature no shipped binary enables.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
 [dependencies]

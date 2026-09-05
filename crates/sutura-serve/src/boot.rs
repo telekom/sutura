@@ -43,11 +43,11 @@
 //! two things `just lint` and `just check-changed` cannot do, because both pass `--all-features`. It
 //! is in `gates` rather than `just hygiene` for `check-attribution-current`'s reason: it shells out
 //! to cargo, and the sandbox `hygiene` runs in has no registry. **It runs in CI as well now**, as
-//! `nix run .#default-features` in the required `ci` job, sharing the warmed target directory the
-//! way `apps.causality` does - so the lint half of this lane is a required check and not a
-//! developer courtesy. What CI does NOT have is a second opinion on it: `ci` is the only required
-//! context, so a step deleted there is a lane lost, which is why the step's presence is itself
-//! evidenced in `xtask/src/guidance/claims.rs` rather than left to review.
+//! `nix run .#default-features` in the one required job, sharing the warmed target directory the way
+//! `apps.causality` does - so the lint half of this lane is a required check and not a developer
+//! courtesy. A step is deleted more easily than a job, and `ci` is the only required context here,
+//! so the step's own presence is asserted by
+//! `default_features::tests::both_lanes_still_invoke_this_gate` rather than left to review.
 
 use std::collections::BTreeSet;
 

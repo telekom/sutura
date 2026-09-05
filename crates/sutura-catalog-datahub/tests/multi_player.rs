@@ -33,7 +33,7 @@
 //! cannot answer this one and reports it as green against base.** The gate reverts Rust files, and
 //! the thing `the_documented_question_compiles_to_a_plan` needs reverted is a JSON fixture: without
 //! `examples/multi-player/question.json` it fails on that file's absence, measured. The other cell,
-//! `the_metric_the_namespace_defines_is_in_the_bundle`, asserts behaviour that arrives with the
+//! `the_metric_the_property_defines_is_in_the_bundle`, asserts behaviour that arrives with the
 //! certified-metric change one commit BELOW this one, so it is green against this branch's base by
 //! construction and red against the trunk that predates that change. It is the example's
 //! INTEGRATION assertion rather than a regression test for this commit, and that is stated here
@@ -85,15 +85,15 @@ mod tests {
         )
     }
 
-    /// The shape's first claim: the metric the namespace defines is in the bundle.
+    /// The shape's first claim: the metric the deployment's property defines is in the bundle.
     ///
     /// The fixture's metric entity carries the `sutura` structured property the README documents, so
     /// `revenue` is a certified `Metric` in the bundle, named and anchored as the deployment defined
     /// it. "Certified" further up than this - an anchor RE-EXECUTED at boot - is not provable here,
     /// because no data system re-runs it; what this asserts is that the bundle carries the metric
-    /// the namespace defines, with the content the deployment wrote.
+    /// the property defines, with the content the deployment wrote.
     #[test]
-    fn the_metric_the_namespace_defines_is_in_the_bundle() {
+    fn the_metric_the_property_defines_is_in_the_bundle() {
         let version = DefinitionVersion::parse(VERSION).expect("the fixed version is a version");
         let pinned = over_fixture_source(source(), version)
             .load()

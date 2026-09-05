@@ -9,6 +9,7 @@
 //! | The question was **refused** | a tool result, `isError` absent, `outcome: "refusal"` | it is a governance *result*, and nothing about it went wrong |
 //! | The arguments were not a question | a JSON-RPC error, `-32602` | a parse failure, named, before the service is reached |
 //! | The service could not answer | a tool result with `isError: true`, and no detail | something went wrong, and the detail is a path or a table |
+//! | Every execution slot was taken for the whole admission window | a tool result with `isError: true`, and a sentence saying to ask again | the question was never judged, so it is not a refusal - and unlike the row above, waiting is the fix |
 //!
 //! **A refusal is not an error and must not look like one.** `sutura_app::surface::Surface::answer`
 //! is where a transport inherits that, and its own doc comment says why: a caller must not be able to
@@ -34,6 +35,41 @@
 //! runtime from within a runtime panics. So the call goes to the blocking pool through
 //! `sutura_runtime::spawn_carrying_span`, which is the one call `clippy.toml` permits for this,
 //! because a bare `spawn_blocking` loses the request's span on a pool thread.
+//!
+//! # How many questions may be executing, and where the permit lives
+//!
+//! **[`sutura_runtime::Admission`] and not a bound of this transport's own**, because the resource
+//! is the *process*: one blocking pool, one set of data systems, and two independently sized
+//! semaphores would be two controls each reporting a limit the other can exceed. So the value
+//! arrives at [`AgentSurface::new`] from a composition root that read
+//! `runtime.max_concurrent_queries`, and every clone of an `Admission` shares one permit set -
+//! which is what lets one process serve two transports under one number.
+//!
+//! **The slot is taken before the blocking task is spawned and released INSIDE it.** Taken inside
+//! would be a pool thread already occupied while waiting for permission to occupy one; released by
+//! the async worker would make it a bound on *starting* work rather than on running it, and
+//! `tokio` documents that a started blocking task cannot be aborted - so a caller that has gone
+//! away does not stop the question it asked. A permit handed back early is worse than no bound at
+//! all, because it reads as a control.
+//!
+//! **This defines the response to running out of admission and nothing about stopping work.** A
+//! shed call is answered on the third channel above, inside the bounded admission window. What
+//! neither this nor the bound does is cancel a question that is already executing: the `Warehouse`
+//! port is synchronous and carries no deadline, so a question inside the pool runs to completion
+//! whatever the peer is told - and it keeps its slot until it does, which is exactly why the
+//! backlog is a number somebody chose rather than memory. Making running work stoppable is #160's
+//! subject, on the port rather than on either transport.
+//!
+//! **What this transport still does not bound is the size of what it reads**, which is `#266`'s
+//! `H4`: `rmcp`'s stdio transport reads a line off the process's own input with no cap, and this
+//! change is about a different thing - how many questions execute at once.
+//!
+//! **The limit on how far the shedding is exercised, stated with it.** `rmcp` 3.1.4 answers a
+//! `notifications/cancelled` by cancelling a token this handler does not read, and it spawns each
+//! request as a detached task - so on that SDK a peer that cancels or disconnects does not drop the
+//! future that is waiting for the answer. The property that the permit belongs to the work rather
+//! than to that future is therefore asserted by dropping the future in a test, not by cancelling a
+//! call over the wire.
 //!
 //! # What this slice does NOT do, on purpose
 //!
@@ -79,6 +115,7 @@ use rmcp::{ErrorData, ServerHandler};
 use sutura_app::surface::{Surface, SurfaceFailure, cause_chain};
 use sutura_app::{Capability, Permitted};
 use sutura_domain::query::Query;
+use sutura_runtime::{Admission, AtCapacity};
 
 use crate::tool;
 use crate::wire::{AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, OutcomeContent};
@@ -111,6 +148,13 @@ pub struct AgentSurface<S> {
     /// How catalog descriptions are treated, so the tool honours `prompt.catalog_prose` the same
     /// way the prompt does - an operator who omits the prose there must not ship it through here.
     prose: sutura_app::prompt::CatalogProse,
+    /// How many questions may be executing at once, and how long a call waits for a turn.
+    ///
+    /// Held by value and not behind an `Option`: a deployment that forgot to bound its execution is
+    /// not a state that exists here, for the same reason `permitted` is not optional. The value is
+    /// cheap to hold and every clone shares one permit set - see the module documentation for why
+    /// that matters more than where the semaphore was built.
+    admission: Admission,
 }
 
 impl<S> AgentSurface<S> {
@@ -128,12 +172,26 @@ impl<S> AgentSurface<S> {
     /// **`prose` is required for the same reason, and it is a composition-root value.** `sutura`'s
     /// `mcp` subcommand passes what this deployment renders; a `CatalogProse` with no default keeps
     /// `quoted` from being a posture chosen here for a deployment that meant something else.
+    ///
+    /// **`admission` is required and is not built here, and that is the third instance of the same
+    /// rule.** A bound this file constructed would be a number chosen for every deployment that
+    /// links it, and - worse - a *second* permit set in any process that also serves HTTP, where
+    /// two limits each reporting a bound the other can exceed is not a bound. So the composition
+    /// root reads `runtime.max_concurrent_queries` and `runtime.admission_timeout_seconds` and
+    /// hands one [`Admission`] to whatever serves. See the module documentation for where the
+    /// permit then lives.
     #[must_use]
-    pub const fn new(service: Arc<S>, permitted: Permitted, prose: sutura_app::prompt::CatalogProse) -> Self {
+    pub const fn new(
+        service: Arc<S>,
+        permitted: Permitted,
+        prose: sutura_app::prompt::CatalogProse,
+        admission: Admission,
+    ) -> Self {
         Self {
             service,
             permitted,
             prose,
+            admission,
         }
     }
 }
@@ -202,7 +260,7 @@ where
             }
             Capability::AskMetric => {
                 let query = question(request)?;
-                answer(&self.service, query).await
+                answer(&self.service, &self.admission, query).await
             }
         };
         Ok(CallToolResponse::Complete(result))
@@ -296,8 +354,12 @@ fn describe<S>(service: &Arc<S>, prose: sutura_app::prompt::CatalogProse) -> Cal
 where
     S: Surface,
 {
-    let content = CatalogContent::from(service.definitions());
-    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text(prose))]);
+    // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
+    // `#266`: the text block honoured it while `structured_content` beside it carried every
+    // description, so a deployment that had withheld its catalog prose shipped it anyway to any
+    // client reading the structured half. `CatalogContent::of` cannot be called without the answer.
+    let content = CatalogContent::of(service.definitions(), prose);
+    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
     // to say so.
@@ -305,13 +367,35 @@ where
     result
 }
 
-/// One question through the port, on the blocking pool, as a tool result.
-async fn answer<S>(service: &Arc<S>, query: Query) -> CallToolResult
+/// One question through the port, on the blocking pool, under the admission bound, as a tool result.
+///
+/// **The slot is acquired on this line and released on the pool thread**, and the two halves are
+/// what make the bound a bound on execution - see the module documentation. A question that cannot
+/// get one inside the admission window is shed rather than queued.
+async fn answer<S>(service: &Arc<S>, admission: &Admission, query: Query) -> CallToolResult
 where
     S: Surface,
 {
+    // Before the task is spawned, and not inside it: a slot acquired inside the blocking task would
+    // be a pool thread already taken while waiting for permission to take one.
+    let slot = match admission.admit().await {
+        Ok(slot) => slot,
+        Err(shed) => return at_capacity(&shed),
+    };
     let service = Arc::clone(service);
-    match sutura_runtime::spawn_carrying_span(move || service.answer(&crate::principal::established(), &query)).await {
+    match sutura_runtime::spawn_carrying_span(move || {
+        let answered = service.answer(&crate::principal::established(), &query);
+        // Explicitly, and here rather than at the top of the closure: the slot is released when the
+        // WORK finishes, so it is not handed back by a peer that stopped waiting - and the closure
+        // owning it is what makes that structural rather than an ordering somebody maintains.
+        //
+        // Inside the span as well, because `spawn_carrying_span` scopes the whole closure: a
+        // diagnostic emitted while releasing is still attributable to this call.
+        drop(slot);
+        answered
+    })
+    .await
+    {
         // A refusal and an answer take the same branch, which is the point: both are `Ok`, both are
         // a tool result, and only `outcome` inside the payload tells them apart.
         Ok(Ok(ref outcome)) => produced(outcome),
@@ -323,6 +407,28 @@ where
             failed("this deployment could not answer")
         }
     }
+}
+
+/// Every execution slot was taken for the whole admission window, so the question was shed.
+///
+/// **A failure and not a refusal**, which is the same call `sutura_http::problem` makes for the same
+/// fact: a `RefusalReason` says *do not ask this again*, and this question was never judged - it did
+/// not run. So it comes back on the third channel, with the one thing an agent can act on. Waiting
+/// helps here, which is why the sentence says so and the `SurfaceFailure::Warehouse` one does not.
+///
+/// **The two numbers go to the log and not into the model's context.** They are an operator's own
+/// configuration: the answer to a bound too small for the machine is a settings change, and the
+/// answer to a window that expires under normal load is another replica. Neither is something the
+/// caller can do.
+fn at_capacity(shed: &AtCapacity) -> CallToolResult {
+    tracing::warn!(
+        max_concurrent_queries = shed.bound(),
+        admission_timeout_seconds = shed.waited().as_secs(),
+        "shed a tool call: every execution slot was taken for the whole admission window"
+    );
+    failed(
+        "this deployment is already answering as many questions at once as it admits, and no slot came free while this call waited; ask again shortly",
+    )
 }
 
 /// An answer or a refusal, as one result shape.

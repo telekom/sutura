@@ -95,10 +95,10 @@ surface](serving.md) is not, and its bearer token authenticates the deployment r
 
 | You want to | Read |
 | --- | --- |
+| Install it and ask a question | [Getting started](getting-started.md) |
 | Know what the words on the tool surface mean | [Concepts](concepts.md) |
 | Ask the short questions first | [Questions and answers](qa.md) |
 | Understand the shape of the system | [Architecture](architecture.md) |
 | Read the Rust API | [API reference](api/index.md) |
-| Install it and ask a question | [Getting started](getting-started.md) |
 
 To work *on* sutura, start at [Contributing](contributing.md) under **Development**.

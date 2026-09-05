@@ -19,7 +19,7 @@
 //! They are a child module of `oracle`, so the literal helpers up there - `column`, `dimension`,
 //! `source`, `version` - are in scope without being made public to the suite.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{Definitions, Description, Metric, Model, Relationship};
@@ -49,6 +49,14 @@ use super::{column, dimension, source, version};
 /// model whose dimension is reached `via` a relationship whose target sits ELSEWHERE. The
 /// definitional filter the real `recurring_revenue` declares is left off for the same reason - it
 /// changes no plan that is refused before planning finishes.
+///
+/// **The metric declares a second, LOCAL dimension whose name is the remote join column's**, and
+/// that one literal is the whole of `telekom/sutura#325`'s F2 shape. `customer_key` is a legal
+/// dimension name backed by a different column (`subscription_key`), and the splitter used to label
+/// the link with the physical join column's text beside the public dimension labels - so a legal
+/// question produced two fact columns under one label and the combiner refused the answer it could
+/// not disambiguate. The dimension stays legal and the internal label moved:
+/// `a_dimension_named_like_the_remote_join_column_still_answers` is where that is provoked.
 pub(crate) fn two_source_catalog() -> TwoSourceCatalog {
     TwoSourceCatalog
 }
@@ -120,10 +128,14 @@ impl SemanticCatalog for TwoSourceCatalog {
             Vec::new(),
             column("month"),
             BTreeSet::from([Grain::Month]),
-            BTreeMap::from([dimension("region", "region", Some("subscription_customer"), None)]),
+            vec![
+                dimension("region", "region", Some("subscription_customer"), None),
+                dimension("customer_key", "subscription_key", None, None),
+            ],
             None,
             Description::default(),
-        );
+        )
+        .expect("one dimension cannot duplicate another");
         let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
             .expect("a two-source catalog is still internally consistent");
         Ok(PinnedDefinitions::pin(
@@ -228,13 +240,14 @@ impl SemanticCatalog for SameNameTablesCatalog {
             BTreeSet::from([Grain::Month]),
             // Two dimensions on purpose: one needs the colliding join and one does not, so the test
             // can show that the refusal is about the QUESTION rather than about the metric.
-            BTreeMap::from([
+            vec![
                 dimension("region", "region", Some("order_crm"), None),
                 dimension("customer", "customer_id", None, None),
-            ]),
+            ],
             None,
             Description::default(),
-        );
+        )
+        .expect("these fixture dimensions are distinct");
         let definitions = Definitions::assemble(vec![fact, lookup], joins, vec![revenue])
             .expect("two tables of one name are still internally consistent - the QUESTION is what is refused");
         Ok(PinnedDefinitions::pin(
@@ -351,14 +364,15 @@ impl SemanticCatalog for FederatedSameNameTablesCatalog {
             // `segment` reaches the colliding same-source table, `region` reaches the second data
             // system, and `customer` reaches neither - so one question can federate WITH the
             // collision, and another can federate without it.
-            BTreeMap::from([
+            vec![
                 dimension("segment", "segment", Some("order_crm"), None),
                 dimension("region", "region", Some("order_geo"), None),
                 dimension("customer", "customer_id", None, None),
-            ]),
+            ],
             None,
             Description::default(),
-        );
+        )
+        .expect("these fixture dimensions are distinct");
         let definitions = Definitions::assemble(vec![fact, crm, geo], joins, vec![revenue])
             .expect("two tables of one name are still internally consistent - the QUESTION is what is refused");
         Ok(PinnedDefinitions::pin(

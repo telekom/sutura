@@ -622,8 +622,9 @@ metrics assembles, pins and validates. What is not legitimate is a bundle that d
 declaration, and that is `MetadataCapabilities::checked_against`'s to report.
 
 **`conditional` is 0011's *declared-and-empty* state, and it is separate from `declared` on
-purpose.** A source maps a schema the deployment authors (datahub's `sutura.*` namespace is the
-first), so whether a KIND is produced is a property of the deployment rather than of the code:
+purpose.** A source maps a schema the deployment authors (datahub's deployment-defined
+structured property is the first), so whether a KIND is produced is a property of the deployment
+rather than of the code:
 the adapter declares the kind, and a bundle that carries none is a faithful bundle rather than an
 aspirational declaration. `Self::of_may_provide` is what such an adapter writes. Everything
 else - the reference adapter, the goldens, an adapter over a fixed external schema - declares
@@ -707,8 +708,9 @@ pub fn of_may_provide(kinds: impl IntoIterator<Item>) -> Self
 
 The kinds a provider may supply, where the deployment decides which a bundle carries.
 
-**What a source whose content is deployment-authored writes** - datahub's `sutura.*`
-namespace - where the adapter can carry a kind but every given bundle may carry none of it.
+**What a source whose content is deployment-authored writes** - datahub's
+deployment-defined structured property - where the adapter can carry a kind but every given
+bundle may carry none of it.
 The kinds are declared (the *not declared* direction still catches content), and absent from
 a bundle is a faithful bundle rather than an aspirational declaration.
 
@@ -1117,10 +1119,17 @@ The value is text rather than a float on purpose. It is compared against the can
 of what the data system returned, and a float would make the comparison depend on how two
 languages happen to print the same bits.
 
+**Text, and now parsed text.** It was a `String` behind a `const` constructor written by both
+catalog adapters, which made it the one authored scalar that entered this crate with no character
+rule on it - see `AnchorValue` for the channel that closes and what it deliberately still does
+not check. No `Deserialize`: nothing deserializes an `Anchor`, because each adapter deserializes
+its own document shape and converts, so the derive was a public surface with no caller and one
+more path into a private field.
+
 #### Methods
 
 ```rust
-pub const fn new(range: TimeRange, value: String) -> Self
+pub const fn new(range: TimeRange, value: AnchorValue) -> Self
 ```
 
 ```rust
@@ -1131,9 +1140,16 @@ pub const fn range(&self) -> TimeRange
 pub fn value(&self) -> &str
 ```
 
+The certified number as text.
+
+A `&str` rather than a `&AnchorValue`, because every caller either compares it against a
+rendered cell or prints it - and both want the text. **Whoever prints it uses `{:?}`**, for
+the reason `RequiredFilter`'s `Display` gives: quoting is what makes spacing visible in a
+line a person reads to decide whether a metric still means what it claimed.
+
 #### Implements
 
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct Metric`
 
@@ -1178,8 +1194,64 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub const fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: Description) -> Self
+pub fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
 ```
+
+A certified metric, or a refusal if two of its dimensions answer to one label.
+
+**Takes a `Vec<Dimension>` and returns a `Result`, and the argument for that is already
+written one level up.** `Definitions::assemble`: *"Takes vectors rather than maps so the
+duplicate checks are ours: a caller that built a map first has already silently dropped one
+of a duplicated pair."* This constructor took a map, so the check was not ours, and the two
+shipped adapters had answered the question differently - `sutura_catalog_local` refused a
+duplicate and `sutura_catalog_datahub` collected into a map and kept the last. One content,
+two `Definitions`. The module header above says two adapters reading the same content must
+produce the same one or one of them is wrong, and the golden suite could not see it because
+no fixture declares a duplicate.
+
+**A vector makes the bypass a compile error rather than a rule**, which is why the signature
+changed instead of a check being added beside the old one: an adapter cannot collapse the
+pair before this point any more, because there is nowhere earlier for it to collapse it. The
+field stays a `BTreeMap` - the digest is taken over the serialized form and every reader
+looks a dimension up by name - so the difference between the parameter and the field is the
+whole mechanism.
+
+**One scan and two refusals, because a duplicate and a folded pair are one rule.** The
+comparison is `IdentifierCase::COARSEST`, which is true of two identical spellings too, so
+an exact repeat is the special case and is named as one:
+`InconsistentDefinitions::DuplicateDimension` says *declares dimension `region` twice*,
+which is what an author needs to read, and
+`InconsistentDefinitions::TwoDimensionsOneLabel` carries the pair. Asking it here rather
+than in `Definitions::assemble` is what makes this a parse: after `Ok`, no two of a
+metric's dimensions name one label and nothing downstream re-asks. `assemble` could not have
+asked - by the time a `Metric` reaches it the map has collapsed an exact pair - and the
+DECLARED order is here and nowhere later, so the refusal names the two spellings in the
+order the file wrote them. Same shape, and the same argument, as
+[`StatementTables::parse`](crate::plan::StatementTables::parse).
+
+**What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+(`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
+`IdentifierCase::InsensitiveAscii`:
+`SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
+column's value - in a result column named `region`, and raises no ambiguity error.
+`SELECT *` over the same subquery projects `region, Region_1`, so the second label a caller
+was told to expect is not in the result at all. A wrong number and a missing column, from a
+catalog that loaded. Folded under `COARSEST` and not under the serving target's rule for the
+reason that constant carries: a bundle is dialect-agnostic, so the coarsest rule is the only
+one that cannot be wrong in the direction that returns a number.
+
+**Quadratic, and nothing caps how many dimensions a metric may declare**, so the limit is
+stated rather than implied: there is a cap on a dimension's VALUES
+(`MAX_VALUES_PER_DIMENSION`) and on the group-by keys one question may ask for
+(`crate::query::MAX_DIMENSIONS`), and neither is this. What makes it affordable anyway is
+position rather than size - it runs once per metric while a document that was read whole is
+being converted, and `Definitions`'s own `check_labels_against_table` is already the same shape
+over the same list. A cap on declared dimensions is worth having on its own merits and is not
+this constructor's to add.
+
+The refusal is an `InconsistentDefinitions` rather than an error of this constructor's own,
+so both adapters map it through the variant they already have for that type and neither
+grows a second one.
 
 ```rust
 pub fn required_filters(&self) -> &[RequiredFilter]
@@ -1199,98 +1271,11 @@ pub const fn time_column(&self) -> &ColumnName
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-### `struct Definitions`
+### `use None`
 
-```rust
-pub struct Definitions
-```
+### `use None`
 
-Everything a catalog said, with its cross-references checked.
-
-`BTreeMap` throughout rather than `HashMap`, and that is load-bearing: the digest is taken over
-the serialized form of this value, and an unordered map serializes in whatever order its hasher
-chose this run. A digest that moves without the content moving is a digest nobody trusts, and
-then the pinning is decoration.
-
-#### Methods
-
-```rust
-pub fn assemble(models: Vec<Model>, relationships: Vec<Relationship>, metrics: Vec<Metric>) -> Result<Self, InconsistentDefinitions>
-```
-
-Assembles definitions from what an adapter read, checking every cross-reference.
-
-Takes vectors rather than maps so the duplicate checks are ours: a caller that built a map
-first has already silently dropped one of a duplicated pair, and "the second declaration of
-revenue won" is not a thing to discover from a number.
-
-```rust
-pub fn metric(&self, name: &MetricName) -> Option<&Metric>
-```
-
-```rust
-pub const fn metrics(&self) -> &BTreeMap<MetricName, Metric>
-```
-
-```rust
-pub fn model(&self, name: &ModelName) -> Option<&Model>
-```
-
-```rust
-pub const fn models(&self) -> &BTreeMap<ModelName, Model>
-```
-
-```rust
-pub fn relationship(&self, name: &RelationshipName) -> Option<&Relationship>
-```
-
-```rust
-pub const fn relationships(&self) -> &BTreeMap<RelationshipName, Relationship>
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum InconsistentDefinitions`
-
-```rust
-pub enum InconsistentDefinitions
-```
-
-Why a set of definitions does not hold together.
-
-Every variant is a dangling reference of some kind. Catching them here, once, is what lets the
-resolver assume that a metric's model exists and that a dimension's column is real: without it
-each of those becomes a runtime branch on the query path, and the failure surfaces as a data
-system error rather than as a refusal.
-
-#### Variants
-
-- `DuplicateModel`
-- `DuplicateMetric`
-- `DuplicateRelationship`
-- `UnknownModel`
-- `UnknownMeasureColumn`
-- `UnknownRequiredFilterColumn`
-- `UnknownTimeColumn`
-- `NoGrains`
-- `UnknownRelationship`
-- `RelationshipFromUnknownModel`
-- `RelationshipToUnknownModel`
-- `RelationshipUnknownColumn`
-- `UnknownDimensionColumn`
-- `RelationshipNotFromMetricModel`
-- `JoinWouldDuplicateRows`
-- `EmptyAllowlist`
-- `TooManyValues` - More declared values than `MAX_VALUES_PER_DIMENSION`.
-- `DimensionShadowsTimeBucket`
-- `DimensionShadowsMeasure`
-- `LabelShadowsTable` - A label this metric projects is spelled the same as a table its statement reads.
-
-#### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+### `use None`
 
 ### `use None`
 
@@ -4096,7 +4081,7 @@ Why a bundle is not validated.
 
 #### Variants
 
-- `AnchorMismatch`
+- `AnchorMismatch` - The declared number and the produced one, both quoted.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
 - `UnknownMetricChecked`
@@ -4950,6 +4935,8 @@ one place: the caller owns the order, which is what the placeholder-position con
 
 ### `use None`
 
+### `use None`
+
 ### `constant MAX_ROWS`
 
 The most rows any plan may return.
@@ -4990,8 +4977,13 @@ function: the splitter names the fact leg's terms with it and the combiner re-de
 names from the same `Federation` and looks them up in the fact leg's result. There is no second
 copy of the naming rule to drift.
 
+**Those labels live in a namespace a question cannot reach, which is `label`'s job.** A leg's
+result carries public dimension labels beside the internal ones, so an internal label spelled as
+an identifier is a label a legal dimension name can collide with - reproduced. `InternalLabel`
+is the type that cannot be spelled by one.
+
 **The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
-happens instead.** The `Above` tree already carries the only
+happens instead.** The [`Above`](crate::federation::Above) tree already carries the only
 [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path; this module walks it
 above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
 the wrong number this shape exists to prevent.
@@ -5036,8 +5028,10 @@ Turns one result per leg into one answer's rows.
 
 The fact and lookup results are joined on the recorded link column, grouped by the answer's
 keys - in the order the question asked them, matching the mono path - and the bucket,
-re-aggregated by each leaf's own `Carried::combine`, and only then divided through the
-`Above` tree.
+re-aggregated by each leaf's own [`Carried::combine`](crate::federation::Carried::combine),
+and only then divided through the [`Above`](crate::federation::Above) tree. Those last two
+steps belong to `reaggregate`, reached as `Leaves::of` and `Leaves::measure`; the join, the
+grouping and the budget are this file's.
 
 `byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
 the answer materialised here is counted as it is built, and a question that would cross it is
@@ -5075,7 +5069,7 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, fact_join: String, lookup_join: String, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
 Constructs a federated plan from its two legs and the answer's key order.
@@ -5083,6 +5077,13 @@ Constructs a federated plan from its two legs and the answer's key order.
 A `Result` constructor is this workspace's convention for a value with an invariant: a plan
 that is not a fact leg beside a lookup leg, or that names one data system on both legs, is not
 a plan and cannot be built.
+
+**There is no link-label parameter, and that is the F2 fix's structural half.** The label the
+legs are joined under used to be two `String` arguments, and the splitter filled both with the
+physical remote join column's text - which is a legal dimension name, so a legal question
+produced two fact columns under one label. It is now `InternalLabel::Link`, a constant of
+the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
+for the two legs to disagree about, and the constructor requires both legs to project it.
 
 ```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
@@ -5163,6 +5164,7 @@ Why a federated plan could not be built.
 - `NotLookup` - The leg meant to be the lookup leg is not a `LegPlan::Lookup`.
 - `SameSource` - Both legs name the same data system, which is a single-source question, not a federated one.
 - `KeyNotOnLeg` - An answer key names a column the leg it belongs to does not project.
+- `LeafDoesNotReaggregate` - A carried leaf names an aggregate the combine has no re-aggregating function for.
 
 ##### Implements
 
@@ -5189,6 +5191,7 @@ value for.
 - `FloatLinkKey` - A link cell carried a floating-point key, which the ADR's float-key rule forbids.
 - `AmbiguousLink` - A link value had more than one lookup row, which would double every measure.
 - `NonNumericLeaf` - A leaf cell that was not a number reached a re-aggregating aggregate.
+- `MixedNumericLeaf` - A leaf column carried two numeric types, so no total or comparison over it is exact.
 - `Overflow` - A leaf total overflowed a 64-bit integer.
 - `UnsupportedAggregate` - An aggregate the combiner does not know how to re-aggregate with.
 - `ResourcesExhausted` - Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion boundary.
@@ -5198,10 +5201,137 @@ value for.
 
 `Clone`, `Debug`, `Display`, `Error`, `PartialEq`
 
-#### `fn labels`
+#### `use None`
+
+#### `use None`
+
+#### Module `label`
+
+The reserved label namespace, and the one function that assigns it.
+
+Its own module because it is what the splitter, the combiner and the leg goldens all read the
+spelling from, and because a namespace is a thing to reason about on its own. It declares no test
+module: a test module declared from a file `test-causality` reverts is never compiled, and the
+proof it then reports is vacuous - every assertion about it is in `tests.rs`.
+The label namespace a question cannot reach, and the one function that assigns it.
+
+##### `enum InternalLabel`
 
 ```rust
-pub fn labels(federation: &crate::federation::Federation, metric: &crate::model::MetricName) -> Vec<String>
+pub enum InternalLabel
+```
+
+A column label the splitter and the combiner agree on, in a namespace no question can name.
+
+**Why a type rather than a convention.** A federated fact leg's result carries public dimension
+labels beside internal ones - the column the legs are joined on, and one per carried leaf of the
+measure. The splitter spelled the first with the physical remote join COLUMN's text and the
+second as `metric__{n}`, and both of those are legal identifiers: a metric with a legal dimension
+named `customer_key`, backed by a different column, projected two fact columns under one label
+and the combiner refused the answer it could not disambiguate. A dimension is free to be named
+anything [`DimensionName`](crate::model::DimensionName) accepts, so the internal labels are what
+has to move - keeping a legal question legal is the constraint, not a naming rule for authors.
+
+**What makes the two namespaces disjoint, and it is one character.** Every rendering here starts
+with a digit, which `crate::model`'s identifier parser refuses as a FIRST character - a leading
+digit is legal in some dialects and not others, so it was already refused for portability. No
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can therefore spell one of these, for
+any spelling and any length. `federated/tests.rs` asserts that by parsing every constructible
+label as each of those names and requiring the refusal, rather than leaving it to this paragraph.
+
+**The disjointness has a second half, and it is the one a parse check cannot answer: every target
+has to ACCEPT the label as a quoted alias.** The character this scheme is built on is the one
+[`BadFirstCharacter`](crate::model::InvalidIdentifier::BadFirstCharacter) refuses because it is
+*"legal in some dialects and not others, so accepting it would make a model portable by luck"* -
+so the same sentence that justifies the namespace is the reason to doubt it. Two different
+questions live under it: whether a target accepts a digit-leading string as an **identifier**,
+which is what that refusal is about and where the targets do differ, and whether it accepts one
+as a **quoted select alias**, which is the only position this scheme puts it in.
+`sutura_sql::generate`'s `aliased` quotes every alias or refuses to render, and `GROUP BY` and
+`ORDER BY` carry the EXPRESSION rather than the alias, so a leg's statement spells an internal
+label in exactly one place.
+
+What is established, and by what:
+
+| Claim | Venue | Mechanism |
+| --- | --- | --- |
+| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
+| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+
+`BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
+whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
+2026-09-05, as a dry run and as a real job each time: bare aliases
+(``SELECT 1 AS `0_link`, 2 AS `0_leaf_0`, 3 AS `0_leaf_26` ``), and then a statement in the shape
+the generator actually emits - a `CAST(DATE_TRUNC(..) AS DATE)` bucket and a `sum(..)` measure
+aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over the expressions.
+Both are accepted and both come back with the field names the statement asked for. So the
+documented restriction is on a **declared column** and not on a quoted alias.
+
+**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
+Neither has an execution venue for a LEG - the whole federated path is gated by a
+defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle sets - so what stands
+for them is a quoted-identifier argument rather than a run. Read the row above for what each one
+is worth.
+
+**Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
+range is a wiring defect the combiner reports as a missing column, not a label this type could
+have refused - which is why the variants carry their data in the open and no constructor is
+fallible. What the type buys is that the TEXT can only come from here.
+
+**The other half of the namespace is held elsewhere, and this is the whole of it in one place.**
+The labels a result carries besides these are public: the answer's dimension labels, the time
+bucket's [`TIME_BUCKET_LABEL`](crate::catalog::TIME_BUCKET_LABEL) and the measure's metric name.
+Those are held against each other at load by
+[`Definitions::assemble`](crate::catalog::Definitions::assemble) -
+`DimensionShadowsTimeBucket`, `DimensionShadowsMeasure`, `TwoDimensionsOneLabel` and
+`LabelShadowsTable`, each case-folded to the coarsest dialect rule. So a public label collides
+with another public label at load, and cannot collide with an internal one at all. **The limit:**
+nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
+is the property the test asserts, and the thing to re-establish if this spelling ever changes.
+
+**And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
+This half is a type. The public half is not: [`PlanKey`](crate::plan::PlanKey) and
+[`LegTerm`](crate::plan::LegTerm) carry their labels as `String`, so what keeps a public label out
+of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
+`DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
+test: the test above asks the four name parsers to refuse these spellings, which is a property of
+`parse_identifier`, not of any plan. A computed public label landing on `0_leaf_{n}` would be
+refused by `distinct_columns` as `DuplicateLabels`, so the failure direction is a refusal rather
+than a wrong number - which is why the `String`s are still here. `telekom/sutura#337` is the
+typed-label remedy that would make the comparison impossible rather than unnecessary.
+
+**Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
+is 63 characters because that is the tightest among the data systems targeted, and it is a
+*silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
+columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
+scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
+`usize` can index is 27 characters.
+
+###### Variants
+
+- `Link` - The column the two legs are joined on, in either leg's result.
+- `Leaf` - One carried leaf of the measure, by its position in carried order.
+
+###### Methods
+
+```rust
+pub fn label(self) -> String
+```
+
+The text this label carries in a leg's result.
+
+The one place the reserved namespace is spelled. A caller that needs it as a column name
+takes it from here, so no call site holds a second copy of the spelling.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+##### `fn labels`
+
+```rust
+pub fn labels(federation: &crate::federation::Federation) -> Vec<InternalLabel>
 ```
 
 The one definition of what a carried leaf is projected under.
@@ -5209,13 +5339,11 @@ The one definition of what a carried leaf is projected under.
 The splitter and the combiner both call this, so the column the combiner reads a leaf from and
 the label the splitter projected it under cannot disagree - there is no second copy of the rule.
 
-**A single leaf is the answer's own name; several leaves disambiguate by position.** A plain sum
-travels as the metric's own label, and the halves of a decomposition travel as `metric__{n}`,
-where `n` is the leaf's position in carried order. Position cannot collide: a ratio of two sums -
-`sum(a) / sum(b)` - is one aggregating function twice, so naming by aggregate would give both
-leaves the same label and a combine that divides a column by itself. Whatever makes the labels
-unique within one plan is enough - the final measure comes back under the metric's own name - and
-this rule is that minimum.
+**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
+function twice, so naming by aggregate would give both leaves one label and a combine that
+divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
+metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
+under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
 
 ### Module `leg`
 
@@ -7141,3 +7269,161 @@ verified than for one that was verified clean.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+### Module `agreement`
+
+What it takes for two answers to one plan to be the same answer, for the differential legs that
+compare them.
+
+Behind a default-off feature, and `cfg(test)` so this crate's own suite reaches it either way -
+the shape `sutura_runtime::testing`'s `test-capture` established. It is here rather than in each
+test target because two copies of a comparison policy is how both of them came to erase the cell
+type; its own module header carries that story and the limits.
+
+**That header links the module's OWN items by absolute `crate::` path, and that is not style.**
+rustc merges this `///` block with the module's `//!` one and resolves the merged block in THIS
+scope, where `agreement`'s items are not - so a bare-name link there resolves to nothing, and no
+gate in this repository reads a rustdoc warning (#321). Four of them were shipped that way.
+What it takes for two answers to one plan to be the SAME answer.
+
+One policy, so the differential legs cannot each have their own. Two of them did, and both were
+wrong the same way: each compared cells through `Value::render`, which is a *display* form and
+therefore erases the variant. `Value::Null` and `Value::Text("null")` both render `null`, and
+`Value::Integer(1)` and `Value::Text("1")` both render `1` - so a data system that answered a
+cell as text where the engine answered it as a number, or as the word `null` where the engine
+answered nothing at all, compared EQUAL. The live acceptance comparison inherited that, which is
+why this is one shared module rather than a note on each copy.
+
+`Value::render` is not at fault and is not changed: an anchor is a certified NUMBER compared as
+text on purpose, and one canonical display form is what keeps that comparison the same in every
+place it is made. What was wrong is using a display form as an equality.
+
+# The four properties, each of which can be lost on its own
+
+- **The variant is part of the value.** The comparison key is per variant, so the two pairs above
+  are disagreements.
+- **Multiplicity survives.** Content is a MULTISET, not a set: a row answered twice by one side
+  and once by the other is a disagreement, which a set cannot see.
+- **The one approximation is named and scoped.**
+  [`RealTolerance`](crate::warehouse::agreement::RealTolerance) applies to `Value::Real` and to
+  nothing else. An integer, a date-as-text and a text cell are compared exactly.
+- **Order is a separate assertion.**
+  [`agree_on_content`](crate::warehouse::agreement::agree_on_content) says nothing about order
+  and [`agree_on_order`](crate::warehouse::agreement::agree_on_order) says nothing else, so *a
+  wrong number* and *the right rows in the wrong order* stay two diagnoses rather than one. Call
+  the content one first, or the first symptom of a wrong number is reported as a sort order.
+
+# What this does NOT decide
+
+Whether an order was promised at all. A plan that emits `ORDER BY` claims one, and a leg
+comparing an answer to a plan without one should not call
+[`agree_on_order`](crate::warehouse::agreement::agree_on_order). Nothing here can tell, because
+a `RowSet` does not carry the plan that produced it.
+
+# Three limits worth reading before citing this
+
+**A disagreement carries rows, which is the one place this module departs from the rule that an
+error carries nothing sensitive.** A differential failure that does not name the row it found is
+unusable, and the alternative - a boolean plus a hand-written diff at every call site - is the
+duplication this module exists to remove. It is a deliberate exception with a narrow blast
+radius: nothing on a serving path constructs one of these types.
+
+**That narrowness rests on the feature gate and on nothing stronger.** The module compiles only
+under `cfg(test)` or the default-off `agreement` feature, so no shipped artefact contains it -
+but `checks.shipped-features` establishes that kind of claim by reading crate NAMES out of the
+binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
+fail if a composition root turned the feature on.
+
+**An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
+than as the range question it is.** Three are live: `sutura-exec-duckdb`'s `UBigInt` and
+`HugeInt` arms and `sutura-exec-datafusion`'s `UInt64` arm answer `Value::Integer` while the
+value fits an `i64` and `Value::Text` when it does not, and `sutura-exec-postgres` answers a
+scale-0 `NUMERIC` as `Value::Integer` where the other two answer a `Decimal` as
+`Value::Text`. Under the display form all three compared EQUAL, and that was the RECORDED
+reason for the display form. Here they are `ContentDisagreement::Multiplicity` - *one side
+answered a row 1 time(s) and the other 0* - naming neither the fallback nor the overflow behind
+it. So a `Multiplicity` over a wide count or a decimal column is a range question first: check
+whether one side overflowed its `i64` before looking for a wrong number.
+
+#### `struct RealTolerance`
+
+```rust
+pub struct RealTolerance
+```
+
+How two `Value::Real` cells are compared, and the ONLY approximation in this module.
+
+A type rather than a bare number, so a call site states the approximation it accepts. One
+reviewed constant rather than a `parse`, so no call site can quietly choose a looser one: a
+second legitimate tolerance is a second constant here, beside its own reason, in front of a
+reviewer.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum ContentDisagreement`
+
+```rust
+pub enum ContentDisagreement
+```
+
+Why two answers do not carry the same content.
+
+##### Variants
+
+- `Columns` - The two sides labelled the result differently.
+- `Multiplicity` - One side answered a row a different number of times than the other.
+
+##### Implements
+
+`Debug`, `Display`, `Error`, `PartialEq`
+
+#### `enum OrderDisagreement`
+
+```rust
+pub enum OrderDisagreement
+```
+
+Why two answers do not carry the same content in the same order.
+
+Its own type rather than a variant of `ContentDisagreement`, because it is a separate claim
+with a separate diagnosis: content is *the answer is wrong*, and order is *the plan asked for an
+order and one side did not give it*.
+
+##### Variants
+
+- `Shape` - The two results are not even the same shape, so there is no position to compare.
+- `Cell` - One position holds two different cells.
+
+##### Implements
+
+`Debug`, `Display`, `Error`, `PartialEq`
+
+#### `fn agree_on_content`
+
+```rust
+pub fn agree_on_content(left: &crate::warehouse::RowSet, right: &crate::warehouse::RowSet, real: RealTolerance) -> Result<(), ContentDisagreement>
+```
+
+WHAT the two sides answered: the labels, and the rows as a multiset.
+
+Says nothing about the order - `agree_on_order` is that assertion, and the two are separate so
+that a wrong number is never reported as a sort order. Call this one first.
+
+#### `fn agree_on_order`
+
+```rust
+pub fn agree_on_order(left: &crate::warehouse::RowSet, right: &crate::warehouse::RowSet, real: RealTolerance) -> Result<(), OrderDisagreement>
+```
+
+The ORDER: cell for cell, position for position.
+
+A plan that emits `ORDER BY` claims an order, so two data systems answering one plan in two
+orders is a defect whatever the reason. Whether the plan claimed one is the caller's to know.
+
+**Two limits, and both are why `agree_on_content` is called first rather than by convention.**
+This compares the SHAPE and not the labels, so two results of one width whose columns are named
+differently are compared position by position here and reported as a
+`ContentDisagreement::Columns` there. And a caller reaching only for this one gets no
+multiplicity check, because a positional comparison of equal-height results cannot express one.

@@ -15,6 +15,11 @@ sutura-semantic = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+# Already a normal dependency above; this entry is here for one FEATURE, the way `sutura-http` asks
+# `sutura-runtime` for `test-capture`. `warehouse::agreement` is the typed comparison
+# `tests/differential.rs` makes, shared with the BigQuery acceptance leg so the two cannot diverge
+# again - they did, and both erased the cell type.
+sutura-domain = { workspace = true, features = ["agreement"] }
 # The golden suite lives here because this is the lowest crate that can see both ports at once, so
 # it is the one place a corpus can be run against a real adapter and a fake without either of them
 # depending on the other.

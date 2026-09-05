@@ -488,7 +488,15 @@ impl CatalogBody {
     /// function exists to close. A second argument cannot be left out.
     #[must_use]
     pub fn of(pinned: &PinnedDefinitions, prose: sutura_config::CatalogProse) -> Self {
-        let quoted = prose.is_quoted();
+        // Exhaustive rather than `is_quoted()` in an `if`, which is what this line was: a question
+        // asked of one variant reads every future spelling as the `else`, and on this setting the
+        // `else` withholds prose nobody asked to withhold. `sutura-mcp`'s twin makes the same
+        // decision unrepresentable with a field type; this surface has one carrier and no text half,
+        // so the match is where the whole of it fits.
+        let quoted = match prose {
+            sutura_config::CatalogProse::Quoted => true,
+            sutura_config::CatalogProse::Omitted => false,
+        };
         let metrics = pinned
             .definitions()
             .metrics()

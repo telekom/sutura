@@ -23,25 +23,40 @@
 //! resolvable registry and a target directory; the nix sandbox `hygiene` runs in has neither. So it
 //! lives in `just gates`, which is where every gate that shells out to cargo lives.
 //!
-//! **CI runs it as `nix run .#default-features`, and the PROFILE is why that is an argument.**
-//! `ci.yml` reaches every gate as a `nix build .#checks.*` or a `nix run .#<app>`, so this one is an
-//! app, warmed the way `apps.causality` is - and cargo keys artifacts per profile, so a mismatched
-//! one would unpack the closure and reuse none of it. Hence `--profile <name>` threaded through to
-//! both cargo lines, passed by the app and by nothing else: hard-coding `ci` would push a developer
-//! running `just gates` into a SECOND profile and a second dependency build, for a verdict that
-//! does not depend on the profile at all.
+//! **CI runs it as `nix run .#default-features`, inside the one required job.** Before that step
+//! existed, what CI had for this lane was the four `cross` link builds for the COMPILE half - and
+//! they are `needs: [ci]`, so a `ci` failure skips them, which is exactly how the branch above
+//! reached review - and nothing at all for the LINT half. An app rather than a check for the reason
+//! the paragraph above gives. [`tests::both_lanes_still_invoke_this_gate`] is what holds the
+//! wiring, in both venues, by reading the step rather than the file.
+//!
+//! **The profile is DERIVED from the target directory and not passed as a flag** -
+//! [`crate::warm_start::profile_for`], shared with this lane's other half. Cargo keys artifacts per
+//! profile, so compiling inside the warmed directory at anything but the profile those artifacts
+//! carry reuses none of them: it rebuilds the closure, passes, and nobody attributes the minutes to
+//! it. An earlier revision threaded `--profile <name>` through instead and put the flag where cargo
+//! cannot read it - past the `--` on the app's own line, which selects a profile for the xtask
+//! binary and none for the build - while `check-warm-start` still printed `ok`. A derivation has no
+//! wrong side of a separator to be written on. `just gates` derives `None`, which is the
+//! developer's default profile and no second dependency build.
 //!
 //! **THE REUSE IS PARTIAL, and read that before costing this step.** The closure holds dependency
 //! units at the workspace-wide feature union; this gate deliberately asks the narrow question
-//! instead - one shipped package, no feature flags - and the v2 resolver gives that a different
-//! feature set, so much of the graph gets a fresh `-C metadata` and is compiled again. Measured,
-//! it is roughly a third of each graph and the expensive third; `nix/cargo-env.nix` carries the
-//! numbers beside the closure they are about. Matching the closure would mean asking about the
-//! whole workspace at once, which is the feature unification this gate exists to see past.
+//! instead - one shipped package, no feature flags - so the v2 resolver gives much of the graph a
+//! narrower feature set, a fresh `-C metadata`, and a recompile. MEASURED in this gate's own CI job,
+//! 2026-09-03: the `cargo check` pass compiled 104 units in 38.27 s for `sutura-cli` and 89 in
+//! 41.00 s for `sutura-serve`, against `cargo tree --edges normal,build` graphs of 261 and 301
+//! packages - about a third of each, and the EXPENSIVE third, because the whole
+//! arrow/parquet/datafusion stack misses: 27 s of that first 38 s. The two clippy passes were
+//! 3.96 s and 4.46 s only because cargo runs clippy-driver on the primary package alone, so they
+//! consume what the check pass beside them just produced. Matching the closure would mean asking
+//! about the whole workspace at once, which is the cross-member feature unification this gate
+//! exists to see past - so the recompile is the price of the question and not a defect in it.
 //!
-//! Before that step existed, what CI had for this lane was the four `cross` link builds for the
-//! COMPILE half - and they are `needs: [ci]`, so a `ci` failure skips them - and nothing at all for
-//! the LINT half.
+//! **That cost is SHARED now, so the figure above will not reproduce alone.** It was taken before
+//! `check-default-feature-tests` existed, and that gate compiles the same narrow configuration -
+//! whichever of the two `ci` steps runs first pays the recompile and the second reuses it. They are
+//! adjacent in `ci.yml` for that reason. Cost the pair, never this step by itself.
 //!
 //! **The package list is DERIVED and not written here**, which is the single-owner rule: it is every
 //! `package = "..."` inside `nix/shipped.nix`'s `binaries` list, the same declaration
@@ -55,12 +70,20 @@
 //! `--all-features` gates are what reach those - and this says nothing about a package that does not
 //! ship. Nor does it link: `cargo check` and `cargo clippy` both stop at metadata, which is what
 //! keeps it affordable and is also why the `cross` builds stay the authority on a musl link.
+//!
+//! **And it RUNS nothing, which for a whole category of test meant nobody did.** Stopping at
+//! metadata compiles a `#[cfg(not(feature = "..."))]` test and never executes it, while every venue
+//! that does run a test passes `--all-features`, where that cfg is false. `check-default-feature-tests`
+//! is this lane's other half and its module header carries the measurement.
+
+use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
+use crate::warm_start::profile_for;
 
 /// The declaration the package list is read out of.
-const SOURCE: &str = "nix/shipped.nix";
+pub(crate) const SOURCE: &str = "nix/shipped.nix";
 
 /// Every `package = "..."` inside `nix/shipped.nix`'s `binaries = [ ... ]`, in declaration order.
 ///
@@ -69,7 +92,11 @@ const SOURCE: &str = "nix/shipped.nix";
 /// key appears elsewhere in that file, and `{ bin = "sutura"; package = "sutura-cli"; }` is one legal
 /// record on one line. Duplicates are dropped, keeping first appearance, so two binaries out of one
 /// package are one compile rather than two.
-fn shipped_packages(text: &str) -> Vec<String> {
+///
+/// `pub(crate)` for exactly one other reader: `check-default-feature-tests` runs the same packages'
+/// tests at the same feature set, and a second parser over one declaration is how two gates come to
+/// disagree about which packages ship.
+pub(crate) fn shipped_packages(text: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     let mut indent: Option<usize> = None;
     for line in text.lines() {
@@ -147,58 +174,13 @@ const PASSES: &[Pass] = &[
     },
 ];
 
-/// The `--profile <name>` this run was asked to compile at, or `None` for cargo's default.
-///
-/// An argument rather than a constant, because the two callers want different answers: the CI app
-/// warms the `ci` closure and has to name it, while `just gates` has to stay on the developer's
-/// default profile - a second profile there is a second dependency build in the same target
-/// directory, bought for a verdict that does not depend on the profile.
-///
-/// FAIL CLOSED on anything it cannot read - a flag *present and unreadable*. The limit that used to
-/// be missing here: an ABSENT flag is the shape this comment named, and this parse cannot see it,
-/// because absence is legitimate. `just gates` passes no profile on purpose, since a second profile
-/// in a developer's target directory is a second dependency build bought for a verdict that does not
-/// depend on the profile.
-///
-/// So absence is caught one level up instead, by [`warmed_without_a_profile`], which asks the only
-/// question that distinguishes the two callers: *am I running inside the warmed target directory?*
-fn requested_profile(args: &[String]) -> Result<Option<&str>, String> {
-    match args {
-        [] => Ok(None),
-        [flag, name] if flag == "--profile" && !name.is_empty() => Ok(Some(name.as_str())),
-        _ => Err(format!(
-            "usage: check-default-features [--profile <name>] - got `{}`",
-            args.join(" ")
-        )),
-    }
-}
-
-/// The target directory `cargoWarmStart` unpacks the `ci` artifacts into, relative to the repo root.
-///
-/// Named here as well as in `nix/cargo-env.nix` and `xtask/src/causality.rs`, and kept in step by
-/// `check-warm-start` - which is the gate that already holds this exact string across the nix and
-/// Rust halves, so this is a third reader of an anchored name rather than a fourth copy of a guess.
-const WARM_TARGET: &str = "causality-target";
-
-/// Is this run compiling into the warmed target directory while naming no profile?
-///
-/// **The absent-flag half of fail-closed, and it needs a signal rather than a parse.** The two
-/// callers are indistinguishable from their arguments - `just gates` correctly passes none and the
-/// CI app must pass `ci` - so the discriminator is the environment: `cargoWarmStart` exports
-/// `CARGO_TARGET_DIR` at the unpacked `ci` artifacts. Compiling at the developer default *there*
-/// reuses none of them, rebuilds the closure, and passes - which is exactly the silent waste the
-/// direction was claimed to prevent and could not see.
-///
-/// Absence of the variable is `false`: a developer running this without nix is the legitimate case.
-fn warmed_without_a_profile(profile: Option<&str>, target_dir: Option<&str>) -> bool {
-    profile.is_none() && target_dir.is_some_and(|dir| dir.trim_end_matches('/').ends_with(WARM_TARGET))
-}
-
 /// The words one pass hands cargo, for one package, at one profile.
 ///
-/// The profile travels with the SUBCOMMAND and never in `tail`: clippy's tail opens `--`, and
-/// everything past that separator belongs to the lint driver rather than to cargo - so a
-/// `--profile` appended there would select no profile, warm nothing, and not fail either.
+/// The profile travels with the SUBCOMMAND and never in [`Pass::tail`]: clippy's tail opens `--`,
+/// and everything past that separator belongs to the lint driver rather than to cargo - so a
+/// `--profile` appended there would select no profile, warm nothing, and not fail either. That is
+/// the same confusion `check-warm-start` reads out of the flake app's own line, one level up, and
+/// the reason this gate takes no flag at all.
 fn invocation<'a>(pass: &Pass, package: &'a str, profile: Option<&'a str>) -> Vec<&'a str> {
     let mut words: Vec<&str> = pass.lead.to_vec();
     if let Some(name) = profile {
@@ -209,44 +191,65 @@ fn invocation<'a>(pass: &Pass, package: &'a str, profile: Option<&'a str>) -> Ve
     words
 }
 
-/// `cargo xtask check-default-features` - the shipped feature set compiles and lints.
-pub(crate) fn run(args: &[String]) -> Verdict {
-    let profile = match requested_profile(args) {
-        Ok(profile) => profile,
-        Err(why) => {
-            eprintln!("xtask check-default-features: {why}");
-            return Verdict::Fail;
-        }
-    };
-    let target_dir = std::env::var("CARGO_TARGET_DIR").ok();
-    if warmed_without_a_profile(profile, target_dir.as_deref()) {
-        eprintln!("xtask check-default-features: FAILED - compiling into the warmed target directory");
-        eprintln!("  with no `--profile`. The artifacts unpacked there were built at profile `ci`, so");
-        eprintln!("  a run at the developer default reuses none of them: it rebuilds the whole closure");
-        eprintln!("  and still passes, which is the cost nobody would attribute to the missing flag.");
-        eprintln!("  Pass `--profile ci`, as `apps.default-features` in flake.nix does.");
-        return Verdict::Fail;
-    }
+/// What a gate needs before it can compile anything the declaration names.
+///
+/// A struct rather than a tuple, and clippy asked for it: the two fields are a path and a list of
+/// strings, which is exactly the pair a positional return gets wrong silently.
+pub(crate) struct Shipped {
+    /// The repo root, so a `Command` can set the working directory cargo resolves paths against.
+    pub(crate) root: std::path::PathBuf,
+    /// The packages `nix/shipped.nix` publishes, in declaration order.
+    pub(crate) packages: Vec<String>,
+}
+
+/// The shipped package list, or the verdict to return instead.
+///
+/// **One owner for the fail-closed policy**, and that is the whole reason this is a function. The
+/// rule - *a list this gate reads as empty checks nothing and passes, which is the one failure it
+/// must not have* - was stated twice in two paraphrases once a second gate read the same declaration,
+/// and a policy stated twice is a policy that drifts. The per-gate prologue is a house pattern here
+/// (`shipped.rs` has a third instance against the same file), so what is shared is the part with no
+/// precedent for duplication: this one, whose two readers also share the PARSER.
+///
+/// `gate` names the caller in every message, because a reader of a failure needs to know which gate
+/// could not read the declaration.
+pub(crate) fn shipped_or_fail(gate: &str) -> Result<Shipped, Verdict> {
     let Some(root) = repo::root() else {
-        eprintln!("xtask check-default-features: could not determine the repo root");
-        return Verdict::Fail;
+        eprintln!("xtask {gate}: could not determine the repo root");
+        return Err(Verdict::Fail);
     };
     let path = root.join(SOURCE);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) => {
-            eprintln!("xtask check-default-features: could not read {}: {error}", path.display());
-            return Verdict::Fail;
+            eprintln!("xtask {gate}: could not read {}: {error}", path.display());
+            return Err(Verdict::Fail);
         }
     };
     let packages = shipped_packages(&text);
     if packages.is_empty() {
-        eprintln!("xtask check-default-features: FAILED - parsed no package out of {SOURCE}");
+        eprintln!("xtask {gate}: FAILED - parsed no package out of {SOURCE}");
         eprintln!("  A list this gate reads as empty checks nothing and passes, which is the one");
         eprintln!("  failure it must not have. `binaries = [` and `package = \"...\";` are the two");
         eprintln!("  shapes it looks for.");
-        return Verdict::Fail;
+        return Err(Verdict::Fail);
     }
+    Ok(Shipped { root, packages })
+}
+
+/// `cargo xtask check-default-features` - the shipped feature set compiles and lints.
+pub(crate) fn run(args: &[String]) -> Verdict {
+    if !args.is_empty() {
+        eprintln!("usage: check-default-features - it takes no arguments");
+        eprintln!("  The cargo profile is derived from the target directory rather than passed in.");
+        return Verdict::Usage;
+    }
+    let Shipped { root, packages } = match shipped_or_fail("check-default-features") {
+        Ok(read) => read,
+        Err(verdict) => return verdict,
+    };
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR");
+    let profile = profile_for(target_dir.as_deref().map(Path::new));
     println!(
         "xtask check-default-features: {} shipped package(s) from {SOURCE}: {}",
         packages.len(),
@@ -255,7 +258,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     println!("  cargo's DEFAULT feature set - the one `nix/shipped.nix` publishes and no other gate compiles.");
     if let Some(name) = profile {
         println!(
-            "  profile `{name}` - the warmed artifacts' own, so the units matching this feature set are reused. Not most of them: see nix/cargo-env.nix."
+            "  profile `{name}` - the warmed artifacts' own, so the units that match this narrow feature set are reused. Not most of them: this module's header has the measurement."
         );
     }
     let mut failed: Vec<String> = Vec::new();
@@ -293,7 +296,25 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{PASSES, invocation, requested_profile, shipped_packages};
+    use super::{PASSES, invocation, shipped_packages};
+
+    /// The flake output CI reaches this gate through.
+    const APP: &str = "default-features";
+
+    /// The name `main.rs` registers this gate under.
+    const TASK: &str = "check-default-features";
+
+    /// The recipe that is the developer's lane.
+    const RECIPE: &str = "gates";
+
+    /// The workflow the CI lane lives in.
+    const WORKFLOW: &str = ".github/workflows/ci.yml";
+
+    /// The job it has to be in, which is the one required context.
+    const JOB: &str = "ci";
+
+    /// The condition every rust step in that job is gated on.
+    const CLASSIFIED: &str = "steps.classify.outputs.rust == 'true'";
 
     #[test]
     fn every_package_in_the_binaries_list_is_read_in_declaration_order() {
@@ -402,20 +423,44 @@ mod tests {
     }
 
     #[test]
-    fn a_profile_argument_this_gate_cannot_read_is_a_failure_and_not_a_default() {
-        assert_eq!(requested_profile(&[]), Ok(None));
-        let asked = [String::from("--profile"), String::from("ci")];
-        assert_eq!(requested_profile(&asked), Ok(Some("ci")));
-        // Reading any of these as "no profile asked for" is the silent-green shape: the CI step
-        // would compile the closure from scratch, pass, and blame the minutes on nothing.
-        for bad in [
-            vec![String::from("--profile")],
-            vec![String::from("--profile"), String::new()],
-            vec![String::from("--all-features")],
-            vec![String::from("--profile"), String::from("ci"), String::from("--profile")],
-        ] {
-            assert!(requested_profile(&bad).is_err(), "{bad:?} must not read as a default");
-        }
+    fn both_lanes_still_invoke_this_gate() {
+        // A gate reachable from neither lane is a module, and this lane's whole history is a check
+        // that existed while nothing ran it. Two readers, therefore: the developer's `just gates`
+        // and the required CI job. `check-workflows` holds the other direction, that the app this
+        // names is declared in flake.nix.
+        //
+        // NEITHER READER IS `contains` OVER RAW TEXT, which is the point of this test rather than
+        // a detail of it. `#     cargo run -q -p xtask -- check-default-features` in the recipe and
+        // `# run: nix run .#default-features` in the workflow each satisfy a substring while no
+        // lane invokes anything - the dead-check shape, in the test that says the check is wired.
+        // So a comment line of the recipe body is dropped, and the workflow is read through
+        // `workflows::step`, whose reader skips a `#` line.
+        let root = crate::repo::root().expect("the repo root");
+        assert!(
+            crate::TASKS.iter().any(|task| task.name == TASK),
+            "{TASK} is not a registered task"
+        );
+        let body = crate::tasks::recipe_body(&root, RECIPE).expect("a `gates` recipe in the justfile");
+        assert!(
+            body.iter()
+                .any(|line| !line.trim_start().starts_with('#') && line.contains(TASK)),
+            "`just {RECIPE}` no longer runs {TASK} on a line that is not a comment"
+        );
+        let workflow = std::fs::read_to_string(root.join(WORKFLOW)).expect("ci.yml");
+        let step = crate::workflows::step::app_step(&workflow, JOB, APP)
+            .unwrap_or_else(|| panic!("a live `nix run .#{APP}` step inside {WORKFLOW}'s `{JOB}` job"));
+        let declared = step.join("\n");
+        // The two ways the step stays in the file and stops being a gate. A job under a NEW name
+        // would be the third and is not reachable from here: which contexts are required is a
+        // branch-ruleset setting no file in this tree states, which is why the step is in `{JOB}`.
+        assert!(
+            !declared.contains("continue-on-error"),
+            "the {APP} step tolerates its own failure, so the CI half reports rather than gates:\n{declared}"
+        );
+        assert!(
+            declared.contains(CLASSIFIED),
+            "the {APP} step is not gated on `{CLASSIFIED}`, which is the condition the rust steps around it use:\n{declared}"
+        );
     }
 
     #[test]

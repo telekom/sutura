@@ -123,39 +123,68 @@ markdown_extensions:
   - pymdownx.tasklist:
       custom_checkbox: true
 
+# Pages that are written for whoever is BUILDING sutura, and are not part of the site.
+#
+# `exclude_docs` removes a page from the build entirely - not rendered, not searchable, not a
+# link target - which is the difference between it and `not_in_nav`, where the page is still
+# published and merely unlisted. The implementation plans are the case it exists for: they argue
+# why the steps went in the order they did, which is worth keeping and is not what a reader of
+# this site came for. Two and a half thousand lines of it beside three hundred lines of getting
+# started is why a first-time reader could not tell which page was addressed to them.
+#
+# They stay under `docs/` rather than moving out of it so that every path citation in the
+# repository - ADRs, doc comments, `xtask`'s own gates, the `docs/**` globs `check-guidance`
+# counts and pins against - keeps naming the file it names today. `cargo xtask check-docs` reads
+# this list and holds five things: every pattern here reaches exactly one page that exists, no
+# excluded page is also in `nav`, no published page LINKS to one, every published page was
+# actually read in order to say so, and a page in neither state is the orphan it always was. Each
+# line must name a page literally - a glob or a negation is refused, because a pattern that gate
+# cannot resolve is an exclusion nothing checks.
+#
+# A LINE WITH NO `/` IN IT MATCHES A BASENAME AT EVERY DEPTH, because `exclude_docs` is gitignore
+# syntax and mkdocs matches it with `pathspec`. The gate matches it the same way now and says so
+# when one line reaches two pages, which was a real difference rather than a nicety: while it
+# compared these lines against docs-relative paths, a page one level down was dropped by mkdocs
+# and published by the gate's model of it, so a nav entry to nothing and a dead link on a
+# published page were both green.
+#
+# THE LINK RULE IS OURS BECAUSE `--strict` DOES NOT HAVE IT, and this comment said the opposite
+# first. Measured: with an ADR linking one of these pages, `mkdocs build --strict` printed
+# *"contains a link to 'implementation-plan.md' which is excluded from the built site"* at INFO
+# and exited 0 - `--strict` escalates warnings, not info, so the dead link would have published
+# behind a green docs job. Cite one of these pages as a backticked path, which is what the seven
+# ADRs that used to link them now do.
+exclude_docs: |
+  implementation-plan.md
+  implementation-plan-bigquery.md
+  implementation-plan-identity-and-services.md
+
 # Explicit, not derived from filenames. A nav that falls out of directory order silently
 # reorders itself when a page is added, and `cargo xtask check-docs` checks this list against
 # the files on disk in both directions.
-# Four sections and an arc: what this is, then what the words mean and how to run it, then how
-# to work on it, then what to look up. The split that matters is Guide against Development -
-# the flat list this replaced put a contributor's environment setup and a reader's first
-# question at the same level, and a reader had no way to tell which pages were addressed to
-# them.
+#
+# FIVE SECTIONS AND AN ARC, AND THE ORDER IS THE POINT: what this is, then how to ask it a
+# question, then how to serve one, then what to look up, then how to work on it. Development is
+# LAST because it is addressed to somebody else - it used to sit between a reader's guide and the
+# reference, so the third thing a reader met was our environment setup.
 #
 # No section index pages. Material would render one for each section heading, and `index.md`
-# already routes to every page here; three more landing pages would restate that table three
+# already routes to every page here; five more landing pages would restate that table five
 # times. `navigation.indexes` stays on because a section index is worth having as soon as a
 # section has enough pages to need one.
 nav:
   - Introduction: index.md
-  - Guide:
+  - Start here:
     - Concepts: concepts.md
     - Getting started: getting-started.md
     - Questions and answers: qa.md
     - The agent prompt: agent-prompt.md
-  - Development:
-    - Contributing: contributing.md
-    - The CRAP gate: crap.md
-    - Building without direct egress: enterprise-mirrors.md
-    - Publishing the docs: publishing.md
-  - Reference:
-    - Architecture: architecture.md
+  - Serve it:
     - Serving over HTTP: serving.md
     - Verifying a release: verifying-a-release.md
+  - Reference:
+    - Architecture: architecture.md
     - Where each identity claim is proven: where-identity-is-proven.md
-    - The implementation plan: implementation-plan.md
-    - The plan, BigQuery: implementation-plan-bigquery.md
-    - The plan, identity and services: implementation-plan-identity-and-services.md
     - Decisions:
       - First-party semantic models: adr/0001-first-party-semantic-models.md
       - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
@@ -201,6 +230,11 @@ nav:
       # and rejected: every first-party crate is `publish = false`, so a `publish` predicate would
       # exempt all fourteen and check nothing.
       - sutura-dev: api/sutura-dev.md
+  - Development:
+    - Contributing: contributing.md
+    - The CRAP gate: crap.md
+    - Building without direct egress: enterprise-mirrors.md
+    - Publishing the docs: publishing.md
   - Changelog: changelog.md
 
 extra:

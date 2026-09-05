@@ -178,6 +178,26 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
+# The PAGES, run: `crates/sutura-cli/tests/documented.rs` reads every invocation of this binary
+# `docs/getting-started.md` and `examples/single-player/README.md` print, runs it from a clone's
+# working directory, and holds every refusal block and provenance line they print as output against
+# the command in the fence above it.
+#
+# It exists because the pages drifted: both printed a `Debug` dump `render_refusal` had replaced, so
+# the first page a reader is sent to showed output no build had produced. Also a gate -
+# `checks.nextest` runs it, because the example needs no network and no credential. A published page
+# has to be able to cite the task rather than a raw `cargo` line, which is what this recipe is for.
+
+# Run the suite that runs every command the documentation prints.
+documented:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "documented: scope sutura-cli - the pages' own commands, over the spawned binary."
+    echo "documented: run \`just test\` for the whole workspace's suite; this target is part of it."
+    cargo nextest run -p sutura-cli --all-features
+
 # The DECLARED source, asked a question: `crates/sutura-cli/tests/declared_source.rs` copies the
 # example catalog with `source: warehouse` in place of `source: local`, writes a `sources.warehouse`
 # entry over the example's own data, and spawns `sutura query` with `SUTURA_CONFIG_DIR` pointing at
@@ -247,7 +267,7 @@ ci:
     # byte-compared and no test covers them, so four stale-page incidents were invisible locally
     # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
     # along - but this loop names its checks, so a name left out is a check nobody ran.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L \
             || nix build ".#checks.$system.$check" -L --offline
@@ -299,6 +319,11 @@ gates: hygiene
     # publishes cargo's default set - so a `#[cfg(feature = ...)]` compiled only with the feature on
     # can be a hard error in exactly the configuration a release builds. That shipped once.
     cargo run -q -p xtask -- check-default-features
+    # And the lane's tests, which the line above only COMPILES: `cargo check` and `cargo clippy`
+    # both stop at metadata, so every `#[cfg(not(feature = ...))]` test in the tree was compiled
+    # here and executed by nothing - each venue that runs a test passes --all-features, where that
+    # cfg is false. Two such tests were in that state when this landed.
+    cargo run -q -p xtask -- check-default-feature-tests
     bash nix/run-gate.sh crap
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
@@ -667,12 +692,22 @@ infra-set:
 # network. CI runs the same suite in its own `bq-test` environment job for pushes and same-repository
 # pull requests; fork pull requests skip it because they cannot receive that environment's secret.
 #
-# `--run-ignored only` reaches every `#[ignore]`d test in the crate - `tests/acceptance.rs` and
-# `tests/corpus.rs` - rather than a listed set, so a test added there is reached without this comment
-# being edited. That is deliberate: a count here is a second thing to keep true, and the copy of it
-# in `flake.nix` had already fallen out of step by five.
+# `--run-ignored only` reaches every `#[ignore]`d test in the two targets this task runs -
+# `tests/acceptance.rs` and `tests/corpus.rs` - rather than a listed set, so a test added there is
+# reached without this comment being edited. That is deliberate: a count here is a second thing to
+# keep true, and the copy of it in `flake.nix` had already fallen out of step by five. The
+# two-principal cell is excluded by BINARY and not by name, which is what keeps that property true
+# of both tasks rather than trading it for a list.
 # Every other test task skips them, and an unconfigured run fails rather than reporting green without
 # reaching a real project.
+#
+# **The dataset is SHARED** - the `SUTURA_BQ_DATASET` this targets is the same one CI's
+# `bq-test` job targets, by configuration. Since the closure of #119 every run names its own tables
+# with a per-run token (the CI run id, or a local clock+pid value), so a local run and a CI run
+# pointing at one dataset no longer race - each reads, and drops, only its own tables, which also
+# carry a 24-hour expiration in case a run is cancelled. A local run ANNOUNCES itself the same way
+# a CI run does: its table names, printed as they load, carry its token, so a log says which run
+# wrote them.
 #
 # Needs `just gcloud-login` once, and three values in the developer's own environment. Their names
 # are in that file's header; their values belong on the machine, which is what `.envrc` already
@@ -687,7 +722,30 @@ bigquery-acceptance:
     echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
     echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'not binary(two_principals)'
+
+# The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
+# amendment and issue #123.
+#
+# **Its own task rather than a third leg above, and the reason is a developer's.** It needs five
+# values and two key documents the other two legs do not, so a single task demanding all of them
+# would make the legs somebody CAN run unreachable. The filter is on the BINARY and not on a test
+# list, so both tasks still reach every `#[ignore]`d test in their own target without a count here.
+#
+# **What a green run here does NOT mean** is the first thing `tests/two_principals.rs` says: the two
+# principals are service accounts whose keys this leg holds, so it is leg 2's source half and not
+# leg 2. `docs/where-identity-is-proven.md` is the map.
+
+# Run the two-principal BigQuery cell against the configured row-access-policied dataset.
+bigquery-two-principals:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "bigquery-two-principals: scope sutura-exec-bigquery - two principals, one statement, one row access policy."
+    echo "bigquery-two-principals: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "bigquery-two-principals: CI runs it through \`nix run .#bigquery-two-principals\`, in the bq-test job."
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(two_principals)'
 
 # ------------------------------------------------------------------ dev flow ---
 
@@ -735,6 +793,22 @@ doctor:
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
+# The Postgres tier, by hand: `just postgres-tier start|stop|status`.
+#
+# The same shape as `just keycloak-tier` and it exists for the same reason: a remedy that names the
+# venue for a missing service has to name a task a reader can type, and `nix/postgres-tier.nix` had
+# none - so `sutura_dev::provisioned` cited `just test` for every nix-native tier, which provisions
+# THIS one and no other. See that module; the correspondence is held by its recipe scan.
+#
+# NOT a step before committing. `just test` brings the tier up through `nix/with-tier.sh` and tears
+# down only what it started, so a tier started here survives a suite run - which is what makes the
+# remedy's second line (`just dev-endpoint postgres`) true afterwards.
+#
+# Straight to the script rather than through `nix run`: it is in the dev shell already, which is
+# where `nix/with-tier.sh` looks for it. `checks.nextest` runs the same one from the same file.
+postgres-tier *args:
+    sutura-postgres-tier {{ args }}
+
 # ------------------------------------------------------- the compose tier ---
 #
 # One independent service instance per worktree, provisioned through xtask rather than through the
@@ -768,7 +842,7 @@ dev-up-identity:
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
-# The provisioned DataHub, asked whether it serves the surface a reader would call.
+# The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 #
 # A named task rather than a cell in the default suite, and NOT because a network is missing - the
 # `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers,
@@ -776,11 +850,13 @@ dev-up-datahub:
 # `nix/tier-endpoints.nix`, which MERGES its own service into the file, so `sutura-postgres-tier
 # start` no longer leaves `postgres` as the only entry. The other half stands - `xtask dev-up` goes
 # through `sutura_dev::discovery::publish`, which serialises the whole document from the docker
-# services it just read, so a `dev-up` after a nix tier still drops the nix entry. A docker service
-# is therefore still invisible for the whole of `just test` when the order runs that way, which
-# also sets the fail-closed direction, and a cell over one would be unconditionally red there. The
-# remaining half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than
-# papered over here.
+# services it just read, so a `dev-up` after a nix tier still drops the nix entry and the server it
+# named goes on running unnamed. For POSTGRES that no longer blocks a suite run: `nix/with-tier.sh`
+# reads a running-but-unpublished tier as its own state and republishes the entry (#298), which
+# `checks.postgres-tier` holds. For any other nix tier it stands whole, because nothing sources a
+# wrapper for one - and the wholesale write itself is gated by nothing either way. The remaining
+# half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than papered over
+# here.
 #
 # It brings the profile up first, because a task that asked for the fail-closed direction against a
 # tier nobody started would just be a confusing way to spell an error.
@@ -789,8 +865,11 @@ datahub-acceptance:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, the provisioned instance's"
-    echo "datahub-acceptance: reachability. It proves the VENUE and not the adapter's read path."
+    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two cells: the instance is"
+    echo "datahub-acceptance: reachable, and a document written under a property THE DEPLOYMENT names"
+    echo "datahub-acceptance: comes back and decodes into a certified metric. There is no HTTP"
+    echo "datahub-acceptance: AspectReader, so this is NOT a read path - the requests and the mapping"
+    echo "datahub-acceptance: onto the adapter's shape are in the test, not in src/."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture

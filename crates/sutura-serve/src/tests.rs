@@ -179,10 +179,8 @@ pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
 /// `dim_customer`, so the table behind it is a real file - which keeps a refusal about identity
 /// from being satisfied by a missing CSV.
 fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
-    use std::collections::BTreeMap;
-
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Anchor, Metric};
+    use sutura_domain::catalog::{Anchor, AnchorValue, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, Grain, MetricName};
 
@@ -209,10 +207,14 @@ fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
         Vec::new(),
         column("signed_up_on"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
-        Some(Anchor::new(range, String::from("7"))),
+        Vec::new(),
+        Some(Anchor::new(
+            range,
+            AnchorValue::parse("7").expect("a test anchor value is a value"),
+        )),
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
@@ -452,6 +454,11 @@ fn a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
     // different files: change the `kind:`, or build with `--features bigquery`. Under
     // `--all-features` this test is not compiled and its twin below is; that split is the honest
     // consequence of a behaviour that differs by build, and one test cannot assert both.
+    //
+    // **WHICH VENUE RUNS THIS ONE:** `just gates` and the `The shipped feature set runs its tests`
+    // step in `ci.yml`, both through `cargo xtask check-default-feature-tests`. Not `just test` and
+    // not the `nextest` nix check - they pass `--all-features`, so this cfg is false there. It was
+    // compiled by a gate and executed by nothing at all until that task existed.
     let error = refusal(
         opened_bigquery(&bigquery_entry("warehouse", "shared-service-user", "")),
         "a build with no BigQuery adapter must not start against a bigquery source",
@@ -510,39 +517,41 @@ fn a_bigquery_source_reaches_the_credential_the_deployment_declared() {
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_bigquery_source_configured_to_impersonate_refuses_before_the_credential_is_read() {
-    // The same cross-check the file engine gets, against a DIFFERENT adapter's constant - which is the
-    // whole point of `deliverable_by` being called per adapter rather than per deployment.
-    // The adapter's own constant changed with issue 87:
-    // `sutura-exec-bigquery` declares `PerSubjectCredential` honestly now, so the capability
-    // cross-check below PASSES for an `impersonation-at-source` entry. What still cannot happen is
-    // the composition's half: this build does not attach a broker that exchanges a subject's
-    // credential to a served `BigQuery` source, so serving one would read every row as this process
-    // while the declaration promised a subject's authorization was evaluated.
+fn an_impersonating_source_is_opened_and_reads_the_credential_it_declared() {
+    // **Issue 87's serve half, and the reversal is the point of the change.** The exchanging broker
+    // is now attached in `run()`'s `bigquery` arm, so `open_engine` no longer refuses an
+    // `impersonation-at-source` source by name - the adapter declares `PerSubjectCredential`, and a
+    // subject's credential is exactly what the attached `WorkloadIdentityBroker` mints. The refusal
+    // that used to stand in for "no broker attached" is gone from this path.
     //
-    // **Refused BEFORE the credential file is read**, and the assertions below are what pin that
-    // order: a posture the composition cannot honour is not worth a filesystem read, and an operator
-    // told about a missing file would fix the wrong thing.
+    // **What this reaches instead is the furthest a test with no project can: the source is OPENED
+    // and reads the credential file it declared** - and when that is missing, the boot names the
+    // FILE and not the posture. It cannot check the broker wire here because `open_engine` predates
+    // the broker; the attachment lives in `run()`, at the seam this suite cannot reach without a
+    // real project.
     let error = refusal(
         opened_bigquery(&bigquery_entry(
             "warehouse",
             "impersonation-at-source",
             &format!("{}    verification_identity: \"sutura_anchor_reader\"\n", wif()),
         )),
-        "an impersonating posture on a source this build has no exchanging broker for must not start",
+        "an impersonating source with a declared workload identity is served, so reaching its credential is the test",
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     assert!(
-        error.contains("does not attach a broker"),
-        "the refusal must say the composition is the gap, not the adapter: {error}"
+        error.contains("credential_file"),
+        "the source was OPENED and its refusal is about the credential it declared: {error}"
+    );
+    // The composition gap is closed: these are the two sentences the old refusal said, and neither
+    // is true any more - the exchange and the broker are wired, so an entry reaching this far is not
+    // read as the deployment's own identity.
+    assert!(
+        !error.contains("does not attach a broker"),
+        "the composition no longer refuses impersonation by name: {error}"
     );
     assert!(
-        error.contains("no fallback"),
-        "the refusal must say there is no fallback: {error}"
-    );
-    assert!(
-        !error.contains("credential_file"),
-        "the posture is refused before the credential file is read: {error}"
+        !error.contains("no fallback"),
+        "the posture is no longer a fallback-shaped refusal: {error}"
     );
 }
 

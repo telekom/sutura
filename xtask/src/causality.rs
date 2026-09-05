@@ -33,70 +33,126 @@
 //! records the defect the earlier shape produced and the limits of what replaced it - a
 //! tests-only branch reported as "changes behaviour and adds tests in one file", which is a
 //! different message asking for a different thing.
+//!
+//! WHICH TESTS ARE PROVEN, and this is the part that used to be missing. Both runs are scoped to
+//! the tests the diff ADDED ([`scoped`]), and the base run's verdict compares every failure it
+//! reported against that same set ([`base`]). Before that, the run was `--workspace` unfiltered
+//! and any assertion failure anywhere counted as red-by-assertion, so one unrelated failing cell
+//! early in the run answered "red on base" while the tests under test never ran at all.
+//!
+//! IT ALL RESTS ON THE KEY, and keyed on the bare function name it was too weak to identify a
+//! test at all - so a collided failure passed both halves and a vacuous test got *ok - red on
+//! base, green on head* off a pre-existing one elsewhere. [`scoped`] owns the key, the
+//! measurement behind it, and the collisions it still does not separate; [`base`] owns why a
+//! second check on ONE key is not a second mechanism.
+//!
+//! THE OLD ANSWER WAS NOT EVEN STABLE, which is the part that made it hard to see. Whether an
+//! unrelated cell failed BEFORE the tests under test - and so, under fail-fast, whether the wide
+//! run ever reached them - depended on nextest's scheduling and on which tree last compiled a
+//! shared test binary (see [`runner::cargo_test`]), so one tree answered differently in two
+//! venues and neither answer looked wrong. Scoping removes the first dependence and
+//! `--no-fail-fast` the second.
+//!
+//! SCOPING THE HEAD RUN NARROWS A CLAIM, and the narrowing is on purpose. "The suite is green on
+//! HEAD" was never this gate's property - it is what `just test` and the nix `nextest` check are
+//! for - and holding it here meant the gate reported nothing about a change whenever anything
+//! else in the tree was red. What it asserts now is exactly what it needs: *these tests are green
+//! on HEAD and red on base*. Because nextest fails when a filter matches nothing, a test this
+//! gate cannot name is a loud failure on the HEAD run rather than a quiet pass.
 
 use std::path::Path;
-use std::process::Command;
 
 use crate::Verdict;
 use crate::repo;
 
+mod attributes;
+mod base;
+mod coverage;
 mod diff;
+#[cfg(test)]
+mod fixtures;
+mod names;
+mod place;
 // `pub(crate)` rather than private: `crate::refusals` reads the same test regions this gate does,
 // because "which lines of this file are test code" is one question and a second implementation of
 // it would be a second thing to keep in step. Nothing else about the module moved.
 pub(crate) mod regions;
+mod remedies;
+mod runner;
+mod scoped;
+mod worktree;
 
+use attributes::{Adds, adds};
+use base::{BaseOutcome, classify_base, report_base, tail};
+use coverage::{Coverage, Scope};
 use diff::{ChangedFile, changed_with_additions};
-use regions::{AddedLine, PostImage, has_non_test_additions, scope};
+use regions::{PostImage, has_non_test_additions, scope};
+use remedies::{
+    report_coverage, report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable,
+    report_nothing_to_revert, report_only_ignored, report_silent, report_unnamed_tests, report_unreadable,
+};
+use runner::{Tree, cargo_test};
+use scoped::{Scan, Scoped};
+use worktree::{BaseState, add_worktree, apply, base_state, remove_worktree};
 
 /// What the gate concluded, so the shape is testable without git or cargo.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Plan {
     /// No changed tests: nothing to prove.
     NotRequired,
-    /// Baseline can be reconstructed by reverting these files.
-    ///
-    /// `held_back` names the files carrying BOTH an implementation change and a test. They keep
-    /// their HEAD content and their own tests are not part of the proof - but they are carried
-    /// here rather than dropped, because reverting the others while these stay at HEAD is what
-    /// can leave a tree mixing two versions of one API. `reconstruct_and_run` needs them to be
-    /// able to ask a second time.
-    Separable {
-        revert: Vec<String>,
-        test_files: Vec<String>,
-        held_back: Vec<String>,
-    },
+    /// Baseline can be reconstructed by reverting [`Separable::revert`].
+    Separable(Separable),
     /// Impl and tests share a file; a human must state the evidence.
     NotSeparable { files: Vec<String> },
 }
 
-/// Does this diff hunk add a test?
+/// The four groups the reconstruction sorts a diff's Rust files into.
 ///
-/// Deliberately syntactic and deliberately generous: `#[test]`, `#[tokio::test]`,
-/// `#[rstest]`, a new `mod tests`. A false positive costs a slower gate; a false negative
-/// lets a vacuous test through, so the bias goes one way on purpose.
-fn adds_test(added_lines: &[AddedLine]) -> bool {
-    added_lines.iter().any(|l| {
-        let t = l.text.trim();
-        t.starts_with("#[test]")
-            || t.starts_with("#[tokio::test")
-            || t.starts_with("#[rstest")
-            || t.starts_with("#[test_case")
-            || (t.starts_with("mod tests") && t.contains('{'))
-            || t.starts_with("#[cfg(test)]")
-    })
+/// A struct rather than positional arguments, because two of the four are told apart only by the
+/// sentence printed beside them and a reader has to be able to see which is which.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Separable {
+    /// Restored to base: nothing they added is test code, so together they ARE the old behaviour
+    /// a test has to be red against.
+    pub(crate) revert: Vec<String>,
+    /// Kept at HEAD and MEASURED: the tests these added are the proof.
+    pub(crate) test_files: Vec<String>,
+    /// Kept at HEAD with their own tests OUT of the proof: each adds an implementation change and
+    /// a test in one file, so reverting it would remove the test along with the fix. Carried
+    /// rather than dropped, because reverting the others while these stay at HEAD is what leaves
+    /// a tree mixing two versions of one API - the second attempt needs them.
+    pub(crate) held_back: Vec<String>,
+    /// Kept at HEAD, with nothing in them to measure: everything they added is `#[cfg(test)]`
+    /// code that names no test. Reverting one takes a helper the held tests call out of the base
+    /// tree, and requiring it to name a test is the refusal [`attributes`] records.
+    pub(crate) test_only: Vec<String>,
 }
 
-/// Is this a Rust source path? Case-insensitive, since a case-sensitive extension test is
-/// wrong on a case-insensitive filesystem.
-fn is_rust(path: &str) -> bool {
-    std::path::Path::new(path)
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
+impl Separable {
+    /// Every file kept at HEAD on the first attempt whose own tests the proof does not measure.
+    ///
+    /// One list because the second attempt restores them together: that retry exists to put the
+    /// tree coherently at base, and a held test helper calling a reverted neighbour is exactly a
+    /// thing that does not compile until it goes too.
+    fn held(&self) -> Vec<String> {
+        self.held_back.iter().chain(self.test_only.iter()).cloned().collect()
+    }
 }
 
-/// Changed files split by whether they exist at the base commit.
-type Partitioned<'a> = (Vec<&'a String>, Vec<&'a String>);
+/// Is this a Rust source path THIS workspace compiles?
+///
+/// Case-insensitive on the extension, since a case-sensitive test is wrong on a case-insensitive
+/// filesystem. And not a path outside every workspace member: `vendor/mimalloc_rust` is
+/// `exclude`d in the root manifest and carries its own `#[test]`s, so a vendor bump touching one
+/// would otherwise be a changed test whose key names a package `--workspace` never builds -
+/// nextest refuses an unknown `package(=..)` outright, so the gate would redden a correct change.
+/// `changes::is_non_member` already answers that question for the compile-check gate.
+fn is_compiled_rust(path: &str) -> bool {
+    !crate::changes::is_non_member(path)
+        && std::path::Path::new(path)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
+}
 
 /// Split changed Rust files into "added tests" and "changed implementation only".
 ///
@@ -104,20 +160,24 @@ type Partitioned<'a> = (Vec<&'a String>, Vec<&'a String>);
 /// fixed map in the tests. It is what makes the test-region question answerable at all.
 pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
     let mut test_files = Vec::new();
+    let mut test_only = Vec::new();
     let mut impl_only = Vec::new();
 
-    for file in files {
-        if !is_rust(&file.path) {
-            continue;
-        }
-        if adds_test(&file.added) {
-            test_files.push(file.path.clone());
-        } else {
-            impl_only.push(file.path.clone());
+    for file in files.iter().filter(|file| is_compiled_rust(&file.path)) {
+        match adds(&file.added, &file.path, read) {
+            // A marker names no function, and it stays a candidate for the proof on purpose: that
+            // is the shape whose unnameable test is a deliberate refusal.
+            Adds::NamedTest | Adds::TestModule => test_files.push(file.path.clone()),
+            Adds::TestOnlyItem => test_only.push(file.path.clone()),
+            Adds::Nothing => impl_only.push(file.path.clone()),
         }
     }
 
     if test_files.is_empty() {
+        // A `#[cfg(test)]` helper is not a test, so a diff that added none has nothing to prove -
+        // the same answer this gate gives any implementation change with no new test. Calling it a
+        // test file instead produced a refusal the author could not act on, because no extractor
+        // improvement can read a name off an item that is not a test.
         return Plan::NotRequired;
     }
 
@@ -146,146 +206,12 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
         return Plan::NotSeparable { files: inseparable };
     }
 
-    Plan::Separable {
+    Plan::Separable(Separable {
         revert: impl_only,
         test_files: provable,
         held_back: inseparable,
-    }
-}
-
-/// Run the test suite in `dir` with nextest, building into `target`.
-///
-/// nextest, not `cargo test`, because this gate compares two runs and every other test
-/// invocation in the repo uses nextest: measuring "green on head" with a different runner than
-/// CI trusts would make the comparison meaningless. It also gives per-test process isolation,
-/// so one panicking test cannot take others down and skew the comparison.
-///
-/// ONE TARGET DIRECTORY FOR BOTH RUNS, and that is what keeps this gate affordable. The base
-/// run happens in a worktree, so by default it gets its own `target/` and compiles the whole
-/// dependency closure a second time - `DataFusion`, Arrow and the rest, none of which the base
-/// commit changed. On a 14 GB runner the second copy is what exhausted the disk. Sharing the
-/// directory leaves the dependencies built once and rebuilds only our own crates, which is
-/// exactly the difference between the two trees.
-///
-/// Safe to share because both runs use the same toolchain and the same profile. Alternating
-/// COMPILERS in one directory invalidates every artifact in it; alternating our own sources
-/// does not, because cargo fingerprints them and the dependency graph below them is identical.
-///
-/// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
-/// and passing `ci` there would select a nextest profile that does not exist rather than a
-/// cargo one that does.
-fn cargo_test(dir: &Path, target: &Path) -> (bool, String) {
-    let out = Command::new("cargo")
-        .current_dir(dir)
-        .env("CARGO_TARGET_DIR", target)
-        .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile", "ci"])
-        .output();
-    match out {
-        Ok(o) => {
-            let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&o.stderr));
-            (o.status.success(), text)
-        }
-        Err(e) => (false, format!("could not run cargo: {e}")),
-    }
-}
-
-/// Does `path` exist at `base`?
-///
-/// "Revert to base" means two different things depending on the answer. For a file that
-/// existed, it means check out the old content. For a file this branch ADDED, it means the file
-/// is not there - and `git checkout base -- <new file>` fails with "did not match any file(s)
-/// known to git", which is how this gate first broke in CI.
-fn base_has(root: &Path, base: &str, path: &str) -> bool {
-    let mut command = Command::new("git");
-    strip_git_env_for(&mut command);
-    command
-        .current_dir(root)
-        .arg("cat-file")
-        .arg("-e")
-        .arg(format!("{base}:{path}"))
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
-/// Git env vars that would point a subprocess at another repository.
-///
-/// The list moved to `repo` when a second gate needed it. This stays as the name the call sites
-/// here already read by, and as the one place that would have to change if they diverged.
-fn strip_git_env_for(command: &mut Command) {
-    crate::repo::strip_git_env(command);
-}
-
-/// What the base run actually told us.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BaseOutcome {
-    /// The changed tests passed without the change: they do not test it.
-    Green,
-    /// A test failed an assertion. This is the evidence the gate exists to collect.
-    RedByAssertion,
-    /// The tree did not build. Red, but it proves nothing about behaviour.
-    DidNotCompile,
-}
-
-/// Classify a base test run.
-///
-/// The distinction matters more than it looks. Before this existed, a base tree that failed to
-/// COMPILE counted as "red, as required" and the gate passed - a false green over exactly the
-/// changes it is supposed to judge. A test that does not compile has not been run.
-pub(crate) fn classify_base(text: &str, succeeded: bool) -> BaseOutcome {
-    if succeeded {
-        return BaseOutcome::Green;
-    }
-    // Order matters: a tree that did not build often ALSO prints "error: test run failed",
-    // so the compile check has to come first or a build failure reads as a real red.
-    let compile_failure = text.contains("could not compile")
-        || text.contains("error[E")
-        || text.contains("error: cannot find")
-        || text.contains("unresolved import");
-    if compile_failure {
-        return BaseOutcome::DidNotCompile;
-    }
-    // nextest first, then the `cargo test` wording, so the classifier survives a runner swap.
-    let assertion_failure = text.contains("error: test run failed")
-        || text.contains("FAIL [")
-        || text.contains("test result: FAILED")
-        || text.contains("panicked at");
-    if assertion_failure {
-        return BaseOutcome::RedByAssertion;
-    }
-    // Unknown failure: do not claim a proof we did not get.
-    BaseOutcome::DidNotCompile
-}
-
-/// Set up a detached worktree at HEAD under the given path.
-fn add_worktree(root: &Path, dir: &Path) -> Result<(), String> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(["worktree", "add", "--detach", "--quiet"])
-        .arg(dir)
-        .arg("HEAD")
-        .output()
-        .map_err(|e| format!("git worktree add failed to start: {e}"))?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).into_owned())
-    }
-}
-
-/// Best-effort teardown. A leftover worktree is noise, not a correctness problem, so a
-/// failure here is reported and does not change the gate's verdict.
-fn remove_worktree(root: &Path, dir: &Path) {
-    let outcome = Command::new("git")
-        .current_dir(root)
-        .args(["worktree", "remove", "--force"])
-        .arg(dir)
-        .output();
-    if let Err(e) = outcome {
-        eprintln!("xtask test-causality: could not remove the worktree: {e}");
-    }
+        test_only,
+    })
 }
 
 /// The `--since <ref>` argument, or `None` when it was not supplied correctly.
@@ -297,67 +223,18 @@ fn base_ref(args: &[String]) -> Option<String> {
     rest.first().cloned()
 }
 
-/// Explain the inseparable case. Loud, and deliberately not a failure: the change may be
-/// entirely legitimate, but the gate has not verified it and must not read as green.
-fn report_not_separable(files: &[String]) -> Verdict {
-    println!("xtask test-causality: NOT MECHANICALLY SEPARABLE");
-    for f in files {
-        println!("  {f} changes behaviour and adds tests in one file");
-    }
-    println!();
-    println!("Rust keeps unit tests beside the code they test, so reverting the");
-    println!("implementation would remove the test too. State the evidence in the");
-    println!("handoff instead: the command you ran, the failure before the fix, and");
-    println!("the pass after. This gate has NOT verified causality for this change.");
-    Verdict::Pass
-}
-
-/// The base state to put a worktree into: files to check out at `base`, files to delete.
-///
-/// Two of these exist per proof. The first is the implementation change; the second is the files
-/// held back for carrying their own tests, applied only if the first tree does not build.
-struct BaseState<'a> {
-    restore: Vec<&'a String>,
-    remove: Vec<&'a String>,
-}
-
-impl BaseState<'_> {
-    /// Nothing to apply, so there is no second attempt to make.
-    const fn is_empty(&self) -> bool {
-        self.restore.is_empty() && self.remove.is_empty()
-    }
-}
-
-/// Split files into "existed at base, so check it out" and "added here, so delete it".
-///
-/// "Revert to base" means two different things depending on the answer, and getting it wrong is
-/// how this gate first broke in CI - see [`base_has`].
-fn base_state<'a>(root: &Path, base: &str, files: &'a [String]) -> BaseState<'a> {
-    let (restore, remove): Partitioned<'a> = files.iter().partition(|f| base_has(root, base, f));
-    BaseState { restore, remove }
-}
-
 /// Reconstruct the baseline in a worktree and require the changed tests to fail there.
-fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held_back: &[String]) -> Verdict {
-    let first = base_state(root, base, revert);
-    let held = base_state(root, base, held_back);
+fn prove(root: &Path, base: &str, separable: &Separable, scoped: &Scoped, coverage: &Coverage) -> Verdict {
+    let first = base_state(root, base, &separable.revert);
+    let holding = separable.held();
+    let held = base_state(root, base, &holding);
 
     if first.restore.is_empty() {
-        println!("xtask test-causality: NO BASE BEHAVIOUR TO COMPARE AGAINST");
-        for f in &first.remove {
-            println!("  {f} does not exist at {base}");
-        }
-        println!();
-        println!("Every changed implementation file is new here, so there is no old behaviour");
-        println!("for a test to be red against. Reverting them would leave a tree that does not");
-        println!("compile, and a test that fails to compile proves nothing about behaviour.");
-        println!("This gate has NOT verified causality for this change - state the evidence in");
-        println!("the handoff if it is a bug fix.");
-        return Verdict::Pass;
+        return report_no_base_behaviour(base, &first.remove, coverage);
     }
 
     println!("xtask test-causality: proving red-before-green");
-    for f in test_files {
+    for f in &separable.test_files {
         println!("  test file: {f}");
     }
     for f in &first.restore {
@@ -366,8 +243,11 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
     for f in &first.remove {
         println!("  remove:    {f}  (added in this branch)");
     }
-    for f in held_back {
+    for f in &separable.held_back {
         println!("  held:      {f}  (carries its own tests)");
+    }
+    for f in &separable.test_only {
+        println!("  held:      {f}  (test-only code that names no test)");
     }
 
     // HEAD must be green, or "red on base" means nothing.
@@ -380,11 +260,13 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
     // both files and fails if they differ; it finds this binding by name, so a rename here is a
     // red gate rather than a silent one.
     let shared_target = root.join("target").join("causality-target");
-    let (head_ok, head_out) = cargo_test(root, &shared_target);
+    let only = scoped.filterset();
+    println!("  filter:    {only}");
+    report_silent(scoped.silent());
+    report_coverage(coverage);
+    let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
-        eprintln!("xtask test-causality: FAILED - the tests are not green on HEAD");
-        eprintln!("{}", tail(&head_out, 30));
-        return Verdict::Fail;
+        return report_head_failure(&head_out, &only);
     }
     println!("  head: green");
 
@@ -395,7 +277,15 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
         return Verdict::Fail;
     }
 
-    let verdict = reconstruct_and_run(&wt, base, &first, &held, &shared_target);
+    let verdict = reconstruct_and_run(
+        &wt,
+        base,
+        &first,
+        &held,
+        &shared_target,
+        scoped,
+        &Scope { only: &only, coverage },
+    );
     remove_worktree(root, &wt);
     verdict
 }
@@ -414,14 +304,22 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
 /// Restoring those too costs one more incremental build and yields a tree that is coherently at
 /// base, where the tests that ARE separable get the verdict they came for. Their own tests go
 /// with them, which is exactly what `plan` already excluded from the proof.
-fn reconstruct_and_run(wt: &Path, base: &str, first: &BaseState<'_>, held: &BaseState<'_>, target: &Path) -> Verdict {
+fn reconstruct_and_run(
+    wt: &Path,
+    base: &str,
+    first: &BaseState<'_>,
+    held: &BaseState<'_>,
+    target: &Path,
+    scoped: &Scoped,
+    scope: &Scope<'_>,
+) -> Verdict {
     if let Err(e) = apply(wt, base, first) {
         eprintln!("xtask test-causality: {e}");
         return Verdict::Fail;
     }
 
-    let (base_ok, base_out) = cargo_test(wt, target);
-    let outcome = classify_base(&base_out, base_ok);
+    let (base_ok, base_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
+    let outcome = classify_base(&base_out, base_ok, scoped.tests());
 
     if retry_with_held_back(&outcome, held) {
         println!("  base: did not compile with the held-back file(s) still at HEAD");
@@ -437,11 +335,16 @@ fn reconstruct_and_run(wt: &Path, base: &str, first: &BaseState<'_>, held: &Base
             eprintln!("xtask test-causality: {e}");
             return Verdict::Fail;
         }
-        let (retry_ok, retry_out) = cargo_test(wt, target);
-        return report_base(&classify_base(&retry_out, retry_ok), &retry_out, true);
+        let (retry_ok, retry_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
+        return report_base(
+            &classify_base(&retry_out, retry_ok, scoped.tests()),
+            &retry_out,
+            true,
+            &scope.coverage.ratio(),
+        );
     }
 
-    report_base(&outcome, &base_out, false)
+    report_base(&outcome, &base_out, false, &scope.coverage.ratio())
 }
 
 /// Should the proof ask a second time, with the held-back files at base too?
@@ -451,80 +354,6 @@ fn reconstruct_and_run(wt: &Path, base: &str, first: &BaseState<'_>, held: &Base
 /// change the answer by reverting the very implementation whose absence the assertion measured.
 const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bool {
     matches!(outcome, BaseOutcome::DidNotCompile) && !held.is_empty()
-}
-
-/// Check out the base version of the files that had one, and delete the ones this branch added.
-fn apply(wt: &Path, base: &str, state: &BaseState<'_>) -> Result<(), String> {
-    if !state.restore.is_empty() {
-        let mut checkout = Command::new("git");
-        strip_git_env_for(&mut checkout);
-        checkout.current_dir(wt).args(["checkout", base, "--"]);
-        for f in &state.restore {
-            checkout.arg(f);
-        }
-        match checkout.output() {
-            Ok(o) if o.status.success() => {}
-            Ok(o) => {
-                return Err(format!(
-                    "could not restore base files: {}",
-                    String::from_utf8_lossy(&o.stderr).trim()
-                ));
-            }
-            Err(e) => return Err(format!("could not run git checkout: {e}")),
-        }
-    }
-    for f in &state.remove {
-        match std::fs::remove_file(wt.join(f)) {
-            Ok(()) => {}
-            // ALREADY ABSENT is the state being asked for, not a failure. The worktree is created
-            // at HEAD, and a file this branch has not COMMITTED is in no commit - an
-            // intent-to-add file is in the index only - so `remove` legitimately names files the
-            // worktree never had. Treating that as an error failed the whole gate on any tree
-            // holding a new file, which is every tree mid-change.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("could not remove {f}: {e}")),
-        }
-    }
-    Ok(())
-}
-
-/// Turn a base run into the gate's verdict.
-///
-/// `retried` only changes what the operator is told: after a second attempt, "not separable at
-/// file level" is no longer the likely explanation, because the tree WAS coherently at base.
-fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) -> Verdict {
-    match *outcome {
-        BaseOutcome::Green => {
-            eprintln!("xtask test-causality: FAILED - green against base behaviour");
-            eprintln!();
-            eprintln!("The changed tests pass with the implementation reverted, so they do not");
-            eprintln!("test the change. Make the test exercise the new behaviour, or say plainly");
-            eprintln!("that it is not a regression test.");
-            Verdict::Fail
-        }
-        BaseOutcome::RedByAssertion => {
-            println!("  base: red by assertion, as required");
-            println!("{}", tail(output, 12));
-            println!("xtask test-causality: ok - red on base, green on head");
-            Verdict::Pass
-        }
-        BaseOutcome::DidNotCompile => {
-            println!("  base: did not compile");
-            println!("{}", tail(output, 12));
-            println!();
-            println!("xtask test-causality: INCONCLUSIVE - the base tree does not build.");
-            println!("That is red, but a test that never ran is not evidence about behaviour.");
-            if retried {
-                println!("This is the SECOND attempt: every changed file is at base here, so the");
-                println!("build failure is in the changed tests themselves - they reference");
-                println!("something this branch introduced. State the evidence in the handoff.");
-            } else {
-                println!("Usually it means the change is not separable at file level: the test and");
-                println!("what it needs arrived together. State the evidence in the handoff.");
-            }
-            Verdict::Pass
-        }
-    }
 }
 
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
@@ -545,6 +374,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
+    // WHICH BASE, named before any branch runs, so every verdict below is qualified by it. The
+    // verdict is a FUNCTION of this ref and one of the ways it can be wrong is not visible in the
+    // output otherwise: on the second branch of a stack the default pairs this branch's tests with
+    // the parent branch's implementation, reverts that, finds the tests green and fails - a defect
+    // that does not exist, reported about two halves that do not read each other. Naming the ref
+    // is not a fix for that, and stating a limit is not the same as reaching it.
+    println!("xtask test-causality: measuring the diff against `{base}`");
+
     // The POST-IMAGE of a changed file is what says which of its lines are test code, and
     // `git diff <base> --` compares base against the WORKING TREE - so the working tree is the
     // post-image, and reading it needs no second git call.
@@ -555,70 +392,34 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             println!("xtask test-causality: no changed tests - nothing to prove");
             Verdict::Pass
         }
-        Plan::NotSeparable { files } => report_not_separable(&files),
-        Plan::Separable {
-            revert,
-            test_files,
-            held_back,
-        } => {
-            if revert.is_empty() {
-                println!("xtask test-causality: tests changed but no implementation did");
-                println!("  Nothing to revert, so there is no old behaviour to be red against.");
-                println!("  If this is a new test for existing behaviour, say so; it is not a");
-                println!("  regression test and this gate cannot prove it is causal.");
-                return Verdict::Pass;
+        Plan::NotSeparable { files: inseparable } => {
+            report_not_separable(&inseparable, &Coverage::of(&[], &files, &working_tree))
+        }
+        Plan::Separable(separable) => {
+            if separable.revert.is_empty() {
+                return report_nothing_to_revert(&Coverage::of(&[], &files, &working_tree));
             }
-            prove(&root, &base, &revert, &test_files, &held_back)
+            match Scan::of(&files, &separable.test_files, &working_tree) {
+                Scan::Runnable(scoped) => {
+                    let coverage = Coverage::of(scoped.tests(), &files, &working_tree);
+                    prove(&root, &base, &separable, &scoped, &coverage)
+                }
+                Scan::Unreadable(files) => report_unreadable(&files),
+                Scan::Enabled(refused) => report_enabled_tests(&refused),
+                Scan::OnlyIgnored(names) => report_only_ignored(&names),
+                Scan::Unnamed => report_unnamed_tests(&separable.test_files),
+            }
         }
     }
-}
-
-/// The last `n` lines, so a failure shows the assertion rather than the whole compile log.
-fn tail(text: &str, n: usize) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let start = lines.len().saturating_sub(n);
-    lines.get(start..).map_or_else(String::new, |s| s.join("\n"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::regions::AddedLine;
-    use super::{BaseOutcome, BaseState, ChangedFile, Plan, adds_test, apply, plan, retry_with_held_back};
-
-    /// A post-image reader over a fixed set of files, standing in for the working tree.
-    fn tree(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
-        let owned: Vec<(String, String)> = files
-            .iter()
-            .map(|&(path, text)| (String::from(path), String::from(text)))
-            .collect();
-        move |wanted: &str| owned.iter().find(|(path, _)| path == wanted).map(|(_, text)| text.clone())
-    }
-
-    /// A changed file whose added lines run consecutively from `first`.
-    fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
-        ChangedFile {
-            path: String::from(path),
-            added: added_from(first, texts),
-        }
-    }
-
-    /// Added lines numbered consecutively from `first`.
-    fn added_from(first: usize, texts: &[&str]) -> Vec<AddedLine> {
-        texts
-            .iter()
-            .enumerate()
-            .map(|(offset, text)| AddedLine::new(first + offset, *text))
-            .collect()
-    }
-
-    #[test]
-    fn recognises_added_tests() {
-        assert!(adds_test(&added_from(1, &["    #[test]"])));
-        assert!(adds_test(&added_from(1, &["#[tokio::test]"])));
-        assert!(adds_test(&added_from(1, &["#[cfg(test)]"])));
-        assert!(adds_test(&added_from(1, &["mod tests {"])));
-        assert!(!adds_test(&added_from(1, &["fn thing() {}", "// a comment"])));
-    }
+    use super::base::BaseOutcome;
+    use super::coverage::Coverage;
+    use super::fixtures::{changed, manifest, tree};
+    use super::scoped::Scan;
+    use super::{BaseState, Plan, plan, retry_with_held_back};
 
     #[test]
     fn no_changed_tests_means_nothing_to_prove() {
@@ -637,9 +438,9 @@ mod tests {
             ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
         ]);
         match plan(&files, &read) {
-            Plan::Separable { revert, test_files, .. } => {
-                assert_eq!(revert, vec![String::from("crates/x/src/a.rs")]);
-                assert_eq!(test_files, vec![String::from("crates/x/tests/t.rs")]);
+            Plan::Separable(ref one) => {
+                assert_eq!(one.revert, vec![String::from("crates/x/src/a.rs")]);
+                assert_eq!(one.test_files, vec![String::from("crates/x/tests/t.rs")]);
             }
             other => panic!("expected Separable, got {other:?}"),
         }
@@ -715,8 +516,8 @@ mod tests {
             ("crates/x/src/b.rs", "fn fixed() {}\n"),
         ]);
         match plan(&files, &read) {
-            Plan::Separable { revert, .. } => {
-                assert_eq!(revert, vec![String::from("crates/x/src/b.rs")]);
+            Plan::Separable(ref one) => {
+                assert_eq!(one.revert, vec![String::from("crates/x/src/b.rs")]);
             }
             other => panic!("expected Separable, got {other:?}"),
         }
@@ -776,73 +577,42 @@ mod tests {
             ("crates/sutura-serve/src/main.rs", serve),
         ]);
         match plan(&files, &read) {
-            Plan::Separable {
-                revert,
-                test_files,
-                held_back,
-            } => {
-                assert!(revert.is_empty(), "no implementation changed: {revert:?}");
+            Plan::Separable(ref one) => {
+                assert!(one.revert.is_empty(), "no implementation changed: {:?}", one.revert);
                 assert!(
-                    held_back.is_empty(),
-                    "nothing carries an implementation change: {held_back:?}"
+                    one.held_back.is_empty(),
+                    "nothing carries an implementation change: {:?}",
+                    one.held_back
                 );
-                assert_eq!(test_files.len(), 2, "both files are provable test files: {test_files:?}");
+                assert_eq!(
+                    one.test_files.len(),
+                    2,
+                    "both files are provable test files: {:?}",
+                    one.test_files
+                );
             }
             other => panic!("expected Separable with nothing to revert, got {other:?}"),
         }
     }
 
     #[test]
-    fn a_base_that_did_not_compile_is_not_a_proof() {
-        use super::{BaseOutcome, classify_base};
-        // The false green this replaced: `cargo test` failed, so the gate said "red, as
-        // required" and passed. A tree that does not build has run no tests.
-        let compile = "error[E0432]: unresolved import `crate::thing`\nerror: could not compile";
-        assert_eq!(classify_base(compile, false), BaseOutcome::DidNotCompile);
-    }
-
-    #[test]
-    fn a_failed_assertion_is_the_evidence_wanted() {
-        use super::{BaseOutcome, classify_base};
-        // nextest's wording, which is what this now sees.
-        let nextest = "    FAIL [ 0.006s] xtask::bin/xtask a::b\n Summary 42 passed, 1 failed\nerror: test run failed";
-        assert_eq!(classify_base(nextest, false), BaseOutcome::RedByAssertion);
-        // And `cargo test`'s, so the classifier survives a runner swap.
-        let cargo = "running 3 tests\nthread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
-        assert_eq!(classify_base(cargo, false), BaseOutcome::RedByAssertion);
-    }
-
-    #[test]
-    fn a_build_failure_wins_over_a_test_run_failure_line() {
-        use super::{BaseOutcome, classify_base};
-        // nextest prints "error: test run failed" when the build failed too. Reading that as a
-        // real red is the false green this gate already had once.
-        let both = "error[E0433]: failed to resolve\nerror: could not compile\nerror: test run failed";
-        assert_eq!(classify_base(both, false), BaseOutcome::DidNotCompile);
-    }
-
-    #[test]
-    fn a_passing_base_means_the_test_does_not_test_the_change() {
-        use super::{BaseOutcome, classify_base};
-        assert_eq!(
-            classify_base("test result: ok. 12 passed; 0 failed", true),
-            BaseOutcome::Green
-        );
-    }
-
-    #[test]
-    fn an_unrecognised_failure_claims_nothing() {
-        use super::{BaseOutcome, classify_base};
-        // Conservative on purpose: an unfamiliar failure is not evidence of causality.
-        assert_eq!(
-            classify_base("linker exited with signal 9", false),
-            BaseOutcome::DidNotCompile
-        );
-    }
-
-    #[test]
     fn non_rust_files_are_ignored() {
         let files = vec![changed("README.md", 1, &["#[test]"])];
+        assert_eq!(plan(&files, &tree(&[])), Plan::NotRequired);
+    }
+
+    #[test]
+    fn a_vendored_test_is_not_a_changed_test_this_gate_can_measure() {
+        // `vendor/mimalloc_rust` is `exclude`d from the root manifest and carries its own
+        // `#[test]`s, so `--workspace` never builds it. Counted as a changed test, its package
+        // reaches the filterset - and nextest REFUSES an unknown `package(=..)` rather than
+        // matching nothing, so a vendor bump touching a `#[test]` line would redden a correct
+        // change. `changes::is_non_member` is the same rule the compile-check gate uses.
+        let files = vec![changed(
+            "vendor/mimalloc_rust/src/lib.rs",
+            1,
+            &["    #[test]", "    fn allocates() {}"],
+        )];
         assert_eq!(plan(&files, &tree(&[])), Plan::NotRequired);
     }
 
@@ -876,17 +646,184 @@ mod tests {
             ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
         ]);
         match plan(&files, &read) {
-            Plan::Separable {
-                revert,
-                test_files,
-                held_back,
-            } => {
-                assert_eq!(revert, vec![String::from("crates/x/src/definitions.rs")]);
-                assert_eq!(test_files, vec![String::from("crates/x/tests/t.rs")]);
-                assert_eq!(held_back, vec![String::from("crates/x/src/pinned.rs")]);
+            Plan::Separable(ref one) => {
+                assert_eq!(one.revert, vec![String::from("crates/x/src/definitions.rs")]);
+                assert_eq!(one.test_files, vec![String::from("crates/x/tests/t.rs")]);
+                assert_eq!(one.held_back, vec![String::from("crates/x/src/pinned.rs")]);
+                assert!(one.test_only.is_empty(), "no test-only file here: {:?}", one.test_only);
             }
             other => panic!("expected Separable, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_cfg_test_helper_with_no_test_beside_it_adds_no_test() {
+        // THE DEFECT, at the level `run` branches on. A file gains a `#[cfg(test)]` HELPER and no
+        // `#[test]` anywhere in its hunk. The old classifier called it a test file on the bare
+        // attribute, put it in the proof, then refused the whole diff with *the added tests could
+        // not be NAMED* - which no author could act on, because the item can never name a test. A
+        // helper is not a test, so there is nothing to prove: the answer this gate already gives
+        // any implementation change that adds no test.
+        let tasks = concat!(
+            "pub(crate) fn recipe_names() -> u8 {\n",             // 1
+            "    1\n",                                            // 2
+            "}\n",                                                // 3
+            "#[cfg(test)]\n",                                     // 4
+            "pub(crate) fn recipe_body(name: &str) -> usize {\n", // 5
+            "    name.len()\n",                                   // 6
+            "}\n",                                                // 7
+        );
+        let files = vec![
+            changed(
+                "xtask/src/tasks.rs",
+                4,
+                &[
+                    "#[cfg(test)]",
+                    "pub(crate) fn recipe_body(name: &str) -> usize {",
+                    "    name.len()",
+                    "}",
+                ],
+            ),
+            changed("xtask/src/other.rs", 1, &["fn changed() {}"]),
+        ];
+        let read = tree(&[
+            ("xtask/src/tasks.rs", tasks),
+            ("xtask/src/other.rs", "fn changed() {}\n"),
+            ("xtask/Cargo.toml", &manifest("xtask")),
+        ]);
+        assert_eq!(plan(&files, &read), Plan::NotRequired);
+    }
+
+    #[test]
+    fn a_cfg_test_helper_is_held_at_head_rather_than_reverted() {
+        // The direction that matters more than the refusal it replaces, and the one a narrower
+        // `adds_test` would have lost. The helper is never in `revert`: reverting it takes it out
+        // of the base tree while the tests calling it are held there - `E0425`, `DidNotCompile`,
+        // then a pass that proves nothing, over the COMMON case, since a new helper usually
+        // exists because a new test needed it.
+        let files = vec![
+            changed("xtask/src/tasks.rs", 2, &["#[cfg(test)]", "fn helper() -> u8 { 1 }"]),
+            changed("xtask/src/other.rs", 1, &["fn changed() {}"]),
+            changed("xtask/tests/t.rs", 1, &["#[test]", "fn t() {}"]),
+        ];
+        let read = tree(&[
+            ("xtask/src/tasks.rs", "fn kept() {}\n#[cfg(test)]\nfn helper() -> u8 { 1 }\n"),
+            ("xtask/src/other.rs", "fn changed() {}\n"),
+            ("xtask/tests/t.rs", "#[test]\nfn t() {}\n"),
+            ("xtask/Cargo.toml", &manifest("xtask")),
+        ]);
+        let helper = String::from("xtask/src/tasks.rs");
+        match plan(&files, &read) {
+            Plan::Separable(ref one) => {
+                assert_eq!(one.test_only, vec![helper.clone()]);
+                assert_eq!(one.revert, vec![String::from("xtask/src/other.rs")]);
+                assert_eq!(one.test_files, vec![String::from("xtask/tests/t.rs")]);
+                assert!(one.held().contains(&helper), "kept at HEAD: {:?}", one.held());
+            }
+            other => panic!("expected Separable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_cfg_test_helper_no_longer_decides_between_a_refusal_and_a_silent_pass() {
+        // THE EDGE, which was sharper than the failure it caused. With the helper counted as a
+        // test file the diff had one "provable" file that could name nothing and the gate FAILED;
+        // without the helper the only remaining test file is inseparable, `provable` is empty and
+        // the gate PASSED. One `#[cfg(test)]` attribute was the whole difference between a hard
+        // refusal and a silent pass, which is why stopping the failure alone would have traded a
+        // loud wrong answer for a quiet one. It moves no partition now, and the pass that remains
+        // states what it did not measure.
+        let inseparable_file = concat!(
+            "fn fixed() -> u8 { 2 }\n", // 1
+            "#[cfg(test)]\n",           // 2
+            "mod tests {\n",            // 3
+            "    #[test]\n",            // 4
+            "    fn t() {}\n",          // 5
+            "}\n",                      // 6
+        );
+        let added = |texts: &[&str]| changed("crates/x/src/a.rs", 1, texts);
+        let hunk = [
+            "fn fixed() -> u8 { 2 }",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    #[test]",
+            "    fn t() {}",
+            "}",
+        ];
+        let read = tree(&[
+            ("crates/x/src/a.rs", inseparable_file),
+            (
+                "crates/x/src/helper.rs",
+                "fn kept() {}\n#[cfg(test)]\nfn helper() -> u8 { 1 }\n",
+            ),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let inseparable = vec![String::from("crates/x/src/a.rs")];
+
+        let with_helper = vec![
+            added(&hunk),
+            changed("crates/x/src/helper.rs", 2, &["#[cfg(test)]", "fn helper() -> u8 { 1 }"]),
+        ];
+        assert_eq!(
+            plan(&with_helper, &read),
+            Plan::NotSeparable {
+                files: inseparable.clone()
+            }
+        );
+        // The pass carries its own limit rather than reading as a verdict about the change.
+        assert_eq!(Coverage::of(&[], &with_helper, &read).ratio(), "0 of 1 added tests measured");
+        // And the answer does not depend on the helper being there, which is the property that
+        // was missing: the same diff without it plans identically.
+        assert_eq!(plan(&[added(&hunk)], &read), Plan::NotSeparable { files: inseparable });
+    }
+
+    #[test]
+    fn a_test_module_declaration_still_refuses_when_it_names_no_test() {
+        // The arm that must STILL fire, and the reason the split is on `mod` rather than on
+        // `#[cfg(test)]`. A file gaining `#[cfg(test)] mod tests;` gained a test MODULE, so a test
+        // the extractor could not read is plausible there: the file stays in the proof and the
+        // scan's refusal stays reachable. The helper case widens nothing.
+        //
+        // WHICH refusal moved, and it is the whole point of the second finding. `tests.rs` is not
+        // in this diff, so the declaration compiles a module of tests that arrived with no added
+        // line naming any of them - `Scan::Enabled`, whose remedy is stated evidence rather than
+        // an extractor fix. It used to be `Unnamed` here and the passing `silent` arm as soon as
+        // any sibling named a test, which is the one input that had two remedies.
+        let files = vec![
+            changed("crates/x/src/lib.rs", 2, &["#[cfg(test)]", "mod tests;"]),
+            changed("crates/x/src/other.rs", 1, &["fn changed() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/x/src/lib.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("crates/x/src/other.rs", "fn changed() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let planned = plan(&files, &read);
+        let Plan::Separable(ref one) = planned else {
+            panic!("a test module declaration is a test file, got {planned:?}");
+        };
+        assert_eq!(one.test_files, vec![String::from("crates/x/src/lib.rs")]);
+        match Scan::of(&files, &one.test_files, &read) {
+            Scan::Enabled(ref refused) => {
+                assert_eq!(refused.len(), 1);
+                assert_eq!(
+                    refused.first().map(|only| only.module.as_str()),
+                    Some("crates/x/src/tests.rs")
+                );
+            }
+            other => panic!("a declaration this diff cannot account for refuses, got {other:?}"),
+        }
+        // And with the module's own file in the diff it is `Unnamed` instead: the declaration is
+        // accounted for, and no added line named a test anywhere.
+        let mut accounted = files;
+        accounted.push(changed("crates/x/src/tests.rs", 1, &["use super::f;"]));
+        let read = tree(&[
+            ("crates/x/src/lib.rs", "fn f() {}\n#[cfg(test)]\nmod tests;\n"),
+            ("crates/x/src/other.rs", "fn changed() {}\n"),
+            ("crates/x/src/tests.rs", "use super::f;\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        assert!(matches!(Scan::of(&accounted, &one.test_files, &read), Scan::Unnamed));
     }
 
     #[test]
@@ -907,28 +844,10 @@ mod tests {
         assert!(!retry_with_held_back(&BaseOutcome::DidNotCompile, &nothing_held));
         // A run that reached an assertion has ANSWERED. Retrying would revert the implementation
         // whose absence that assertion just measured, turning evidence into a different question.
-        assert!(!retry_with_held_back(&BaseOutcome::RedByAssertion, &held));
+        assert!(!retry_with_held_back(
+            &BaseOutcome::RedByAssertion { failed: Vec::new() },
+            &held
+        ));
         assert!(!retry_with_held_back(&BaseOutcome::Green, &held));
-    }
-
-    #[test]
-    fn removing_a_file_the_worktree_never_had_is_not_a_failure() {
-        // A file this branch has not COMMITTED is in no commit, so the worktree - created at HEAD -
-        // never carried it, while `remove` names exactly the files absent at base. An intent-to-add
-        // file is the everyday case, and this used to fail the whole gate rather than prove
-        // anything: "could not remove xtask/src/guidance/claims.rs: No such file or directory".
-        let wt = std::env::temp_dir().join(format!("sutura-causality-{}", std::process::id()));
-        let _cleanup = std::fs::remove_dir_all(&wt);
-        std::fs::create_dir_all(&wt).expect("a scratch worktree");
-        let absent = String::from("xtask/src/guidance/claims.rs");
-        let state = BaseState {
-            restore: Vec::new(),
-            remove: vec![&absent],
-        };
-
-        let applied = apply(&wt, "HEAD", &state);
-
-        let _swept = std::fs::remove_dir_all(&wt);
-        assert!(applied.is_ok(), "an absent file is the state asked for, got {applied:?}");
     }
 }

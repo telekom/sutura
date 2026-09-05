@@ -25,6 +25,7 @@
 , rustToolchainFile
 , craneLib
 , commonArgs
+, inheritedArtifacts
 , auditable
 , mimallocFor
 , optLevelFor
@@ -192,8 +193,7 @@ let
         SUTURA_MIMALLOC_LIB_DIR = "${mimallocFor { targetPkgs = pkgs; optLevel = optLevelFor profile; isMusl = false; }}/lib";
       };
     in
-    craneLib.buildPackage (args // {
-      cargoArtifacts = craneLib.buildDepsOnly args;
+    craneLib.buildPackage (args // inheritedArtifacts (craneLib.buildDepsOnly args) // {
       # NAMED AFTER THE EXECUTABLE, so a build log and a store path say which of the two shipped
       # binaries this is. `commonArgs.pname` is `sutura` for the workspace, and with two shipped
       # binaries that made both derivations `sutura-0.1.0`. On the final attrset and never on
@@ -258,8 +258,7 @@ let
         "CFLAGS_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "-DMI_LIBC_MUSL=1";
       };
     in
-    crossLib.buildPackage (args // {
-      cargoArtifacts = crossLib.buildDepsOnly args;
+    crossLib.buildPackage (args // inheritedArtifacts (crossLib.buildDepsOnly args) // {
       # Same reasoning as `nativeFor`; crane appends the target itself.
       pname = binary.bin;
       # One package, and the target. Same reasoning as `nativeFor`.
@@ -389,7 +388,8 @@ let
 
   # WHAT TO BUILD FOR ONE TRIPLE, as a file at a FIXED attribute name: `feature-probes-<triple>`
   # holds one row per probe - the package to build, the executable it installs, and the feature it
-  # was built with - and `ci.yml` reads the three fields rather than deriving any of them.
+  # was built with - and `.github/workflows/cross-link.yml` reads the three fields rather than
+  # deriving any of them.
   #
   # **A FILE RATHER THAN A PATTERN IN THE WORKFLOW, and the reason is a dead gate this branch
   # shipped and then measured.** The step used to RECONSTRUCT the set from the package names above
@@ -546,7 +546,7 @@ let
     # shipped binary with `cargo auditable`, which puts the crates the compiler actually
     # linked into one ELF section, and `rust-audit-info` reads them back. A check over
     # `Cargo.toml` would be asserting what somebody wrote down; this asserts what shipped.
-    # It is the same section `release.yml`'s SBOM and `ci.yml`'s cross job already depend
+    # It is the same section `release.yml`'s SBOM and the pull-request link check already depend
     # on, so a build that stopped embedding it fails here too rather than passing quietly.
     #
     # TWO DIRECTIONS, because only checking the absence would pass on a binary that linked
@@ -592,8 +592,9 @@ let
           echo "shipped-features: ${b.bin}"
           rust-audit-info ${drv}/bin/${b.bin} > deps-${b.bin}.json
           crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
-          # A FLOOR, for the reason `ci.yml` gives at its own copy of this number: the exact
-          # count moves with every dependency bump, and what is checked is the difference
+          # A FLOOR, and the argument is not repeated here. It is what
+          # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number:
+          # the exact count moves with every dependency bump, and what is checked is the difference
           # between a list of crates and no list at all. `grep -o | wc -l`, never `grep -c`,
           # because the document is one line.
           if [ "''${crates:-0}" -lt 100 ]; then

@@ -688,7 +688,7 @@ name; and `answer` refusing when the plan's source is not the warehouse's.
 
 **The fourth column names the branch that moves each one, and no longer a step number.** An earlier
 version of this table indexed into an ordered list further down this page, which made this record a
-second owner of a step number while [the implementation plan](../implementation-plan.md) was the first
+second owner of a step number while `docs/implementation-plan.md` was the first
 - the exact shape the *one owner per artefact* rule exists to prevent. The plan owns the numbering;
 this record names branches.
 
@@ -726,7 +726,7 @@ Dependent work, so it stacks: `stax` is in the dev shell and
 owes, because work whose test passes against the base behaviour proves nothing.
 
 **Named by branch and NOT numbered, deliberately.** An earlier version of this section numbered eight
-steps while [the implementation plan](../implementation-plan.md) numbered its own branches differently,
+steps while `docs/implementation-plan.md` numbered its own branches differently,
 and the table above indexed into this list - two owners for one artefact, and a third reader having to
 reconcile them. The plan owns the numbering and the dependency graph. What is below is this record's
 *ordering argument*: which work must precede which, and why, in the vocabulary the plan already uses.
@@ -837,7 +837,7 @@ governance boundary is crossed that nothing in this system models.
 
 - **Track 1 is worth shipping on its own and blocks nothing in track 2, and that is a weaker claim
   than this bullet used to make.** It said track 1 should not wait for track 2, which reads as an
-  ordering instruction - and [the implementation plan](../implementation-plan.md) puts
+  ordering instruction - and `docs/implementation-plan.md` puts
   `feat/postgres-adapter` after the compose tier, for a reason this record agrees with: an adapter that
   lands before there is a real server to point it at is tested against a fake asserting our own code
   back to us. So the surviving claim is about **independence rather than precedence**: one BigQuery

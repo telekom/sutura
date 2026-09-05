@@ -92,7 +92,7 @@ for a job API, a reader for a metadata aspect - and several do; those are intern
 their crate, not to the interior. One of them, `sutura_http::inbound::keys::KeySetSource`, is
 allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason. The whole set is what
 `grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` answers:
-10 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
+11 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
 paragraph is about.
 
 **The count is gated; the rows are not, and the difference is worth reading exactly.**
@@ -179,11 +179,13 @@ See `sutura/crate-map` for why an adapter is behind a default-off feature at all
 **The limit that survives, because a green run invites the wider reading.** Its package list is
 DERIVED from `nix/shipped.nix`'s `binaries`, so it reaches the binaries a release publishes and
 nothing else - a feature on a crate that does not ship is compiled by the `--all-features` gates
-only, and by nothing at the default set. It also stops at metadata, so the `cross` builds stay the
-authority on a musl link. **What is no longer a limit:** CI runs the same gate as
-`nix run .#default-features`, so the lint half of this lane is gated on a pull request and not only
-in `just gates`. `xtask/src/default_features.rs` states what it does and does not reach. Still run
-`just gates` when you touch a `#[cfg(feature = ..)]` - it is the cheap place to find it.
+only, and by nothing at the default set. The lane's CI half is no longer partial: the required `ci`
+job runs `nix run .#default-features` for the compile and lint halves and
+`nix run .#default-feature-tests` for the tests, both gated on the Rust classification.
+`xtask/src/default_features.rs` and `xtask/src/default_feature_tests.rs` each state their own limit,
+and the shared one is that neither LINKS - both stop where `cargo check` and a host-triple test
+binary stop, so the four `cross` builds remain the authority on a musl link. Still run `just gates`
+when you touch a `#[cfg(feature = ..)]`: it is the same two gates, minutes earlier.
 
 The inner loop is deliberately narrow:
 

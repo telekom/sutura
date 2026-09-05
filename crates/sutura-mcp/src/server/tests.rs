@@ -4,6 +4,7 @@
 //! max-lines` enforces, and because the fixtures stay in `crate::testing` either way. The `mod tests`
 //! line and the `#[cfg(test)]` on it are in the parent.
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use rmcp::model::{CallToolRequestParams, ErrorCode};
 use rmcp::service::RunningService;
@@ -11,6 +12,8 @@ use rmcp::{RoleClient, RoleServer, ServiceError, serve_client, serve_server};
 use sutura_app::prompt::CatalogProse;
 use sutura_app::surface::{LocalService, Surface};
 use sutura_app::{Capability, Permitted};
+use sutura_config::{Environment, Settings, Sources};
+use sutura_runtime::Admission;
 
 use super::AgentSurface;
 use crate::testing;
@@ -36,8 +39,21 @@ async fn permitting<S>(surface: S, permitted: Permitted, prose: CatalogProse) ->
 where
     S: Surface,
 {
+    served(surface, permitted, prose, admission("")).await
+}
+
+/// The same again, with the admission bound stated as well.
+///
+/// The seam the bound's own tests use, and it is the production signature for the same reason
+/// [`permitting`] is: `AgentSurface::new` takes an `Admission` because only a composition root can
+/// decide there is one bound for the process, and a test is another composition root. Every other
+/// test here reaches it through [`permitting`] with the settings tree's own defaults.
+async fn served<S>(surface: S, permitted: Permitted, prose: CatalogProse, admission: Admission) -> RunningService<RoleClient, ()>
+where
+    S: Surface,
+{
     let (client_side, server_side) = tokio::io::duplex(64 * 1024);
-    let server = serve_server(AgentSurface::new(Arc::new(surface), permitted, prose), server_side);
+    let server = serve_server(AgentSurface::new(Arc::new(surface), permitted, prose, admission), server_side);
     let client = serve_client((), client_side);
     // Both halves of the handshake have to run at once: the server is waiting for `initialize`
     // and the client is waiting for its result, so awaiting either one first deadlocks.
@@ -78,6 +94,44 @@ fn with_sink() -> (CertifiedService, std::sync::Arc<testing::CountingSink>) {
     (service, sink)
 }
 
+/// The settings tree as an operator inherits it, with this test's own document over the top.
+///
+/// A settings DOCUMENT and not two parsed numbers, which is what makes the bound below arrive the
+/// way a deployment writes it. The same construction `sutura_http`'s harness uses, for the reason it
+/// gives: a test that hands a value in cannot tell a read from a constant.
+fn settings(overlay: &str) -> Settings {
+    Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("the test settings load")
+}
+
+/// The admission bound those settings describe.
+fn admission(overlay: &str) -> Admission {
+    Admission::from_settings(settings(overlay).runtime())
+}
+
+/// Polls `ready` until it holds. `false` if it never did.
+///
+/// The alternative is a sleep long enough for the slowest machine, which is either a flake or dead
+/// time in every run. What is asserted is the condition, so the failure message is the caller's.
+async fn eventually(ready: impl Fn() -> bool) -> bool {
+    for _ in 0_u16..1_000 {
+        if ready() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    false
+}
+
+/// The text block of a tool result, which is the half a plain client renders.
+fn text_of(result: &rmcp::model::CallToolResult) -> String {
+    result
+        .content
+        .first()
+        .and_then(rmcp::model::ContentBlock::as_text)
+        .map(|block| block.text.clone())
+        .expect("every result in this suite carries a text block")
+}
+
 fn call(name: &'static str, arguments: &serde_json::Value) -> CallToolRequestParams {
     let object = arguments.as_object().cloned().expect("a fixture is an object");
     CallToolRequestParams::new(name).with_arguments(object)
@@ -98,6 +152,17 @@ fn a_certified_question() -> serde_json::Value {
         "grain": "month",
         "range": { "start": "2026-06-01", "end": "2026-07-01" },
     })
+}
+
+/// The same question as a domain [`Query`], through this crate's own translation.
+///
+/// [`super::question`] rather than `Query::new`, so the value under test arrives the way a call's
+/// does - the arguments object, parsed - and a test cannot construct a question the wire could not
+/// carry.
+///
+/// [`Query`]: sutura_domain::query::Query
+fn a_query() -> sutura_domain::query::Query {
+    super::question(ask(&a_certified_question())).expect("the fixture question parses")
 }
 
 /// Every tool the shared source declares is advertised, with the schema that was generated for it.
@@ -238,32 +303,67 @@ async fn the_catalog_tool_lists_the_metrics_this_deployment_measures() {
     drop(client.cancel().await);
 }
 
-/// `prompt.catalog_prose: omitted` is honoured by the TOOL, end to end - not only by the prompt.
+/// `prompt.catalog_prose: omitted` is honoured by the TOOL, end to end - on BOTH halves of the reply.
 ///
-/// The catalog tool answers with a text block a plain client renders, so an operator who does not
-/// trust their catalog authors must be able to drop the prose from this surface too, the same way
-/// they drop it from the prompt. With the setting omitted the metric and dimension descriptions are
-/// absent from the text block and a notice says so; with the default they are quoted in.
+/// The catalog tool answers with a text block a plain client renders and structured content a
+/// program reads, so an operator who does not trust their catalog authors must be able to drop the
+/// prose from this surface the way they drop it from the prompt - from all of it. With the setting
+/// omitted the metric and dimension descriptions are absent from both halves and a notice says so;
+/// with the default they arrive in both.
+///
+/// **The structured half is why this test exists in this shape.** Its first version read
+/// `content.first()` and nothing else, so it passed while `structured_content` beside it carried
+/// every description a deployment had asked to withhold - `#266`'s `H1`, and the same shape
+/// `docs/adr/0022`'s amendment describes: a test that reads a different field from the one carrying
+/// the leak looks like coverage and is none. Asserted through the SDK's own client, because the
+/// defect was the WIRING and a test over the wire type alone passes with a handler that still
+/// builds its content without the setting.
 #[tokio::test]
 async fn catalog_prose_omitted_omits_it_from_the_tool_answers() {
     let omitted = permitting(certified_service(), Permitted::every_capability(), CatalogProse::Omitted).await;
     let result = omitted.call_tool(describe()).await.expect("the catalog tool answers");
+    let structured = result
+        .structured_content
+        .as_ref()
+        .expect("the catalog carries structured content");
+    // The descriptions exist in the bundle, and reach neither half of the reply.
+    let flat = structured.to_string();
+    assert!(!flat.contains("Revenue, in minor units."), "{flat}");
+    assert!(!flat.contains("Sales region."), "{flat}");
+    assert!(!flat.contains("description"), "{flat}");
+    // The omission is a fact the client reads, not one it infers from a missing field.
+    assert_eq!(structured["catalog_prose"], "omitted", "{flat}");
+    // And what a caller needs in order to ask a valid question is untouched.
+    assert_eq!(structured["metrics"][0]["name"], "revenue", "{flat}");
+    assert_eq!(
+        structured["metrics"][0]["dimensions"][0]["allowed_values"][0], "north",
+        "{flat}"
+    );
     let text = result
         .content
         .first()
         .and_then(rmcp::model::ContentBlock::as_text)
         .map(|block| block.text.clone())
         .expect("the catalog carries a text block");
-    // The descriptions exist in the bundle, and are deliberately absent here.
     assert!(!text.contains("Revenue, in minor units."), "{text}");
     assert!(!text.contains("Sales region."), "{text}");
     // The omission is stated, not silent.
     assert!(text.contains("NOT included"), "{text}");
     drop(omitted.cancel().await);
 
-    // And the default still quotes them in, so the two settings provably differ on one surface.
+    // And the default carries them in both halves, so the two settings provably differ and the
+    // omission is a control rather than an outage.
     let quoted = permitting(certified_service(), Permitted::every_capability(), CatalogProse::Quoted).await;
     let result = quoted.call_tool(describe()).await.expect("the catalog tool answers");
+    let structured = result
+        .structured_content
+        .as_ref()
+        .expect("the catalog carries structured content");
+    assert_eq!(
+        structured["metrics"][0]["description"], "Revenue, in minor units.",
+        "{structured}"
+    );
+    assert_eq!(structured["catalog_prose"], "quoted", "{structured}");
     let text = result
         .content
         .first()
@@ -522,4 +622,150 @@ async fn a_tool_this_server_does_not_have_is_not_found_rather_than_answered() {
     };
     assert_eq!(data.code, ErrorCode::METHOD_NOT_FOUND, "{data:?}");
     drop(client.cancel().await);
+}
+
+/// **F7, as a regression.** The configured number of questions execute at once, and the next one is
+/// shed rather than admitted.
+///
+/// The finding's own shape: nine questions asked of a server whose bound is the repository default,
+/// and the measurement is how many were inside `Surface::answer` at the same time. Before the bound
+/// existed the answer was nine - a temporary probe over this same fake and this same SDK printed
+/// `requested=9 simultaneously_inside_Surface_answer=9` - because the handler spawned a blocking
+/// task per call with nothing counting them.
+///
+/// **The bound is read off the settings and not written here**, so this asserts the CONFIGURED
+/// number rather than a number that happens to agree with one. Only the admission window is
+/// overlaid, and only so the shed call does not spend the default five seconds proving it waited.
+///
+/// The `n` questions are in flight and confirmed inside the port before the `n + 1`th asks: without
+/// that the test races the spawn, and a green run would mean the ninth arrived after a slot came
+/// free.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_configured_bound_is_what_executes_at_once_and_the_next_question_is_shed() {
+    let settings = settings("runtime:\n  admission_timeout_seconds: 1\n");
+    let bound = settings.runtime().max_concurrent_queries().count();
+    let window = settings.runtime().admission_timeout().duration();
+    let admission = Admission::from_settings(settings.runtime());
+    let (surface, holding) = testing::surface_that_can_be_held();
+    let client = Arc::new(
+        served(
+            surface,
+            Permitted::every_capability(),
+            CatalogProse::Quoted,
+            admission.clone(),
+        )
+        .await,
+    );
+    holding.arm();
+
+    let mut inflight = Vec::new();
+    for _ in 0..bound {
+        let client = Arc::clone(&client);
+        inflight.push(tokio::spawn(
+            async move { client.call_tool(ask(&a_certified_question())).await },
+        ));
+    }
+    assert!(
+        eventually(|| holding.inside() == bound).await,
+        "only {} of {bound} questions reached the port",
+        holding.inside()
+    );
+    assert_eq!(admission.free(), 0, "the bound was not taken by the questions inside it");
+
+    // The `n + 1`th, with every slot held.
+    let began = Instant::now();
+    let shed = client
+        .call_tool(ask(&a_certified_question()))
+        .await
+        .expect("a shed call is a tool result and not a protocol error");
+    let waited = began.elapsed();
+
+    // Released before the assertions, so a failing one does not leave the blocking pool holding the
+    // runtime open for the fake's own cap.
+    holding.release();
+    for held in inflight {
+        let answered = held
+            .await
+            .expect("the calling task ran")
+            .expect("a held question is answered once it is released");
+        assert_ne!(answered.is_error, Some(true), "{answered:?}");
+    }
+
+    assert_eq!(
+        holding.peak(),
+        bound,
+        "{} questions were inside the port at once against a bound of {bound}",
+        holding.peak()
+    );
+    // Not a refusal and not a protocol error: the third channel, with the one thing an agent can act
+    // on. A shed question was never judged, so nothing about it is a governance result.
+    assert_eq!(shed.is_error, Some(true), "{shed:?}");
+    let text = text_of(&shed);
+    assert!(text.contains("ask again shortly"), "{text}");
+    assert!(shed.structured_content.is_none(), "{shed:?}");
+    // Bounded by the admission window, which is what stops the queue in front of the bound from
+    // being a second unbounded thing.
+    assert!(waited >= window, "shed before its window elapsed: {waited:?}");
+    assert!(waited < window * 10, "the wait was not bounded by the window: {waited:?}");
+}
+
+/// **The other half, and the one a permit released at the wrong moment would fail.** A caller that
+/// goes away does not hand back the slot the work it started is still holding.
+///
+/// `tokio` documents that a started blocking task cannot be aborted, so a question already on the
+/// pool runs to completion whatever the peer is told. If the permit belonged to the future waiting
+/// for that answer, the future being dropped would hand a slot back while the question it started
+/// was still running - a bound on callers wearing the shape of a bound on work, which is worse than
+/// no bound because it reads as a control. So the permit is moved into the closure, and this is the
+/// assertion that says so.
+///
+/// **It drives `super::answer` and not the SDK's dispatch, and that is a limit rather than a
+/// shortcut.** `rmcp` 3.1.4 answers a `notifications/cancelled` by cancelling a token this handler
+/// does not read, and spawns each request as a detached task - so neither a cancelled call nor a
+/// closed session drops the future that is waiting for an answer. Dropping one is therefore
+/// something a test has to do itself: aborting the task is what a request timeout does to the same
+/// future on the HTTP surface, where a `tower` layer drops it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_holds() {
+    let admission = admission("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n");
+    let (surface, holding) = testing::surface_that_can_be_held();
+    let service = Arc::new(surface);
+    holding.arm();
+
+    let call = tokio::spawn({
+        let service = Arc::clone(&service);
+        let admission = admission.clone();
+        async move { super::answer(&service, &admission, a_query()).await }
+    });
+    assert!(
+        eventually(|| holding.inside() == 1).await,
+        "the question never reached the port"
+    );
+    assert_eq!(admission.free(), 0, "the slot was never taken");
+
+    // The caller gives up. Awaiting the handle is the synchronisation point: it returns once the
+    // task has actually been dropped, so anything the future owned has been released by here.
+    call.abort();
+    let gone = call.await.expect_err("an aborted call does not answer");
+    assert!(gone.is_cancelled(), "{gone:?}");
+
+    // THE assertion. The worker is still inside the port and the slot is still gone.
+    assert_eq!(holding.inside(), 1, "the worker left the port when its caller did");
+    assert_eq!(
+        admission.free(),
+        0,
+        "the abandoned call handed its slot back while the work it started was still running"
+    );
+    // And the consequence, which is the whole point of holding it: nothing else may start on top of
+    // work that is still running.
+    let shed = super::answer(&service, &admission, a_query()).await;
+    assert_eq!(shed.is_error, Some(true), "a second question ran on top of the first");
+
+    // Handed back when the WORK finishes, and not before.
+    holding.release();
+    assert!(
+        eventually(|| admission.free() == 1).await,
+        "the slot never came back after the work finished"
+    );
+    assert_eq!(holding.inside(), 0);
 }

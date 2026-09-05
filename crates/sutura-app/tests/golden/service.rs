@@ -446,6 +446,22 @@ fn a_question_carrying_sql_is_an_error_and_not_a_dropped_field() {
 }
 
 #[test]
+fn a_key_inside_a_range_is_an_error_and_not_a_dropped_field() {
+    // The same promise one level down, where it did not hold: `TimeRange` deserializes through a
+    // private input shape that carried no `deny_unknown_fields`, so a key written inside `range:`
+    // was the one key in a question that was discarded in silence. `ends:` rather than `sql:`
+    // because a typo is what actually arrives - the question above still deserialized cleanly and
+    // was answered over June, with the author's intended end date on the floor.
+    //
+    // Asserted over YAML as well as over the DataHub crate's JSON because they are different
+    // deserializers: `deny_unknown_fields` is honoured by the Deserializer, so serde_norway's
+    // behaviour is not implied by serde_json's. Not a second statement of one fact.
+    let typo = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\n  ends: 2026-08-01\n";
+    let err = serde_norway::from_str::<Query>(typo).expect_err("a key inside a range is not a field of a range");
+    assert!(err.to_string().contains("ends"), "{err}");
+}
+
+#[test]
 fn a_range_with_no_end_is_not_a_range() {
     // The reason there is no `RefusalReason::TimeRangeUnbounded`: an unbounded range does not
     // deserialize, so the refusal would be unprovokable and a variant with no test that can reach
@@ -457,6 +473,102 @@ fn a_range_with_no_end_is_not_a_range() {
     // error, provoked by `refused-range-too-long.yaml` and pinned to the day above.
     let unbounded = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n";
     drop(serde_norway::from_str::<Query>(unbounded).expect_err("a range without an end is not a range"));
+}
+
+#[test]
+fn a_dimension_named_like_the_remote_join_column_still_answers() {
+    // **`telekom/sutura#325`'s F2, from the compiler through the combiner.** The splitter labelled
+    // the column the two legs join on with the physical remote join column's TEXT, and put it beside
+    // the public dimension labels in the same leg result. `customer_key` is a legal dimension name,
+    // so a metric declaring one - backed by a different column - projected two fact columns under one
+    // label. The compiler and the combiner reported it as:
+    //
+    // ```text
+    // fact key labels: ["customer_key", "customer_key"]
+    // Err(DuplicateLabels { side: "fact", label: "customer_key" })
+    // ```
+    //
+    // The constraint the fix has to respect is that the DIMENSION stays legal: an internal naming
+    // rule must not become a restriction on what a question may ask for. So the internal labels moved
+    // into a namespace no identifier can spell, and this test asks the question that used to collide.
+    //
+    // Through the real splitter and the real combiner, because that pair is the defect: the domain's
+    // own suite hands `combine` hand-built leg results, so nothing there can see a label the SPLITTER
+    // chose. Executing the legs is `#325`'s F5 and a separate slice; the rows here are the identity
+    // fixture that shows the join found its column.
+    use sutura_domain::pinned::SemanticCatalog as _;
+    use sutura_domain::warehouse::{RowSet, Value};
+
+    let split = crate::support::two_source_catalog()
+        .load()
+        .expect("a two-source catalog can be built");
+    let asked = Query::new(
+        sutura_domain::model::MetricName::parse("recurring_revenue").expect("a name"),
+        sutura_domain::model::Grain::Month,
+        crate::support::june_range(),
+        vec![
+            sutura_domain::model::DimensionName::parse("customer_key").expect("a name"),
+            sutura_domain::model::DimensionName::parse("region").expect("a name"),
+        ],
+        Vec::new(),
+    );
+    let compiled = compile(&asked, &split).expect("this is a plan, not an error");
+    let sutura_semantic::Compiled::Federated { plan } = compiled else {
+        panic!("a two-source question should federate");
+    };
+
+    // One fact row and one lookup row that join, fed back under each leg's OWN labels - which is
+    // what a data system would return them under. The measure is asserted, so a combine that lost
+    // the link column could not pass by answering no rows.
+    let fact = RowSet::new(
+        plan.fact().result_labels(),
+        vec![vec![
+            Value::Text("s1".into()),
+            Value::Text("c1".into()),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]],
+    )
+    .expect("a fact result under the fact leg's own labels");
+    let lookup = RowSet::new(
+        plan.lookup().result_labels(),
+        vec![vec![Value::Text("c1".into()), Value::Text("north".into())]],
+    )
+    .expect("a lookup result under the lookup leg's own labels");
+
+    let answer = plan
+        .combine(&fact, &lookup, 1 << 20)
+        .expect("a question whose dimension is named like the remote join column still combines");
+    assert_eq!(
+        answer.columns(),
+        &["customer_key", "region", "period", "recurring_revenue"],
+        "the answer's columns are the question's, not the scheme's"
+    );
+    assert_eq!(
+        answer.rows(),
+        &[vec![
+            Value::Text("s1".into()),
+            Value::Text("north".into()),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]]
+    );
+
+    // And the labels themselves, which is the report the combine's refusal is downstream of: two
+    // columns under one label in either leg, and a public dimension that lost its own name.
+    for (side, labels) in [("fact", fact.columns()), ("lookup", lookup.columns())] {
+        let distinct: std::collections::BTreeSet<&String> = labels.iter().collect();
+        assert_eq!(
+            distinct.len(),
+            labels.len(),
+            "the {side} leg projects two columns under one label: {labels:?}"
+        );
+    }
+    assert!(
+        fact.columns().contains(&String::from("customer_key")),
+        "the public dimension keeps its own name: {:?}",
+        fact.columns()
+    );
 }
 
 #[test]

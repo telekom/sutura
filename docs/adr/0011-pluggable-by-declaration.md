@@ -260,7 +260,7 @@ impersonation it has no way to perform.
   does not. Everything else in this record follows from wanting that one property to be unrepresentable
   rather than reviewed.
 - **What of this record is scheduled, and what is not.** Only the data half is:
-  [the implementation plan](../implementation-plan.md) carries `feat/source-registry` for the per-source
+  `docs/implementation-plan.md` carries `feat/source-registry` for the per-source
   mode and its boot check, and `feat/conformance-packs` for the declaration that selects packs. The
   metadata half - a second metadata connector, the assembler over several of them, and the contribution
   manifest the digest section decides - is in **no branch in that stack**, and the plan's own thesis
