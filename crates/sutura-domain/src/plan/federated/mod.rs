@@ -452,21 +452,29 @@ impl LegIndexes {
     }
 }
 
-/// Every fact row that carries a link value, keyed by that value.
+/// Every fact row, split by whether its link value can match a lookup row at all.
 ///
-/// A `Null` link never joins and a real link is refused by the float-key rule; both fall through.
-fn facts_by_link<'a>(fact: &'a RowSet, fact_join: usize) -> Result<FactByLink<'a>, FederatedFailure> {
-    let mut by_link: FactByLink<'a> = BTreeMap::new();
+/// A `Null` link matches nothing - `NULL = NULL` is not true in SQL - so a null-keyed fact row is
+/// **unmatched by construction** rather than unmatched by lookup, and the join kind decides it
+/// exactly as it decides an unmatched non-null key: retained with null remote keys under LEFT,
+/// dropped under INNER. Dropping it here instead lost the row and its measure under BOTH kinds,
+/// which is the defect this shape exists so that no caller can reintroduce - a row that reaches
+/// neither half does not exist. A real link is refused by the float-key rule before either.
+fn fact_rows(fact: &RowSet, fact_join: usize) -> Result<FactRows<'_>, FederatedFailure> {
+    let mut rows = FactRows {
+        linked: BTreeMap::new(),
+        unlinkable: Vec::new(),
+    };
     for row in fact.rows() {
         let Some(link) = row.get(fact_join) else {
             continue;
         };
-        let Some(key) = link_key(link)? else {
-            continue;
-        };
-        by_link.entry(key).or_default().push(row);
+        match link_key(link)? {
+            Some(key) => rows.linked.entry(key).or_default().push(row),
+            None => rows.unlinkable.push(row),
+        }
     }
-    Ok(by_link)
+    Ok(rows)
 }
 
 /// The remote keys each link value maps to, refusing a link with more than one lookup row.
@@ -524,7 +532,7 @@ impl FederatedPlan {
         distinct_columns(lookup, "lookup")?;
 
         let indexes = LegIndexes::resolve(self, fact, lookup)?;
-        let fact_by_link = facts_by_link(fact, indexes.fact_join)?;
+        let facts = fact_rows(fact, indexes.fact_join)?;
         let lookup_by_link = lookups_by_link(lookup, indexes.lookup_join, &indexes.lookup_columns)?;
 
         let mut budget = ByteBudget::new(byte_budget);
@@ -533,7 +541,7 @@ impl FederatedPlan {
             + self.measure_label.len() as u64;
         budget.add(column_bytes, byte_budget)?;
 
-        let groups = self.group_facts(&fact_by_link, &lookup_by_link, &indexes, &mut budget, byte_budget)?;
+        let groups = self.group_facts(&facts, &lookup_by_link, &indexes, &mut budget, byte_budget)?;
 
         // Re-aggregate each leaf across its group, then walk the divide tree.
         let mut rows: Vec<Vec<Value>> = Vec::with_capacity(groups.len());
@@ -573,50 +581,77 @@ impl FederatedPlan {
     ///
     /// This is the join and the grouping, kept out of [`FederatedPlan::combine`] so one function does
     /// not carry both the whole loop and the budget.
+    ///
+    /// **Both halves of [`FactRows`] are walked, and the second is why.** A keyed row with no lookup
+    /// row and a null-keyed row that could never have one are the same unmatched outcome, so both go
+    /// through [`FederatedPlan::project`] with no remote rows and `include_unmatched` decides them
+    /// together. A null-keyed row is never MATCHED to a null-linked lookup row: `lookups_by_link`
+    /// keys nothing under a null, so the lookup side of that pair does not exist to be found.
     fn group_facts(
         &self,
-        fact_by_link: &FactByLink<'_>,
+        facts: &FactRows<'_>,
         lookup_by_link: &RemoteByLink,
         indexes: &LegIndexes,
         budget: &mut ByteBudget,
         byte_budget: u64,
     ) -> Result<GroupMap, FederatedFailure> {
-        let mut groups: BTreeMap<Vec<String>, Group> = BTreeMap::new();
-        for (link_key, fact_rows) in fact_by_link {
-            let remote_rows: Vec<Vec<Value>> = match lookup_by_link.get(link_key) {
-                Some(rows) => rows.clone(),
-                None if self.include_unmatched => vec![vec![Value::Null; indexes.lookup_columns.len()]],
-                None => continue,
-            };
-            for fact_row in fact_rows {
-                let bucket_cell = cell(fact_row, indexes.bucket, "fact", self.bucket.label())?.clone();
-                let leaves: Vec<Value> = indexes
-                    .leaf_indexes
-                    .iter()
-                    .zip(&indexes.leaf_labels)
-                    .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned().unwrap_or(Value::Null))
-                    .collect();
-                for remote in &remote_rows {
-                    let mut cells = Vec::with_capacity(self.keys.len() + 1);
-                    for key in &self.keys {
-                        cells.push(indexes.read_cell(key, fact_row, remote)?);
-                    }
-                    cells.push(bucket_cell.clone());
-                    budget.add(cells.iter().map(value_bytes).sum(), byte_budget)?;
-                    budget.add(leaves.iter().map(value_bytes).sum(), byte_budget)?;
-                    let map_key: Vec<String> = cells.iter().map(key_cell_str).collect();
-                    groups
-                        .entry(map_key)
-                        .or_insert_with(|| Group {
-                            cells: cells.clone(),
-                            leaves: Vec::new(),
-                        })
-                        .leaves
-                        .push(leaves.clone());
+        let mut groups: GroupMap = BTreeMap::new();
+        for (link_key, rows) in &facts.linked {
+            self.project(rows, lookup_by_link.get(link_key), indexes, budget, byte_budget, &mut groups)?;
+        }
+        self.project(&facts.unlinkable, None, indexes, budget, byte_budget, &mut groups)?;
+        Ok(groups)
+    }
+
+    /// Project one link value's fact rows against the remote rows they joined to.
+    ///
+    /// `matched` is `None` for a fact row with no lookup row, whether because its key found none or
+    /// because it had no key: LEFT projects it once against null remote keys, INNER drops it. The
+    /// matched rows are BORROWED - the join copies a remote row into an answer group and nowhere
+    /// else, which is the only place `docs/adr/0009`'s working set may grow.
+    fn project(
+        &self,
+        fact_rows: &[&Vec<Value>],
+        matched: Option<&RemoteRows>,
+        indexes: &LegIndexes,
+        budget: &mut ByteBudget,
+        byte_budget: u64,
+        groups: &mut GroupMap,
+    ) -> Result<(), FederatedFailure> {
+        let unmatched = [vec![Value::Null; indexes.lookup_columns.len()]];
+        let remote_rows: &[Vec<Value>] = match matched {
+            Some(rows) => rows,
+            None if self.include_unmatched => &unmatched,
+            None => return Ok(()),
+        };
+        for fact_row in fact_rows {
+            let bucket_cell = cell(fact_row, indexes.bucket, "fact", self.bucket.label())?.clone();
+            let leaves: Vec<Value> = indexes
+                .leaf_indexes
+                .iter()
+                .zip(&indexes.leaf_labels)
+                .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned().unwrap_or(Value::Null))
+                .collect();
+            for remote in remote_rows {
+                let mut cells = Vec::with_capacity(self.keys.len() + 1);
+                for key in &self.keys {
+                    cells.push(indexes.read_cell(key, fact_row, remote)?);
                 }
+                cells.push(bucket_cell.clone());
+                budget.add(cells.iter().map(value_bytes).sum(), byte_budget)?;
+                budget.add(leaves.iter().map(value_bytes).sum(), byte_budget)?;
+                let map_key: Vec<String> = cells.iter().map(key_cell_str).collect();
+                groups
+                    .entry(map_key)
+                    .or_insert_with(|| Group {
+                        cells: cells.clone(),
+                        leaves: Vec::new(),
+                    })
+                    .leaves
+                    .push(leaves.clone());
             }
         }
-        Ok(groups)
+        Ok(())
     }
 }
 
@@ -660,14 +695,32 @@ fn link_key(value: &Value) -> Result<Option<String>, FederatedFailure> {
     }
 }
 
+/// The remote-key rows one link value maps to.
+///
+/// A named alias because it appears in a signature the complexity threshold in `clippy.toml`
+/// rejects spelled out, and naming it says which of the two `Vec`s is the row.
+type RemoteRows = Vec<Vec<Value>>;
+
 /// One link value's remote-key rows.
-type RemoteByLink = BTreeMap<String, Vec<Vec<Value>>>;
+type RemoteByLink = BTreeMap<String, RemoteRows>;
 
 /// The fact rows that share one link value, addressed by reference so the join clones nothing.
 ///
 /// A link value is shared by several fact rows (one per local-key group), each still owned by the
 /// fact result this function borrows for its own duration.
 type FactByLink<'a> = BTreeMap<String, Vec<&'a Vec<Value>>>;
+
+/// Every fact row of a combine, in the two groups the join treats differently.
+///
+/// Two fields rather than one map, because *no lookup row for this key* and *no key at all* are
+/// the same OUTCOME reached two ways, and a map keyed by link value cannot hold the second. See
+/// [`fact_rows`] for why the second is unmatched rather than absent.
+struct FactRows<'a> {
+    /// Rows whose link value is a key, grouped by it.
+    linked: FactByLink<'a>,
+    /// Rows whose link value is null, so no key exists to look up.
+    unlinkable: Vec<&'a Vec<Value>>,
+}
 
 /// One final answer's group: its key cells (as they should appear in the answer) and every fact
 /// row's leaf values that joined to it.

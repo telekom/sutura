@@ -738,3 +738,103 @@ fn a_plan_with_two_legs_on_one_source_does_not_construct() {
     );
     assert!(matches!(plan, Err(FederatedPlanError::NotFact { .. })));
 }
+
+/// One fact row: a product family, a link value, and the sum leaf.
+fn keyed_fact_row(family: &str, link: Value, measure: i64) -> Vec<Value> {
+    vec![
+        Value::Text(family.into()),
+        link,
+        Value::Text("2026-06".into()),
+        Value::Integer(measure),
+    ]
+}
+
+#[test]
+fn the_join_kind_decides_a_null_fact_key_the_way_it_decides_an_unmatched_one() {
+    // **The cross-product the two null tests above missed between them.** One covered an unmatched
+    // NON-null key under LEFT and one a null key under INNER, so the cell neither asked - a null key
+    // under LEFT - dropped the fact row and its measure with it, under a join kind whose whole
+    // promise is that an unmatched fact row survives.
+    //
+    // A null link matches nothing (`NULL = NULL` is not true in SQL), so a null-keyed fact row is
+    // UNMATCHED, and the join kind is what decides it: retained with null remote keys under LEFT,
+    // dropped under INNER. The lookup result carries a null-linked row of its own, so a fix that
+    // retained the fact row by MATCHING it to that row would answer `nowhere` here instead of null.
+    //
+    // Each answer row is distinguished by its first key, so this assertion is independent of where
+    // the comparator places a null - a separate contract, asserted separately.
+    let facts = fact(vec![
+        keyed_fact_row("matched", Value::Text("c1".into()), 100),
+        keyed_fact_row("unmatched", Value::Text("c9".into()), 200),
+        keyed_fact_row("null_key", Value::Null, 400),
+    ]);
+    let lookup = lookup(vec![
+        vec![Value::Text("c1".into()), Value::Text("north".into())],
+        vec![Value::Null, Value::Text("nowhere".into())],
+    ]);
+
+    let left = sum_plan(true)
+        .combine(&facts, &lookup, UNBOUNDED)
+        .expect("a left join combines");
+    assert_eq!(
+        left.rows(),
+        &[
+            vec![
+                Value::Text("matched".into()),
+                Value::Text("north".into()),
+                Value::Text("2026-06".into()),
+                Value::Integer(100),
+            ],
+            vec![
+                Value::Text("null_key".into()),
+                Value::Null,
+                Value::Text("2026-06".into()),
+                Value::Integer(400),
+            ],
+            vec![
+                Value::Text("unmatched".into()),
+                Value::Null,
+                Value::Text("2026-06".into()),
+                Value::Integer(200),
+            ],
+        ],
+        "a left join retains a null-keyed fact row with its measure, unmatched"
+    );
+
+    let inner = sum_plan(false)
+        .combine(&facts, &lookup, UNBOUNDED)
+        .expect("an inner join combines");
+    assert_eq!(
+        inner.rows(),
+        &[vec![
+            Value::Text("matched".into()),
+            Value::Text("north".into()),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]],
+        "an inner join drops both unmatched shapes, the null-keyed one included"
+    );
+}
+
+#[test]
+fn a_null_key_and_an_unmatched_key_re_aggregate_into_one_unmatched_group() {
+    // The measure is what this asserts and a row count could not: both rows land in the one group
+    // whose remote keys are null, so the answer is their SUM. Dropping the null-keyed row answered
+    // 200 under the metric's own certified name - one row, right shape, wrong number.
+    let facts = fact(vec![
+        keyed_fact_row("A", Value::Text("c9".into()), 200),
+        keyed_fact_row("A", Value::Null, 400),
+    ]);
+    let combined = sum_plan(true)
+        .combine(&facts, &one_lookup(), UNBOUNDED)
+        .expect("a left join combines");
+    assert_eq!(
+        combined.rows(),
+        &[vec![
+            Value::Text("A".into()),
+            Value::Null,
+            Value::Text("2026-06".into()),
+            Value::Integer(600),
+        ]]
+    );
+}
