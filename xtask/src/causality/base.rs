@@ -30,7 +30,7 @@
 //! about a tree that built fine, which is how a missing status word turned into a wrong sentence.
 
 use crate::Verdict;
-use crate::causality::scoped::AddedTest;
+use crate::causality::place::AddedTest;
 
 /// What the base run actually told us.
 #[derive(Debug, PartialEq, Eq)]
@@ -207,7 +207,12 @@ fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 ///
 /// `retried` only changes what the operator is told: after a second attempt, "not separable at
 /// file level" is no longer the likely explanation, because the tree WAS coherently at base.
-pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) -> Verdict {
+///
+/// `measured` is `super::coverage`'s sentence, and it rides on the PASSING verdict specifically:
+/// that is the line a handoff cites, and it read as a statement about the change while the run
+/// covered a subset of the tests the branch added. The failing arms print it too, from `prove`,
+/// before either run - they are asking for something rather than reporting coverage.
+pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, measured: &str) -> Verdict {
     match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
@@ -223,7 +228,7 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
                 println!("    red on base: {one}");
             }
             println!("{}", tail(output, 12));
-            println!("xtask test-causality: ok - red on base, green on head");
+            println!("xtask test-causality: ok - red on base, green on head ({measured})");
             Verdict::Pass
         }
         BaseOutcome::RedOutsideTheDiff { ref failed } => {
@@ -257,6 +262,7 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
             println!("It got past the compiler, so this is not a build failure: a runner that died");
             println!("before reporting, a linker signal, or a status this gate does not recognise.");
             println!("Nothing is proven either way - state the evidence in the handoff.");
+            println!("This exit PASSES and {measured}, so a green step over it is not coverage.");
             Verdict::Pass
         }
         BaseOutcome::DidNotCompile => {
@@ -282,6 +288,13 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
                 println!("Usually it means the change is not separable at file level: the test and");
                 println!("what it needs arrived together. State the evidence in the handoff.");
             }
+            // WHY THIS SAYS SO OUT LOUD. The arm returns `Verdict::Pass`, which is exit 0, and a
+            // required CI step reads the exit code and nothing else - so this shape has been
+            // cited as red-before-green evidence on a finished branch that had none. Making it
+            // FAIL instead is an architecture decision with a real cost, because the HARNESS MOVE
+            // above is a legitimate change that lands here every time; until that is decided, the
+            // sentence is what a reader gets.
+            println!("This exit PASSES and {measured}, so a green step over it is not coverage.");
             Verdict::Pass
         }
     }
@@ -310,7 +323,8 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 mod tests {
     use super::{BaseOutcome, classify_base, missing_module_file, names_no_tests, tail};
     use crate::causality::fixtures::{changed, manifest, tree};
-    use crate::causality::scoped::{AddedTest, Scan};
+    use crate::causality::place::AddedTest;
+    use crate::causality::scoped::Scan;
 
     /// The tests under test, as if one file in `package` had added each of `names`.
     ///
