@@ -106,13 +106,22 @@ where
     );
 }
 
-/// What the digest is FOR.
+/// **Repeat-load determinism, and that is all it is.**
 ///
-/// Taken over the canonical form of the parsed definitions, so whitespace and key order are
-/// not part of it. Over the bytes on disk, a reformat would look like a changed definition and
-/// nobody would trust it. The other half is asserted once, off the axis, in
-/// `dropping_prose_moves_the_digest`.
-fn reads_the_same_content_to_the_same_digest<C>()
+/// It loads the SAME bytes twice and compares the two digests, so what it can see is an adapter that
+/// answers differently on a second read - a hash-ordered collection, a timestamp, a source of
+/// randomness. It is on the universal axis because every catalog owes that, documents or not.
+///
+/// **Its cell was called `reformatting_a_document_does_not_move_the_digest` and could not see a
+/// reformat at all.** Reformatting is a claim about two DIFFERENT inputs; this compares one input
+/// with itself, and would pass for an adapter that hashed raw source bytes - the one shape the claim
+/// rules out. Both mutations below `A_DIFFERENT_MEANING` leave this cell GREEN, which is the
+/// measurement rather than the argument. That name now belongs to
+/// [`reformatting_a_document_does_not_move_the_digest`], off the axis, which writes the same
+/// definitions twice with different layout and puts both through the parser; the other direction is
+/// [`changing_what_a_definition_means_moves_the_digest`] and `dropping_prose_moves_the_digest`
+/// beside it.
+fn reads_the_same_documents_twice_to_the_same_digest<C>()
 where
     C: CatalogUnderTest,
 {
@@ -237,8 +246,11 @@ impl GoldenCatalog for sutura_catalog_local::LocalCatalog {}
 /// A catalog cell that holds for EVERY registered catalog, golden or declaring.
 ///
 /// These three are what register successfully for a partial model: pinning whatever loads, that what
-/// produced matches what the adapter declared, and that its digest is a function of content. They
-/// make no assumption about a complete model, which is what lets a declaring adapter hold them.
+/// produced matches what the adapter declared, and that a second load of the same bytes gives the
+/// same digest. They make no assumption about a complete model, which is what lets a declaring
+/// adapter hold them - and the third one deliberately claims only determinism, because *the digest
+/// is a function of CONTENT* is a claim about two different inputs and a declaring adapter reads no
+/// document a reader could reformat.
 macro_rules! universal {
     ($adapter:ty) => {
         #[test]
@@ -252,8 +264,8 @@ macro_rules! universal {
         }
 
         #[test]
-        fn reformatting_a_document_does_not_move_the_digest() {
-            super::reads_the_same_content_to_the_same_digest::<$adapter>();
+        fn loading_the_same_documents_twice_gives_the_same_digest() {
+            super::reads_the_same_documents_twice_to_the_same_digest::<$adapter>();
         }
     };
 }
@@ -355,6 +367,130 @@ fn dropping_prose_moves_the_digest() {
         from_markdown.digest(),
         without_prose.digest(),
         "prose is part of what is certified, so dropping it must move the digest"
+    );
+}
+
+// ----------------------------------------------- what a reformat is, at the parser boundary ---
+//
+// `canonical_form` in the domain states the property: *reformatting a document, reordering two files
+// or rewording a comment must not move the digest; changing what a metric means must.* Nothing asked
+// it. The universal cell above loads one directory twice, which is determinism, and it carried the
+// reformatting NAME - a test that would pass for an adapter hashing raw bytes, which is the one thing
+// the sentence rules out.
+//
+// So the question is asked here, with two catalogs that differ in LAYOUT and in nothing else, both
+// read through `sutura-catalog-local` - a composition root's own adapter, so the frontmatter splitter
+// and the YAML parser are in the path rather than bypassed by building `Definitions` in memory.
+//
+// Off the axis, and not for the usual reason: a DECLARING adapter reads recorded metadata and has no
+// document anybody could reformat, so this cannot be a cell of a matrix that includes one. It is a
+// claim about a document-backed catalog, which is what `sutura-catalog-local` is.
+
+/// The same two definitions, as a person would write them.
+///
+/// A model and one metric over it, which is the smallest catalog that carries a measure, a grain and
+/// prose - a metric alone fails `Definitions::assemble` for a reason this test is not about.
+const AS_WRITTEN: [(&str, &str); 2] = [
+    (
+        "orders.md",
+        "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents, order_date, channel]\n---\nThe order fact table.\n",
+    ),
+    (
+        "revenue.md",
+        "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: channel\n    column: channel\n    values: [online, retail]\n    description: Where the order was placed.\n---\nNet revenue, in minor units.\n",
+    ),
+];
+
+/// The same catalog, REFORMATTED, and every difference here is layout.
+///
+/// Five kinds at once, because they are five ways for a digest to become formatting-sensitive and a
+/// fixture that varied one would leave the other four unasked:
+///
+/// 1. **Key order** in the frontmatter is reversed.
+/// 2. **Flow against block style** - `[a, b]` becomes a `-` list, and the inline `{ }` mapping
+///    becomes a nested one with its own two keys swapped.
+/// 3. **Quoting** - a plain scalar becomes a quoted one.
+/// 4. **Whitespace around prose**, in both of the places prose arrives from - blank lines inside the
+///    frontmatter and around the body, and a padded quoted `description:` scalar. Both are
+///    identical after trimming, which is what makes this layout rather than content, and it is two
+///    dimensions rather than one because two different trims absorb them: the frontmatter splitter's
+///    for the body, `Description::parse`'s for the YAML scalar. A fixture with only the first cannot
+///    see the second removed.
+/// 5. **File names**, so the sorted walk reads the metric before the model rather than after. That is
+///    `canonical_form`'s *reordering two files*, and it is the one dimension no single-document
+///    fixture can carry.
+const REFORMATTED: [(&str, &str); 2] = [
+    (
+        "a_revenue.md",
+        "---\n\ndimensions:\n  - description: \"   Where the order was placed.   \"\n    values:\n      - online\n      - retail\n    column: channel\n    name: channel\ngrains:\n  - month\ntime_column: order_date\nmeasure:\n  simple:\n    column: amount_cents\n    aggregate: sum\nmodel: \"orders\"\nname: revenue\nkind: metric\n\n---\n\n\nNet revenue, in minor units.\n\n\n",
+    ),
+    (
+        "z_orders.md",
+        "---\ncolumns:\n  - amount_cents\n  - order_date\n  - channel\ntable: fct_order\nsource: \"local\"\nname: orders\nkind: model\n---\n\nThe order fact table.\n\n",
+    ),
+];
+
+/// The same layout as [`AS_WRITTEN`], and one thing MEANT differently: the measure sums nothing, it
+/// takes a minimum.
+///
+/// The control for the two above. Without it, a digest that had stopped covering measures at all
+/// would satisfy them both.
+const A_DIFFERENT_MEANING: [(&str, &str); 2] = [
+    AS_WRITTEN[0],
+    (
+        "revenue.md",
+        "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: min, column: amount_cents }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: channel\n    column: channel\n    values: [online, retail]\n    description: Where the order was placed.\n---\nNet revenue, in minor units.\n",
+    ),
+];
+
+/// Those documents on disk, loaded through the local catalog adapter, and its digest.
+///
+/// `CARGO_TARGET_DIR`'s test scratch rather than the system temp directory, which is
+/// `crates/sutura-cli/tests/declared_source.rs`'s reason and needs no dependency. Cleared on the way
+/// IN, so a failing run leaves its documents to read.
+fn digest_of(case: &str, documents: &[(&str, &str)]) -> String {
+    let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("reformatting-{case}"));
+    drop(std::fs::remove_dir_all(&root));
+    std::fs::create_dir_all(&root).expect("a scratch directory is creatable");
+    for &(file, document) in documents {
+        std::fs::write(root.join(file), document).expect("a scratch document is writable");
+    }
+    let name = sutura_domain::model::SourceName::parse("scratch").expect("a catalog name is a name");
+    let version = sutura_domain::pinned::DefinitionVersion::parse("reformatting-1").expect("a version is a version");
+    sutura_catalog_local::LocalCatalog::new(name, root, version)
+        .load()
+        .unwrap_or_else(|e| panic!("the {case} catalog does not load: {e}"))
+        .digest()
+        .as_str()
+        .to_owned()
+}
+
+/// **The claim `canonical_form` makes, asked of the parser.**
+///
+/// Two catalogs that mean the same thing and are written differently, both through the frontmatter
+/// splitter and the YAML parser, one digest. A digest sensitive to any of the five differences
+/// [`REFORMATTED`] carries fails here - which is what the universal cell's old name promised and
+/// could not deliver, because it read one directory twice.
+#[test]
+fn reformatting_a_document_does_not_move_the_digest() {
+    assert_eq!(
+        digest_of("as-written", &AS_WRITTEN),
+        digest_of("reformatted", &REFORMATTED),
+        "the same definitions written with different key order, style, quoting, blank lines and file \
+         names have to pin to one digest, or a reformat reads as a changed definition"
+    );
+}
+
+/// The other direction, and the reason the test above is not satisfied by a constant.
+///
+/// One aggregate changed, nothing else - same files, same layout, same prose. A digest that did not
+/// move would mean the snapshot said nothing about what a metric measures.
+#[test]
+fn changing_what_a_definition_means_moves_the_digest() {
+    assert_ne!(
+        digest_of("as-written-control", &AS_WRITTEN),
+        digest_of("a-different-meaning", &A_DIFFERENT_MEANING),
+        "the measure is part of what was certified, so changing the aggregate must move the digest"
     );
 }
 

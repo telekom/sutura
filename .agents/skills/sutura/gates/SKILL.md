@@ -358,6 +358,26 @@ therefore does not see.
   classification rather than the sweep's size:** a count goes green the moment a new gate is added,
   including one added without being classified, so it holds a number while the sentence the number
   serves rots.
+- **A TEST NAME is the cheapest place for this whole class to hide, and the golden suite carried
+  one.** `reformatting_a_document_does_not_move_the_digest` loaded ONE directory twice and compared
+  the two digests. Reformatting is a claim about two DIFFERENT inputs, so what it held was repeat-load
+  determinism - and it would pass for an adapter that hashed raw source bytes, which is the one shape
+  the claim rules out. Measured: with `Description::parse`'s trim removed, and again with the
+  frontmatter splitter handing the WHOLE document to the description, that cell stays green while the
+  new test comparing two differently-laid-out catalogs through the parser goes red. **The question
+  that catches it: does the test have TWO inputs, when the property is about two inputs?** Whatever
+  the name says, `assert_eq!(f(x), f(x))` is a determinism check.
+- **A COMPARATOR built on a display form erases what it was comparing, and it reached a live venue.**
+  Both differential legs compared cells through `Value::render`, so `Null` and the text `"null"`
+  compared equal, and so did `Integer(1)` and the text `"1"` - and the BigQuery acceptance leg held a
+  COPY of that function, so the rows it compares against a real dataset had the same hole. Two
+  transferable parts. **A canonical DISPLAY form is not an equality**: `render` exists so an anchor is
+  compared the same way everywhere, and reusing it for *are these two answers the same* throws away
+  the variant. And **a comparison policy copied into a second consumer is a control that will diverge
+  or be wrong twice**; `sutura_domain::warehouse::agreement` is the one policy now, with its own tests
+  and one mutation per property it holds. Its own limit is written at the feature switch: nothing
+  asserts a shipped artefact leaves the feature off, because `checks.shipped-features` reads crate
+  NAMES and the feature adds none.
 
 ## The causality gate, and how it can lie
 
