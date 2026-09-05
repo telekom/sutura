@@ -99,6 +99,14 @@ mod tests {
     /// the inversion is read as the wrong kind of thing. Neither page in `PAGES` nests a fence
     /// today, so this is what stops that being a property of the pages rather than of the parser -
     /// the same defect `xtask/src/docs/links.rs` carried over the whole docs tree.
+    ///
+    /// **NOT shared with the lexer that fixed it there, and the reason is structural.**
+    /// `xtask/src/markdown.rs` is `pub(crate)` in a binary-only package with no library target, so
+    /// nothing under `crates/` can reach it, and a dev-dependency pointing that way would invert
+    /// the layering the crate map exists to hold. It also answers the opposite question: `prose`
+    /// BLANKS every fenced block so a link scan cannot read code, where this file wants the fenced
+    /// blocks and nothing else. Two small lexers, one rule - record the delimiter and its length,
+    /// and refuse to answer over an unclosed block.
     fn delimiter(line: &str) -> Option<(char, usize)> {
         let trimmed = line.trim_start();
         for mark in ['`', '~'] {
