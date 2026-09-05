@@ -212,6 +212,12 @@ pub fn agree_on_content(left: &RowSet, right: &RowSet, real: RealTolerance) -> R
 ///
 /// A plan that emits `ORDER BY` claims an order, so two data systems answering one plan in two
 /// orders is a defect whatever the reason. Whether the plan claimed one is the caller's to know.
+///
+/// **Two limits, and both are why [`agree_on_content`] is called first rather than by convention.**
+/// This compares the SHAPE and not the labels, so two results of one width whose columns are named
+/// differently are compared position by position here and reported as a
+/// [`ContentDisagreement::Columns`] there. And a caller reaching only for this one gets no
+/// multiplicity check, because a positional comparison of equal-height results cannot express one.
 pub fn agree_on_order(left: &RowSet, right: &RowSet, real: RealTolerance) -> Result<(), OrderDisagreement> {
     if left.columns().len() != right.columns().len() || left.rows().len() != right.rows().len() {
         return Err(OrderDisagreement::Shape {
