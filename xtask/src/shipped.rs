@@ -7,9 +7,10 @@
 //! shortfall, which reads like the mechanism and is not: both `want` and the files it counts are
 //! driven by the SAME `BINARIES` string, and `build-artefacts` loops over that same input. Add a
 //! third record to `nix/shipped.nix` and touch nothing else, and that check still sees
-//! `want == have`, every job is green, and the new binary is in no release. `ci.yml`'s own
-//! `BINARIES` literal has the same shape: the cross matrix proves that the names IT holds link,
-//! and says nothing about the names nix ships.
+//! `want == have`, every job is green, and the new binary is in no release. The cross link
+//! matrix's own `BINARIES` literal has the same shape: it proves that the names IT holds link,
+//! and says nothing about the names nix ships. Which workflow that is, is
+//! [`refusal::hosting`]'s answer and not a sentence here - see it for what naming the file cost.
 //!
 //! That is the omission class `github.com/telekom/sutura#111` was - the release derivations named
 //! the binary that existed before `sutura-serve` did, and nothing compared that name to anything -
@@ -45,19 +46,22 @@
 //!
 //! # The second rule: a documented feature build is a probe, or it is unproven
 //!
-//! `nix/shipped.nix`'s `probeFeatures` decides which feature-on builds the four `cross` jobs LINK,
-//! and `docs/adr/0017` claims on that basis that *the documented feature-on source build is linked
-//! on every pull request*. The coupling that claim rests on was prose: a page tells a reader to run
+//! `nix/shipped.nix`'s `probeFeatures` decides which feature-on builds the four cross link legs
+//! LINK, and `docs/adr/0017` claims on that basis that *the documented feature-on source build is
+//! linked on every pull request*. The coupling that claim rests on was prose: a page tells a reader to run
 //! `cargo build --release -p sutura-cli --features bigquery`, and nothing said that `bigquery` had
 //! to appear in `probeFeatures`.
 //!
-//! **The step's own refusal cannot cover it, and that is why this rule is here.** `ci.yml` refuses
-//! an EMPTY probe manifest, which is equivalent to *the probe is gone* only because one binary
-//! declares no probe features. Declare one for `sutura-serve` and delete `"bigquery"` from
-//! `sutura-cli`'s, and the manifest is still non-empty: the job goes green, and the claim reverts
-//! to *assumed* with no signal at all. Found in review of this rule's own absence.
+//! **The step's own refusal cannot cover it, and that is why this rule is here.** The
+//! `feature-probes-` step refuses an EMPTY probe manifest, which is equivalent to *the probe is
+//! gone* only because one binary declares no probe features. Declare one for `sutura-serve` and
+//! delete `"bigquery"` from `sutura-cli`'s, and the manifest is still non-empty: the leg goes
+//! green, and the claim reverts to *assumed* with no signal at all. Found in review of this
+//! rule's own absence.
 
 use std::collections::BTreeMap;
+
+mod refusal;
 
 use crate::Verdict;
 use crate::repo;
@@ -131,7 +135,7 @@ pub(crate) struct Record {
     bin: String,
     /// The cargo package it is built from.
     package: String,
-    /// `probeFeatures`: which feature-on source builds the `cross` jobs link.
+    /// `probeFeatures`: which feature-on source builds the cross link legs link.
     probe_features: Vec<String>,
 }
 
@@ -504,7 +508,7 @@ fn unprobed(records: &[Record], documented: &[DocumentedBuild]) -> Reconciliatio
             if !record.probe_features.iter().any(|p| p == feature) {
                 problems.push(format!(
                     "{}:{} documents `cargo build -p {} --features {feature}`, and {SOURCE} does \
-                     not list `{feature}` in {}'s probeFeatures - so no `cross` job links it",
+                     not list `{feature}` in {}'s probeFeatures - so no link leg builds it",
                     build.page, build.line, build.package, record.bin
                 ));
             }
@@ -537,10 +541,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
+    let files = yaml_files(&root);
     let mut mismatches = Vec::new();
     let mut checked = 0_usize;
-    for (name, text) in yaml_files(&root) {
-        for set in spelled(&text) {
+    for (name, text) in &files {
+        for set in spelled(text) {
             checked = checked.saturating_add(1);
             if set.names != expected {
                 mismatches.push((name.clone(), set));
@@ -550,10 +555,38 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if checked == 0 {
         eprintln!("xtask check-shipped-binaries: FAILED - no shipped-binary literal in any workflow or action");
-        eprintln!("  `release.yml` and `ci.yml` each declare `BINARIES`, and the two build actions");
-        eprintln!("  carry it as an input default. Finding none means this gate is reading nothing.");
+        eprintln!(
+            "  Every path that builds the shipped set spells it again: `{}` in a workflow",
+            KEYS[0]
+        );
+        eprintln!(
+            "  `env`, `{}` as a build action's input default. Finding none across the {}",
+            KEYS[1],
+            files.len()
+        );
+        eprintln!("  file(s) under `.github/workflows` and `.github/actions` means this gate is");
+        eprintln!("  reading nothing rather than that the literals agree.");
         return Verdict::Fail;
     }
+
+    // FAIL CLOSED ON THE POINTER AS WELL AS ON THE DATA, and the second half is the one that was
+    // missing. `docs/adr/0017` rests its *which features are probed* claim on a step that refuses
+    // an empty manifest, and the remedy below sends a reader to that step. Delete the refusal and
+    // `while read` loops over nothing: a green leg that measured no feature-on build at all, under
+    // a remedy naming a file with no refusal in it. So the file is derived rather than written
+    // down, and a tree where no single workflow holds it is a verdict.
+    let Some(probe_refusal) = refusal::hosting(&files, &refusal::PROBE_REFUSAL) else {
+        eprintln!("xtask check-shipped-binaries: FAILED - no single workflow refuses an EMPTY probe manifest");
+        eprintln!(
+            "  Looked under `.github` for `{}` and `{}` in one file, and found",
+            refusal::PROBE_REFUSAL[0],
+            refusal::PROBE_REFUSAL[1]
+        );
+        eprintln!("  either none or several. Without that refusal a probe set emptied by a rename is a");
+        eprintln!("  green link leg that measured nothing - the dead gate `{SOURCE}` records - and the");
+        eprintln!("  remedy below has no file left to name.");
+        return Verdict::Fail;
+    };
 
     let documented = documented_pages(&root);
     let reconciliation = unprobed(&records(&source), &documented);
@@ -578,7 +611,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    // FAIL CLOSED, and this is the half `ci.yml`'s empty-manifest refusal cannot cover. If no
+    // FAIL CLOSED, and this is the half the `feature-probes-` step's own refusal cannot cover. If no
     // page documents a feature build of a shipped package, `probeFeatures` is reconciled against
     // nothing and `docs/adr/0017`'s claim that *the documented feature-on source build is linked*
     // has no referent left. A page reworded out of existence is a verdict, not a pass.
@@ -599,9 +632,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             eprintln!("  {problem}");
         }
         eprintln!();
-        eprintln!("  `ci.yml`'s probe step refuses an EMPTY manifest, which is not this: with one");
-        eprintln!("  binary still declaring a probe the manifest is non-empty, the four `cross` jobs");
-        eprintln!("  are green, and the build a reader is told to run is linked by nothing.");
+        eprintln!("  `{probe_refusal}`'s probe step refuses an EMPTY manifest, which is not this:");
+        eprintln!("  with one binary still declaring a probe the manifest is non-empty, every");
+        eprintln!("  `cross / link` leg is green, and the build a reader is told to run is linked by");
+        eprintln!("  nothing. The row belongs in `{SOURCE}`'s probeFeatures.");
         return Verdict::Fail;
     }
 
@@ -693,7 +727,7 @@ mod tests {
 
     #[test]
     fn a_documented_feature_the_probe_set_omits_is_linked_by_nothing() {
-        // The scenario `ci.yml`'s empty-manifest refusal CANNOT catch: a second binary keeps the
+        // The scenario the `feature-probes-` step's own refusal CANNOT catch: a second binary keeps the
         // manifest non-empty, so the job stays green while the documented build is probed by
         // nothing. RED before this rule existed, because nothing compared the two.
         let nix = concat!(
@@ -910,5 +944,15 @@ mod tests {
             }
         }
         assert!(seen >= 2, "found {seen} literal(s); the release path declares more than that");
+    }
+
+    #[test]
+    fn the_real_tree_holds_the_refusal_this_gates_remedy_names() {
+        // The pointer the gate PRINTS, against the tree that has to hold it. Its absence is what
+        // let two remedies go on naming `ci.yml` for a whole commit after the step left that file.
+        let root = crate::repo::root().expect("could not locate the repo");
+        let host = super::refusal::hosting(&super::yaml_files(&root), &super::refusal::PROBE_REFUSAL)
+            .expect("no single workflow refuses an EMPTY probe manifest, so the remedies name nothing");
+        assert!(host.starts_with(".github/workflows/"), "{host}");
     }
 }
