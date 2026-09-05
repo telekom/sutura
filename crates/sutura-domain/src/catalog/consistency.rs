@@ -37,10 +37,15 @@ pub struct Definitions {
 
 /// Why a set of definitions does not hold together.
 ///
-/// Every variant is a dangling reference of some kind. Catching them here, once, is what lets the
-/// resolver assume that a metric's model exists and that a dimension's column is real: without it
-/// each of those becomes a runtime branch on the query path, and the failure surfaces as a data
-/// system error rather than as a refusal.
+/// Most variants are a dangling reference of some kind, and the rest are two declarations that
+/// cannot both stand. Catching them here, once, is what lets the resolver assume that a metric's
+/// model exists and that a dimension's column is real: without it each of those becomes a runtime
+/// branch on the query path, and the failure surfaces as a data system error rather than as a
+/// refusal.
+///
+/// **One variant is raised by [`Metric::new`] and not by [`Definitions::assemble`]** -
+/// [`Self::DuplicateDimension`], about a pair the constructor is the last place that can see. It is
+/// in this enum anyway, so an adapter maps one type from both seams.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InconsistentDefinitions {
     #[error("model {model} is declared twice")]
@@ -49,6 +54,12 @@ pub enum InconsistentDefinitions {
     DuplicateMetric { metric: MetricName },
     #[error("relationship {relationship} is declared twice")]
     DuplicateRelationship { relationship: RelationshipName },
+    /// One metric declaring the same dimension twice.
+    ///
+    /// Raised by [`Metric::new`], which is the only place the pair is still visible; that
+    /// constructor's own note is where the argument lives.
+    #[error("metric {metric} declares dimension {dimension} twice")]
+    DuplicateDimension { metric: MetricName, dimension: DimensionName },
     #[error("metric {metric} names model {model}, which is not declared")]
     UnknownModel { metric: MetricName, model: ModelName },
     #[error("metric {metric} measures column {column}, which model {model} does not declare")]

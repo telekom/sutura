@@ -321,13 +321,18 @@ pub enum InvalidMetricDocument
 
 Why a metric document cannot become a metric.
 
-Only the things `sutura_domain::catalog::Definitions` cannot see, because by the time it runs
-the duplication has already been collapsed by the map it holds. Everything else is checked there,
-once, for every adapter.
+Only what belongs to the DOCUMENT: the two conversions this file performs that the domain's own
+constructors can refuse. Everything about whether a metric holds together is checked in
+`sutura_domain::catalog`, once, for every adapter - **including the duplicated dimension this
+enum used to carry.** That variant existed because `Metric::new` took a map, so the domain could
+not see the pair; it takes a vector now, and the refusal is
+`InconsistentDefinitions::DuplicateDimension`, which `Self::Inconsistent` carries. A copy of
+a check in one adapter is a check the other adapter does not have, which is exactly what
+happened.
 
 #### Variants
 
-- `DuplicateDimension`
+- `Inconsistent` - The domain refused the metric this document describes.
 
 #### Implements
 

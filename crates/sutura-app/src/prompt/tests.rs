@@ -12,7 +12,7 @@ mod column_zero;
 mod injection_corpus;
 mod refusal_corpus;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
@@ -161,10 +161,11 @@ fn definitions() -> Definitions {
         }],
         column(TIME_COLUMN),
         BTreeSet::from([Grain::Month, Grain::Day]),
-        BTreeMap::from([(dimension_name("region"), region), (dimension_name("tariff"), tariff)]),
+        vec![region, tariff],
         Some(Anchor::new(range, String::from("4711"))),
         description(HOSTILE),
-    );
+    )
+    .expect("these fixture dimensions are distinct");
     let headcount = Metric::new(
         metric_name("headcount"),
         ModelName::parse(MODEL).expect("a test model is a model"),
@@ -175,10 +176,11 @@ fn definitions() -> Definitions {
         Vec::new(),
         column(TIME_COLUMN),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         None,
         description("How many there were."),
-    );
+    )
+    .expect("no dimensions to duplicate");
     Definitions::assemble(vec![model], vec![], vec![revenue, headcount]).expect("the test bundle is consistent")
 }
 

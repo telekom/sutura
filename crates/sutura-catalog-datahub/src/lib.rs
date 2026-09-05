@@ -363,19 +363,22 @@ impl<R: AspectReader> DataHubCatalog<R> {
         let time_column = Self::identifier(content.time_column(), |raw| ColumnName::parse(raw), "column", metric.name())?;
         let grains = content.grains().iter().copied().collect();
         let required_filters = content.required_filters().to_vec();
-        let dimensions = content
+        // A vector, handed on as a vector. This used to key the sequence by name and `collect`,
+        // which kept the LAST of a duplicated pair in silence - the thing `SuturaContent`'s
+        // `dimensions` field says a sequence exists to prevent, and the thing the markdown adapter
+        // refused. `Metric::new` takes the vector now, so neither adapter can collapse the pair.
+        let dimensions: Vec<_> = content
             .dimensions()
             .iter()
             .cloned()
             .map(document::SuturaDimension::into_domain)
-            .map(|dimension| (dimension.name().clone(), dimension))
             .collect();
         let anchor = content.anchor().cloned().map(SuturaAnchor::into_domain);
         let description = Description::parse(content.description()).map_err(|cause| DataHubError::Description {
             on: metric.name().to_owned(),
             cause,
         })?;
-        Ok(Metric::new(
+        Metric::new(
             name,
             model,
             content.measure().clone(),
@@ -385,7 +388,8 @@ impl<R: AspectReader> DataHubCatalog<R> {
             dimensions,
             anchor,
             description,
-        ))
+        )
+        .map_err(|cause| DataHubError::Inconsistent { cause })
     }
 
     /// Parses one identifier, mapping the domain refusal into this adapter's typed error.

@@ -403,10 +403,11 @@ mod tests {
             Vec::new(),
             column("month"),
             BTreeSet::from([Grain::Month]),
-            std::collections::BTreeMap::new(),
+            Vec::new(),
             None,
             Description::default(),
-        );
+        )
+        .expect("no dimensions to duplicate");
         let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the certified content holds together");
         let declared = MetadataCapabilities::of(
             DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Metrics, DefinitionKind::Grains]),

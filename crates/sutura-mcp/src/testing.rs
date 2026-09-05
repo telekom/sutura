@@ -88,13 +88,11 @@ pub(crate) fn bundle() -> PinnedDefinitions {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::from([(
-            DimensionName::parse("region").expect("a test dimension is a dimension"),
-            region,
-        )]),
+        vec![region],
         Some(Anchor::new(june(), ANCHORED_VALUE.to_string())),
         description("Revenue, in minor units."),
-    );
+    )
+    .expect("one dimension cannot duplicate another");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),

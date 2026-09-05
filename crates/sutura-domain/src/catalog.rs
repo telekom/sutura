@@ -347,34 +347,67 @@ pub struct Metric {
     required_filters: Vec<RequiredFilter>,
     time_column: ColumnName,
     grains: BTreeSet<Grain>,
+    /// Keyed, because every reader asks it "is this dimension declared, and what is it". The
+    /// CONSTRUCTOR takes a vector - see [`Metric::new`] for why the two differ.
     dimensions: BTreeMap<DimensionName, Dimension>,
     anchor: Option<Anchor>,
     description: Description,
 }
 
 impl Metric {
-    pub const fn new(
+    /// A certified metric, refused if it declares one dimension twice.
+    ///
+    /// **Takes a `Vec<Dimension>` and returns a `Result`, and the argument for that is already
+    /// written one level up.** [`Definitions::assemble`]: *"Takes vectors rather than maps so the
+    /// duplicate checks are ours: a caller that built a map first has already silently dropped one
+    /// of a duplicated pair."* This constructor took a map, so the check was not ours, and the two
+    /// shipped adapters had answered the question differently - `sutura_catalog_local` refused a
+    /// duplicate and `sutura_catalog_datahub` collected into a map and kept the last. One content,
+    /// two [`Definitions`]. The module header above says two adapters reading the same content must
+    /// produce the same one or one of them is wrong, and the golden suite could not see it because
+    /// no fixture declares a duplicate.
+    ///
+    /// **A vector makes the bypass a compile error rather than a rule**, which is why the signature
+    /// changed instead of a check being added beside the old one: an adapter cannot collapse the
+    /// pair before this point any more, because there is nowhere earlier for it to collapse it. The
+    /// field stays a [`BTreeMap`] - the digest is taken over the serialized form and every reader
+    /// looks a dimension up by name - so the difference between the parameter and the field is the
+    /// whole mechanism.
+    ///
+    /// The refusal is an [`InconsistentDefinitions`] rather than an error of this constructor's own,
+    /// so both adapters map it through the variant they already have for that type and neither
+    /// grows a second one.
+    pub fn new(
         name: MetricName,
         model: ModelName,
         measure: Measure,
         required_filters: Vec<RequiredFilter>,
         time_column: ColumnName,
         grains: BTreeSet<Grain>,
-        dimensions: BTreeMap<DimensionName, Dimension>,
+        dimensions: Vec<Dimension>,
         anchor: Option<Anchor>,
         description: Description,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InconsistentDefinitions> {
+        let mut declared: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
+        for dimension in dimensions {
+            if let Some(existing) = declared.insert(dimension.name.clone(), dimension) {
+                return Err(InconsistentDefinitions::DuplicateDimension {
+                    metric: name,
+                    dimension: existing.name,
+                });
+            }
+        }
+        Ok(Self {
             name,
             model,
             measure,
             required_filters,
             time_column,
             grains,
-            dimensions,
+            dimensions: declared,
             anchor,
             description,
-        }
+        })
     }
 
     #[inline]

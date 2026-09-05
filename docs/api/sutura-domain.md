@@ -1178,8 +1178,31 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub const fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: Description) -> Self
+pub fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
 ```
+
+A certified metric, refused if it declares one dimension twice.
+
+**Takes a `Vec<Dimension>` and returns a `Result`, and the argument for that is already
+written one level up.** `Definitions::assemble`: *"Takes vectors rather than maps so the
+duplicate checks are ours: a caller that built a map first has already silently dropped one
+of a duplicated pair."* This constructor took a map, so the check was not ours, and the two
+shipped adapters had answered the question differently - `sutura_catalog_local` refused a
+duplicate and `sutura_catalog_datahub` collected into a map and kept the last. One content,
+two `Definitions`. The module header above says two adapters reading the same content must
+produce the same one or one of them is wrong, and the golden suite could not see it because
+no fixture declares a duplicate.
+
+**A vector makes the bypass a compile error rather than a rule**, which is why the signature
+changed instead of a check being added beside the old one: an adapter cannot collapse the
+pair before this point any more, because there is nowhere earlier for it to collapse it. The
+field stays a `BTreeMap` - the digest is taken over the serialized form and every reader
+looks a dimension up by name - so the difference between the parameter and the field is the
+whole mechanism.
+
+The refusal is an `InconsistentDefinitions` rather than an error of this constructor's own,
+so both adapters map it through the variant they already have for that type and neither
+grows a second one.
 
 ```rust
 pub fn required_filters(&self) -> &[RequiredFilter]
@@ -1199,98 +1222,9 @@ pub const fn time_column(&self) -> &ColumnName
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-### `struct Definitions`
+### `use None`
 
-```rust
-pub struct Definitions
-```
-
-Everything a catalog said, with its cross-references checked.
-
-`BTreeMap` throughout rather than `HashMap`, and that is load-bearing: the digest is taken over
-the serialized form of this value, and an unordered map serializes in whatever order its hasher
-chose this run. A digest that moves without the content moving is a digest nobody trusts, and
-then the pinning is decoration.
-
-#### Methods
-
-```rust
-pub fn assemble(models: Vec<Model>, relationships: Vec<Relationship>, metrics: Vec<Metric>) -> Result<Self, InconsistentDefinitions>
-```
-
-Assembles definitions from what an adapter read, checking every cross-reference.
-
-Takes vectors rather than maps so the duplicate checks are ours: a caller that built a map
-first has already silently dropped one of a duplicated pair, and "the second declaration of
-revenue won" is not a thing to discover from a number.
-
-```rust
-pub fn metric(&self, name: &MetricName) -> Option<&Metric>
-```
-
-```rust
-pub const fn metrics(&self) -> &BTreeMap<MetricName, Metric>
-```
-
-```rust
-pub fn model(&self, name: &ModelName) -> Option<&Model>
-```
-
-```rust
-pub const fn models(&self) -> &BTreeMap<ModelName, Model>
-```
-
-```rust
-pub fn relationship(&self, name: &RelationshipName) -> Option<&Relationship>
-```
-
-```rust
-pub const fn relationships(&self) -> &BTreeMap<RelationshipName, Relationship>
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum InconsistentDefinitions`
-
-```rust
-pub enum InconsistentDefinitions
-```
-
-Why a set of definitions does not hold together.
-
-Every variant is a dangling reference of some kind. Catching them here, once, is what lets the
-resolver assume that a metric's model exists and that a dimension's column is real: without it
-each of those becomes a runtime branch on the query path, and the failure surfaces as a data
-system error rather than as a refusal.
-
-#### Variants
-
-- `DuplicateModel`
-- `DuplicateMetric`
-- `DuplicateRelationship`
-- `UnknownModel`
-- `UnknownMeasureColumn`
-- `UnknownRequiredFilterColumn`
-- `UnknownTimeColumn`
-- `NoGrains`
-- `UnknownRelationship`
-- `RelationshipFromUnknownModel`
-- `RelationshipToUnknownModel`
-- `RelationshipUnknownColumn`
-- `UnknownDimensionColumn`
-- `RelationshipNotFromMetricModel`
-- `JoinWouldDuplicateRows`
-- `EmptyAllowlist`
-- `TooManyValues` - More declared values than `MAX_VALUES_PER_DIMENSION`.
-- `DimensionShadowsTimeBucket`
-- `DimensionShadowsMeasure`
-- `LabelShadowsTable` - A label this metric projects is spelled the same as a table its statement reads.
-
-#### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+### `use None`
 
 ### `use None`
 

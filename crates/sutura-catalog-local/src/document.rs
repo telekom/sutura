@@ -15,10 +15,12 @@
 //! exactly this format's representation, and mirroring its variants here would buy nothing but a
 //! place to forget the next one.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Anchor, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Anchor, Description, Dimension, DimensionValue, InconsistentDefinitions, Metric, Model, Relationship,
+};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
@@ -278,28 +280,47 @@ pub struct MetricDoc {
 
 /// Why a metric document cannot become a metric.
 ///
-/// Only the things [`sutura_domain::catalog::Definitions`] cannot see, because by the time it runs
-/// the duplication has already been collapsed by the map it holds. Everything else is checked there,
-/// once, for every adapter.
+/// Only what belongs to the DOCUMENT: the two conversions this file performs that the domain's own
+/// constructors can refuse. Everything about whether a metric holds together is checked in
+/// [`sutura_domain::catalog`], once, for every adapter - **including the duplicated dimension this
+/// enum used to carry.** That variant existed because `Metric::new` took a map, so the domain could
+/// not see the pair; it takes a vector now, and the refusal is
+/// [`InconsistentDefinitions::DuplicateDimension`], which [`Self::Inconsistent`] carries. A copy of
+/// a check in one adapter is a check the other adapter does not have, which is exactly what
+/// happened.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidMetricDocument {
-    #[error("metric {metric} declares dimension {dimension} twice")]
-    DuplicateDimension { metric: MetricName, dimension: DimensionName },
+    /// The domain refused the metric this document describes.
+    ///
+    /// Transparent, because the domain's own message names the metric and the fault and this layer
+    /// has nothing to add - what it adds is the path, and `LocalCatalogError::Metric` is where that
+    /// is attached. Reaching `LocalCatalogError::Inconsistent` instead would drop the path, which is
+    /// the one thing a reader of a directory of files needs.
+    ///
+    /// **Boxed, and the box is what buys the path.** `clippy::result_large_err` is denied here for
+    /// the reason `sutura_domain::plan::tables` states, and unboxing this reported
+    /// `LocalCatalogError` at *at least 128 bytes* against a threshold of 128 in seven of its own
+    /// signatures - because `InconsistentDefinitions`'s widest variants carry four name newtypes,
+    /// and a `PathBuf` plus that plus two discriminants does not fit. The house remedy is to trim
+    /// the variant rather than allow the lint, and there is nothing here to trim: the path is the
+    /// point of this variant and the cause is a type the domain owns. So it is boxed for the reason
+    /// `sutura_exec_bigquery::wire::WireError` boxes `ureq::Error` - much larger than every other
+    /// variant, and the alternative was losing information. The typed cause survives, which is what
+    /// separates this from a `Box<dyn Error>`.
+    #[error(transparent)]
+    Inconsistent(Box<InconsistentDefinitions>),
 }
 
 impl MetricDoc {
     pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
-        let mut dimensions: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
-        for doc in self.dimensions {
-            let dimension = Dimension::new(doc.name.clone(), doc.column, doc.via, doc.values, doc.description);
-            if dimensions.insert(doc.name.clone(), dimension).is_some() {
-                return Err(InvalidMetricDocument::DuplicateDimension {
-                    metric: self.name,
-                    dimension: doc.name,
-                });
-            }
-        }
-        Ok(Metric::new(
+        // A vector, handed on as a vector. This loop used to build a map and refuse a repeat in it,
+        // which was a check the DataHub adapter did not have - see `InvalidMetricDocument`.
+        let dimensions: Vec<Dimension> = self
+            .dimensions
+            .into_iter()
+            .map(|doc| Dimension::new(doc.name, doc.column, doc.via, doc.values, doc.description))
+            .collect();
+        Metric::new(
             self.name,
             self.model,
             self.measure,
@@ -309,14 +330,15 @@ impl MetricDoc {
             dimensions,
             self.anchor.map(|a| Anchor::new(a.range, a.value.into_text())),
             description,
-        ))
+        )
+        .map_err(|cause| InvalidMetricDocument::Inconsistent(Box::new(cause)))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
-    use sutura_domain::catalog::DimensionValue;
+    use sutura_domain::catalog::{DimensionValue, InconsistentDefinitions};
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
@@ -710,21 +732,29 @@ colums: [amount_cents]
         assert!(metric.required_filters().is_empty());
     }
 
+    /// A dimension declared twice is refused, **by the domain and not by this adapter**.
+    ///
+    /// Why dimensions are a list and not a map: a YAML mapping with a repeated key keeps the last
+    /// value silently, so the metric would load with the second definition and the author would have
+    /// no way to tell which one is live.
+    ///
+    /// The refusal used to be this crate's own `InvalidMetricDocument::DuplicateDimension`, and that
+    /// is #266's D4: the `DataHub` adapter read a sequence too and collected it into a map, so the same
+    /// content became two different `Definitions` depending on which adapter loaded it. What this
+    /// asserts now is the domain's variant coming back through the transparent wrap, which is the
+    /// same value the `DataHub` adapter's sibling test asserts.
     #[test]
     fn a_dimension_declared_twice_is_refused_rather_than_deduplicated() {
-        // Why dimensions are a list and not a map: a YAML mapping with a repeated key keeps the
-        // last value silently, so the metric would load with the second definition and the author
-        // would have no way to tell which one is live.
         let yaml = format!(
             "{MINIMAL_METRIC}dimensions:\n  - name: region\n    column: region_code\n  - name: region\n    column: other_code\n"
         );
         let doc = metric_doc(&yaml).expect("two list entries are valid YAML");
         assert_eq!(
             doc.into_domain(Description::default()).unwrap_err(),
-            InvalidMetricDocument::DuplicateDimension {
+            InvalidMetricDocument::Inconsistent(Box::new(InconsistentDefinitions::DuplicateDimension {
                 metric: MetricName::parse("revenue").expect("a name"),
                 dimension: DimensionName::parse("region").expect("a name"),
-            }
+            }))
         );
     }
 

@@ -179,8 +179,6 @@ pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
 /// `dim_customer`, so the table behind it is a real file - which keeps a refusal about identity
 /// from being satisfied by a missing CSV.
 fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
-    use std::collections::BTreeMap;
-
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -209,10 +207,11 @@ fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
         Vec::new(),
         column("signed_up_on"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         Some(Anchor::new(range, String::from("7"))),
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),

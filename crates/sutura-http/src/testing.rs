@@ -122,13 +122,11 @@ fn pinned_described(anchor: Option<Anchor>, prose: &str, dimension_prose: &str) 
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::from([(
-            DimensionName::parse("region").expect("a test dimension is a dimension"),
-            region,
-        )]),
+        vec![region],
         anchor,
         description(prose),
-    );
+    )
+    .expect("one dimension cannot duplicate another");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
@@ -720,13 +718,11 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::from([(
-            DimensionName::parse("region").expect("a test dimension is a dimension"),
-            region,
-        )]),
+        vec![region],
         None,
         description("Revenue, in minor units."),
-    );
+    )
+    .expect("one dimension cannot duplicate another");
     let definitions =
         Definitions::assemble(vec![orders, customers], vec![joined], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(

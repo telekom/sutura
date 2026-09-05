@@ -11,7 +11,7 @@
 //! matching range and a value nobody certified, and all four guards passed. The pair is gone. The
 //! bundle is the argument now, and the last two cases are the two holes that closed with it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{
     AnchorPlan, NotAnAnchorsPlan, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
@@ -67,10 +67,11 @@ fn bundle(anchor: Option<Anchor>, grains: BTreeSet<Grain>) -> PinnedDefinitions 
         Vec::new(),
         name("month"),
         grains,
-        BTreeMap::new(),
+        Vec::new(),
         anchor,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         Definitions::assemble(vec![model], vec![], vec![definition]).expect("the test bundle is consistent"),
@@ -296,10 +297,11 @@ fn the_grain_comparison_names_the_absence_rather_than_carrying_a_variant_nothing
         Vec::new(),
         column("month"),
         BTreeSet::new(),
-        BTreeMap::new(),
+        Vec::new(),
         Some(Anchor::new(certified(), String::from("1"))),
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     assert!(
         Definitions::assemble(vec![model], vec![], vec![grainless]).is_err(),
         "a metric declaring no grain never reaches a pinned bundle, so the absence needs no variant"

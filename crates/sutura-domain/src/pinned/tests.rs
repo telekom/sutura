@@ -6,7 +6,7 @@
 //! every case below is the one that was in `pinned.rs`, de-indented by one level, with `super::`
 //! still naming the module it named before.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{
     AnchorCheck, AnchorReport, Contribution, ContributionManifest, DefinitionVersion, InvalidVersion, MAX_VERSION_LEN,
@@ -46,10 +46,11 @@ fn definitions(anchor: Option<Anchor>) -> Definitions {
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        BTreeMap::new(),
+        Vec::new(),
         anchor,
         Description::default(),
-    );
+    )
+    .expect("no dimensions to duplicate");
     Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent")
 }
 
