@@ -531,7 +531,10 @@ fn a_key_set_this_deployment_could_not_look_up_is_refused_rather_than_partly_rea
     // The same document `jwks` builds, with the `kid` left out - so what differs from the accepted
     // fixture is exactly the one key this test is about.
     let anonymous = jwks(KID, &pair).replace(&format!(r#""kid":"{KID}","#), "");
-    assert!(!any_key_carries_an_id(&anonymous), "the fixture still names a key: {anonymous}");
+    assert!(
+        !any_key_carries_an_id(&anonymous),
+        "the fixture still names a key: {anonymous}"
+    );
     assert!(matches!(
         KeySet::parse(&anonymous).expect_err("a key nothing can name is not usable"),
         InvalidKeySet::KeyWithoutAnId
@@ -562,8 +565,14 @@ fn a_coordinate_spelling_the_member_name_still_names_no_key() {
         r#""x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPTZmuNc","#,
         r#""y":"PCXPBkEsLNR4HTALsbXbUkidb3cPF5OhuzBlPnHRrTs"}]}"#,
     );
-    assert!(anonymous.contains("kid"), "the coordinate that made the old assertion red: {anonymous}");
-    assert!(!any_key_carries_an_id(anonymous), "no key in this document carries a `kid`: {anonymous}");
+    assert!(
+        anonymous.contains("kid"),
+        "the coordinate that made the old assertion red: {anonymous}"
+    );
+    assert!(
+        !any_key_carries_an_id(anonymous),
+        "no key in this document carries a `kid`: {anonymous}"
+    );
     assert!(matches!(
         KeySet::parse(anonymous).expect_err("a key nothing can name is not usable"),
         InvalidKeySet::KeyWithoutAnId
