@@ -44,10 +44,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         if std::path::Path::new(&rel).extension().and_then(|e| e.to_str()) != Some("rs") {
             continue;
         }
-        rs_files += 1;
+        // Incremented AFTER the read, because both the floor below and the success line say
+        // "read": counting here and reading afterwards made `in {rs_files} file(s)` a count of
+        // files FOUND, and would have let a tree of unreadable sources satisfy the floor.
         let Ok(code) = std::fs::read_to_string(root.join(&rel)) else {
             continue;
         };
+        rs_files += 1;
         let mut found = Vec::new();
         scan(&code, &mut found);
         for v in found {

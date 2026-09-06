@@ -920,41 +920,45 @@ mod tests {
         use std::process::ExitCode;
 
         // EVERY GATE IN THE TABLE, EXECUTED AGAINST A TREE IT MUST REFUSE -
-        // `github.com/telekom/sutura#371`. The defect that issue collects is not an untested gate:
-        // it is a gate whose HELPERS are well tested while `run` and the exit code it produces are
-        // driven by nothing, so a mutation on the verdict path leaves the suite green. Measured
-        // here before this existed: 2 of 31 hygiene gates had a test driving the registered entry
-        // point's verdict, and 7 of 31 answered `ok` over a tree with none of their subjects.
+        // `github.com/telekom/sutura#371`, whose defect is a gate whose HELPERS are tested while
+        // `run` and the exit code it produces are driven by nothing. Measured before this existed:
+        // 2 of 31 hygiene gates had a test driving the registered entry point's verdict, 7 of 31
+        // answered `ok` over a tree with none of their subjects. So this calls the FN POINTER out
+        // of `TASKS` and asserts on the EXIT CODE. Membership is the table, so nothing opts out;
+        // the `sutura/invariants` row carries what it does not hold.
         //
-        // So it calls the FN POINTER out of `TASKS` - the same call `run_hygiene` and `main` make,
-        // same empty argument slice - and asserts on the EXIT CODE that verdict maps to rather
-        // than on the enum, because *the new failure path was wired to the exit code by nothing*
-        // is the shape being closed. Nothing can opt out: membership is the table, so there is no
-        // allowlist to ratchet.
-        //
-        // WHAT IT DOES NOT HOLD, and its own limits, are the `../.agents/skills/sutura/invariants`
-        // row: it says a gate REFUSED, never why, and nothing about whether a gate's predicate is
-        // the question its consumer asks - #371's own fundamental limit. And `set_current_dir` is
-        // process-global, so this is correct under nextest's process-per-test, which is every venue
-        // that runs it, and would race under `cargo test`'s threads.
+        // HELD, NOT WISHED - the first version got that wrong in the change whose subject it is.
+        // `set_current_dir` is process-global: measured, `cargo test -p xtask --bin xtask` went
+        // from `917 passed` to `907 passed; 11 failed`, the eleven every real-tree anchor
+        // resolving through `repo::root`, whose walk reads the current directory first.
+        // `AGENTS.md` bans a bare `cargo clippy` and `cargo nextest`, NOT `cargo test`, so
+        // "correct under nextest" was a sentence. nextest gives each test its own process and sets
+        // `NEXTEST`; refusing without it fails before the directory moves.
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this test moves the process's current directory, so it must have the process to \
+             itself: run it under `just test`, which is cargo-nextest and one process per test. \
+             Under `cargo test`'s threads it breaks every sibling resolving a path through \
+             `repo::root` - 11 of them, measured."
+        );
+
         let tree = falsifier_tree();
         let original = std::env::current_dir().expect("a current directory");
         std::env::set_current_dir(&tree).expect("point the process at the falsifier tree");
 
-        // DISCOVERED and INSPECTED are counted in two places on purpose: the first off the table,
-        // the second only once a gate has actually returned a verdict. A single number in a
-        // success line is how three of the defects behind #371 passed review.
-        let discovered = TASKS.iter().filter(|t| matches!(t.kind, super::Kind::Hygiene(_))).count();
-        let mut inspected = 0_usize;
-        let mut refused: Vec<&str> = Vec::new();
+        let mut executed: Vec<&str> = Vec::new();
         let mut attested: Vec<&str> = Vec::new();
-        for task in TASKS.iter().filter(|t| matches!(t.kind, super::Kind::Hygiene(_))) {
+        for task in TASKS {
+            if !matches!(task.kind, super::Kind::Hygiene(_)) {
+                continue;
+            }
             let verdict = (task.run)(&[]);
-            inspected += 1;
-            if format!("{:?}", verdict.exit_code()) == format!("{:?}", ExitCode::SUCCESS) {
+            executed.push(task.name);
+            // `Fail`'s code, not merely "not SUCCESS": `Usage` is 2 and `Inconclusive` is 3, and
+            // the second exists here precisely because *could not measure* is not a clean bill.
+            // All 31 answer `Fail` today, so the stricter form is live rather than aspirational.
+            if format!("{:?}", verdict.exit_code()) != format!("{:?}", ExitCode::FAILURE) {
                 attested.push(task.name);
-            } else {
-                refused.push(task.name);
             }
         }
 
@@ -962,31 +966,36 @@ mod tests {
         std::env::set_current_dir(&original).expect("restore the current directory");
         drop(std::fs::remove_dir_all(&tree));
 
-        assert!(inspected > 0, "the sweep filter selected no gate - this test judged nothing");
-        assert_eq!(
-            inspected, discovered,
-            "the table registers {discovered} hygiene gate(s) and {inspected} were executed - a \
-             gate this loop skipped is a gate this test says nothing about"
+        // THE FLOOR IS A SET OF NAMES AND ITS OTHER SIDE IS `hygiene_gates`. Two counts off two
+        // spellings of one expression are two enforcers of one key: measured, `.take(18)` on BOTH
+        // left the previous version green with 13 gates unexecuted. `hygiene_gates` is the
+        // registry's other reader - `check-gate-classification` reconciles it against the
+        // implementation plan's two tables, both directions - so narrowing it to hide a narrowed
+        // loop reddens that gate instead. The hand-written anchor list this replaces was #371's
+        // own defect 8: red when a name joins the list, green when one is left out of it.
+        let registered: Vec<&str> = super::hygiene_gates().map(|(name, _)| name).collect();
+        assert!(
+            !registered.is_empty(),
+            "the sweep registers no gate - this test judged nothing"
         );
-        // THE NEEDLE BESIDE THE FLOOR. The counts above cannot tell a real sweep from one over the
-        // wrong set of tasks, and these four are what each half of the tree is for: three whose
-        // refusal is EARNED BY THE SEEDED FILES - so an inert seed is red here rather than a silent
-        // weakening of the assertion below - and one that has to refuse the bare root.
-        for anchor in ["max-lines", "line-endings", "text-hygiene", "check-boundaries"] {
-            assert!(
-                refused.contains(&anchor),
-                "`{anchor}` is not among the {} gate(s) that refused - {refused:?}",
-                refused.len()
-            );
-        }
+        assert_eq!(
+            executed, registered,
+            "the gates this test executed are not the gates the sweep registers - one it skipped \
+             is one it says nothing about"
+        );
+
         assert_eq!(
             attested,
             Vec::<&str>::new(),
-            "{} of {inspected} gate(s) answered `ok` about a tree that is not this repository. A \
-             gate that cannot be made to fail is a gate whose green says nothing, which is what \
-             `github.com/telekom/sutura#371` is about: give it a floor over what it actually \
-             read, or a refusal on the input whose absence makes its other rules vacuous.",
-            attested.len()
+            "{} of {} gate(s) did not FAIL over a tree that is not this repository. A gate that \
+             cannot be made to fail is a gate whose green says nothing - `github.com/telekom/\
+             sutura#371`. WHICH REMEDY IS RIGHT DEPENDS ON THE GATE'S SUBJECT. If that subject is \
+             every text file in the tree, absence is a legitimate pass and nothing is wrong with \
+             the gate: seed a violation into `falsifier_tree`, whose doc carries the argument. \
+             Otherwise the gate needs a floor over what it actually read, or a refusal on the input \
+             whose absence makes its other rules vacuous.",
+            attested.len(),
+            registered.len()
         );
     }
 }
