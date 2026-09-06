@@ -72,8 +72,11 @@
 //! this said - `github.com/telekom/sutura#319` measured the overstatement. It claimed a `fn`
 //! signature the formatter had to wrap names nothing; it does not, because a name is read off the
 //! FIRST signature line and rustfmt breaks a long signature after the `(`, never before the name.
-//! Driven over a `tests/`-target file whose only added content is `#[test]` plus a wrapped
-//! `async fn a_very_long_...(`, the scan returns `Runnable` and NAMES it. What names nothing is a
+//! **Both halves are tests rather than this paragraph** since
+//! `github.com/telekom/sutura#347`, and they are in `super::scoped`'s module because `Scan::of`
+//! is what drives the extractor: one adds `#[tokio::test]` over a wrapped `async fn` with a return
+//! type and pins the name, the other adds only that signature's PARAMETER line and pins that no
+//! name comes out. What names nothing is a
 //! **body-only or def-interior edit**: added lines inside an existing test, or inside a signature
 //! whose first line this diff did not touch. The ATTRIBUTE is not read as one line -
 //! [`item_below`] balances its brackets, because reading one as a single line was a defect and

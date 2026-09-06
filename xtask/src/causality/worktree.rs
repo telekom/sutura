@@ -7,15 +7,17 @@
 //! git environment stripped or it operates on another repository - which is why [`git`] is the only
 //! way this module spawns one.
 //!
-//! THE THREE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`] and
-//! [`search`] - are here for that second reason and no other. Each returns raw output and decides
-//! nothing; `super::provenance` parses all three, so the classification they feed is testable
-//! without a repository.
+//! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`search`],
+//! [`head_branch`], [`head_commit`], [`branch_metadata`] and [`at_base`] - are here for that
+//! second reason and no other. Each returns raw output and decides nothing; `super::provenance`, `super::stack` and
+//! `super::features` parse them, so every classification they feed is testable without a
+//! repository.
 
 use std::path::Path;
 use std::process::Command;
 
 use super::provenance::Commit;
+use super::stack::BranchRef;
 
 /// A `git` invocation in `dir`, with the caller's git environment stripped.
 ///
@@ -31,7 +33,7 @@ fn git(dir: &Path) -> Command {
     command
 }
 
-/// The commit `named` and HEAD diverged at, as git printed it.
+/// The commit `earlier` and `later` diverged at, as git printed it.
 ///
 /// **THE REF IS NOT THE COMMIT, and passing the ref through is what made a verdict a function of
 /// the last fetch.** `git diff origin/main` compares the tree at whatever `origin/main` points to
@@ -42,12 +44,59 @@ fn git(dir: &Path) -> Command {
 /// and it is idempotent for the base a person means: the merge base of a commit already behind HEAD
 /// is that commit, so `just causality <a commit>` still scopes the gate to it.
 ///
+/// TWO REVISIONS RATHER THAN ONE AGAINST `HEAD`, because `super::stack` asks this three times and
+/// only two of those are against HEAD: the third compares the two candidate BASES, which is the
+/// guard that stops a stale recorded parent from moving the base off this branch's history.
+///
 /// Raw text out, [`Commit`] parses it: an unrelated history, an unknown ref or an ambiguous answer
 /// all reach `super::provenance::Commit::parse` as text that is not one object name, and the gate
 /// refuses rather than splicing it into `git checkout`.
-pub(super) fn merge_base(root: &Path, named: &str) -> String {
+pub(super) fn merge_base(root: &Path, earlier: &str, later: &str) -> String {
     git(root)
-        .args(["merge-base", named, "HEAD"])
+        .args(["merge-base", earlier, later])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// The branch HEAD is on, or `None` when HEAD is detached.
+///
+/// Detached is the ordinary state in two venues that matter - the reconstruction worktree this gate
+/// creates, and a CI checkout of a merge commit - and neither has branch metadata to read, so no
+/// branch is the same answer as no recorded parent.
+pub(super) fn head_branch(root: &Path) -> Option<BranchRef> {
+    let out = git(root).args(["symbolic-ref", "--short", "HEAD"]).output().ok()?;
+    out.status
+        .success()
+        .then(|| BranchRef::parse(String::from_utf8_lossy(&out.stdout).trim()))
+        .flatten()
+}
+
+/// HEAD's own commit, as git printed it.
+///
+/// Read for ONE guard: a recorded stack parent that already contains this branch forks at HEAD, and
+/// a base equal to HEAD makes `git diff <base> --` the uncommitted working tree alone - an exit-0
+/// verdict over every file the branch changed. `super::stack::Origin::Contains` is that refusal and
+/// it needs the commit rather than a name, because any parent reaching HEAD produces it.
+pub(super) fn head_commit(root: &Path) -> String {
+    git(root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// The branch tool's metadata blob for `branch`, as git printed it.
+///
+/// One blob per branch under `refs/branch-metadata/`, which is where the tool this repository pins
+/// records a branch's parent. A branch with no metadata - never tracked, or tracked in another
+/// worktree - is a non-zero status and reaches the caller as empty text, which
+/// `super::stack::recorded_parent` reads as *no recorded parent*: the fallback, and the behaviour
+/// that shipped before the derivation existed.
+pub(super) fn branch_metadata(root: &Path, branch: &BranchRef) -> String {
+    git(root)
+        .args(["cat-file", "-p", &format!("refs/branch-metadata/{}", branch.as_str())])
+        .stderr(std::process::Stdio::null())
         .output()
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
         .unwrap_or_default()
@@ -115,6 +164,24 @@ pub(super) fn base_has(root: &Path, base: &Commit, path: &str) -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
+}
+
+/// `path`'s content at `base`, or `None` when git did not hand any back.
+///
+/// SEPARATE FROM [`base_has`] ON PURPOSE, because `super::features` needs the two answers apart:
+/// a manifest the base does not have is a NEW package and its base feature table is legitimately
+/// empty, while a manifest the base HAS and whose content did not come back leaves that scan with
+/// nothing to compare - and answering *nothing was enabled* there would be a claim about a table
+/// it never read. One reader, two callers, and the pairing is decided at the call site.
+pub(super) fn at_base(root: &Path, base: &Commit, path: &str) -> Option<String> {
+    let out = git(root)
+        .args(["show", &format!("{}:{path}", base.as_str())])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Set up a detached worktree at HEAD under the given path.

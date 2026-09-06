@@ -761,14 +761,33 @@ module this diff does not contain is its own refusal with its own remedy (state 
 extractor is not at fault). **The tell to look for: a printed sentence containing a fact, and no
 code that reads it.**
 
-**AND ITS INVERSE IS STILL UNREPORTED, which is the shape of the refusal's own limit.** That refusal
-reads a `.rs` diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only**
-diff turns on compiles the same whole module of tests into the build with **zero added `.rs` lines** -
-so the plan finds no changed test file, answers `no changed tests - nothing to prove`, and passes.
-Reproduced through `plan`. **Strictly asymmetric: a `.rs` diff ADDING that `mod` refuses; a manifest
-diff ENABLING it passes.** Nothing in the gate reads a manifest, so this is stated rather than held -
-#343 carries the shapes - and the general question it stands for is which *inputs a gate does not read
-at all* can change what the tree compiles.
+**ITS INVERSE PASSED IN SILENCE UNTIL #343, and the general question it stands for is which
+*inputs a gate does not read at all* can change what the tree compiles.** That refusal reads a `.rs`
+diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only** diff
+declares compiles the same whole module of tests with **zero added `.rs` lines** - so the plan found
+no changed test file, answered `no changed tests - nothing to prove`, and passed. Strictly
+asymmetric, and it is the same refusal now: `causality::features` reads the feature TABLE on each
+side of the base commit and subtracts, so the two causes are one verdict carrying a `Because`.
+
+**WHY DECLARING IS THE WHOLE PREDICATE, which is the non-obvious step and the one to check if this
+ever fires wrongly.** Both runs are `--all-features`, so a feature that EXISTS is on - which means
+the only way a `cfg(feature)` gate can flip from off to on is for the manifest to declare a name it
+did not declare before. A default set, a dependent's feature list and a workspace dependency's were
+all already on in both trees. That collapses the feature graph to a set difference, and it makes the
+predicate depend on a FLAG rather than on the code: a wiring assertion in `features`' own tests reads
+`--all-features` out of `causality::runner` for that reason.
+
+**Frequency measured before it was taken, over the last 80 first-parent commits on `main`**
+(squash-merged, so one commit is one branch - which holds for the 210 first-parent commits and not
+for the 318 an all-commits scan covers, so scanning all of them over-scans): 16 touched a member
+`Cargo.toml`, **2** declared a new feature name (`agreement` in `sutura-domain`, `bigquery` in
+`sutura-cli`), and **0** would have been refused - both added the gated module in the same diff,
+which is the shape that does not fire. Over the whole history there are **8** declarers and **0**
+would have been refused. Review replicated the predicate independently and reached the same two
+names and the same zero. What the scan still does not read, each in the silent direction: an
+implicit feature from `optional = true`, an INLINE gated `mod tests { .. }`,
+`#[cfg(all(feature = "x", ..))]`, and a test in a SUBMODULE of the enabled module. That module's
+header carries the table and the reason each one fails the way it does.
 
 **A GATE THAT SCANS A LANGUAGE MUST LEX IT, and this one read an attribute as ONE line.** A
 continuation line starts with neither `#[` nor anything else the search skipped, so the downward
@@ -826,11 +845,42 @@ through while `ship-check` and `ci.yml` each resolved a merge base first, which 
 answer in the venue a person runs by hand. The gate resolves `git merge-base <ref> HEAD` itself now
 and PRINTS the commit beside the ref; `causality::provenance::Commit` is the type every consumer
 takes, so a moving tip does not typecheck. Idempotent for a commit already behind HEAD, so
-`just causality <a commit>` still scopes per commit. **What that does NOT fix, and it is the
-default:** on the second PR of a stack the merge base with `origin/main` is the fork point of the
-WHOLE stack, so the diff still carries the parent branch's implementation and the gate pairs this
-branch's tests with it. `SHIP_CHECK_BASE_REF` or a commit argument is the lever, and nothing asks
-whether a test's package could depend on what was reverted.
+`just causality <a commit>` still scopes per commit.
+
+**AND THE DEFAULT ON A STACK WAS THE FAILING DIRECTION, closed by #358.** On the second PR of a
+stack the merge base with `origin/main` is the fork point of the WHOLE stack, so the diff carried the
+branch below's implementation and the gate reported `FAILED - green against base behaviour` about two
+halves that do not read each other. `causality::stack` derives the base from the parent branch the
+branch tool records at `refs/branch-metadata/<branch>`, and the guard is the part worth knowing:
+metadata can be stale or retargeted by hand, so the parent's fork point is taken **only when its
+merge base with the named one EQUALS the named one** - which is exactly *the named base is an
+ancestor of it*, so the diff can only SHRINK and can never move off this branch's history. Every
+other answer (detached HEAD, untracked branch, unparseable blob, unrelated parent) falls back to the
+named ref, which is what CI gets and what CI needs. The printed line names the derived commit, the
+branch, and the commit it replaced, out of one value - so it cannot claim a narrowing that did not
+happen.
+
+**AND *CAN ONLY SHRINK* INCLUDES SHRINKING TO EMPTY, which is the limit that belongs next to that
+claim, because the true half is not the half a reader needs.** Off-history is genuinely unreachable -
+review tried a stale parent, a deleted one, a self-naming one, a three-deep chain, a parent merged
+into the trunk, malformed JSON and a missing key, and `forked` is always `merge-base(x, HEAD)` and
+therefore always an ancestor of HEAD. The reachable failure is the degenerate endpoint INSIDE
+history: **a recorded parent whose commit CONTAINS this branch forks at HEAD**, a base equal to HEAD
+makes the diff the uncommitted working tree alone, and the gate answers *no changed tests - nothing
+to prove* at **exit 0 over every file the branch changed**. Reproduced twice, and the trigger is this
+repository's own house style rather than a corner - merge-forward-never-rebase means a parent with
+your branch merged into it is an ordinary thing to have locally, as is metadata retargeted at the
+branch above. It is `causality::stack::Origin::Contains` now, refused AHEAD of the equality because
+the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of
+HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT that compares
+NAMES enumerates one spelling of one input** - the first version did exactly that, and it was
+untested glue, which is what let the enumeration stand.
+
+**What is STILL not asked, and a correct base does not rule it out:** whether the reverted
+implementation is something the measured test could even read. #293's pairing was wrong in that
+second way too - a `-cli` page test against an `xtask` change - and #358's second candidate shape
+(refuse a pairing across packages that do not depend on each other, from `cargo metadata`) is
+untaken, because it needs the frequency measurement over real branch diffs first.
 
 **A MOVED TEST USED TO READ AS AN ADDED ONE, which made the failing direction reachable from the
 refactor this file recommends.** Move a test into a new file and its subject is unchanged: green on
@@ -849,8 +899,9 @@ makes a documentation-driven suite provable at all; it used to read as *tests ch
 implementation did*, a pass that proved nothing. **A build input is the exception and is named
 rather than reverted** (`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`): reverting a
 manifest changes what cargo RESOLVES, and a test file held at HEAD needing a dependency this branch
-added would stop compiling. So a manifest-only implementation change still gets no verdict - which
-is #343's territory, now stated in the output instead of nowhere.
+added would stop compiling. So a manifest-only implementation change still gets no red-before-green
+verdict - it is named as `not reverted:` on whichever arm the run lands on. What it no longer does is
+pass in silence over a module of tests it put into the build: see the feature-table paragraph above.
 
 **THE SHARED TARGET DIRECTORY WAS A HOLE, and the fix for it is worth reading for the trap rather
 than the hole.** Both runs share `CARGO_TARGET_DIR`; cargo sees ONE unit - same package names, same
