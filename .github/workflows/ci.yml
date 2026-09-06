@@ -578,6 +578,39 @@ jobs:
 
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.
+      #
+      # EXIT 3 IS "I MEASURED NOTHING", and this step is the one place that decides what this
+      # venue does with it. Both of the gate's inconclusive answers used to be exit 0, so a
+      # required check went green over no evidence and no reader of the check could tell - see
+      # `github.com/telekom/sutura#307` and `xtask/src/main.rs`'s `Verdict::Inconclusive`. They
+      # exit 3 now, which fails any consumer that does not know the code; this one KNOWS it and
+      # continues, because the changes that land there are legitimate (a harness move, a changed
+      # public signature that a held-at-HEAD test file calls) and a gate that reddens correct
+      # work gets disabled.
+      #
+      # WHAT CONTINUING COSTS, stated because a green step is exactly what #307 is about: the
+      # job is still green on an inconclusive run, and the two surfaces below do NOT reach the
+      # pull-request conversation. `$GITHUB_STEP_SUMMARY` renders on the workflow RUN SUMMARY
+      # page - that is what the variable is for - and a `::warning` with no `file=`/`line=` is a
+      # PATH-LESS annotation: the job log, the run's annotations list and the check run, anchored
+      # wherever GitHub chooses rather than where this file chose. So a reviewer who reads only
+      # the conversation sees one green check and nothing else, which is #307's failure mode with
+      # one click removed rather than closed. An earlier version of this comment claimed the
+      # conversation, and an overstated control is itself the defect.
+      #
+      # THE CONVERSATION MECHANISM IS IN THIS FILE, in the `crap-comment` job below: a
+      # marker-keyed sticky comment posted from a separate job holding `pull-requests: write`,
+      # shaped so a delivery failure cannot recolour the gate. Routing this verdict through it is
+      # the open improvement, and it was not taken yet because the branch below HAS EXECUTED IN NO
+      # VENUE - no run of this repository has reached exit 3 here - so a delivery path built on top
+      # of it would be assumed rather than proven. What IS proven about this branch: exit 3 is a
+      # unit test on `Verdict::exit_code`, `nix run` propagates 3 unchanged, and
+      # `cargo xtask check-inconclusive` refuses a venue that suppresses it or declares a branch
+      # it does not have.
+      #
+      # The substitute evidence (a mutation run, or the gate scoped per commit) is the author's,
+      # and nothing here can check that they gave it. Cite the VERDICT LINE, never this step's
+      # colour.
       - name: Test causality
         if: steps.classify.outputs.rust == 'true'
         env:
@@ -588,7 +621,21 @@ jobs:
             echo "no usable base ref; causality not checked"
             exit 0
           fi
-          nix run .#causality -- --since "$BASE"
+          status=0
+          nix run .#causality -- --since "$BASE" || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "::warning title=Test causality was INCONCLUSIVE::The gate reached no verdict about this change - this step is green over NO red-before-green evidence. Read the verdict line in the log and require a mutation run, or the gate scoped per commit."
+            {
+              echo "### Test causality: INCONCLUSIVE"
+              echo
+              echo "The gate ran and measured nothing (exit 3), so this green step is not coverage."
+              echo "Usual causes: a harness move, or a changed public signature a test file kept at"
+              echo "HEAD calls. Ask for the substitute evidence - a mutation run, or \`just causality\`"
+              echo "scoped per commit - and read the verdict line rather than this step's colour."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$status"
 
       # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
       # publishes and no other venue in this job uses. Every compiling gate above passes

@@ -137,6 +137,17 @@ pub(crate) enum Scan {
     /// A provable file declares a test module whose own file is not in this diff, so a module of
     /// pre-existing tests becomes compiled and no added line names any of them. Refuses - the
     /// remedy is stated evidence, not an extractor fix, which is why it is its own answer.
+    ///
+    /// **ITS INVERSE IS UNREPORTED, and the asymmetry is strict.** This refusal reads a `.rs`
+    /// diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only**
+    /// diff turns on compiles the same whole module of tests into the build with ZERO added `.rs`
+    /// lines - so `super::plan` finds no changed test file at all, answers `Plan::NotRequired`, and
+    /// the gate passes with *no changed tests - nothing to prove*. Reproduced through `plan`, and
+    /// recorded rather than fixed: nothing here reads a manifest, and resolving which `cfg`
+    /// declarations a feature change activates is a different scan from this one.
+    /// `github.com/telekom/sutura#343` carries the three candidate shapes; the honest statement
+    /// until then is that a manifest-only diff is outside this gate's reach, the same way a
+    /// markdown-only one is.
     Enabled(Vec<Enabled>),
     /// Every test the diff added is `#[ignore]`d. Named, and unreachable by any run here.
     OnlyIgnored(Vec<Ident>),
@@ -284,8 +295,27 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 
 /// The name in `fn NAME(`, if this line declares a function.
 ///
-/// One line rather than a parser: a test's signature is written on one line in this tree, and the
-/// shapes that occur are `fn`, `async fn` and a visibility in front of either.
+/// One line rather than a parser, and it reaches further than "a test's signature is written on one
+/// line in this tree" - which is what this said, and what `super::attributes` overstated into *a
+/// wrapped signature names nothing*. The name sits before the `(`, and rustfmt breaks a signature
+/// too long for one line AFTER that `(`, so the FIRST line of a wrapped `async fn very_long_...(`
+/// still carries `fn <name>(` and is still named. The shapes that occur are `fn`, `async fn` and a
+/// visibility in front of either. What is genuinely out of reach is an added line that is not a
+/// signature's first line: a body-only or def-interior edit.
+///
+/// **Recorded rather than asserted, and the reason is this gate's own rule.** The measurement above
+/// was driven through `Scan::of` over a wrapped `async fn` with a return type, and it named the
+/// function - but a test pinning behaviour this branch did not change passes against base too, which
+/// `AGENTS.md` calls worse than none because it looks like coverage. The gate said so out loud when
+/// one was tried here: *FAILED - green against base behaviour*.
+///
+/// **`github.com/telekom/sutura#347` owns it**, because a promised follow-up with no issue is the
+/// same shape of claim this module is about. Two honest shapes for it, and the issue carries both:
+/// a **tests-only change**, where *tests changed but no implementation did* is an honest verdict
+/// over a test for existing behaviour; or the test module of a file that ALSO carries an
+/// implementation change - [`Scan::of`] is `pub(crate)`, so the assertion can live there, `plan`
+/// holds such a file back, and the test then appears under `not measured:` in the verdict rather
+/// than becoming the verdict.
 fn function_name(line: &str) -> Option<Ident> {
     let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)

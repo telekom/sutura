@@ -15,8 +15,23 @@
 //! so there is no measurement to refuse over).
 //!
 //! WHAT A PASS HERE HAS TO CARRY, and it did not. Two of these branches PASS while measuring
-//! nothing, so `super::coverage`'s ratio is printed beside them: the reader is told `0 of 8` where
-//! before the number was in the gate and in no sentence.
+//! nothing, so `super::coverage`'s zero numerator is printed beside them: the reader is told
+//! `0 of 8` where before the number was in the gate and in no sentence. [`report_not_separable`]
+//! and [`no_base_behaviour`] each present [`Attributed::Nothing`] for it, which is the whole
+//! accounting - an arm here ran neither run, so there is no other value it could present.
+//!
+//! AND THE LINE A READER MEETS FIRST IS NOT ONE OF THESE VERDICTS. [`report_scope`] is printed by
+//! `super::prove` BEFORE the head run, and it used to print the ratio: on an inconclusive run the
+//! output carried `measured:  1 of 1 added tests measured` twenty lines above a verdict saying
+//! `0 of 1`, the same sentence with two numerators, reviewed and reproduced on the head that
+//! introduced `super::base::earned` to stop precisely that. It says [`Coverage::named`] now -
+//! `scope: N of M added tests named` - and the reason it CANNOT go back is in `super::coverage`:
+//! the measured wording takes an [`Attributed`], and nothing before a run can produce one.
+//!
+//! AND ONE OF THOSE PASSES HAD ITS WORDING PINNED BY REVIEW ONLY, which is the shape this module
+//! keeps producing: [`no_base_behaviour`] is pure now because the test named for that choice
+//! asserted two methods on a value nothing here produced, and the mutation it is named for was
+//! green. A printed sentence is prose; a derived one can be read.
 //!
 //! A PRINTED CAUSE IS A CLAIM, and it is the claim these functions get wrong most easily -
 //! `report_unnamed_tests` has been rewritten twice for exactly that, because the two causes it
@@ -26,7 +41,7 @@
 
 use crate::Verdict;
 use crate::causality::base::{names_no_tests, tail};
-use crate::causality::coverage::Coverage;
+use crate::causality::coverage::{Attributed, Coverage};
 use crate::causality::names::Ident;
 use crate::causality::scoped::{Enabled, Silent};
 
@@ -39,7 +54,16 @@ pub(super) fn report_not_separable(files: &[String], coverage: &Coverage) -> Ver
     }
     // The count, so the pass carries its own limit. This branch measures nothing, and saying
     // `0 of 8` beside the prose is the difference between a reader inferring that and being told.
-    report_coverage(coverage);
+    //
+    // [`Attributed::Nothing`] is stated here rather than arriving from the caller. It USED to be
+    // honest by accident: `plan`'s inseparable arm hands over a `Coverage::of(&[], ..)`, whose
+    // numerator is zero by construction, so the ratio and the zero numerator were the same string
+    // and a caller passing a populated `Coverage` would have printed a claim about runs that never
+    // happened.
+    println!("  measured:  {}", coverage.measured(Attributed::Nothing));
+    for line in unmeasured_lines(coverage) {
+        println!("{line}");
+    }
     println!();
     println!("Rust keeps unit tests beside the code they test, so reverting the");
     println!("implementation would remove the test too. State the evidence in the");
@@ -48,24 +72,67 @@ pub(super) fn report_not_separable(files: &[String], coverage: &Coverage) -> Ver
     Verdict::Pass
 }
 
-/// What the run measured, out of what the diff added, and which tests it left out.
+/// What the two runs are ABOUT to be scoped to, printed before either has happened.
 ///
-/// PRINTED BY EVERY BRANCH THAT REACHES A VERDICT, which is a narrower claim than it reads and was
-/// briefly a false one. Four arms return `Verdict::Pass` without a ratio and each says in prose
-/// that it verified nothing: `Plan::NotRequired`, where the total is zero by construction;
-/// `run`'s *tests changed but no implementation did*; [`report_only_ignored`]; and `prove`'s
-/// *NO BASE BEHAVIOUR TO COMPARE AGAINST*. **Measured over thirteen recent branch diffs, two land
-/// on one of those** - one on the no-revert arm with 3 added tests, one on the ignored arm with 7,
-/// whose honest lines are `0 of 3` and `0 of 7`. So the accurate claim is: every branch that runs
-/// the two runs prints it, and every branch that does not says instead that it measured nothing.
-pub(super) fn report_coverage(coverage: &Coverage) {
-    println!("  measured:  {}", coverage.ratio());
+/// **NOT A MEASUREMENT, AND IT SAID IT WAS.** This printed `measured:  N of M added tests measured`
+/// from `super::prove`, ahead of the head run, so an inconclusive verdict's honest `0 of M` arrived
+/// twenty lines below the same sentence with a different numerator - in one output, in the same
+/// paste a handoff carries. The failure is the one `super::base::earned` was built for, one caller
+/// further out: `earned` cannot be consulted here because no run has produced an outcome yet.
+///
+/// So the line states the SCOPE - `scope: N of M added tests named` - and names what the filterset
+/// left out. It is the same count; it is not the same claim, and `super::coverage` is where the two
+/// are kept apart by the compiler rather than by this wording.
+///
+/// WHICH ARMS PRINT A MEASUREMENT INSTEAD, because `every verdict carries the ratio` was briefly
+/// false: **FIVE arms return `Verdict::Pass` having run neither run** - `Plan::NotRequired`; `run`'s
+/// *tests changed but no implementation did*; [`report_only_ignored`]; `prove`'s
+/// *NO BASE BEHAVIOUR TO COMPARE AGAINST*; and [`report_not_separable`]. **Measured over thirteen
+/// recent branch diffs, two land on one of them** - one on the no-revert arm with 3 added tests, one
+/// on the ignored arm with 7, whose honest lines are `0 of 3` and `0 of 7`. Four of the five print a
+/// zero numerator, from [`Attributed::Nothing`]; `Plan::NotRequired` prints no number at all,
+/// because the denominator is zero by construction and `0 of 0` reads as *the diff added no tests*
+/// rather than as *nothing was measured*. The count was `four`/`they all do` in three places until
+/// `github.com/telekom/sutura#319` corrected it.
+///
+/// So the citable claim is: **exactly one line per run carries `added tests measured`, and a branch
+/// that did not run the two runs either says it measured nothing or had nothing to count.**
+pub(super) fn report_scope(coverage: &Coverage) {
+    for line in scope_lines(coverage) {
+        println!("{line}");
+    }
+}
+
+/// Every line [`report_scope`] prints, in order.
+///
+/// PURE, for the reason [`no_base_behaviour`] is: nothing in this venue captures stdout, and the
+/// defect this function exists to remove is a WORDING - so the assertion has to be able to read the
+/// wording. `an_arm_that_returns_before_either_run_prints_a_zero_numerator` is the same shape and
+/// was added for the same reason.
+fn scope_lines(coverage: &Coverage) -> Vec<String> {
+    let mut lines = vec![format!("  scope:     {}", coverage.named())];
+    lines.extend(unmeasured_lines(coverage));
+    lines
+}
+
+/// What the filterset left out, and what stopped the total being established.
+///
+/// Shared by the pre-run scope line and the inseparable verdict, because the LIST is the same
+/// question in both and only the numerator's claim differs. One place, so a reader gets the names
+/// whichever line they are reading.
+fn unmeasured_lines(coverage: &Coverage) -> Vec<String> {
+    let mut lines = Vec::new();
     for name in coverage.unmeasured() {
-        println!("    not measured: {name}  (its file is kept at HEAD, so it has no base to be red against)");
+        lines.push(format!(
+            "    not measured: {name}  (its file is kept at HEAD, so it has no base to be red against)"
+        ));
     }
     for path in coverage.unestablished() {
-        println!("    total not established: {path}  (this gate could not read what it added)");
+        lines.push(format!(
+            "    total not established: {path}  (this gate could not read what it added)"
+        ));
     }
+    lines
 }
 
 /// What a provable file that named no test is accounted for by.
@@ -98,7 +165,7 @@ pub(super) fn report_silent(silent: &[Silent]) {
 /// nothing ran, and *nothing to prove* is not the same sentence as *nothing was added*.
 pub(super) fn report_nothing_to_revert(coverage: &Coverage) -> Verdict {
     println!("xtask test-causality: tests changed but no implementation did");
-    println!("  measured:  {}", coverage.nothing_measured());
+    println!("  measured:  {}", coverage.measured(Attributed::Nothing));
     println!("  Nothing to revert, so there is no old behaviour to be red against.");
     println!("  If this is a new test for existing behaviour, say so; it is not a");
     println!("  regression test and this gate cannot prove it is causal.");
@@ -115,18 +182,48 @@ pub(super) fn report_nothing_to_revert(coverage: &Coverage) -> Verdict {
 /// so it carries the zero-numerator ratio rather than returning before the number is printed,
 /// which is what it used to do forty lines above the call that prints it.
 pub(super) fn report_no_base_behaviour(base: &str, remove: &[&String], coverage: &Coverage) -> Verdict {
-    println!("xtask test-causality: NO BASE BEHAVIOUR TO COMPARE AGAINST");
-    for f in remove {
-        println!("  {f} does not exist at {base}");
+    for line in no_base_behaviour(base, remove, coverage) {
+        println!("{line}");
     }
-    println!("  measured:  {}", coverage.nothing_measured());
-    println!();
-    println!("Every changed implementation file is new here, so there is no old behaviour");
-    println!("for a test to be red against. Reverting them would leave a tree that does not");
-    println!("compile, and a test that fails to compile proves nothing about behaviour.");
-    println!("This gate has NOT verified causality for this change - state the evidence in");
-    println!("the handoff if it is a bug fix.");
     Verdict::Pass
+}
+
+/// Every line the arm above prints, in order.
+///
+/// PURE, AND THAT IS THE POINT. This arm is the ONE place where the choice between the two
+/// [`Coverage::measured`] wordings is observable - the two other zero-numerator arms are handed a
+/// `Coverage::of(&[], ..)`, whose `measured` is 0 by construction, so both [`Attributed`] values
+/// return the same string there and a mutation of either is a no-op. That choice IS the defect #299 was about, and it was pinned by review only: the test
+/// named for it asserted both methods on a SYNTHETIC `Coverage` and called no arm, so a reviewer's
+/// mutation of the `println!` here to `ratio()` - `7 of 8`, where the filterset merely NAMED seven
+/// and nothing ran - reddened nothing at all. Recorded as
+/// `github.com/telekom/sutura#319`; nothing in this venue captures stdout, and a function that
+/// RETURNS the lines needs no capture.
+///
+/// **The limit, stated because this is a fix to an overstated control:** what a test can read here
+/// is the wording the arm derives. That it was PRINTED is held by the loop above and by review, the
+/// same way every other printed sentence in this module is.
+fn no_base_behaviour(base: &str, remove: &[&String], coverage: &Coverage) -> Vec<String> {
+    let mut lines = vec![String::from("xtask test-causality: NO BASE BEHAVIOUR TO COMPARE AGAINST")];
+    for f in remove {
+        lines.push(format!("  {f} does not exist at {base}"));
+    }
+    lines.push(format!("  measured:  {}", coverage.measured(Attributed::Nothing)));
+    lines.push(String::new());
+    lines.push(String::from(
+        "Every changed implementation file is new here, so there is no old behaviour",
+    ));
+    lines.push(String::from(
+        "for a test to be red against. Reverting them would leave a tree that does not",
+    ));
+    lines.push(String::from(
+        "compile, and a test that fails to compile proves nothing about behaviour.",
+    ));
+    lines.push(String::from(
+        "This gate has NOT verified causality for this change - state the evidence in",
+    ));
+    lines.push(String::from("the handoff if it is a bug fix."));
+    lines
 }
 
 /// A plan whose every provable file declares a test module that named no test.
@@ -265,8 +362,9 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
 #[cfg(test)]
 mod tests {
     use super::{
-        Coverage, Enabled, Ident, Verdict, report_enabled_tests, report_head_failure, report_no_base_behaviour,
-        report_not_separable, report_nothing_to_revert, report_only_ignored, report_unnamed_tests, report_unreadable,
+        Coverage, Enabled, Ident, Verdict, no_base_behaviour, report_enabled_tests, report_head_failure,
+        report_no_base_behaviour, report_not_separable, report_nothing_to_revert, report_only_ignored, report_unnamed_tests,
+        report_unreadable, scope_lines,
     };
 
     /// A coverage value with nothing measured out of `total`.
@@ -315,14 +413,63 @@ mod tests {
 
     #[test]
     fn an_arm_that_returns_before_either_run_prints_a_zero_numerator() {
-        // The numerator is what the filterset NAMES, which equals what was measured only once
-        // both runs have happened - so the two arms that return earlier may not print it. Seven
-        // named and nothing run is `0 of 8`, never `7 of 8`.
+        // THE ARM, not a synthetic value. This test asserted `Coverage::ratio()` and
+        // `Coverage::nothing_measured()` on a hand-built `Coverage` and called nothing, so it was
+        // green under the one mutation it is named for: making this arm print `ratio()` - `7 of 8`,
+        // the filterset's NAMES count, on a run where neither run happened. Reproduced by #306's
+        // reviewer and filed as #319. `no_base_behaviour` is the arm's own lines, so the mutation
+        // lands inside what this reads.
+        //
+        // `report_no_base_behaviour` is the only observable site: the other two zero-numerator arms
+        // get a `Coverage::of(&[], ..)`, where `measured` is 0 by construction and the two wordings
+        // are the same string.
         let named_seven = Coverage::Measured {
             measured: 7,
             unmeasured: vec![String::from("held")],
         };
-        assert_eq!(named_seven.ratio(), "7 of 8 added tests measured");
-        assert_eq!(named_seven.nothing_measured(), "0 of 8 added tests measured");
+        let new_file = String::from("crates/x/src/new.rs");
+        let lines = no_base_behaviour("origin/main", &[&new_file], &named_seven);
+        assert!(
+            lines.iter().any(|line| line.contains("0 of 8 added tests measured")),
+            "an arm that ran neither run says it measured nothing: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("7 of 8")),
+            "the filterset's NAMES count is not a measurement: {lines:?}"
+        );
+        // And the arm still prints those lines and passes. What that holds is the wording; that it
+        // reached stdout is the loop's, and unobservable here - the limit `no_base_behaviour` states.
+        assert_eq!(
+            report_no_base_behaviour("origin/main", &[&new_file], &named_seven),
+            Verdict::Pass
+        );
+    }
+
+    #[test]
+    fn the_line_printed_before_either_run_claims_no_measurement() {
+        // THE SAME DEFECT ONE CALLER OUT, and the one `base::earned` could not reach. `prove`
+        // printed this line BEFORE the head run, from `Coverage::ratio`, so a run ending
+        // INCONCLUSIVE carried `measured:  7 of 8 added tests measured` about twenty lines above a
+        // verdict saying `0 of 8` - the same sentence, two numerators, in one paste. Reproduced by
+        // review on the head that added `earned`, which is why it is worth a test rather than a
+        // wording: `earned` is unreachable here, because no run has produced an outcome yet.
+        let named_seven = Coverage::Measured {
+            measured: 7,
+            unmeasured: vec![String::from("held")],
+        };
+        let lines = scope_lines(&named_seven);
+        assert!(
+            lines.iter().any(|line| line.contains("7 of 8 added tests named")),
+            "the pre-run line states the SCOPE, and the count is the filterset's: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("added tests measured")),
+            "nothing has run yet, so no line here may carry the measurement key: {lines:?}"
+        );
+        // The names are still here - they are the half a reader needs whichever line carries them.
+        assert!(
+            lines.iter().any(|line| line.contains("not measured: held")),
+            "the filterset's omissions are named before the runs, as they were: {lines:?}"
+        );
     }
 }

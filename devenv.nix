@@ -389,7 +389,22 @@ in
       cargo nextest run --status-level fail -p xtask --all-features
 
       echo "== red-before-green for changed tests"
-      cargo run -q -p xtask -- test-causality --since "$merge_base"
+      # EXIT 3 IS "I MEASURED NOTHING" and it is not a failure of this sequence, so `set -e` may
+      # not end the run on it: the remaining hooks and surface tasks are what a push still needs.
+      # It is not a pass either - both of the gate's inconclusive answers were exit 0 until
+      # `github.com/telekom/sutura#307`, which is how a finished branch carried a green causality
+      # step over no evidence. So the verdict is RETAINED as the last thing this section prints,
+      # which is what the pull request has to state; the gate's own lines above it say which cause
+      # and which remedy.
+      causality_status=0
+      cargo run -q -p xtask -- test-causality --since "$merge_base" || causality_status=$?
+      if [ "$causality_status" -eq 3 ]; then
+        echo "ship-check: causality was INCONCLUSIVE - this run proves NO red-before-green."
+        echo "  State the substitute in the pull request: a mutation run, or this gate scoped"
+        echo "  per commit - SHIP_CHECK_BASE_REF, or the just task with a commit as its base."
+      elif [ "$causality_status" -ne 0 ]; then
+        exit "$causality_status"
+      fi
 
       echo "== pre-push hooks"
       pixi run --frozen prek run --color never --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD 2>&1 | tee "$logs/pre-push.log"

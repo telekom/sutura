@@ -966,6 +966,7 @@ economise.
    | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |
    | `check-skills` | `.agents/skills/**` and the router - prose, and none of it under `docs/` |
    | `check-scope` | the `justfile`, which no other gate reads |
+   | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
    | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares |
 

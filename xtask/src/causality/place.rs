@@ -351,6 +351,12 @@ fn declared_at(text: &str, inner: &str) -> Option<Ident> {
 /// because it is the same path arithmetic `in_dir` and `owning_package` do, and because
 /// `super::scoped` needed to answer a question the sentence it PRINTED had been asserting: is the
 /// declared module's own file in this diff at all?
+///
+/// LATENT, recorded so it is not rediscovered: a `mod child;` nested INSIDE an inline `mod a {}`
+/// of `lib.rs` resolves here to `child.rs` rather than to Rust's `a/child.rs`. Unreachable through
+/// the current call graph - [`accounted_for`] answers [`Declares::Inline`] on the parent `mod a {`
+/// first, so the nested declaration never reaches this function. It is wrong the moment something
+/// else calls it.
 pub(super) fn declared_module_files(path: &str, name: &str, relocated: Option<&str>) -> Vec<String> {
     let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
     if let Some(rel) = relocated {
