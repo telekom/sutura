@@ -13,9 +13,12 @@
 //!
 //! # Three rules
 //!
-//! * **every required context resolves to a job.** A required context that no longer REPORTS is a
-//!   permanently pending merge, which is worse than an ungated leg - it is the failure mode that
-//!   makes *just add the four legs to the required list* a bad remedy. A rename fails here instead.
+//! * **every required context resolves to a job that reports that context.** A required context
+//!   that no longer REPORTS is a permanently pending merge, which is worse than an ungated leg - it
+//!   is the failure mode that makes *just add the four legs to the required list* a bad remedy. A
+//!   rename fails here instead. **A CALLED workflow's job cannot resolve one**: its context is
+//!   prefixed by the caller's job, so its bare id is a string nothing reports, and letting it
+//!   resolve would answer *this reports* about a context that does not exist.
 //! * **every job that can report on a pull request is declared, in one section or the other.** A
 //!   new job is then a decision rather than an omission, which is the whole content of the
 //!   advisory section: it makes the status quo visible. **A workflow a gating one CALLS counts** -
@@ -69,6 +72,13 @@ struct Job {
     declared_as: String,
     /// The context string GitHub reports: the job's `name:` where it has one, else its id.
     context: String,
+    /// Is [`Self::context`] the whole string GitHub reports, or only its last part?
+    ///
+    /// **False for a job in a CALLED workflow, and this is load-bearing.** Such a job reports
+    /// `<caller job> / <job> (<matrix value>)`, so its bare id is a context nothing ever reports -
+    /// and letting it resolve a `[required]` entry would answer *this context reports* about a
+    /// string that does not exist. It is still classified: that is the point of reading it at all.
+    reports_its_context: bool,
 }
 
 /// Every problem. Empty means the declaration and the workflows agree.
@@ -108,7 +118,9 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             ));
             continue;
         }
-        if !jobs.iter().any(|job| job.context == *context) {
+        // `reports_its_context` and not merely a name match: a called workflow's job is read here
+        // so it can be CLASSIFIED, and its bare id is not a context anything reports.
+        if !jobs.iter().any(|job| job.reports_its_context && job.context == *context) {
             problems.push(format!(
                 "{DECLARATION} requires the context `{context}` and no job reports it - a required context that never reports is a PERMANENTLY PENDING merge"
             ));
@@ -120,7 +132,8 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         }
     }
     for job in &jobs {
-        let classified = required.contains(&job.context) || advisory.contains(&job.declared_as);
+        let required_by_context = job.reports_its_context && required.contains(&job.context);
+        let classified = required_by_context || advisory.contains(&job.declared_as);
         if !classified {
             problems.push(format!(
                 "`{}` can report on a pull request and {DECLARATION} classifies it as neither required nor advisory - say which, because a job nobody requires gates nothing",
@@ -210,7 +223,10 @@ fn gating_jobs(root: &Path) -> Gating {
     refusals.extend(closure.drift());
     let mut jobs = Vec::new();
     for file in closure.inspected().iter().filter(|file| file.is_workflow()) {
-        jobs.extend(jobs_in(file.label(), file.text()));
+        // A ROOT runs on its own trigger, so its job's `name:` or id IS the context. A workflow the
+        // walk only reached through a call reports `<caller job> / <job> (<value>)`, which no
+        // `jobs:` key spells - so its jobs are classified and cannot resolve a required context.
+        jobs.extend(jobs_in(file.label(), file.text(), file.is_root()));
     }
     Gating { jobs, refusals }
 }
@@ -227,7 +243,10 @@ fn gates_on_an_event(text: &str) -> bool {
 }
 
 /// Every job in one workflow, with the context each reports.
-fn jobs_in(file: &str, text: &str) -> Vec<Job> {
+///
+/// `reports_its_context` is the caller's answer and not this function's: whether the workflow runs
+/// on its own trigger or only because something calls it is not readable from one job.
+fn jobs_in(file: &str, text: &str, reports_its_context: bool) -> Vec<Job> {
     let lines: Vec<&str> = text.lines().collect();
     block_keys(text, "jobs:")
         .into_iter()
@@ -236,6 +255,7 @@ fn jobs_in(file: &str, text: &str) -> Vec<Job> {
             // A `name:` at the job's own key depth is the context GitHub reports; without one the
             // id is. Reading the wrong one would make a required context resolve to nothing.
             context: job_name(&lines, &id).unwrap_or_else(|| id.clone()),
+            reports_its_context,
         })
         .collect()
 }
@@ -348,7 +368,7 @@ mod tests {
 
     #[test]
     fn the_context_is_the_jobs_own_name_where_it_has_one() {
-        let jobs = super::jobs_in("ci.yml", WORKFLOW);
+        let jobs = super::jobs_in("ci.yml", WORKFLOW, true);
         let ci = jobs.first().expect("the ci job");
         assert_eq!(ci.declared_as, "ci.yml:ci");
         // NOT the step's name, which is the one a naive first-match would return.
@@ -477,6 +497,25 @@ mod tests {
             problems
                 .first()
                 .is_some_and(|line| line.starts_with("`cross-link.yml:link` can report on a pull request")),
+            "{problems:?}"
+        );
+
+        // AND THE FALSE POSITIVE READING A CALLED WORKFLOW OPENS, which is the reason a job carries
+        // whether its context is the whole string: `link` is the called job's id and the context it
+        // reports is `cross / link (<value>)`, so requiring `link` must NOT resolve. Before this
+        // was carried, the same read that closed the classification hole answered *this context
+        // reports* about a string GitHub never sends - a permanently pending merge, declared green.
+        std::fs::write(
+            scratch.join(super::DECLARATION),
+            "[required]\nci\nlink\n\n[advisory]\nci.yml:cross\ncross-link.yml:link\n",
+        )
+        .expect("the declaration");
+        let problems = super::problems(&scratch);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems
+                .first()
+                .is_some_and(|line| line.contains("requires the context `link` and no job reports it")),
             "{problems:?}"
         );
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");

@@ -45,13 +45,17 @@
 #
 # WHAT THE GATE HOLDS:
 #
-#   * every `[required]` context resolves to a job some workflow declares - by its `name:` where it
-#     has one, otherwise by its id. A required context that no longer REPORTS is a permanently
+#   * every `[required]` context resolves to a job THAT REPORTS IT - by its `name:` where it has
+#     one, otherwise by its id. A required context that no longer REPORTS is a permanently
 #     pending merge, which is worse than an ungated leg, so a rename fails a gate here instead of
 #     the merge box later. A matrix leg and a reusable-workflow call report a context no `jobs:`
 #     key spells, so such an entry is REFUSED with that sentence rather than reported as a context
 #     nothing reports - which is what it used to print, falsely, on the one remedy this file
-#     discusses;
+#     discusses. A job in a CALLED workflow is read for the rule below and CANNOT resolve an entry
+#     here: it reports `<caller job> / <job> (<value>)`, so `link` in this section is a context
+#     nothing sends. Reading those jobs without carrying that distinction made the gate answer
+#     *this context reports* about a string GitHub never emits - green over a permanently pending
+#     merge, and the reason a job carries whether its context is the whole string;
 #   * every job in a workflow that can report on a pull request is in one of the two sections
 #     below - INCLUDING a job in a workflow that a gating one CALLS. Its own `on:` is
 #     `workflow_call`, so the event test alone read none of its jobs while its legs reported on

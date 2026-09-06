@@ -79,6 +79,13 @@ pub(super) struct Reached {
     /// A workflow declares jobs and a composite action does not, so only a workflow contributes to
     /// the classification half.
     workflow: bool,
+    /// Was this a ROOT of the walk rather than something it reached through a call?
+    ///
+    /// It decides what a job's context STRING is, which is why it is carried rather than derived: a
+    /// root's job reports its own `name:` or id, and a called workflow's reports
+    /// `<caller job> / <job> (<matrix value>)`. So a called workflow's job must be classified and
+    /// must NOT be allowed to satisfy a required context - see `super::contexts`.
+    root: bool,
 }
 
 impl Reached {
@@ -93,6 +100,7 @@ impl Reached {
             path: format!("{WORKFLOWS}{file}"),
             text,
             workflow: true,
+            root: true,
         }
     }
 
@@ -106,6 +114,10 @@ impl Reached {
 
     pub(super) const fn is_workflow(&self) -> bool {
         self.workflow
+    }
+
+    pub(super) const fn is_root(&self) -> bool {
+        self.root
     }
 }
 
@@ -432,6 +444,7 @@ fn open(root: &Path, call: &Call) -> Result<Reached, String> {
                 path: String::from(path),
                 text,
                 workflow: true,
+                root: false,
             })
         }
         Edge::Action => {
@@ -447,6 +460,7 @@ fn open(root: &Path, call: &Call) -> Result<Reached, String> {
                             path: candidate,
                             text,
                             workflow: false,
+                            root: false,
                         });
                     }
                     Err(why) => refusals.push(why),
