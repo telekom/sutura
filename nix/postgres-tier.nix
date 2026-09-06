@@ -102,6 +102,19 @@ rec {
       start() {
         mkdir -p "$pg" "$root/.sutura-dev"
         if [ ! -f "$pg/PG_VERSION" ]; then
+          # `PG_VERSION` absent is the right question and `initdb` alone was the wrong answer:
+          # initdb writes that file LATE, so its absence beside other entries is the signature of an
+          # INTERRUPTED initdb - and initdb then refuses the non-empty directory, every run, for as
+          # long as the directory survives. The tier diagnosed itself correctly and wedged anyway.
+          #
+          # Clearing it is safe in a way that clearing a cluster would not be: without `PG_VERSION`
+          # nothing was ever a cluster, nothing can read it, and no committed data can exist in it.
+          # A COMPLETE cluster is still reused, which is what keeps a repeated run cheap.
+          if [ -d "$pg" ] && [ -n "$(ls -A "$pg" 2>/dev/null)" ]; then
+            echo "postgres tier: clearing a partial data directory left by an interrupted initdb" >&2
+            rm -rf "''${pg:?the tier data directory is unset}"
+            mkdir -p "$pg"
+          fi
           initdb -D "$pg" -U postgres -E UTF8 --locale=C
         fi
         # Socket-only, under the short directory. No TCP, so no port allocation or collision.
@@ -158,6 +171,22 @@ rec {
         # bare `rm -f`; a tier that was never started has nothing to withdraw and that is not a
         # failure.
         sutura-tier-endpoint withdraw "$root" postgres
+        # AND THE DATA DIRECTORY GOES WITH IT. This tier is provisioned by nix on demand; nothing it
+        # writes is meant to outlive a teardown, and the sandbox arm already behaves that way for
+        # free because `$NIX_BUILD_TOP` is fresh every build. The dev-shell arm only looked
+        # different because its path is chosen to be SHORT - a unix socket caps near 100 bytes on
+        # macOS - and keyed per worktree so two trees cannot clobber each other. Neither reason
+        # argues for surviving `stop`, and nothing here ever removed it: measured on one machine,
+        # nine directories from four separate days, 40 MB each.
+        #
+        # The cost of not keeping it is one `initdb`, measured at 0.87s - which is what a repeated
+        # `just test` pays now, against a directory that accumulates forever and a partial one that
+        # wedges the tier until somebody deletes a path nothing told them about.
+        #
+        # AFTER the withdraw and after the stop-failure exit above: a server that would not stop
+        # keeps both its entry and its data, because removing a live postmaster's directory is a
+        # worse failure than the one being fixed.
+        rm -rf "''${pg:?the tier data directory is unset}"
       }
 
       # Is a server up, and up in the way THE SUITE will see it? Nothing is changed, and the answer
@@ -292,6 +321,35 @@ rec {
       sutura-postgres-tier stop
       expect_state 1 "a stopped tier"
       expect_entry absent "a stop that took withdraws the claim"
+      # AND THE DATA DIRECTORY GOES WITH IT. Nothing here ever removed it, and nothing said so:
+      # measured on one machine, nine directories from four separate days at 40 MB each. The
+      # sandbox arm never showed it because `$NIX_BUILD_TOP` is fresh every build - so the only
+      # venue that could see this is the only one that reuses a path, and it had no assertion.
+      if [ -e "$pg" ]; then
+        echo "stop left the data directory behind: $pg" >&2
+        exit 1
+      fi
+
+      # --- a partial data directory heals instead of wedging the worktree ---
+      # `github.com/telekom/sutura#377`. An interrupted `initdb` leaves a directory that is neither
+      # a cluster nor empty: `PG_VERSION` is written LATE, so it is absent while the entries around
+      # it are already there. `initdb` then refuses the non-empty directory on every later run, so
+      # the tier was wedged for that worktree until somebody deleted a path nothing told them about
+      # - deterministic once it had happened, and reported as an `initdb` complaint about a temp
+      # path rather than as the state it is.
+      mkdir -p "$pg/base" "$pg/global"
+      : > "$pg/postgresql.auto.conf"
+      # The fixture has to BE the state under test: with `PG_VERSION` present this arm would only
+      # prove that a complete cluster is reused, which is the arm above.
+      if [ -f "$pg/PG_VERSION" ]; then
+        echo "the fixture is not a partial cluster - it carries PG_VERSION" >&2
+        exit 1
+      fi
+      sutura-postgres-tier start
+      expect_state 0 "start clears a partial data directory instead of refusing forever"
+      expect_entry true "and publishes the server it brought up on it"
+      sutura-postgres-tier stop
+      expect_state 1 "the healed tier tears down like any other"
       ( . ${./with-tier.sh}; sutura_tier_up )
       expect_state 1 "the wrapper's EXIT trap stopped the server it started"
       expect_entry absent "that teardown withdrew the claim too"
