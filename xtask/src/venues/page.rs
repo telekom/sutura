@@ -8,9 +8,15 @@
 //! be listed in `devco/max-lines-ignore` - and split THIS way for the reason
 //! `.agents/skills/sutura/gates` states: the causality gate never reverts a file that adds a
 //! `#[test]`, so moving the harness keeps every assertion in the file that already had them and
-//! nothing is orphaned. **The expected cost is a verdict**: this file adds no test, so it is
-//! revertible while the file declaring `mod page;` is held, and the base tree cannot build. That
-//! reads `INCONCLUSIVE`, which is the gate being honest, and a mutation stands in for it.
+//! nothing is orphaned.
+//!
+//! **What that costs the causality gate, measured rather than predicted.** An earlier version of
+//! this paragraph said the base tree would fail to build and the verdict would be `INCONCLUSIVE`.
+//! It is not: `venues.rs` carries implementation AND tests, so the plan is
+//! `NotSeparable { files: ["xtask/src/venues.rs"] }`, this file is never reverted, and no base
+//! build is attempted at all. The verdict is `NOT MECHANICALLY SEPARABLE`. Either way a mutation
+//! stands in for the proof - but the two verdicts ask for different things, and describing one as
+//! the other is how an author fails to recognise their own situation.
 
 use std::collections::BTreeSet;
 
@@ -41,20 +47,51 @@ pub(super) const STRUCTURAL: &[&str] = &["The venues", "Which venue answers whic
 /// **`wired` is not a softer `unrun` either, and the two are exclusive by mechanism rather than by
 /// convention:** `unrun` is refused once CI invokes the venue's `Reached by` task and `wired` is
 /// refused until it does, so exactly one of them is available for any given tree.
+///
+/// **What that exclusivity rests on, said where the claim is:** the `Reached by` cell, which is
+/// PROSE ON THE SAME PAGE and editable in the same diff. Three readers narrow what it can get away
+/// with. [`Venue::runs_nowhere`] refuses `yes`, `can` and `wired` from a venue whose own row says it
+/// runs nowhere; a built venue whose cell names no resolvable invocation is refused outright; and
+/// the CI scan now reads a COMMAND rather than a substring. None of them makes the cell ground
+/// truth, and review is still what decides that a row describes the thing it names.
 pub(super) const VERDICTS: &[&str] = &["only here", "redundant", "unrun", "wired", "yes", "can", "no", "-"];
 
 /// What a venue that runs nowhere says in its `Reached by` cell.
 pub(super) const NOT_BUILT: &str = "not built";
 
+/// The word a venue's `Where it runs` cell uses when it runs nowhere.
+///
+/// **The page's own vocabulary rather than a new one**, matched as a substring because the cell is
+/// a sentence: *nowhere yet* and *nowhere yet - the leg exists and nothing can point it at a
+/// subject* are the two forms on the page and both mean the same thing.
+pub(super) const NOWHERE: &str = "nowhere";
+
 /// One row of the venues table.
 pub(super) struct Venue {
     /// The name, with the emphasis removed.
     pub(super) name: String,
+    /// The `Where it runs` cell.
+    ///
+    /// Read since a review found the two columns able to disagree: the exchange venue said
+    /// *nowhere yet* in this cell while its `Reached by` named a task, and only the second was
+    /// read, so `is_built` was true and the sole guard on `yes`/`can` for the row carrying leg 2
+    /// was gone. Two facts the gate already had, now both read.
+    pub(super) runs: String,
     /// The `Reached by` cell.
     pub(super) reached: String,
 }
 
 impl Venue {
+    /// Does the row say this venue runs nowhere?
+    ///
+    /// **Separate from [`Self::is_built`] on purpose, and the difference is a real state:** a venue
+    /// can have a written test and a task that reaches it and still run nowhere, because nothing
+    /// can point that task at anything. That is exactly what `unrun` is for - so this does not
+    /// refuse `unrun`, and it does refuse every verdict that claims a run happened or is about to.
+    pub(super) fn runs_nowhere(&self) -> bool {
+        self.runs.to_lowercase().contains(NOWHERE)
+    }
+
     /// Does anything run this venue?
     pub(super) fn is_built(&self) -> bool {
         self.reached != NOT_BUILT
@@ -120,7 +157,7 @@ pub(super) fn venues(text: &str) -> Result<Vec<Venue>, String> {
     let (_, rows) = table(text, "venues", |line| line == VENUES_HEADER)?;
     let mut out = Vec::new();
     for row in rows {
-        let [name, .., reached] = row.as_slice() else {
+        let [name, runs, .., reached] = row.as_slice() else {
             return Err(format!("{PAGE}: a venues row has fewer cells than the header: {row:?}"));
         };
         let name = name.replace('*', "").trim().to_owned();
@@ -129,6 +166,7 @@ pub(super) fn venues(text: &str) -> Result<Vec<Venue>, String> {
         }
         out.push(Venue {
             name,
+            runs: runs.clone(),
             reached: reached.clone(),
         });
     }
