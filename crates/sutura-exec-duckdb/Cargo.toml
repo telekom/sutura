@@ -22,5 +22,11 @@ sutura-sql = { workspace = true }
 duckdb = { workspace = true }
 thiserror = { workspace = true }
 
+# The conformance packs, which `tests/conformance.rs` binds this adapter to. A DEV-dependency and
+# never more than one: the harness holds this adapter to the port's contract, and nothing shipped
+# should be able to reach it.
+[dev-dependencies]
+sutura-conformance = { workspace = true }
+
 [lints]
 workspace = true

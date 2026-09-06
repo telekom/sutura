@@ -205,11 +205,26 @@ columns in another order is a defect rather than a variation.
 **Multiset and not set, and that is load-bearing rather than pedantic:** a duplicated row is exactly
 what a fan-out defect produces, and it is the failure the cardinality precondition in `AGENTS.md`
 rests on trust for, so a comparison that deduplicated would hide the one class of bug the corpus's own
-named cases are aimed at. **The limit:** re-sorting means the execute packs cannot see a row-ORDER
-defect - an adapter that returned the right rows in the wrong order passes them. That is deliberate,
-and the order is asserted elsewhere: the per-source row snapshot is not sorted, so a source whose
-collation orders `Business` before `business` differs there, in a diff a reviewer reads, rather than
-turning every case red for a reason that is not about the number.
+named cases are aimed at.
+
+**The re-sort above was SUPERSEDED before the packs were built, and the limit it carried is now
+false.** What landed is two functions rather than one: `agree_on_content` tallies rows into a
+multiset, so it needs no sort at all to be order-independent, and `agree_on_order` compares position
+for position. The execute packs call both - `Behaviour::Order` is `agree_on_order`, and a wrong cell
+reddens it naming `row 0, column 2 (amount_total)` - so *the execute packs cannot see a row-ORDER
+defect* is exactly backwards about the built harness. The stronger behaviour is the right call, and
+correcting the record matters because the sentence would otherwise be cited to justify dropping it.
+
+**What the re-sort actually existed for has not gone away, and this is the open decision.** A source
+executes the plan's `ORDER BY` under its own **collation** and its own **NULL placement**, neither of
+which the plan states. The built corpus avoids the question - all-lowercase ASCII keys with distinct
+first letters, no null in a group key - which is weaker than deciding it, and says so about itself.
+So: **`agree_on_order` governs, and a case whose order a source could legitimately answer differently
+may not be asserted on order.** The packs have no field for that today; every case is compared both
+ways. Building it is the corpus branch's, and it must land WITH the null-in-a-group-key case rather
+than after it - otherwise the first such case reports a source's collation as a conformance failure.
+The per-source row snapshot in `sutura-app/tests` remains the place a collation difference is a diff a
+reviewer reads rather than a red cell.
 
 ### Cases the corpus must contain by name, because nothing else finds them
 
@@ -284,10 +299,15 @@ declaration. Neither touches a pack body, and that is the property the requireme
   With a corpus multiplied by adapters an orphan is a real gap rather than a nicety, so both halves -
   the pin and the gate - belong with this work.
 - **Timing.** A conformance matrix grows multiplicatively, and the tier that is supposed to be fast
-  stops being fast quietly. So per-pack timings are reported from the start, and the reason is the same
-  one that governs every other number in this repository: the fast tier is defended with a measurement
-  or it is defended with a feeling. `cargo nextest` already reports per-test durations, so the missing
-  half is aggregating them per pack and per adapter rather than instrumenting anything.
+  stops being fast quietly. So per-pack timings belong in it, and the reason is the same one that
+  governs every other number in this repository: the fast tier is defended with a measurement or it is
+  defended with a feeling. `cargo nextest` already reports per-test durations, so the missing half is
+  aggregating them per pack and per adapter rather than instrumenting anything.
+
+  **"Reported from the start" is what this line said until the first packs landed without them, and
+  the correction is the point:** nothing aggregates a duration per pack or per adapter, and no gate
+  reads one. What exists is nextest's own per-test line, which is per CELL and is discarded unless a
+  reader passes a flag. Tracked, rather than left as a sentence a reader would take for a mechanism.
 
 ## Consequences
 
@@ -297,12 +317,27 @@ declaration. Neither touches a pack body, and that is the property the requireme
   draft cited `crates/sutura-cli/tests/federation.rs` and about ninety duplicated lines "at two
   corpora, so this is the third". That file is not here - `crates/sutura-cli/tests` holds `example.rs`
   and its snapshots - and the claim came from a branch that was never merged. What is true: the golden
-  and refusal corpora in `sutura-app/tests` are the first corpora, the packs are the second consumer of
-  the same fixtures, and the shared module is therefore written ONCE here rather than extracted from a
-  duplication. Cheaper than the draft claimed, and worth correcting in the other direction too: a
-  record that invents the debt it is paying off cannot be checked by a reader.
+  and refusal corpora in `sutura-app/tests` are the first corpora, and the shared module is therefore
+  written ONCE here rather than extracted from a duplication. Cheaper than the draft claimed, and
+  worth correcting in the other direction too: a record that invents the debt it is paying off cannot
+  be checked by a reader.
+
+  **And "the second consumer of the same fixtures" is now false as well.** The packs do not read the
+  example corpus: reaching it needs a catalog adapter and the compiler, and the harness may depend on
+  neither - `check-boundaries`' harness half is what holds that. So the packs carry a corpus of their
+  own and the workspace has a THIRD, which is a cost this record should not have hidden inside a
+  sentence about avoiding duplication. It is paid deliberately: the alternative is a harness that
+  cannot be a dependency an adapter's own crate takes, which is the whole reason the crate exists.
 - The existing `tests/adapters` registry becomes the place an adapter is registered for the matrix,
-  and the macro invocation is what registers it for the packs. One registration, not two - and that
+  and the macro invocation is what registers it for the packs. One registration, not two - **and as
+  built it is two, with nothing relating them.** A data system is named in
+  `crates/sutura-app/tests/adapters/mod.rs` and bound again in its own crate's
+  `tests/conformance.rs`, and no gate compares the two lists: deleting a binding leaves every check
+  green. The gate that closes it reads the registry against the set of crates holding a binding, and
+  it arrives with ONE declared exemption - `sutura-exec-postgres`, registered and deliberately
+  unbound until the harness has a way to say *no tier is up here* that is not a pass. Until then this
+  consequence is a decision the tree does not yet meet, which is a thing to state rather than to
+  round up. And that
   registry becomes the source CI's own job matrix is EMITTED from, rather than a category list typed into
   a workflow file. A registered adapter absent from CI's matrix is not an error in YAML, which is the
   quiet way a new adapter ends up conformance-tested locally and untested in CI.

@@ -146,7 +146,7 @@ fn edges_inside(meta: &serde_json::Value, class: &AdapterClass, in_class: &[Stri
 ///
 /// Members ONLY, so a third-party crate that happened to share a prefix could not join a class,
 /// and so the walk starts somewhere `transitive_names` can find.
-fn workspace_members(meta: &serde_json::Value) -> Result<BTreeSet<String>, String> {
+pub(super) fn workspace_members(meta: &serde_json::Value) -> Result<BTreeSet<String>, String> {
     let packages = meta
         .get("packages")
         .and_then(|p| p.as_array())

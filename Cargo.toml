@@ -27,6 +27,12 @@ members = [
   # edge back.
   "crates/sutura-sql",
   "crates/sutura-app",
+  # The conformance packs: test bodies written ONCE against the ports, bound to an adapter by a
+  # macro. `docs/adr/0012` is the construction. It depends on `sutura-domain` and on no adapter -
+  # which is what lets an adapter's OWN crate take it as a dev-dependency and prove itself, instead
+  # of a second hand-written suite per adapter. Never shipped: every consumer is a dev-dependency,
+  # so it is in no artefact's closure.
+  "crates/sutura-conformance",
   "crates/sutura-exec-duckdb",
   # The first cloud data source: renders through `sutura-sql` in the fourth dialect and pushes down.
   # NOTHING LINKS IT, and that is recorded rather than incidental - its `JobTransport` port has no
@@ -102,6 +108,10 @@ sutura-mcp = { path = "crates/sutura-mcp" }
 # because a test harness has to be able to learn where a provisioned service is listening and
 # `xtask` has to name the same compose project the harness sees.
 sutura-dev = { path = "dev" }
+# The conformance packs. Inherited under `[dev-dependencies]` only, by each adapter crate that binds
+# them - the same shape `sutura-dev` has, and for the same reason: a harness in a shipped closure is
+# a harness somebody can call from a serving path.
+sutura-conformance = { path = "crates/sutura-conformance" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
