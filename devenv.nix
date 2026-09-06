@@ -67,17 +67,56 @@ let
   # gate on exactly what CI gates on.
   stableBin = "${toolchains.stable}/bin";
 
-  # Wrap a gate so it runs on stable, in its own target directory. The snippet is a
-  # real shell file so shellcheck lints it and the justfile can source the SAME one -
-  # "run this the way CI runs it" is defined once.
-  onStable = body: ""
-    + "set -e
-"
-    + "# shellcheck source=nix/stable-env.sh
-"
-    + "source ${./nix/stable-env.sh}
-"
-    + body;
+  # A shell body ShellCheck has read, as a store path.
+  #
+  # `writeShellApplication`'s checkPhase is `bash -n` PLUS ShellCheck, so a body that does not
+  # pass cannot be BUILT - and a devenv script that cannot be built cannot be run. Entering the
+  # shell builds the whole profile, so one script's findings are every script's findings.
+  #
+  # Nothing else in this repository reads shell inside a Nix string. `nix/lint-workflows.sh`
+  # globs tracked `*.sh` files, `nix/lint-action-shell.sh` extracts `run:` blocks from composite
+  # actions, and the `shellcheck` hook is `files: \.sh$` - a Nix string is none of those.
+  # Measured rather than assumed: the derivation devenv built for `ship-check` before this
+  # carried `checkPhase = ""`, so those fifty lines had neither ShellCheck nor a syntax check,
+  # and the first ShellCheck run over them found a live defect in the dirty-tree refusal.
+  #
+  # WHY THIS AND NOT AN EXTRACTOR OR A `*.sh` FILE. ShellCheck here reads the RENDERED text -
+  # the exact string bash will see - so a Nix antiquotation is already resolved and there is no
+  # substitution for a reader to get wrong, which is the hard half of extracting these. And a
+  # reader following `just ship-check` still finds the sequence rather than a path to it.
+  #
+  # WHAT HOLDS A NEW BODY TO IT, because the wrapper alone does not and saying otherwise was the
+  # defect: a body assigned as a plain literal beside the wrapped ones builds, runs, and is read
+  # by nothing - measured, with two ShellCheck findings in it and a green shell. So
+  # `cargo run -q -p xtask -- check-guidance` refuses the literal form in THIS file, and
+  # `xtask/src/hook_coverage.rs` carries the surface row that makes `just ship-check` say which
+  # task reached it. The wrapper is the linter; the gate is what keeps every body inside it.
+  #
+  # LIMIT: CI does not use this file (see the header), so the SHELLCHECK half fails on a developer
+  # machine and in `just ship-check` - which builds the profile - and never on a pull request by
+  # itself. The structural half above does run in CI, inside `hygiene`. Neither reaches beyond the
+  # two wrappers below: `runCommand` and phase bodies in `nix/` and the `writeShellScript` apps in
+  # `flake.nix` get `bash -n` at most.
+  #
+  # `bashOptions` is passed at each call rather than defaulted: nixpkgs would add `nounset` and
+  # `pipefail` on top of the `errexit` these bodies already had, and turning those on changes
+  # what they DO rather than what reads them.
+  linted = name: bashOptions: text:
+    pkgs.writeShellApplication { name = "sutura-${name}"; inherit bashOptions text; };
+
+  # A devenv script: the linted body, invoked with whatever arguments devenv was given.
+  runs = name: body: "${linted name [ "errexit" ] body}/bin/sutura-${name} \"$@\"";
+
+  # The same, for a gate: on stable, in its own target directory. `nix/stable-env.sh` stays a real
+  # shell file so the justfile can source the SAME one - "run this the way CI runs it" is
+  # defined once - and the `source=/dev/null` directive is because it is reached here by store
+  # path, which ShellCheck cannot follow and reports SC1091 for. That file is linted where it
+  # lives, by the `*.sh` glob in `nix/lint-workflows.sh`.
+  onStable = name: body: runs name ''
+    # shellcheck source=/dev/null
+    source ${./nix/stable-env.sh}
+    ${body}
+  '';
 in
 {
 
@@ -205,7 +244,12 @@ in
   env.PULUMI_VERSION = "${pkgs.pulumi.version}";
 
   # A broken pin should take two seconds to diagnose, not a mid-CI failure.
-  enterShell = ''
+  #
+  # SOURCED from a linted store file rather than left as an inline Nix string, for the reason
+  # `linted` states: this is the longest shell body in the file and nothing had ever read it.
+  # `bashOptions = [ ]` rather than `errexit`, because this runs IN the developer's interactive
+  # shell - `set -e` there would end the session on the first command that returns non-zero.
+  enterShell = ''source ${linted "enter-shell" [ ] ''
     export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 
     # A GitHub token for gh-axi and anything else talking to the API. Taken from the
@@ -263,7 +307,7 @@ in
     echo "  gh-axi     $(gh-axi --version 2>/dev/null || echo 'not installed')"
     # Presence only. Printing a token into a CI log is how tokens leak.
     echo "  gh token   $( [ -n "''${GITHUB_TOKEN:-}" ] && echo present || echo 'absent (GITHUB_TOKEN or .env)' )"
-  '';
+  ''}/bin/sutura-enter-shell'';
 
   # Task names are the stable interface; what they shell out to is an implementation
   # detail. `gates` is what CI runs and what a developer runs before pushing.
@@ -278,7 +322,7 @@ in
     # xtask/src/fmt.rs. The justfile and the commit hook were fixed for this; these two scripts
     # were missed, so `xtask fmt --check` passing did not prove `devenv shell gates` passed.
     # `cargo xtask check-guidance` now fails on the `--all` form so neither can come back.
-    fmt.exec = onStable ''
+    fmt.exec = onStable "fmt" ''
       set -e
       cargo run -q -p xtask -- fmt
       cargo run -q -p xtask -- text-hygiene --fix
@@ -287,26 +331,26 @@ in
     # dependencies optional, so an entry point missing the flag lints and tests nothing behind
     # them. `grep -rln '^\[features\]' --include=Cargo.toml .` is the current set.
     # `cargo run -q -p xtask -- check-guidance` holds the retired claim, and this file IS in scope.
-    lint.exec = onStable "cargo clippy --workspace --all-targets --all-features -- -D warnings";
-    test.exec = onStable "cargo nextest run --workspace --all-features";
-    boundaries.exec = onStable "cargo run -q -p xtask -- check-boundaries";
-    max-lines.exec = onStable "cargo run -q -p xtask -- max-lines";
-    line-endings.exec = onStable "cargo run -q -p xtask -- line-endings";
-    check-skills.exec = onStable "cargo run -q -p xtask -- check-skills";
-    check-guidance.exec = onStable "cargo run -q -p xtask -- check-guidance";
+    lint.exec = onStable "lint" "cargo clippy --workspace --all-targets --all-features -- -D warnings";
+    test.exec = onStable "test" "cargo nextest run --workspace --all-features";
+    boundaries.exec = onStable "boundaries" "cargo run -q -p xtask -- check-boundaries";
+    max-lines.exec = onStable "max-lines" "cargo run -q -p xtask -- max-lines";
+    line-endings.exec = onStable "line-endings" "cargo run -q -p xtask -- line-endings";
+    check-skills.exec = onStable "check-skills" "cargo run -q -p xtask -- check-skills";
+    check-guidance.exec = onStable "check-guidance" "cargo run -q -p xtask -- check-guidance";
     # The whole worktree, not just staged changes: `secrets` is for a sweep, the hook is
     # for a commit.
-    secrets.exec = "betterleaks dir . --config devco/gitleaks.toml --redact --verbose";
-    check-docs.exec = onStable "cargo run -q -p xtask -- check-docs";
-    unused-deps.exec = onStable "cargo run -q -p xtask -- unused-deps";
+    secrets.exec = runs "secrets" "betterleaks dir . --config devco/gitleaks.toml --redact --verbose";
+    check-docs.exec = onStable "check-docs" "cargo run -q -p xtask -- check-docs";
+    unused-deps.exec = onStable "unused-deps" "cargo run -q -p xtask -- unused-deps";
 
     # The CRAP gate. `onStable` because coverage instrumentation is LLVM-specific and the shell's
     # bare cargo is a cranelift nightly where `-C instrument-coverage` does not exist - so this is
     # not the channel-consistency argument the lints have, it is that the instrumentation is
     # absent. The task hardens its own environment as well, since a gate whose failure mode is a
     # silently empty report must not depend on a `source` line somebody could forget.
-    crap.exec = onStable "cargo run -q -p xtask -- crap";
-    check-crap.exec = onStable "cargo run -q -p xtask -- check-crap";
+    crap.exec = onStable "crap" "cargo run -q -p xtask -- crap";
+    check-crap.exec = onStable "check-crap" "cargo run -q -p xtask -- check-crap";
 
     # The site. `docs` renders to site/ (gitignored); `docs-serve` watches and reloads.
     #
@@ -315,12 +359,12 @@ in
     # proves the nav and the files on disk agree in both directions.
     # Through pixi's isolated `docs` environment - see the note in flake.nix beside
     # `apps.pixi`. The toolchain is Python and pixi is the one resolver for Python.
-    docs.exec = "pixi run --frozen -e docs docs";
-    docs-serve.exec = "pixi run --frozen -e docs docs-serve";
+    docs.exec = runs "docs" "pixi run --frozen -e docs docs";
+    docs-serve.exec = runs "docs-serve" "pixi run --frozen -e docs docs-serve";
 
     # The cheap structural gates, grouped so CI can run them FIRST: a 1200-line file or a
     # dead dependency should fail in seconds, not after clippy and the test suite.
-    hygiene.exec = onStable ''
+    hygiene.exec = onStable "hygiene" ''
       set -e
       cargo run -q -p xtask -- hygiene
     '';
@@ -347,7 +391,7 @@ in
     #
     # `-o pipefail` is not decoration: both prek runs go through `tee`, and without it the
     # pipeline's status is `tee`'s and a red hook run would read as green.
-    ship-check.exec = onStable ''
+    ship-check.exec = onStable "ship-check" ''
       set -euo pipefail
       base="''${SHIP_CHECK_BASE_REF:-origin/main}"
 
@@ -360,7 +404,12 @@ in
         echo "ship-check: the working tree is dirty." >&2
         git status --short >&2
         echo >&2
-        echo "  Commit or stash first. For uncommitted work run \\`gates\\` instead;" >&2
+        # ONE backslash, not two. `\\` inside double quotes is a literal backslash and leaves the
+        # backtick live, so this line used to open a command substitution IN AN ERROR MESSAGE: bash
+        # ran `gates\` and printed "run \ instead", deleting the remedy the sentence exists to name.
+        # It survived because nothing had ever read this shell; ShellCheck reports it as SC1073 the
+        # moment it does. The escaped form is what `release.yml` uses for the same reason.
+        echo "  Commit or stash first. For uncommitted work run \`gates\` instead;" >&2
         echo "  ship-check validates the committed diff from the merge base." >&2
         exit 1
       fi
@@ -433,7 +482,7 @@ in
 
     # Spelled out rather than calling `hygiene`, so this list does not depend on another
     # script being on PATH first. Cheapest first: fail before paying for clippy.
-    gates.exec = onStable ''
+    gates.exec = onStable "gates" ''
       set -e
       cargo run -q -p xtask -- hygiene
       cargo run -q -p xtask -- fmt --check
