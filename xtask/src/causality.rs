@@ -419,6 +419,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // it: a `Cargo.toml`-only diff has no changed test file, so `Plan::NotRequired` used to pass
     // with *nothing to prove* over a feature declaration that compiled a whole module of
     // pre-existing tests. `features` reads the tables on both sides rather than the diff's lines.
+    //
+    // BEFORE the plan is a DECISION, so it is stated: `Scan::Unreadable` refuses ahead of every
+    // other `.rs` answer for its own reason, and this now sits ahead of that. Both are
+    // `Verdict::Fail` and each prints its own cause, so the order decides which cause an author is
+    // shown and not the verdict. It goes first because a `Cargo.toml`-only diff reaches no other
+    // refusal at all, which is the finding.
     match feature_activation(&root, &at, &files, &working_tree) {
         Activation::Nothing => {}
         Activation::Enables(refused) => return report_enabled_tests(&refused),
