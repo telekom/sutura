@@ -474,6 +474,10 @@ struct Sink {
     lines: Vec<String>,
     current: String,
     held: Option<String>,
+    /// 0-based line the open literal started on. Meaningful only while `held` is `Some`.
+    held_at: usize,
+    /// Every finished literal, for [`string_literals`]. [`code_lines`] never reads it.
+    literals: Vec<Literal>,
 }
 
 impl Sink {
@@ -512,13 +516,68 @@ impl Sink {
 ///
 /// Newlines are always preserved, so a reported line number is the one a reader will open.
 pub(crate) fn code_lines(text: &str) -> Vec<String> {
+    lex(text).finish()
+}
+
+/// One string literal, carrying the value the compiler would give it.
+pub(crate) struct Literal {
+    /// 1-based line the opening quote sits on, so a verdict names the line a reader opens.
+    pub(crate) line: usize,
+    /// The value: line continuations applied, other escapes left as written. Nothing reads an
+    /// escape here, and expanding them would be a second answer to what `\n` means.
+    pub(crate) body: String,
+}
+
+/// Every string literal in `text`, in source order.
+///
+/// **The INVERSE of [`code_lines`] over the SAME walk, and that is the whole point.** "What is a
+/// string literal in Rust" is one question; a gate that answered it again would be a second thing
+/// to keep true, and this file's own doc says which direction its shortcuts fail in. So a comment
+/// that quotes a message is not a literal here, exactly as it is not code there.
+pub(crate) fn string_literals(text: &str) -> Vec<Literal> {
+    lex(text).literals
+}
+
+/// The one walk both consumers share.
+fn lex(text: &str) -> Sink {
     let mut sink = Sink::default();
     let mut state = Lexeme::Code;
     let mut characters = text.chars();
     while let Some(character) = characters.next() {
         state = step(state, character, &mut characters, &mut sink);
     }
-    sink.finish()
+    sink
+}
+
+/// A literal's value with Rust's line continuation applied.
+///
+/// A `\` at end of line eats the newline **and the next line's indentation**, which is how every
+/// multi-line message in this workspace is written. Without it a sentence broken over two source
+/// lines is two fragments and a phrase spanning the break matches neither.
+///
+/// Ordinary strings only: in a raw one a `\` is a character, so [`emit_text`] does not call this.
+fn continued(body: &str) -> String {
+    let mut out = String::new();
+    let mut characters = body.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character != '\\' {
+            out.push(character);
+            continue;
+        }
+        match characters.next() {
+            Some('\n') => {
+                while characters.peek().is_some_and(|next| next.is_whitespace()) {
+                    characters.next();
+                }
+            }
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 /// One character, and the state after it.
@@ -553,6 +612,7 @@ fn in_code(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
             Lexeme::BlockComment(1)
         }
         ('"', _) => {
+            sink.held_at = sink.lines.len();
             sink.held = Some(String::new());
             Lexeme::Text { hashes: 0 }
         }
@@ -576,6 +636,7 @@ fn in_code(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
             for _ in 0..=hashes {
                 characters.next();
             }
+            sink.held_at = sink.lines.len();
             sink.held = Some(String::new());
             Lexeme::Text { hashes }
         }
@@ -626,14 +687,21 @@ fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
         characters.next();
     }
     let held = sink.held.take().unwrap_or_default();
-    emit_text(&held, sink);
+    emit_text(&held, sink, hashes);
     Lexeme::Code
 }
 
 /// Write a finished string literal back out: kept if it was one line, blanked if it spanned
 /// several. Its newlines are kept either way, so no line number moves.
-fn emit_text(held: &str, sink: &mut Sink) {
+fn emit_text(held: &str, sink: &mut Sink, hashes: usize) {
     let body = held.strip_suffix('"').unwrap_or(held);
+    // Recorded BEFORE the blanking decision below, which is `code_lines`'s question and not a
+    // property of the literal: a multi-line message is exactly what a reader of `string_literals`
+    // is looking for.
+    sink.literals.push(Literal {
+        line: sink.held_at.saturating_add(1),
+        body: if hashes == 0 { continued(body) } else { String::from(body) },
+    });
     if !body.contains('\n') {
         sink.current.push('"');
         sink.current.push_str(body);
@@ -686,7 +754,9 @@ fn char_literal_width(characters: &core::str::Chars<'_>) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{Shape, code_lines, constructor_name, derives, fallible_constructors, matching_angle, serde_arg, shape_of};
+    use super::{
+        Shape, code_lines, constructor_name, derives, fallible_constructors, matching_angle, serde_arg, shape_of, string_literals,
+    };
 
     #[test]
     fn a_trait_impl_is_not_an_inherent_impl() {
@@ -776,6 +846,33 @@ mod tests {
     fn a_body_opened_on_a_later_line_is_still_read() {
         let code = code_lines("pub struct Wrapper<T>\nwhere\n    T: Clone,\n{\n    inner: T,\n}\n");
         assert_eq!(shape_of(&code, 0), Shape::Named(vec![String::from("inner")]));
+    }
+
+    #[test]
+    fn a_literal_broken_across_lines_is_one_sentence_again() {
+        // What `code_lines` BLANKS, this keeps - the same walk, the other question. A `\` at end of
+        // line eats the newline and the next line's indentation, so a phrase spanning the break is
+        // contiguous; without that rule "with the feature" is "with the" and "feature".
+        let text = "fn f() {\n    Err(format!(\n        \"build the binary \\\n         with the feature that provides it\"\n    ))\n}\n";
+        let found = string_literals(text);
+        assert_eq!(found.len(), 1, "one literal");
+        let one = found.first().expect("one literal");
+        assert_eq!(one.body, "build the binary with the feature that provides it");
+        // The line a reader opens is the one the quote OPENS on, not the one it closes on.
+        assert_eq!(one.line, 3);
+        // And `code_lines` is unchanged by any of it: a multi-line literal is still blanked there.
+        assert!(!code_lines(text).join("\n").contains("with the feature"));
+    }
+
+    #[test]
+    fn a_comment_holds_no_literal_and_a_raw_string_keeps_its_backslashes() {
+        // The comment half is what makes this usable as a gate input: prose DESCRIBING a message is
+        // not a message. Measured rather than assumed, because sharing `code_lines`'s walk instead
+        // of scanning text is the whole reason this reader lives here.
+        assert!(string_literals("// a comment saying \"quoted\" things\n").is_empty());
+        // In a raw string a backslash is a character, so the continuation rule must not touch it.
+        let raw = string_literals("let p = r\"a\\\nb\";\n");
+        assert_eq!(raw.first().expect("one literal").body, "a\\\nb");
     }
 
     #[test]
