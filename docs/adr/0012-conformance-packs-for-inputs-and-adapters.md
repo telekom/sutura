@@ -400,13 +400,33 @@ declaration. Neither touches a pack body, and that is the property the requireme
   artefact the withdrawn aggregation sentence above assumed and the same one a per-pack aggregate
   would need. Recording it here is the decision; a gate over a run's output is where it would live.
 
-  **It arrives with ONE declared exemption, and that exemption IS this consequence going unmet:**
-  `sutura-exec-postgres`, registered and deliberately unbound until the harness has a way to say
-  *no tier is up here* that is not a pass. The golden matrix has one (`DataSystemUnderTest::available`)
-  and the packs carry no equivalent, so a binding written today would be green over a data system
-  that never answered. An exemption that stops being true - naming an entry the registry no longer
-  carries, naming the wrong crate, or excusing something that turns out to be bound - fails the gate
-  rather than quietly widening it.
+  **It arrived with ONE declared exemption, that exemption WAS this consequence going unmet, and it
+  is gone:** `sutura-exec-postgres`, registered and deliberately unbound because the packs had no
+  way to say *no tier is up here* that was not a pass. The golden matrix had one
+  (`DataSystemUnderTest::available`) and the packs carried no equivalent, so a binding written then
+  would have been green over a data system that never answered. `telekom/sutura#348` gave them one -
+  `sutura_conformance::Fixture`, which is what a binding's `open` RETURNS, so an adapter whose data
+  system may not be listening cannot omit the question and a reviewer reads which answer it gave -
+  and `crates/sutura-exec-postgres/tests/conformance.rs` binds the packs. So the exemption list is
+  empty, and *one registration, not two* is met for every registered data system. An exemption that
+  stops being true - naming an entry the registry no longer carries, naming the wrong crate, or
+  excusing something that turns out to be bound - fails the gate rather than quietly widening it,
+  which is why the entry had to be deleted rather than reworded.
+
+  **The distinction that made the availability path safe to add, recorded because collapsing it is
+  the failure this whole record is written against:** *this adapter cannot do that* is
+  `Outcome::Declined`, a typed statement about the ADAPTER, and *this venue has not provisioned a
+  tier* is a statement about the ENVIRONMENT. They print under different words and are decided at
+  different levels - a declination comes out of a pack that ran, an absence stops the pack running -
+  and a census over an absent fixture prints no coverage line at all, because a behaviour count
+  beside cells that each reported `NOT RUN` is the skip that reads as coverage. **Which venue may
+  skip is not the packs' decision**: `sutura_dev::requirement` decides it once for every harness
+  here, and only the thing that provisioned a tier declares one. **And a DECLARED absence is refused
+  wherever a venue did provision one** - the hole was measured before that arm existed (tier up,
+  requirement set, a fixture answering absent unconditionally: 21 passed, the only tell seven
+  printed lines). What remains is a developer machine that provisioned nothing, where a declared
+  absence and a discovered one are indistinguishable and the diff is where the fixture's one line is
+  read.
 
   And that registry becomes the source CI's own job matrix is EMITTED from, rather than a category
   list typed into a workflow file. A registered adapter absent from CI's matrix is not an error in

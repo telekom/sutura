@@ -21,7 +21,7 @@
 // One `#[cfg(test)]` module, for the reason the sibling adapter's binding gives.
 #[cfg(test)]
 mod conformance {
-    use sutura_conformance::corpus;
+    use sutura_conformance::{Fixture, corpus};
     use sutura_exec_datafusion::{DataFusionWarehouse, WorkingSet};
 
     /// The engine with the conformance corpus attached.
@@ -31,14 +31,16 @@ mod conformance {
     /// give this adapter a dependency on the settings tree to obtain one number. The corpus is seven
     /// rows, so no case in it comes near the bound; the bound's own assertions live in the adapter's
     /// `pool.rs`.
-    fn open() -> DataFusionWarehouse {
+    /// **`Fixture::standing` unconditionally**, for the reason the sibling adapter's fixture gives:
+    /// this engine is in-process, so there is no venue in which it cannot stand up.
+    fn open() -> Fixture<DataFusionWarehouse> {
         let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
         let engine = DataFusionWarehouse::new(corpus::source(), corpus::posture(), WorkingSet::of_bytes(ceiling))
             .expect("an in-process engine starts");
         engine
             .attach_csv(&corpus::table(), &corpus::on_disk())
             .expect("the engine attaches the conformance corpus");
-        engine
+        Fixture::standing(engine)
     }
 
     // `refuses_legs`, because this adapter leaves `EXECUTES_LEGS` at its default: it is the engine

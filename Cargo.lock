@@ -3748,6 +3748,7 @@ dependencies = [
 name = "sutura-conformance"
 version = "0.4.1"
 dependencies = [
+ "sutura-dev",
  "sutura-domain",
  "thiserror 2.0.20",
 ]
@@ -3821,6 +3822,8 @@ version = "0.4.1"
 dependencies = [
  "bytes",
  "futures-util",
+ "sutura-conformance",
+ "sutura-dev",
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.20",

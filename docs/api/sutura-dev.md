@@ -977,6 +977,19 @@ The variable that overrides the machine class, in **both** directions.
 Named once, here, because a message that tells somebody to set it and a read that spells it
 differently is a fix that does not work and looks like it should.
 
+### `constant NOT_REQUIRED`
+
+Every spelling of `FORCE` that means *no*, lowercased and trimmed.
+
+**Public because a second reader of this decision exists and may not depend on this crate.**
+`sutura-conformance` has to judge whether an absent tier is a defect where a venue declared one,
+and `xtask/src/boundaries/harness.rs` holds that crate to `sutura-domain` through a normal
+dependency - so it spells the same predicate a second time. Two statements about one fact can
+disagree, which is the defect `nix/with-tier.sh` records at a count of one, so this list is the
+OWNER and that crate's own test iterates it as a DEV-dependency. A spelling added here fails
+that cell until the copy agrees, rather than making the two disagree silently about a variable
+people set by hand.
+
 ## Module `scope`
 
 Per-worktree isolation: the part that has to be right.
