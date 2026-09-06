@@ -434,6 +434,41 @@ mod tests {
     }
 
     #[test]
+    fn the_leg_that_dies_goes_through_that_shape_rather_than_rendering_the_error() {
+        // **The half the test above cannot reach, and a mutation found it missing.** That one holds
+        // `refusal_shape`; this holds that `identity_or_die` USES it. Without this, restoring
+        // `panic!("{refused}")` - which is what `.expect()` did - leaves the suite green and the
+        // leak back.
+        //
+        // `AssertUnwindSafe` because the transport's error is not `UnwindSafe`: it carries a
+        // `Box<dyn Error + Send + Sync>` from `ureq`. The assertion it makes is sound HERE - the
+        // closure owns its value, nothing is shared across the boundary, and what is inspected
+        // afterwards is the message rather than any state the panic could have left broken.
+        let read: IdentityRead<std::io::Error> = Err(BigQueryError::Endpoint {
+            cause: WireError::Refused {
+                status: 403,
+                named: String::from("accessDenied"),
+                detail: String::from(
+                    "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
+                ),
+            },
+        });
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| identity_or_die(read, "principal A")));
+        std::panic::set_hook(previous);
+        let payload = died.expect_err("a refusal is a panic here");
+        let said = payload
+            .downcast_ref::<String>()
+            .map_or_else(|| String::from("<not a string panic>"), Clone::clone);
+        assert!(
+            !said.contains("principal-a@example.com"),
+            "the panic a public log will carry may not quote the endpoint's message: {said}"
+        );
+        assert!(said.contains("accessDenied"), "{said}");
+    }
+
+    #[test]
     fn a_verdict_carries_no_identity_text() {
         // The property the whole enum exists for, held rather than remembered: this cell's venue is
         // a public log, so what a failing assertion prints must be a fixed word. Every verdict is
