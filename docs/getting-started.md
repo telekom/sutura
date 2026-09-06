@@ -9,22 +9,17 @@ Download the binary, verify it, take the corpus, ask a question. **No Rust toolc
 clone**, and nothing to provision on the data side either: the engine is compiled into the binary
 and reads CSV and Parquet files where they lie.
 
-**What you need** is a Linux host on x86_64 or aarch64, and `gh` authenticated against this
-repository.
+**What you need** is a Linux host on x86_64 or aarch64, and an authenticated `gh`. Every command
+below goes through it: it is how the release assets and the corpus tarball are fetched, and
+`gh attestation verify` is one of the two checks the install step runs.
 
-!!! note "This page is published; everything it points at needs access to the repository"
+!!! note "The artefacts need read access to the repository, for now"
 
-    The repository is private today, so nothing below reaches an artefact without it. Measured
-    unauthenticated: this page answers 200, while the release page, the asset URLs and the source
-    tarball all answer 404 and the `ghcr.io` tags refuse an anonymous pull - which closes the image
-    route offered for macOS and Windows as well. So an account that can read the repository is a
-    **prerequisite rather than a convenience**: `gh auth login` under one, or a token on the HTTPS
-    URL, and there is no third way.
-
-    **Delete this note when the repository is public.** Nothing else on the page changes: the
-    commands are the same, and `gh` becomes the shortest route to an asset rather than a
-    requirement, because every asset has a plain HTTPS URL on the release page and the `.sha256`
-    sidecar beside it is checkable with nothing but the two files.
+    This page is published and the repository is not yet, so the release assets, the corpus tarball
+    and the `ghcr.io` tags all refuse a reader who cannot read `telekom/sutura` - the image route
+    below for macOS and Windows included. `gh auth login` under an account that can is the way in
+    today, and **this note is what to delete when the repository becomes public**, because the
+    commands themselves do not change.
 
 ## What a release publishes, and for which platforms
 
