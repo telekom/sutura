@@ -3748,6 +3748,7 @@ dependencies = [
 name = "sutura-conformance"
 version = "0.4.1"
 dependencies = [
+ "sutura-dev",
  "sutura-domain",
  "thiserror 2.0.20",
 ]

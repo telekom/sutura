@@ -71,15 +71,18 @@ mod conformance {
   crate cannot help with:** it holds that a registered data system HAS a binding, never that a
   pack's body asserts anything - the four mechanisms above are what cover that, and a pack
   returning `Ok` unconditionally passes all of them and the gate.
-- **That a binding which reports its fixture ABSENT actually asked anything.** `Fixture` is a
-  type a binding fills in, and this crate cannot see a socket: `xtask/src/boundaries/harness.rs`
-  holds it to `sutura-domain` alone, and that gate's own remedy assigns *reaching a provisioned
-  tier* to the adapter's fixture. So a fixture that answered `Fixture::Absent` without looking
-  would take its tier quiet and green, and the diff is where that one line is read. What the
-  trust is worth in the venues that count is decided elsewhere and is not small: `just test`,
-  `just gates`, `just causality`, `nix/run-gate.sh tests` and `checks.nextest` all provision the
-  Postgres tier and export `SUTURA_DEV_REQUIRE_TIER`, and `sutura_dev::provisioned::here` PANICS
-  in that direction - so a fixture that asks honestly cannot answer `Absent` there.
+- **That a binding reporting its fixture ABSENT asked anything, on a machine that provisioned
+  nothing.** `Fixture` is a type a binding fills in and this crate cannot see a socket:
+  `xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone, and that gate's own
+  remedy assigns *reaching a provisioned tier* to the adapter's fixture. **In a venue that
+  provisioned one this is closed** - `not_here` refuses a declared tier absence wherever
+  `REQUIRE_TIER` is set, which is every venue that runs the suite through
+  `nix/with-tier.sh` (`just test`, `just gates`, `just causality`, `nix/run-gate.sh tests`) plus
+  `checks.nextest`. Measured before that arm existed: a fixture answering `Fixture::Absent`
+  unconditionally, with the tier UP and the variable set, was 21 passed and the only tell was
+  seven printed `NOT RUN` lines. What remains is a developer machine that provisioned nothing,
+  where a declared absence and a discovered one are indistinguishable and the diff is where that
+  one line is read.
 - **A COST, rather than a budget.** `Spent` reports what every cell and every fixture took,
   and `census` prints the per-adapter floor; nothing thresholds either, and nothing joins two
   adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
@@ -350,14 +353,45 @@ pub fn hold<E>(adapter: &str, behaviour: Behaviour, conformed: Conformed<E>, spe
 
 Reports one behaviour with what it cost, and fails the test if it did not hold.
 
-The only place in this crate that ends a test, so what a failure prints is decided once: the
-adapter, the behaviour, the cost, and the whole cause chain. `Display` on a `thiserror` enum
+One of the two places in this crate that end a test - `not_here` is the other, for a reason
+that is not about the adapter at all - so what a failure prints is decided once: the adapter,
+the behaviour, the cost, and the whole cause chain. `Display` on a `thiserror` enum
 prints the outermost message and stops, and the outermost message here is the pack's - what
 tells a rejected statement from an outage is one and two levels down.
 
 **The cost is on the failing line too**, and that is not symmetry for its own sake: a cell that
 failed in two milliseconds and one that failed after thirty seconds are different diagnoses, and
 the second is the one `docs/adr/0012` says goes quiet.
+
+## `fn a_tier_is_required`
+
+```rust
+pub fn a_tier_is_required(forced: Option<&str>) -> bool
+```
+
+Whether an absent tier is a failure here, decided over the VALUE rather than the environment.
+
+Over the value for the reason `sutura_dev::requirement::decide` is: an environment read is not
+testable across a threaded runner, and this is the half a test has to be able to compare.
+
+## `fn absence_is_impossible`
+
+```rust
+pub fn absence_is_impossible(missing: &Missing, forced: Option<&str>) -> bool
+```
+
+Whether a DECLARED absence is a defect here rather than a skip.
+
+**Pure, over the value, because the alternative is not available and would be wrong anyway.**
+`unsafe_code` is `forbid` across this workspace and `std::env::set_var` is `unsafe` on Rust
+2024, so a test cannot manipulate the environment here at all - and
+`sutura_dev::requirement`'s own tests refuse to do it for the second reason, which is that it
+races across a threaded runner. So the DECISION is a function a test compares in both
+directions, and `not_here` is the one line that reads the environment.
+
+True only for `Missing::Tier`: `REQUIRE_TIER` is a statement about tiers, so the variant
+that arrives for cloud state a run cannot create decides its own direction rather than
+inheriting one from a flag that was never about it.
 
 ## `fn not_here`
 
@@ -373,11 +407,15 @@ could not tell them apart would read a green run over an absent Postgres as a gr
 one. `.config/nextest.toml` already keeps this line on a green run - it scopes
 `success-output` by BINARY, so `binary(conformance)` covers it with no second edit.
 
-**It does not end the test, and that direction is deliberately not this crate's to choose.**
-`sutura_dev::requirement` decides skip-or-fail once for every harness in this repository, from
-`SUTURA_DEV_REQUIRE_TIER`, and only the thing that provisioned a tier may declare one - so where
-a tier was required, `sutura_dev::provisioned::here` has already failed the run inside the
-binding's fixture and nothing reaches here.
+**Which venue may skip is deliberately not this crate's to choose, and where a venue said it
+provisioned a tier this REFUSES.** `sutura_dev::requirement` decides skip-or-fail once for
+every harness in this repository, from `REQUIRE_TIER`, and only the thing that provisioned a
+tier sets it - so an honest fixture in that venue never reaches here at all, because
+`sutura_dev::provisioned::here` has already failed the run. What does reach here is a fixture
+that answered `Fixture::Absent` without asking, and `absence_is_impossible` is what makes
+that cost something rather than taking a whole tier quiet and green. Everywhere else - a machine
+that provisioned nothing - it prints and returns, which is the fail-OPEN direction that module
+decided and this one does not re-decide.
 
 ## `fn conduct`
 
@@ -453,6 +491,19 @@ name. `$crate::sutura_domain` always resolves.
 ## `type_alias Conformed`
 
 What one behaviour of one pack answers.
+
+## `constant REQUIRE_TIER`
+
+The variable a provisioner sets when it has brought a tier up, spelled here as well.
+
+**`sutura_dev::requirement::FORCE`'s name, duplicated, and the duplication is PINNED rather than
+hoped about.** This crate may not take `sutura-dev` through a normal dependency -
+`xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone - so the name and its
+truthiness are spelled twice, and two statements about one fact can disagree.
+`tests/bound.rs`'s `the_requirement_this_harness_reads_is_the_one_the_provisioner_writes` is the
+mechanism that keeps them equal: it takes `sutura-dev` as a DEV-dependency, which that gate
+permits by design (what may not happen is a pack BODY compiled against something, and a pack
+body is `src/`), and compares both halves against `FORCE` and `requirement::decide`.
 
 ## `macro execute_packs`
 

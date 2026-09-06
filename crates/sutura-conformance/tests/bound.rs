@@ -504,6 +504,50 @@ mod venue {
         assert!(printed.contains("nothing was asked of this adapter"), "{printed}");
     }
 
+    /// **The requirement this harness reads is the one the provisioner writes.**
+    ///
+    /// `sutura_conformance` spells `SUTURA_DEV_REQUIRE_TIER` and its truthiness a second time,
+    /// because `not_here` has to judge an absence and the packs crate may not reach the crate that
+    /// publishes that decision through a normal dependency. Two statements about one fact can
+    /// disagree - `nix/with-tier.sh` records that defect at a count of one, which is why the
+    /// variable is exported there by the thing that STARTED the tier rather than asserted beside
+    /// it. So this cell is the mechanism that keeps the copies equal rather than a comment claiming
+    /// they are. Both halves, because a name that matches with a truthiness that does not is the
+    /// worse of the two failures: it would read as agreement.
+    #[test]
+    fn the_requirement_this_harness_reads_is_the_one_the_provisioner_writes() {
+        assert_eq!(sutura_conformance::REQUIRE_TIER, sutura_dev::requirement::FORCE);
+        for value in ["", " ", "0", "false", "no", "FALSE", "1", "true", "TRUE", "yes", "CI"] {
+            assert_eq!(
+                sutura_conformance::a_tier_is_required(Some(value)),
+                sutura_dev::requirement::decide(Some(value)).is_required(),
+                "`{value}`"
+            );
+        }
+        // And the unset direction, which is the one a developer machine is in.
+        assert!(!sutura_conformance::a_tier_is_required(None));
+        assert!(!sutura_dev::requirement::decide(None).is_required());
+    }
+
+    /// **A tier absence declared where a venue said it PROVISIONED one is a defect, not a skip.**
+    ///
+    /// The hole this closes was measured rather than imagined: with the tier UP and the variable
+    /// set, a fixture answering `Fixture::Absent` unconditionally was 21 tests passed, and the only
+    /// tell was seven printed `NOT RUN` lines. Only the thing that brought a tier up sets that
+    /// variable, so where it is set an absent tier is impossible.
+    ///
+    /// Both directions, and the second is not symmetry: a refusal that fired wherever an absence
+    /// appeared would make the suite red on every machine without the tier binary, which is the
+    /// fail-OPEN direction `sutura_dev::requirement` decides for this whole repository and that
+    /// this crate does not get to re-decide.
+    #[test]
+    fn a_declared_tier_absence_is_impossible_where_a_venue_provisioned_one() {
+        let absent = Missing::tier("postgres", &"a fixture that did not ask");
+        assert!(sutura_conformance::absence_is_impossible(&absent, Some("1")));
+        assert!(!sutura_conformance::absence_is_impossible(&absent, None));
+        assert!(!sutura_conformance::absence_is_impossible(&absent, Some("0")));
+    }
+
     /// The two variants answer [`Fixture::missing`] apart, which is what `census` branches on.
     #[test]
     fn a_standing_fixture_reports_nothing_missing_and_an_absent_one_reports_why() {

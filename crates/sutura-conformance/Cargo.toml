@@ -23,5 +23,17 @@ description = "Conformance packs: one set of test bodies over the ports, bound t
 sutura-domain = { workspace = true, features = ["agreement"] }
 thiserror = { workspace = true }
 
+# The developer-workflow crate, for ONE test and one reason: `src/lib.rs` spells
+# `SUTURA_DEV_REQUIRE_TIER` and its truthiness a second time, because `not_here` has to judge an
+# absence and this crate may not reach the crate that publishes that decision - the harness rule in
+# `xtask/src/boundaries/harness.rs` holds it to `sutura-domain` through a NORMAL dependency.
+#
+# **A dev-dependency is what that rule permits, by design and in its own header:** what may not
+# happen is a pack BODY compiled against something, and a pack body is `src/`. So the duplication is
+# pinned by `tests/bound.rs` against `sutura_dev::requirement::FORCE` and `requirement::decide`
+# rather than left to drift, which is the shape `nix/with-tier.sh` records paying for once.
+[dev-dependencies]
+sutura-dev = { workspace = true }
+
 [lints]
 workspace = true
