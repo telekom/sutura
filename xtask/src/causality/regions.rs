@@ -162,7 +162,7 @@ fn cfg_test_regions(text: &str) -> Vec<Range<usize>> {
 /// Two shapes, because `#[cfg(test)]` covers both. A block item - `mod tests { .. }`, a
 /// function - ends where its braces balance. A DECLARATION - `mod tests;`, `use x;` - opens no
 /// brace and ends at the first line that closes a statement outside a literal.
-fn item_end(lines: &[&str], start: usize) -> usize {
+pub(super) fn item_end(lines: &[&str], start: usize) -> usize {
     let mut braces = Nesting::braces();
     for (index, line) in lines.iter().enumerate().skip(start) {
         braces.feed(line);
