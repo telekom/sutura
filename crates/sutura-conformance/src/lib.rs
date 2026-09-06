@@ -497,6 +497,21 @@ where
 /// body is `src/`), and compares both halves against `FORCE` and `requirement::decide`.
 pub const REQUIRE_TIER: &str = "SUTURA_DEV_REQUIRE_TIER";
 
+/// What this venue declared about tiers, read from the environment.
+///
+/// **The only environment read in this crate, and everything below it takes the VALUE.** That is
+/// what makes the reporters testable at all, and it was measured rather than reasoned about: with
+/// the read inside `not_here` and `census`, `just validate` refused two of THIS crate's own cells -
+/// `checks.nextest` provisions the Postgres tier and sets the variable, and a fake absence in a
+/// fake venue is indistinguishable from a fabricated one. `unsafe_code` is `forbid` across this
+/// workspace and `std::env::set_var` is unsafe on Rust 2024, so no test can turn it off either. So
+/// the macro reads it once per cell and hands it down, which is also the shape
+/// `sutura_dev::requirement::decide` chose for the same reason.
+#[must_use]
+pub fn declared_here() -> Option<String> {
+    std::env::var(REQUIRE_TIER).ok()
+}
+
 /// Whether an absent tier is a failure here, decided over the VALUE rather than the environment.
 ///
 /// Over the value for the reason `sutura_dev::requirement::decide` is: an environment read is not
@@ -512,8 +527,9 @@ pub fn a_tier_is_required(forced: Option<&str>) -> bool {
 /// `unsafe_code` is `forbid` across this workspace and `std::env::set_var` is `unsafe` on Rust
 /// 2024, so a test cannot manipulate the environment here at all - and
 /// `sutura_dev::requirement`'s own tests refuse to do it for the second reason, which is that it
-/// races across a threaded runner. So the DECISION is a function a test compares in both
-/// directions, and [`not_here`] is the one line that reads the environment.
+/// races across a threaded runner. So the decision is a value every caller passes down from
+/// [`declared_here`], which is what lets `tests/bound.rs` provoke the refusal end to end, message
+/// included, in both endings and in either direction.
 ///
 /// True only for [`Missing::Tier`]: [`REQUIRE_TIER`] is a statement about tiers, so the variant
 /// that arrives for cloud state a run cannot create decides its own direction rather than
@@ -531,7 +547,7 @@ pub fn absence_is_impossible(missing: &Missing, forced: Option<&str>) -> bool {
 /// binding's own census the cell that passed over a fabricated absence.
 ///
 /// `what` is the behaviour's name, or what the census is, so a failure says which cell refused.
-fn refuse_a_declared_absence(adapter: &str, what: &str, missing: &Missing) {
+fn refuse_a_declared_absence(adapter: &str, what: &str, missing: &Missing, declared: Option<&str>) {
     // **The refusal that makes a DECLARED absence cost something.** [`Fixture`] is a value a
     // binding fills in and this crate cannot see a socket, so a fixture that answered `Absent`
     // without looking would take its whole tier quiet and green - measured, with the tier UP and
@@ -541,7 +557,7 @@ fn refuse_a_declared_absence(adapter: &str, what: &str, missing: &Missing) {
     // one is the defect. An honest fixture never reaches here in that venue anyway -
     // `sutura_dev::provisioned::here` has already failed the run.
     assert!(
-        !absence_is_impossible(missing, std::env::var(REQUIRE_TIER).ok().as_deref()),
+        !absence_is_impossible(missing, declared),
         "conformance {adapter}: {what} - this venue set {REQUIRE_TIER}, so it provisioned a tier \
          and an absent one is not possible here: {missing}. A fixture reporting an absence in this \
          venue has not asked the provisioner - only the thing that brought a tier up sets that \
@@ -567,8 +583,8 @@ fn refuse_a_declared_absence(adapter: &str, what: &str, missing: &Missing) {
 /// that cost something rather than taking a whole tier quiet and green. Everywhere else - a machine
 /// that provisioned nothing - it prints and returns, which is the fail-OPEN direction that module
 /// decided and this one does not re-decide.
-pub fn not_here(adapter: &str, behaviour: Behaviour, missing: &Missing, spent: Spent) {
-    refuse_a_declared_absence(adapter, behaviour.as_str(), missing);
+pub fn not_here(adapter: &str, behaviour: Behaviour, missing: &Missing, spent: Spent, declared: Option<&str>) {
+    refuse_a_declared_absence(adapter, behaviour.as_str(), missing, declared);
     println!(
         "conformance {adapter}: NOT RUN - {} - {spent} - {missing}",
         behaviour.as_str()
@@ -592,6 +608,7 @@ pub fn not_here(adapter: &str, behaviour: Behaviour, missing: &Missing, spent: S
 pub fn conduct<W, E>(
     adapter: &str,
     behaviour: Behaviour,
+    declared: Option<&str>,
     open: impl FnOnce() -> Fixture<W>,
     pack: impl FnOnce(&W) -> Conformed<E>,
 ) where
@@ -603,7 +620,7 @@ pub fn conduct<W, E>(
     });
     match attempted {
         Attempted::Ran(conformed) => hold(adapter, behaviour, conformed, spent),
-        Attempted::NotHere(ref missing) => not_here(adapter, behaviour, missing, spent),
+        Attempted::NotHere(ref missing) => not_here(adapter, behaviour, missing, spent, declared),
     }
 }
 
@@ -641,7 +658,7 @@ pub fn conduct<W, E>(
 /// unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for. And
 /// the floor is a FLOOR: it is not the tier's cost, it says nothing about another adapter's cells,
 /// and no gate reads it - see [`Spent`] for why each of those is deliberate.
-pub fn census<W>(adapter: &str, bound: &[Behaviour], open: impl FnOnce() -> Fixture<W>)
+pub fn census<W>(adapter: &str, bound: &[Behaviour], declared: Option<&str>, open: impl FnOnce() -> Fixture<W>)
 where
     W: Warehouse,
 {
@@ -666,7 +683,7 @@ where
         // The same refusal the behaviour cells make, and it belongs here TOO rather than only
         // there: written in `not_here` alone, this cell stayed green over a fabricated absence -
         // measured at 6 of 7 failing, with the binding's own census the one that passed.
-        refuse_a_declared_absence(adapter, "the census", &why);
+        refuse_a_declared_absence(adapter, "the census", &why, declared);
         // Deliberately NOT the coverage line below. Every behaviour in this binding reported
         // `NOT RUN`, so printing a behaviour count, a case count and a floor here would be the skip
         // that reads as coverage - which is the failure mode the packs were built against.
@@ -863,7 +880,18 @@ macro_rules! execute_packs {
                 // closure's return type at its definition site, so `|w| pack(w)` reported every
                 // adapter's own `Fault<E>` as too large to return - six errors per binding, in the
                 // adapter's crate, about a type this crate owns.
-                $crate::conduct(ADAPTER, $crate::Behaviour::$variant, $open, $crate::execute::$pack);
+                //
+                // `declared_here()` is read HERE rather than inside the reporters, and that is a
+                // seam this crate paid for: with the read down there, `checks.nextest` - which
+                // provisions the tier and sets the variable - refused two of the packs crate's own
+                // fake-venue cells, because a fake absence and a fabricated one are the same value.
+                $crate::conduct(
+                    ADAPTER,
+                    $crate::Behaviour::$variant,
+                    $crate::declared_here().as_deref(),
+                    $open,
+                    $crate::execute::$pack,
+                );
             }
         )*
 
@@ -874,7 +902,12 @@ macro_rules! execute_packs {
             // prints no coverage line. It costs one more `open` in a target that already pays one
             // per behaviour, which is the cheapest place to buy the multiplicative term
             // `docs/adr/0012` asks to have measured.
-            $crate::census::<$warehouse>(ADAPTER, &[$($crate::Behaviour::$variant),*], $open);
+            $crate::census::<$warehouse>(
+                ADAPTER,
+                &[$($crate::Behaviour::$variant),*],
+                $crate::declared_here().as_deref(),
+                $open,
+            );
         }
     };
 }

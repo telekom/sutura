@@ -373,7 +373,7 @@ mod faults {
     #[test]
     #[should_panic(expected = "a behaviour without a test is coverage this run did not earn")]
     fn a_binding_that_skips_a_behaviour_fails_the_census() {
-        sutura_conformance::census::<Fake<false>>("short", &[Behaviour::Content], crate::a_source);
+        sutura_conformance::census::<Fake<false>>("short", &[Behaviour::Content], None, crate::a_source);
     }
 
     /// **A cell's cost is measured, not stated**, which is the whole reason [`Spent`] is a type:
@@ -446,9 +446,14 @@ mod venue {
     /// either half alone is satisfied by a harness that swallows every fault.
     #[test]
     fn a_behaviour_over_an_absent_fixture_does_not_run_the_pack() {
+        // `None` for the venue's declaration, and it is the seam rather than a shortcut: a fake
+        // absence IS a fabricated one as a value, so a cell that let the environment answer was
+        // refused inside `checks.nextest`, which provisions the tier and sets the variable.
+        // `unsafe_code` is `forbid` here, so no test can unset it either.
         sutura_conformance::conduct(
             "absent",
             Behaviour::Content,
+            None,
             absent,
             execute::content_agrees_with_the_reference,
         );
@@ -461,6 +466,7 @@ mod venue {
         sutura_conformance::conduct(
             "standing",
             Behaviour::Content,
+            None,
             || Fixture::standing(Fake::<false>::distorted(Distortion::ANumberChanged)),
             execute::content_agrees_with_the_reference,
         );
@@ -475,14 +481,14 @@ mod venue {
     /// asserted here is the half a test can reach.
     #[test]
     fn a_census_over_an_absent_fixture_reports_rather_than_failing() {
-        sutura_conformance::census::<Fake<false>>("absent", Behaviour::EVERY, absent);
+        sutura_conformance::census::<Fake<false>>("absent", Behaviour::EVERY, None, absent);
     }
 
     /// And an absent venue does NOT excuse a binding that lost a behaviour.
     #[test]
     #[should_panic(expected = "a behaviour without a test is coverage this run did not earn")]
     fn an_absent_fixture_does_not_excuse_a_short_binding() {
-        sutura_conformance::census::<Fake<false>>("absent", &[Behaviour::Content], absent);
+        sutura_conformance::census::<Fake<false>>("absent", &[Behaviour::Content], None, absent);
     }
 
     /// The absence names the service AND carries the provisioner's own diagnostic.
@@ -546,6 +552,33 @@ mod venue {
         assert!(sutura_conformance::absence_is_impossible(&absent, Some("1")));
         assert!(!sutura_conformance::absence_is_impossible(&absent, None));
         assert!(!sutura_conformance::absence_is_impossible(&absent, Some("0")));
+    }
+
+    /// **A fabricated absence fails the BEHAVIOUR cell where a venue provisioned a tier.**
+    ///
+    /// End to end through `conduct`, message included, which the seam is what makes possible: the
+    /// venue's declaration is a parameter, so this cell states `Some("1")` instead of depending on
+    /// which venue ran it. It is the same fixture the cell above passes `None` for, so the pair is
+    /// one value judged two ways.
+    #[test]
+    #[should_panic(expected = "so it provisioned a tier and an absent one is not possible here")]
+    fn a_fabricated_absence_fails_a_behaviour_where_a_venue_provisioned_a_tier() {
+        sutura_conformance::conduct(
+            "fabricated",
+            Behaviour::Content,
+            Some("1"),
+            absent,
+            execute::content_agrees_with_the_reference,
+        );
+    }
+
+    /// **And the CENSUS cell too**, which is the half that was missing when the refusal lived in
+    /// one ending only: measured at 6 of 7 failing, with the binding's own census the cell that
+    /// passed over a fabricated absence.
+    #[test]
+    #[should_panic(expected = "so it provisioned a tier and an absent one is not possible here")]
+    fn a_fabricated_absence_fails_the_census_where_a_venue_provisioned_a_tier() {
+        sutura_conformance::census::<Fake<false>>("fabricated", Behaviour::EVERY, Some("1"), absent);
     }
 
     /// The two variants answer [`Fixture::missing`] apart, which is what `census` branches on.

@@ -363,6 +363,23 @@ tells a rejected statement from an outage is one and two levels down.
 failed in two milliseconds and one that failed after thirty seconds are different diagnoses, and
 the second is the one `docs/adr/0012` says goes quiet.
 
+## `fn declared_here`
+
+```rust
+pub fn declared_here() -> Option<String>
+```
+
+What this venue declared about tiers, read from the environment.
+
+**The only environment read in this crate, and everything below it takes the VALUE.** That is
+what makes the reporters testable at all, and it was measured rather than reasoned about: with
+the read inside `not_here` and `census`, `just validate` refused two of THIS crate's own cells -
+`checks.nextest` provisions the Postgres tier and sets the variable, and a fake absence in a
+fake venue is indistinguishable from a fabricated one. `unsafe_code` is `forbid` across this
+workspace and `std::env::set_var` is unsafe on Rust 2024, so no test can turn it off either. So
+the macro reads it once per cell and hands it down, which is also the shape
+`sutura_dev::requirement::decide` chose for the same reason.
+
 ## `fn a_tier_is_required`
 
 ```rust
@@ -386,8 +403,9 @@ Whether a DECLARED absence is a defect here rather than a skip.
 `unsafe_code` is `forbid` across this workspace and `std::env::set_var` is `unsafe` on Rust
 2024, so a test cannot manipulate the environment here at all - and
 `sutura_dev::requirement`'s own tests refuse to do it for the second reason, which is that it
-races across a threaded runner. So the DECISION is a function a test compares in both
-directions, and `not_here` is the one line that reads the environment.
+races across a threaded runner. So the decision is a value every caller passes down from
+`declared_here`, which is what lets `tests/bound.rs` provoke the refusal end to end, message
+included, in both endings and in either direction.
 
 True only for `Missing::Tier`: `REQUIRE_TIER` is a statement about tiers, so the variant
 that arrives for cloud state a run cannot create decides its own direction rather than
@@ -396,7 +414,7 @@ inheriting one from a flag that was never about it.
 ## `fn not_here`
 
 ```rust
-pub fn not_here(adapter: &str, behaviour: Behaviour, missing: &Missing, spent: Spent)
+pub fn not_here(adapter: &str, behaviour: Behaviour, missing: &Missing, spent: Spent, declared: Option<&str>)
 ```
 
 Reports a behaviour that did not run, because this venue could not stand the fixture up.
@@ -420,7 +438,7 @@ decided and this one does not re-decide.
 ## `fn conduct`
 
 ```rust
-pub fn conduct<W, E>(adapter: &str, behaviour: Behaviour, open: impl FnOnce() -> Fixture<W>, pack: impl FnOnce(&W) -> Conformed<E>)
+pub fn conduct<W, E>(adapter: &str, behaviour: Behaviour, declared: Option<&str>, open: impl FnOnce() -> Fixture<W>, pack: impl FnOnce(&W) -> Conformed<E>)
 ```
 
 Builds the fixture, runs the behaviour where the environment stood one up, and reports either way.
@@ -441,7 +459,7 @@ defined here, generic in the adapter's error, rather than six times per binding.
 ## `fn census`
 
 ```rust
-pub fn census<W>(adapter: &str, bound: &[Behaviour], open: impl FnOnce() -> Fixture<W>)
+pub fn census<W>(adapter: &str, bound: &[Behaviour], declared: Option<&str>, open: impl FnOnce() -> Fixture<W>)
 ```
 
 What a binding actually covered, asserted and printed - with the cost of covering it.
