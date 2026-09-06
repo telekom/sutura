@@ -852,12 +852,8 @@ jobs:
       # is exactly the shape that defeats naive log masking, so nothing here interpolates it, echoes it
       # or passes it as an argument. `umask 077` before the write, so it is never briefly readable.
       #
-      # **Three keys and not one since the two-principal cell**, placed in one step so there is one
-      # `umask`, one write shape and one place a reviewer reads to see what reaches this runner.
-      # **What that does NOT extend:** `cargo xtask check-venues` reads ONE credential path - the
-      # job's `GOOGLE_APPLICATION_CREDENTIALS` - so the *placed and removed* property and the
-      # *the file is a second copy of the secret* channel are held for the CI key and by review for
-      # the other two. `docs/adr/0017`'s seventh amendment records that, and why it was not closed.
+      # **Three keys since the two-principal cell**, in one step: one `umask`, one write shape, one
+      # place a reviewer reads. `check-venues` reads ONE credential path - `docs/adr/0017`, eighth.
       - name: Place the credentials outside the checkout
         env:
           SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
@@ -876,8 +872,7 @@ jobs:
           printenv SUTURA_BQ_PRINCIPAL_A > "$RUNNER_TEMP/bq-principal-a.json"
           printenv SUTURA_BQ_PRINCIPAL_B > "$RUNNER_TEMP/bq-principal-b.json"
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
-          echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
-          echo "two principal credentials placed beside it, outside the checkout"
+          echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, and two principal credentials beside it, outside the checkout"
 
       # **Mask the three resource names before anything can print them, and this step exists because
       # of a channel the rest of the job would otherwise open.**
@@ -915,12 +910,8 @@ jobs:
             fi
             printf '::add-mask::%s\n' "$(printenv "$name")"
           done
-          # The two-principal cell's own two resource names, masked HERE and guarded in the cell's
-          # own step. **The split is the fix for a real defect:** this step runs before the
-          # shared-key leg, so guarding them here made an unset value belonging to a venue with no
-          # run stop the one venue that HAS a green run - which is the *red for a configuration
-          # reason* this job's records warn about. Masking an unset value is a no-op; the emptiness
-          # test that FAILS lives where the value is needed.
+          # The cell's own two: masked HERE, guarded in its own step - this step precedes the
+          # shared-key leg, so an unset value with no venue would stop the one that HAS a green run.
           printf '::add-mask::%s\n' "$(printenv SUTURA_BQ_RLS_DATASET || true)" "$(printenv SUTURA_BQ_RLS_TABLE || true)"
           echo "the resource names this job may print are masked for the rest of it"
         # `K` separately, so the credential path is an environment value rather than an interpolation.
@@ -943,17 +934,14 @@ jobs:
           set -eu
           nix run .#bigquery-acceptance -- --no-capture
 
-      # **The two-principal cell** - issue #123, and `docs/adr/0017`'s seventh amendment carries why
-      # it is its own step, why the three GRANT values are guarded and deliberately NOT masked, and
-      # what a green run here does not mean. The one-line version of the last: the two principals are
-      # service accounts whose keys this job places, so this is leg 2's SOURCE half and not leg 2.
+      # **The two-principal cell** - issue #123, and `docs/adr/0017`'s eighth amendment is the whole
+      # record: its own step, its three GRANT values guarded and deliberately NOT masked, and two
+      # principals that are service accounts whose keys this job places - leg 2's SOURCE half.
       - name: Two-principal leg
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
-          # Read and then re-pointed at the policied dataset, which `tests/two_principals.rs`
-          # explains: the cell reaches the same environment reading both other legs do. **Found by
-          # review of this step, not by a run** - without this line the leg panics on its own
-          # precondition before it opens a socket.
+          # Re-pointed at the policied dataset, as `tests/two_principals.rs` explains: the cell
+          # reaches the same environment both other legs do. **Found by review, not a run.**
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
           SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
           SUTURA_BQ_RLS_TABLE: ${{ vars.SUTURA_BQ_RLS_TABLE }}
@@ -972,11 +960,8 @@ jobs:
           done
           nix run .#bigquery-two-principals -- --no-capture
 
-      # Always, so a cancelled or failed run does not leave a key on a runner that some other job on
-      # the same machine could read. All three in one command, and **the CI key's path stays first
-      # and stays spelled exactly as it is written above**: `cargo xtask check-venues` matches
-      # `rm -f "$RUNNER_TEMP/bq-key.json"` as a substring, so the path the leg is pointed at and the
-      # path this job deletes are one answer.
+      # Always, so a cancelled or failed run leaves no key on a shared runner. All three in one
+      # command, **the CI key first and spelled exactly as above**: `check-venues` matches it.
       - name: Remove the credentials
         if: always()
         run: |
