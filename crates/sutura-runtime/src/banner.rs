@@ -342,16 +342,29 @@ mod tests {
             "a deployment with a file is not running on defaults only:\n{recorded}"
         );
         // Paths, and never a value: the port came out of that file and has no business on this
-        // line. Searched in the FIELD and not in the rendered line, and that is a fix rather than a
-        // narrowing: the line also carries the subscriber's own metadata, and a nanosecond timestamp
-        // is nine arbitrary digits. This assertion failed once in CI on
-        // `"time":"2026-09-03T19:26:32.069101003Z"` with the field itself clean - a flake, not a
-        // regression, and one no amount of re-running would have explained. What this function
-        // controls is the field, so the field is the haystack; the assertion above is what holds the
-        // field to what reached the log.
-        assert!(
-            !layers.contains(PORT),
-            "a value from a file reached the provenance line:\n{layers}"
+        // line. **An EQUALITY over the RENDERED field.** `!layers.contains(PORT)` had the right
+        // haystack - the field rather than the whole line, because the line carries a nanosecond
+        // timestamp and the wider form failed once in CI on
+        // `"time":"2026-09-03T19:26:32.069101003Z"` - but a substring over it is still a coin flip:
+        // the scratch directory spells `std::process::id()`, so a four-digit needle lands inside it
+        // at roughly one run in a few thousand.
+        //
+        // **An equality over `files()` was written first and is WEAKER, measured rather than
+        // argued.** With `Display for ConfigLayers` mutated to append ` port=9999`, `files()` is
+        // unchanged and that assertion PASSES while a value really is on the line; this one is red
+        // on the same mutation. `files()` is also the wrong LAYER for this cell:
+        // `the_files_a_deployment_is_running_on_are_carried_out_of_the_load` already asserts it in
+        // the crate that owns the type.
+        //
+        // **The overlap is not gone, and saying otherwise would be the same error one step over:**
+        // `only_the_files_that_are_there_are_reported` asserts this same rendering, in that same
+        // crate. What is local here is the PAIR - the assertion above says this exact field reached
+        // the log, and this one says the field is that path and nothing else - and the pair is the
+        // claim the provenance line makes.
+        assert_eq!(
+            layers,
+            dir.join("base.yaml").display().to_string(),
+            "the provenance field names the file that was read, and nothing out of it"
         );
     }
 
