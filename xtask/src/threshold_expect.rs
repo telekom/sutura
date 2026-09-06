@@ -55,6 +55,17 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     }
 
+    // FAIL CLOSED ON AN EMPTY SCAN, because the count was already in the success line and
+    // nothing read it - `github.com/telekom/sutura#371`'s recurring shape. This gate is about a
+    // Rust attribute, so a run that opened no `.rs` file judged nothing and `ok ... in 0 file(s)`
+    // is a sentence about a tree it never saw.
+    if rs_files == 0 {
+        eprintln!("xtask check-expect-thresholds: FAILED - no .rs file was read");
+        eprintln!("  The rule is about an attribute in Rust source, so a scan that found none");
+        eprintln!("  attests nothing. Check that this is the workspace root.");
+        return Verdict::Fail;
+    }
+
     if violations.is_empty() {
         println!("xtask check-expect-thresholds: ok - no threshold-lint #[expect(] in {rs_files} file(s)");
         return Verdict::Pass;

@@ -482,13 +482,19 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     let config_path = root.join(CONFIG);
     let Ok(config) = std::fs::read_to_string(&config_path) else {
-        // Not an error: a repo need not have a site. Pages with no configuration are.
-        let orphans = pages(&root, DEFAULT_DOCS_DIR);
-        if orphans.is_empty() {
-            println!("xtask check-docs: ok - no site");
-            return Verdict::Pass;
+        // FAIL CLOSED, BOTH WAYS. This arm used to answer `ok - no site` on the argument that a
+        // repo need not have one - but this gate is registered in THIS repository's sweep, where
+        // `just validate` renders the site and every rule below is about what that render
+        // publishes. A missing configuration is therefore the one input whose absence makes
+        // every other rule here vacuous, and it announced success:
+        // `github.com/telekom/sutura#371`'s class, a gate answering `ok` before reading its
+        // subject.
+        eprintln!("xtask check-docs: FAILED - {CONFIG} does not exist");
+        if !pages(&root, DEFAULT_DOCS_DIR).is_empty() {
+            eprintln!("  and pages exist under {DEFAULT_DOCS_DIR}, so they are published by nothing.");
         }
-        eprintln!("xtask check-docs: FAILED - pages exist under {DEFAULT_DOCS_DIR} but {CONFIG} does not");
+        eprintln!("  Every rule this gate holds - nav reachability, exclusions, link targets, assets -");
+        eprintln!("  is read out of that file, so without it there is no verdict to give.");
         return Verdict::Fail;
     };
 

@@ -882,4 +882,111 @@ mod tests {
                 .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("xtask"))
         );
     }
+
+    /// A repository root that is not this repository, seeded to be adversarial to every gate.
+    ///
+    /// `flake.nix` and `Cargo.toml` are not decoration - [`crate::repo::root`] identifies a root by
+    /// BOTH markers, and without them its walk falls through to `CARGO_MANIFEST_DIR`'s parent and
+    /// every gate reads this repository, the one tree that makes the assertion vacuous.
+    ///
+    /// The seeded files are for the three gates whose subject is *every text file*, where ABSENCE
+    /// is a legitimate pass - a tree with no text file genuinely has no over-long file and no CRLF,
+    /// so only a violation falsifies them. Measured: without the seed, `max-lines`, `line-endings`
+    /// and `text-hygiene` all answer `ok` here; every other gate is falsified by the bare root.
+    /// Neither extension is `.rs`, deliberately - `check-expect-thresholds` scans Rust source, so a
+    /// `.rs` file would satisfy its floor while telling it nothing about this tree.
+    fn falsifier_tree() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("sutura-falsifier-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&root).expect("a scratch root");
+        std::fs::write(root.join("flake.nix"), "{ }\n").expect("the first root marker");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("the second root marker");
+        // Over the 1000-line cap and clean in every other way, so `max-lines` is the only gate
+        // this file is about.
+        let mut over_long = String::new();
+        for _ in 0..1001_u16 {
+            over_long.push_str("a line\n");
+        }
+        std::fs::write(root.join("over-long.txt"), over_long).expect("the over-long file");
+        // CRLF for `line-endings`; the trailing space and the missing final newline for
+        // `text-hygiene`, whose rules are neither of the other two.
+        let malformed = "a line with a trailing space \r\nand no final newline";
+        std::fs::write(root.join("carriage-return.txt"), malformed).expect("the malformed text file");
+        root
+    }
+
+    #[test]
+    fn every_registered_hygiene_gate_refuses_a_tree_it_cannot_attest() {
+        use std::process::ExitCode;
+
+        // EVERY GATE IN THE TABLE, EXECUTED AGAINST A TREE IT MUST REFUSE -
+        // `github.com/telekom/sutura#371`. The defect that issue collects is not an untested gate:
+        // it is a gate whose HELPERS are well tested while `run` and the exit code it produces are
+        // driven by nothing, so a mutation on the verdict path leaves the suite green. Measured
+        // here before this existed: 2 of 31 hygiene gates had a test driving the registered entry
+        // point's verdict, and 7 of 31 answered `ok` over a tree with none of their subjects.
+        //
+        // So it calls the FN POINTER out of `TASKS` - the same call `run_hygiene` and `main` make,
+        // same empty argument slice - and asserts on the EXIT CODE that verdict maps to rather
+        // than on the enum, because *the new failure path was wired to the exit code by nothing*
+        // is the shape being closed. Nothing can opt out: membership is the table, so there is no
+        // allowlist to ratchet.
+        //
+        // WHAT IT DOES NOT HOLD, and its own limits, are the `../.agents/skills/sutura/invariants`
+        // row: it says a gate REFUSED, never why, and nothing about whether a gate's predicate is
+        // the question its consumer asks - #371's own fundamental limit. And `set_current_dir` is
+        // process-global, so this is correct under nextest's process-per-test, which is every venue
+        // that runs it, and would race under `cargo test`'s threads.
+        let tree = falsifier_tree();
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&tree).expect("point the process at the falsifier tree");
+
+        // DISCOVERED and INSPECTED are counted in two places on purpose: the first off the table,
+        // the second only once a gate has actually returned a verdict. A single number in a
+        // success line is how three of the defects behind #371 passed review.
+        let discovered = TASKS.iter().filter(|t| matches!(t.kind, super::Kind::Hygiene(_))).count();
+        let mut inspected = 0_usize;
+        let mut refused: Vec<&str> = Vec::new();
+        let mut attested: Vec<&str> = Vec::new();
+        for task in TASKS.iter().filter(|t| matches!(t.kind, super::Kind::Hygiene(_))) {
+            let verdict = (task.run)(&[]);
+            inspected += 1;
+            if format!("{:?}", verdict.exit_code()) == format!("{:?}", ExitCode::SUCCESS) {
+                attested.push(task.name);
+            } else {
+                refused.push(task.name);
+            }
+        }
+
+        // Restored before any assertion, so a failure cannot leave a wrong directory behind.
+        std::env::set_current_dir(&original).expect("restore the current directory");
+        drop(std::fs::remove_dir_all(&tree));
+
+        assert!(inspected > 0, "the sweep filter selected no gate - this test judged nothing");
+        assert_eq!(
+            inspected, discovered,
+            "the table registers {discovered} hygiene gate(s) and {inspected} were executed - a \
+             gate this loop skipped is a gate this test says nothing about"
+        );
+        // THE NEEDLE BESIDE THE FLOOR. The counts above cannot tell a real sweep from one over the
+        // wrong set of tasks, and these four are what each half of the tree is for: three whose
+        // refusal is EARNED BY THE SEEDED FILES - so an inert seed is red here rather than a silent
+        // weakening of the assertion below - and one that has to refuse the bare root.
+        for anchor in ["max-lines", "line-endings", "text-hygiene", "check-boundaries"] {
+            assert!(
+                refused.contains(&anchor),
+                "`{anchor}` is not among the {} gate(s) that refused - {refused:?}",
+                refused.len()
+            );
+        }
+        assert_eq!(
+            attested,
+            Vec::<&str>::new(),
+            "{} of {inspected} gate(s) answered `ok` about a tree that is not this repository. A \
+             gate that cannot be made to fail is a gate whose green says nothing, which is what \
+             `github.com/telekom/sutura#371` is about: give it a floor over what it actually \
+             read, or a refusal on the input whose absence makes its other rules vacuous.",
+            attested.len()
+        );
+    }
 }
