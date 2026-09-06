@@ -137,6 +137,13 @@ struct Discovered(Vec<Taking>);
 /// takings, and no takings at all. So the sentence [`Swept::verdict`] prints cannot state a number
 /// the scan did not reach - the count is the witness's own length - and a gate that discovered
 /// nothing is a failure rather than an `ok` over silence.
+///
+/// **Which of the two arms is reachable through [`holds`], stated because the other reads stronger
+/// than it is.** The subset arm is the live one: `.take(1)` over the adjudication loop reddens the
+/// gate. The empty arm is belt-and-braces, because [`pairing`] already refuses a constructor that
+/// binds no [`TAKING`] and that binding is itself a taking - so an empty scan is caught one step
+/// earlier, by that floor or by [`nix_files`] not finding `flake.nix`. It stays because the floor
+/// above it could be relaxed by someone who did not read this far.
 #[derive(Debug)]
 pub(super) struct Swept {
     paired: Vec<String>,

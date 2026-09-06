@@ -952,7 +952,7 @@ economise.
    | --- | --- |
    | `check-boundaries` | the domain crate's manifest and the Rust under `crates/` |
    | `check-pins` | `flake.nix` and `pixi.toml` |
-   | `check-warm-start` | `nix/cargo-env.nix`, `flake.nix`, `xtask/src/causality.rs` |
+   | `check-warm-start` | `xtask/src/causality.rs`, `nix/purge-baked-out-dirs.sh`, every `.nix` file |
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
    | `check-shared-client` | `Cargo.lock` |

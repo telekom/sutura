@@ -40,8 +40,31 @@ resolves nowhere and a THIRD-PARTY crate fails to compile in a check that change
 `inheritedArtifacts` pairs every `cargoArtifacts` with `nix/purge-baked-out-dirs.sh`, which
 regenerates exactly the output naming a directory it no longer sits in: one crate of 138 measured,
 so the reuse the checks exist on survives. **What it does not reach:** a generated file naming some
-OTHER absolute directory, or a path written into a compiled artifact rather than into the bytes of
-the output directory. Both fail the same loud way.
+OTHER absolute directory, a path written into a compiled artifact rather than into the bytes of the
+output directory, and - narrower than that paragraph used to admit - a path in `$unitDir/output`,
+cargo's record of the `cargo::` directives the script PRINTED, which is a sibling of `out/` and not
+inside it, so the search never reads it. All three fail the same loud way. Widening to `output` was
+refused rather than costed: a build script that publishes its own output directory as a link path
+names it there as a matter of course, so purging on that record could give back the reuse these
+checks exist on, and the cost is unmeasured. The limit is asserted rather than stated - the sweep's
+own test builds four synthetic unit directories, one per branch of its decision, and checks
+`try_exists` on each; the `output`-only unit is the one it proves SURVIVES.
+
+**And that pairing was a SHAPE rather than a mechanism for as long as nobody asked.** One attrset
+makes it hard to separate by accident and holds nothing against `//`, which updates one level deep:
+a consumer binding `preBuild` after the pairing keeps the artifacts and loses the sweep, silently.
+`check-warm-start` holds it now, and the unit it counts is the transferable part - a **taking**, one
+binding of crane's own `cargoArtifacts`, not a line, a file or an occurrence of the word `purge`.
+Measured on the tree that added it: 13 occurrences of that identifier across the `.nix` files and
+**2 takings**, and two takings written on ONE line still count as two. Each is attributed to what
+receives it (the constructor, or an `import`ed module that inlines the sweep itself), an
+unattributed one is a refusal, and `preBuild` may be bound nowhere else. **The warm start was the
+route that never called the constructor at all**, and its own fix is by construction rather than by
+gate: the sweep lives in `cargoWarmStart` after the export it resolves, so all five consumers get
+it from one owner instead of three of them inheriting a purge from whichever ran first. **An
+ordering is not a mechanism** - and neither is a position, so the gate reads the ORDER (the sweep
+below the export) and the NAMES (the variable the sweep resolves against the variable the warmer
+exports) rather than trusting either.
 
 **`flake.nix` cannot be fully modularised.** `apps.<name>`, the `packages = ` block and the
 `checks = {` block must stay in it, because two xtask gates scan that file for them **textually**
