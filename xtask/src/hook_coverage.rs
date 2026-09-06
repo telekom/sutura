@@ -25,9 +25,14 @@
 //! hook at all: the shell inside `.github/actions/*/action.yml`. `zizmor` is pointed at
 //! `.github/workflows`, the shellcheck hook globs `*.sh`, and a `run:` block is neither - so a
 //! shell defect there passes a diff-scoped run twice over, once by being filtered out and once by
-//! the filter never reaching it. `just lint-workflows` is the only task that does. [`SURFACES`]
+//! the filter never reaching it. `just lint-workflows` is the task that does. [`SURFACES`]
 //! carries that, and `--surface-tasks` is how `ship-check` learns which extra task a diff needs
 //! BEFORE it can be judged - so the gap is closed rather than described.
+//!
+//! **There are TWO such surfaces, and the second one had no row here at all.** The shell inside
+//! `devenv.nix`'s script bodies is a Nix string, so the `*.sh` glob, `zizmor` and the
+//! composite-action reader all filter it out the same way - and a 74-line change to that file
+//! produced a surface list that mentioned none of it.
 //!
 //! # Three ways a row said more than it knew, and all three printed a full house
 //!
@@ -172,6 +177,23 @@ const SURFACES: &[Surface] = &[
         paths: &[".github/actions/*/action.yml", ".github/actions/*/action.yaml"],
         hooks: &[],
         reached_by: "lint-workflows",
+    },
+    Surface {
+        // The same shape one file over, and it had no row at all: a 74-line change to `devenv.nix`
+        // used to produce a surface list that said nothing about it. The shell in this file is the
+        // `scripts.<name>.exec` bodies and `enterShell`, none of which is a tracked `*.sh` file, a
+        // workflow or a composite action - so every row above filters it out.
+        //
+        // `hooks` NAMES ONE, and the honesty is in which one. ShellCheck itself runs when the dev
+        // shell is BUILT - `linted` in `devenv.nix` wraps each body in `writeShellApplication`,
+        // whose checkPhase refuses a body it cannot read - and no hook builds a dev shell. What a
+        // diff-scoped run reaches is the STRUCTURAL half: `check-guidance`, inside `hygiene`,
+        // refuses a body assigned as a literal instead of through that wrapper. So this row claims
+        // the rule, not the linter, and `reached_by` is the task that carries the same rule.
+        label: "devenv script shell",
+        paths: &["devenv.nix"],
+        hooks: &["hygiene"],
+        reached_by: "hygiene",
     },
 ];
 
