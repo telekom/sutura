@@ -15,12 +15,24 @@
 //!
 //! WHY DECLARING IS THE PREDICATE, and it is the only non-obvious step. "Which features are ON" is
 //! ordinarily a graph over defaults and dependents - but **both of this gate's runs are
-//! `--all-features`** (`super::runner::nextest`, and the test below reads that flag out of it
-//! rather than trusting this sentence), so a feature that EXISTS in the table is enabled. That
-//! collapses the graph to a set difference: under `--all-features` the only way a
-//! `#[cfg(feature = ..)]` gate can flip from off to on is for the manifest to declare a name it
-//! did not declare before. Everything else a manifest diff can do to features - a default set, a
-//! dependent's feature list, a workspace dependency's - was already on in both runs.
+//! `--all-features`** (`super::runner::nextest`, and the test below asks the built command for its
+//! arguments rather than trusting this sentence), so a feature that EXISTS in the table is enabled.
+//! That collapses the graph to a set difference: under `--all-features` the only way a
+//! `#[cfg(feature = ..)]` gate can flip from off to on is for the manifest to declare a name
+//! **in `[features]`** that it did not declare before.
+//!
+//! **THAT SCOPE IS THE CLAIM, and the unqualified version of this sentence was wrong.** Review
+//! worked the premise against six shapes; it holds for five - a feature whose definition changes
+//! (same-crate features are already on, and adding a `dep:` reference can only turn an implicit
+//! feature *off*), a `default = [..]` change (irrelevant under `--all-features`, and `default` is
+//! already a key so it is not a false positive either), a feature added in a depended-on member
+//! (that member's manifest is necessarily in the diff, so the subtraction sees it), a `not(..)`
+//! compound (never compiled under `--all-features` at all), and a workspace-level feature (this
+//! workspace's root manifest is virtual). It **fails** for the implicit feature an
+//! `optional = true` dependency creates: `--all-features` enables that name, and `[features]` does
+//! not carry it - the first row of the table below, and the reason the sentence has to say
+//! *in `[features]`* rather than *a name*. Measured at **12** optional dependencies in this tree,
+//! so the shape is live for future work rather than structurally absent.
 //!
 //! **So it is not a diff scan.** Nothing here looks for an added line: it reads the whole table on
 //! each side of the base commit and subtracts. A `[features]` key that moved, was reformatted, or
@@ -349,9 +361,13 @@ fn declares_tests(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{Activation, BaseText, Because, Enabled, Reach, Trees, Unread, declared_features};
     use crate::causality::fixtures::changed;
+    use crate::causality::isolation::Isolated;
     use crate::causality::regions::PostImage;
+    use crate::causality::runner::{Tree, nextest};
 
     /// A manifest declaring one package and the given feature keys.
     fn with_features(name: &str, features: &[&str]) -> String {
@@ -614,18 +630,32 @@ mod tests {
     }
 
     #[test]
-    fn the_predicate_is_tied_to_the_flag_that_makes_it_true() {
+    fn the_predicate_is_tied_to_the_flag_on_both_runs() {
         // WHY THIS IS A TEST AND NOT A SENTENCE. *A declared feature is an enabled one* holds only
-        // because both of this gate's runs pass `--all-features`. Drop that flag and the predicate
-        // becomes wrong in the silent direction - a newly-defaulted feature would activate a
-        // module and this scan would answer `Nothing`. So the flag is read out of the runner
-        // rather than trusted, over comment-stripped lines, so a commented-out one is not one.
-        let root = crate::repo::root().expect("the repo root");
-        let text = std::fs::read_to_string(root.join("xtask/src/causality/runner.rs")).expect("the runner");
-        let live = crate::serde_parse::scan::code_lines(&text);
-        assert!(
-            live.iter().any(|line| line.contains("--all-features")),
-            "both runs must pass --all-features, or `declared_features` is the wrong predicate"
-        );
+        // because BOTH of this gate's runs pass `--all-features`. Drop it from either and the
+        // predicate is wrong in the silent direction: a feature that exists is no longer on, so a
+        // `cfg(feature)` gate can flip without the table gaining a name and this scan answers
+        // `Nothing`.
+        //
+        // **THE FIRST VERSION OF THIS READ `runner.rs`'s SOURCE TEXT, and review broke it.** A
+        // comment-stripped line scan for `--all-features` is satisfied by the literal appearing
+        // anywhere in that file, whatever it is attached to - so moving the flag under
+        // `if tree == Tree::Provisioned` takes it off the BASE run, which is exactly the condition
+        // this rests on, and all 932 gate tests still passed. Asserting a string appears is not
+        // asserting an argument is passed; `super::runner`'s own
+        // `both_runs_are_filtered_to_the_tests_the_diff_added` is the house pattern, and this is
+        // the same shape asked of both `Tree` values - which is the half that closes that
+        // mutation, since one value alone would still have passed it.
+        let isolated = Isolated::for_a_wiring_test(Path::new("/tmp/root"), Path::new("/tmp/target"));
+        for tree in [Tree::Provisioned, Tree::Reconstructed] {
+            let args: Vec<String> = nextest(&isolated, "test(=t)", tree)
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            assert!(
+                args.iter().any(|arg| arg == "--all-features"),
+                "{tree:?} must pass --all-features, or `declared_features` is the wrong predicate: {args:?}"
+            );
+        }
     }
 }

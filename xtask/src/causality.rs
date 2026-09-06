@@ -305,30 +305,25 @@ const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bo
     matches!(outcome, BaseOutcome::DidNotCompile) && !held.is_empty()
 }
 
-/// The branch below this one in the stack, resolved against the commit the caller's ref named.
+/// The three git reads `stack::parent_of` needs, bound to this repository.
 ///
-/// GLUE AND NO DECISION, which is the split `branches::git` established for the same reason: every
-/// line here is a git read, [`stack::Base::of`] makes the choice, and every way this can answer
-/// nothing - a detached HEAD, an untracked branch, a metadata blob that is not JSON, a ref git
-/// cannot resolve - falls back to the ref the caller named, which is the behaviour that shipped
-/// before the derivation existed.
-///
-/// A branch recorded as its OWN parent is dropped here rather than in the pure choice: its merge
-/// base with HEAD is HEAD, which would silently reduce the diff to the uncommitted working tree.
-/// The branch tool does not write that, and a hand-edited ref should not be able to.
+/// GLUE AND NO DECISION, and it is now glue with nothing in it to get wrong: the composition and
+/// every fallback moved into `stack::parent_of`, where fakes can drive them, and the choice is
+/// `stack::Base::of`. **Review found why that mattered.** This function used to carry the guard
+/// against a parent that is really this branch, spelled `parent == branch` - a NAME comparison for
+/// a hazard that is a COMMIT - and being untested is what let one spelling stand in for the input.
+/// It is `stack::Origin::Contains` now, keyed on HEAD's commit.
 fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
-    let branch = worktree::head_branch(root)?;
-    let parent = stack::recorded_parent(&worktree::branch_metadata(root, &branch))?;
-    if parent == branch {
-        return None;
-    }
-    let forked = Commit::parse(&worktree::merge_base(root, parent.as_str(), "HEAD"))?;
-    let common = Commit::parse(&worktree::merge_base(root, asked_for.as_str(), forked.as_str()));
-    Some(Parent {
-        branch: parent,
-        forked,
-        common,
-    })
+    let metadata = |branch: &stack::BranchRef| worktree::branch_metadata(root, branch);
+    let merge_base = |earlier: &str, later: &str| worktree::merge_base(root, earlier, later);
+    stack::parent_of(
+        asked_for,
+        &stack::Reads {
+            branch: worktree::head_branch(root),
+            metadata: &metadata,
+            merge_base: &merge_base,
+        },
+    )
 }
 
 /// What the diff's manifest changes put into the build, asked of the two trees.
@@ -393,8 +388,18 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         eprintln!("  Fetch that ref, or name a commit this branch descends from.");
         return Verdict::Fail;
     };
+    // HEAD'S OWN COMMIT, for the guard that needs it and for nothing else. A recorded parent that
+    // already CONTAINS this branch forks at HEAD, and a base equal to HEAD makes the diff the
+    // uncommitted working tree alone - an exit-0 pass over every file the branch changed, which
+    // review reproduced twice here. `merge_base` above already resolved HEAD, so this cannot
+    // realistically fail; refusing is the fail-closed direction if it ever does, because the
+    // alternative is deriving a base with the one guard that matters unable to run.
+    let Some(head) = Commit::parse(&worktree::head_commit(&root)) else {
+        eprintln!("xtask test-causality: could not resolve HEAD to one commit");
+        return Verdict::Fail;
+    };
     let parent = stack_parent(&root, &asked_for);
-    let measured = Base::of(asked_for, parent);
+    let measured = Base::of(asked_for, &head, parent);
     let at = measured.at().clone();
 
     let Some(files) = changed_with_additions(&at) else {

@@ -22,13 +22,21 @@
 //! branch never touched. So the narrowing is not "trust the metadata": [`Base::of`] takes the
 //! merge base of the two candidate commits and moves the base only when it EQUALS the named one,
 //! which is exactly the statement *the named ref's merge base is an ancestor of the parent's*.
-//! The consequences, and they are the reason this shape was chosen over an ancestry query:
+//!
+//! **THAT PROPERTY IS TRUE AND IS NOT THE ONE THAT PROTECTS THE GATE, which is the correction
+//! review forced.** *Off this branch's history* is unreachable - `forked` is always
+//! `merge-base(x, HEAD)` and therefore always an ancestor of HEAD, for a stale parent, a rebased
+//! one, a three-deep chain and a parent merged into the trunk alike. But *the diff can only SHRINK*
+//! includes shrinking to **EMPTY**, and that endpoint is an exit-0 pass over every changed file.
+//! [`Origin::Contains`] is its own row for that reason, refused ahead of the equality because the
+//! equality passes for it.
 //!
 //! | Recorded parent | What this does | Why that is safe |
 //! | --- | --- | --- |
 //! | none, or unparseable | measures the ref the caller named | today's answer, unchanged |
 //! | the trunk | [`Origin::Agrees`] - same commit, said out loud | nothing narrowed, and the line says the metadata was read |
-//! | the branch below in a stack | [`Origin::Narrowed`] - this branch's own fork point | strictly forward of the named base and still an ancestor of HEAD, so the diff can only SHRINK |
+//! | the branch below in a stack | [`Origin::Narrowed`] - this branch's own fork point | strictly forward of the named base and still an ancestor of HEAD, so the diff is a strict SUBSET - `named` included, HEAD excluded |
+//! | one that already CONTAINS this branch | [`Origin::Contains`] - refused, and named in the line | its fork point IS HEAD, and a base equal to HEAD is an empty diff rather than a narrowing |
 //! | an unrelated branch | measures the ref the caller named | their merge base is neither commit, so the equality fails |
 //! | a branch behind the named ref | measures the ref the caller named | same equality, other direction |
 //!
@@ -124,6 +132,22 @@ pub(crate) enum Origin {
     /// whole stack's fork point and this branch's own diff begins later. Carries the commit it
     /// replaced, so the printed line cannot claim a narrowing that did not happen.
     Narrowed { branch: BranchRef, instead_of: Commit },
+    /// The recorded parent's fork point with HEAD **is HEAD**, which means that branch already
+    /// CONTAINS this one. Refused, and this row is the whole reason the guard is keyed on a commit.
+    ///
+    /// **The degenerate endpoint of *the diff can only shrink*, and shrinking to EMPTY is a pass.**
+    /// A base equal to HEAD makes `git diff <base> --` the uncommitted working tree alone, so the
+    /// gate answers *no changed tests - nothing to prove* at exit 0 over every file the branch
+    /// actually changed. Review reproduced it twice on this gate's own branch, and the trigger is
+    /// this repository's house style rather than a corner: merge-forward-never-rebase means a
+    /// parent with this branch merged INTO it is an ordinary thing to have locally, and so is
+    /// metadata retargeted at the branch above.
+    ///
+    /// **It is strictly worse than the defect this module was written for.**
+    /// `github.com/telekom/sutura#358` reddened correct work loudly; this passed incorrect work in
+    /// silence. The first version of the guard dropped the case by comparing the parent's NAME to
+    /// HEAD's branch, which catches one spelling of one input and enumerates nothing.
+    Contains(BranchRef),
 }
 
 /// The commit the diff is measured against, and WHY it is that commit.
@@ -138,20 +162,39 @@ pub(crate) struct Base {
 }
 
 impl Base {
-    /// Which commit to measure against, given the named ref's merge base and what the branch tool
-    /// recorded.
+    /// Which commit to measure against, given the named ref's merge base, HEAD's own commit, and
+    /// what the branch tool recorded.
     ///
-    /// The narrowing happens only when `parent.common == Some(named)`. That equality is the whole
-    /// guard: it holds exactly when the named commit is an ancestor of the parent's fork point,
-    /// which - since a fork point with HEAD is an ancestor of HEAD by construction - puts the
-    /// derived base between the two and makes the diff a SUBSET of what the caller asked for.
-    pub(crate) fn of(named: Commit, parent: Option<Parent>) -> Self {
+    /// TWO GUARDS, and they answer different questions - which is why the first version of this,
+    /// carrying only the second, had a silent pass in it.
+    ///
+    /// **`parent.forked == head` is refused FIRST and unconditionally.** A parent that already
+    /// contains this branch forks at HEAD, and a base equal to HEAD is not a narrowing - it is an
+    /// empty diff and an exit-0 verdict over every file the branch changed. It has to come first
+    /// because the second guard PASSES for it: `merge-base(named, head)` is `named` whenever named
+    /// is an ancestor of HEAD, which it always is, so the equality below cannot see this case.
+    ///
+    /// **`parent.common == Some(named)` decides the narrowing.** It holds exactly when the named
+    /// commit is an ancestor of the parent's fork point, which - since a fork point with HEAD is an
+    /// ancestor of HEAD by construction - puts the derived base between the two and makes the diff
+    /// a strict SUBSET of what the caller asked for, `named` itself included and `head` excluded.
+    ///
+    /// HEAD IS AN ARGUMENT for exactly that reason: the guard is keyed on the commit the hazard is
+    /// about, so it is one assertable row here rather than a name comparison at a call site no test
+    /// reaches.
+    pub(crate) fn of(named: Commit, head: &Commit, parent: Option<Parent>) -> Self {
         let Some(parent) = parent else {
             return Self {
                 at: named,
                 from: Origin::Named,
             };
         };
+        if parent.forked == *head {
+            return Self {
+                at: named,
+                from: Origin::Contains(parent.branch),
+            };
+        }
         if parent.common.as_ref() != Some(&named) {
             return Self {
                 at: named,
@@ -198,13 +241,63 @@ impl Base {
                 branch.as_str(),
                 instead_of.short()
             ),
+            Origin::Contains(ref branch) => format!(
+                "{head} (merge base {}; the stack parent `{}` already CONTAINS this branch, so it is not a base - measuring there would empty the diff)",
+                self.at.short(),
+                branch.as_str()
+            ),
         }
     }
 }
 
+/// What resolving a recorded parent needs of git, so the composition is assertable without a
+/// repository.
+///
+/// The split `super::worktree`'s header states, one level up: every field here is raw git output or
+/// a value parsed from it, and [`parent_of`] decides nothing that [`Base::of`] decides. It exists
+/// because the composition used to live at the call site with no test, and the guard that call site
+/// carried was keyed on the wrong thing - which is what a test would have forced open.
+pub(crate) struct Reads<'a> {
+    /// The branch HEAD is on. `None` for a detached HEAD, which is the reconstruction worktree this
+    /// gate creates and a CI checkout of a merge commit alike - neither has metadata to read.
+    pub(crate) branch: Option<BranchRef>,
+    /// The branch tool's metadata blob for a branch, as git printed it.
+    pub(crate) metadata: &'a Metadata<'a>,
+    /// `git merge-base <earlier> <later>`, as git printed it.
+    pub(crate) merge_base: &'a MergeBase<'a>,
+}
+
+/// A reader for one branch's recorded metadata, as git printed it.
+pub(crate) type Metadata<'reader> = dyn Fn(&BranchRef) -> String + 'reader;
+
+/// A reader for the merge base of two revisions, as git printed it.
+pub(crate) type MergeBase<'reader> = dyn Fn(&str, &str) -> String + 'reader;
+
+/// The branch below this one in the stack, resolved into the two commits [`Base::of`] needs.
+///
+/// EVERY WAY THIS ANSWERS NOTHING IS THE FALLBACK, and the fallback is the behaviour that shipped
+/// before this module: a detached HEAD, an untracked branch, a blob that is not JSON, a missing key,
+/// a name no branch could have, and a ref git cannot resolve all reach the caller as `None`, which
+/// [`Base::of`] measures the named ref for.
+///
+/// **No name is compared here.** The degenerate case a name comparison was reaching for - a parent
+/// that is really this branch - forks at HEAD and is [`Origin::Contains`], along with every other
+/// spelling of the same commit.
+pub(crate) fn parent_of(named: &Commit, reads: &Reads<'_>) -> Option<Parent> {
+    let branch = reads.branch.as_ref()?;
+    let parent = recorded_parent(&(reads.metadata)(branch))?;
+    let forked = Commit::parse(&(reads.merge_base)(parent.as_str(), "HEAD"))?;
+    let common = Commit::parse(&(reads.merge_base)(named.as_str(), forked.as_str()));
+    Some(Parent {
+        branch: parent,
+        forked,
+        common,
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Base, BranchRef, Origin, Parent, recorded_parent};
+    use super::{Base, BranchRef, Origin, Parent, Reads, parent_of, recorded_parent};
     use crate::causality::provenance::Commit;
 
     /// An object name from its short form, so a fixture reads as one commit.
@@ -227,6 +320,7 @@ mod tests {
         let own_fork = commit("bbb2");
         let base = Base::of(
             stack_fork.clone(),
+            &commit("eee5"),
             Some(Parent {
                 branch: branch("2026-09-06-the-parent"),
                 forked: own_fork.clone(),
@@ -250,8 +344,10 @@ mod tests {
         // base is some third commit, and moving the base there would revert files this branch
         // never touched.
         let named = commit("aaa1");
+        let head = commit("eee5");
         let aside = Base::of(
             named.clone(),
+            &head,
             Some(Parent {
                 branch: branch("unrelated"),
                 forked: commit("ccc3"),
@@ -263,6 +359,7 @@ mod tests {
         // And a merge base git could not resolve at all is the same answer, not a narrowing.
         let unresolved = Base::of(
             named.clone(),
+            &head,
             Some(Parent {
                 branch: branch("unrelated"),
                 forked: commit("ccc3"),
@@ -280,6 +377,7 @@ mod tests {
         let named = commit("aaa1");
         let base = Base::of(
             named.clone(),
+            &commit("eee5"),
             Some(Parent {
                 branch: branch("main"),
                 forked: named.clone(),
@@ -293,7 +391,7 @@ mod tests {
         // No metadata at all is the answer that shipped before this module, and it is a THIRD
         // state: *the derivation ran and agreed* and *there was nothing to read* are how a reader
         // tells a working derivation from a silent one.
-        let untracked = Base::of(named.clone(), None);
+        let untracked = Base::of(named.clone(), &commit("eee5"), None);
         assert_eq!(*untracked.at(), named);
         assert_eq!(
             untracked.measured("origin/main"),
@@ -303,6 +401,112 @@ mod tests {
             )
         );
         assert!(matches!(untracked, Base { from: Origin::Named, .. }));
+    }
+
+    #[test]
+    fn a_parent_that_already_contains_this_branch_may_not_become_the_base() {
+        // THE BLOCKING DEFECT REVIEW FOUND, at the level that closes it rather than one spelling of
+        // it. A recorded parent with this branch merged INTO it forks at HEAD, so the base becomes
+        // HEAD, `git diff <base> --` is the uncommitted working tree alone, and the gate answers
+        // *no changed tests - nothing to prove* at exit 0 over every file the branch changed.
+        // Reproduced twice on this gate's own branch, from two different parents.
+        //
+        // The first guard was `parent == branch` at the call site - a NAME comparison, which
+        // catches one spelling and enumerates nothing. This is keyed on the commit the hazard is
+        // about, so every parent reaching that commit is the same answer.
+        let named = commit("aaa1");
+        let head = commit("eee5");
+        for reaching_head in [branch("probe-above"), branch("probe-trunk"), branch("main")] {
+            let refused = Base::of(
+                named.clone(),
+                &head,
+                Some(Parent {
+                    branch: reaching_head.clone(),
+                    // `merge-base(<a parent containing HEAD>, HEAD)` is HEAD itself.
+                    forked: head.clone(),
+                    // AND THE SECOND GUARD PASSES FOR THIS INPUT, which is why the order matters:
+                    // `merge-base(named, HEAD)` is `named` whenever named is an ancestor of HEAD,
+                    // and it always is. The equality alone would have derived a base of HEAD.
+                    common: Some(named.clone()),
+                }),
+            );
+            assert_eq!(*refused.at(), named, "a base equal to HEAD is an empty diff");
+            let line = refused.measured("origin/main");
+            assert!(line.contains("already CONTAINS this branch"), "{line}");
+            assert!(!line.contains("DERIVED"), "{line}");
+            assert!(line.contains(reaching_head.as_str()), "{line}");
+        }
+    }
+
+    #[test]
+    fn every_way_a_recorded_parent_is_unusable_reaches_the_choice_as_nothing() {
+        // `parent_of` WAS THE UNTESTED GLUE, and the guard it carried was the one that broke. Its
+        // git reads are injected here, so the composition is asserted rather than only its parts:
+        // what a real repository contributes is three strings, and each way one of them is not an
+        // answer has to reach `Base::of` as `None` - the behaviour that shipped before this module.
+        let named = commit("aaa1");
+        let blob = concat!(r#"{"parentBranchName":"main","#, r#""frozen":false}"#);
+        let resolves = |_: &str, _: &str| String::from("bbb2000000000000000000000000000000000000");
+        let metadata = |_: &BranchRef| String::from(blob);
+
+        // The happy path, so the assertions below are about the refusals and not about the shape.
+        let found = parent_of(
+            &named,
+            &Reads {
+                branch: Some(branch("2026-09-06-a-branch")),
+                metadata: &metadata,
+                merge_base: &resolves,
+            },
+        )
+        .expect("a recorded parent");
+        assert_eq!(found.branch.as_str(), "main");
+        assert_eq!(found.forked, commit("bbb2"));
+        assert_eq!(found.common, Some(commit("bbb2")));
+
+        // A DETACHED HEAD, which is both the reconstruction worktree this gate creates and a CI
+        // checkout of a merge commit. Nothing to look up, and CI is where the fallback is correct
+        // rather than merely unimproved.
+        assert_eq!(
+            parent_of(
+                &named,
+                &Reads {
+                    branch: None,
+                    metadata: &metadata,
+                    merge_base: &resolves,
+                }
+            ),
+            None
+        );
+        // A branch the tool never tracked: `cat-file` fails and the caller sees empty text.
+        for unusable in ["", "not json", r#"{"frozen":false}"#, r#"{"parentBranchName":"a b"}"#] {
+            let says = |_: &BranchRef| String::from(unusable);
+            assert_eq!(
+                parent_of(
+                    &named,
+                    &Reads {
+                        branch: Some(branch("2026-09-06-a-branch")),
+                        metadata: &says,
+                        merge_base: &resolves,
+                    }
+                ),
+                None,
+                "records no parent: {unusable:?}"
+            );
+        }
+        // A parent branch git cannot resolve - deleted after merging, or an unrelated history. The
+        // fork point is what fails, and without one there is nothing to compare.
+        let refuses = |_: &str, _: &str| String::from("fatal: Not a valid object name");
+        assert_eq!(
+            parent_of(
+                &named,
+                &Reads {
+                    branch: Some(branch("2026-09-06-a-branch")),
+                    metadata: &metadata,
+                    merge_base: &refuses,
+                }
+            ),
+            None
+        );
     }
 
     #[test]

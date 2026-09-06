@@ -777,10 +777,14 @@ all already on in both trees. That collapses the feature graph to a set differen
 predicate depend on a FLAG rather than on the code: a wiring assertion in `features`' own tests reads
 `--all-features` out of `causality::runner` for that reason.
 
-**Frequency measured before it was taken, over the last 80 branches on `main`** (squash-merged, so
-one commit is one branch): 17 touched a member `Cargo.toml`, **2** declared a new feature name, and
-**0** would have been refused - both of those two added the gated module in the same diff, which is
-the shape that does not fire. What the scan still does not read, each in the silent direction: an
+**Frequency measured before it was taken, over the last 80 first-parent commits on `main`**
+(squash-merged, so one commit is one branch - which holds for the 210 first-parent commits and not
+for the 318 an all-commits scan covers, so scanning all of them over-scans): 16 touched a member
+`Cargo.toml`, **2** declared a new feature name (`agreement` in `sutura-domain`, `bigquery` in
+`sutura-cli`), and **0** would have been refused - both added the gated module in the same diff,
+which is the shape that does not fire. Over the whole history there are **8** declarers and **0**
+would have been refused. Review replicated the predicate independently and reached the same two
+names and the same zero. What the scan still does not read, each in the silent direction: an
 implicit feature from `optional = true`, an INLINE gated `mod tests { .. }`,
 `#[cfg(all(feature = "x", ..))]`, and a test in a SUBMODULE of the enabled module. That module's
 header carries the table and the reason each one fails the way it does.
@@ -855,6 +859,22 @@ other answer (detached HEAD, untracked branch, unparseable blob, unrelated paren
 named ref, which is what CI gets and what CI needs. The printed line names the derived commit, the
 branch, and the commit it replaced, out of one value - so it cannot claim a narrowing that did not
 happen.
+
+**AND *CAN ONLY SHRINK* INCLUDES SHRINKING TO EMPTY, which is the limit that belongs next to that
+claim, because the true half is not the half a reader needs.** Off-history is genuinely unreachable -
+review tried a stale parent, a deleted one, a self-naming one, a three-deep chain, a parent merged
+into the trunk, malformed JSON and a missing key, and `forked` is always `merge-base(x, HEAD)` and
+therefore always an ancestor of HEAD. The reachable failure is the degenerate endpoint INSIDE
+history: **a recorded parent whose commit CONTAINS this branch forks at HEAD**, a base equal to HEAD
+makes the diff the uncommitted working tree alone, and the gate answers *no changed tests - nothing
+to prove* at **exit 0 over every file the branch changed**. Reproduced twice, and the trigger is this
+repository's own house style rather than a corner - merge-forward-never-rebase means a parent with
+your branch merged into it is an ordinary thing to have locally, as is metadata retargeted at the
+branch above. It is `causality::stack::Origin::Contains` now, refused AHEAD of the equality because
+the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of
+HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT that compares
+NAMES enumerates one spelling of one input** - the first version did exactly that, and it was
+untested glue, which is what let the enumeration stand.
 
 **What is STILL not asked, and a correct base does not rule it out:** whether the reverted
 implementation is something the measured test could even read. #293's pairing was wrong in that

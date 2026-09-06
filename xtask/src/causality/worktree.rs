@@ -8,8 +8,8 @@
 //! way this module spawns one.
 //!
 //! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`search`],
-//! [`head_branch`], [`branch_metadata`] and [`at_base`] - are here for that second reason and no
-//! other. Each returns raw output and decides nothing; `super::provenance`, `super::stack` and
+//! [`head_branch`], [`head_commit`], [`branch_metadata`] and [`at_base`] - are here for that
+//! second reason and no other. Each returns raw output and decides nothing; `super::provenance`, `super::stack` and
 //! `super::features` parse them, so every classification they feed is testable without a
 //! repository.
 
@@ -70,6 +70,20 @@ pub(super) fn head_branch(root: &Path) -> Option<BranchRef> {
         .success()
         .then(|| BranchRef::parse(String::from_utf8_lossy(&out.stdout).trim()))
         .flatten()
+}
+
+/// HEAD's own commit, as git printed it.
+///
+/// Read for ONE guard: a recorded stack parent that already contains this branch forks at HEAD, and
+/// a base equal to HEAD makes `git diff <base> --` the uncommitted working tree alone - an exit-0
+/// verdict over every file the branch changed. `super::stack::Origin::Contains` is that refusal and
+/// it needs the commit rather than a name, because any parent reaching HEAD produces it.
+pub(super) fn head_commit(root: &Path) -> String {
+    git(root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default()
 }
 
 /// The branch tool's metadata blob for `branch`, as git printed it.

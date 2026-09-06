@@ -181,6 +181,12 @@ stack. The printed line names the commit, the parent branch and the commit it re
 retargeted parent falls back to the ref you named rather than moving the base off your history.
 `SHIP_CHECK_BASE_REF`, or a commit as the recipe's argument, still overrides both.
 
+**One parent is refused rather than used, and it is one you can easily have:** a branch that already
+CONTAINS yours - because you merged yours into it to check the merge, or because the metadata points
+at the branch above. Its fork point with your HEAD *is* your HEAD, and a base equal to HEAD would
+make the diff your uncommitted working tree alone: exit 0 over every file you changed. The line says
+so, and the gate measures the ref you named instead.
+
 A changed page, recipe or nix file IS an implementation to the gate and gets reverted like any
 other; **a manifest or a lockfile is not** - it is held at HEAD and named as `not reverted:` on
 whichever arm you land on, because reverting one changes what cargo RESOLVES rather than what the
