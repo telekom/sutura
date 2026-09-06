@@ -56,12 +56,23 @@
 //!
 //! # What it does NOT reach
 //!
-//! * **Whether a reference RESOLVES.** `${{ inputs.binaries }}` is accepted because its last
-//!   segment names this set, not because anything followed it to a caller. A `with:` block passing
-//!   the wrong literal is the parent's rule, at that literal's own line.
-//! * **A block scalar.** `BINARIES: |` reads as an [`Carried::Opaque`] `|` rather than as the
-//!   lines below it. No file writes the set that way, and refusing it is the direction to be wrong
-//!   in.
+//! * **Whether a reference RESOLVES, and this is the one limit that still lets the count move.**
+//!   `${{ inputs.binaries }}` is accepted because its last segment names this set, not because
+//!   anything followed it to a caller. So REPLACING a literal with a reference to this same set -
+//!   `${{ steps.x.outputs.binaries }}` in place of `sutura sutura-serve` - is `ok - 3 literal(s)`
+//!   at exit 0, the 4-to-3 drop this whole rule exists to close, surviving inside the arm the fix
+//!   added. Measured in review. **It is held by a test and not by this gate**, deliberately: a
+//!   reference is legitimate wherever a caller passes the set on, nothing here can resolve one,
+//!   and a rule that refused them would fail a correct tree. `shipped::tests`'
+//!   `the_real_tree_agrees_with_itself` pins the exact `file:line` of every literal AND every
+//!   reference, so a literal that becomes a reference moves a row and `just test` goes red.
+//! * **A block scalar** (`BINARIES: |`) reads as an [`Carried::Opaque`] `|` rather than as the
+//!   lines below it, and [`spelled`] is line-oriented: a line inside a `run: |` body beginning
+//!   `BINARIES:` would read as a declaration, and a quoted value spanning two lines truncates to
+//!   the first. Neither shape exists under `.github` today - verified across all ten
+//!   `BINARIES:` / `binaries:` lines - and both fail closed on this tree, so the cost is a false
+//!   RED. That flips to a false GREEN only if `nix/shipped.nix` ever ships exactly one binary,
+//!   which is the reason to write it down rather than to lex block scalars now.
 //! * **Whether the RUNNER renders a null as an empty string.** Unmeasured - no runner to ask - so
 //!   this rests on the declaration, as [`super::loops`] does: a key declared with no value is not
 //!   a shipped set whatever it resolves to.
@@ -102,11 +113,20 @@ fn scalar(value: &str) -> &str {
     value
 }
 
+/// Every spelling of the YAML null, which all mean the same thing and were read three different
+/// ways until review measured it.
+///
+/// `""` gave `Set([])`, the bare word `null` gave `Set(["null"])` - a shipped binary called
+/// *null* - and `~` gave an `Opaque` refusal. One value, three verdicts. They are the empty set
+/// now, which is what YAML says they are and what `""` already was.
+const NULLS: [&str; 4] = ["~", "null", "Null", "NULL"];
+
 /// Does this value declare NOTHING at all - the shape that opens an action's input block?
 ///
 /// The distinction the parent needs and the classification deliberately does not make: `binaries:`
-/// with no value OPENS a block, while `binaries: ""` declares the empty set. A quoted value is
-/// never null however empty its interior is.
+/// with NO VALUE opens a block, while `binaries: ""` and `binaries: ~` declare the empty set. A
+/// quoted value is never null however empty its interior is, and neither is an EXPLICIT null: a
+/// key spelled `~` carries a value, so nothing is nested under it.
 pub(super) fn is_null(value: &str) -> bool {
     let trimmed = value.trim();
     !trimmed.starts_with(['"', '\'']) && scalar(trimmed).is_empty()
@@ -138,6 +158,9 @@ pub(super) fn carried(value: &str) -> Carried {
         } else {
             Carried::Opaque(String::from(value))
         };
+    }
+    if NULLS.contains(&value) {
+        return Carried::Set(Vec::new());
     }
     if value.split_whitespace().all(is_plain_name) {
         Carried::Set(value.split_whitespace().map(String::from).collect())
@@ -238,15 +261,27 @@ pub(super) fn spelled(text: &str) -> Vec<Spelled> {
 ///
 /// NAMES rather than a count, so the caller can say WHICH file went unread and so the witness
 /// cannot be satisfied by assigning the finder's own number to a variable.
+///
+/// **THE NAME IS RECORDED AFTER [`spelled`] RETURNS, and that ordering is the whole witness.**
+/// The first version pushed it first and independently of the parse, so the list said a file had
+/// been OFFERED to the walk rather than read out of - and a `continue` between the two left both
+/// composite actions unread while the verdict still said *across 12 file(s)*, at exit 0, with the
+/// whole suite green. Measured in review with `if name.contains("/actions/") { continue; }`:
+/// `ok - 2 literal(s) across 12 file(s)`. **A witness written before the work it attests to is not
+/// a witness**, which is `.agents/skills/sutura/gates/SKILL.md`'s *a readout under a comment
+/// claiming it is an assertion*, one shape over.
+///
+/// What it still does not reach is the FINDER: a file `super::yaml_files` never handed over is not
+/// in `files` either, so this comparison holds trivially over it. That arm is fail-closed there.
 pub(super) fn declarations(files: &BTreeMap<String, String>) -> Walk<'_> {
     let mut walk = Walk {
         rows: Vec::new(),
         inspected: Vec::new(),
     };
     for (name, text) in files {
+        let found = spelled(text);
+        walk.rows.extend(found.into_iter().map(|found| (name.as_str(), found)));
         walk.inspected.push(name.as_str());
-        walk.rows
-            .extend(spelled(text).into_iter().map(|found| (name.as_str(), found)));
     }
     walk
 }
@@ -287,6 +322,7 @@ impl Block {
 
 /// One literal set that disagrees with `nix/shipped.nix`. A named struct rather than a tuple,
 /// for [`super::Reconciliation`]'s reason: `clippy::type_complexity` refuses the tuple.
+#[derive(Debug)]
 pub(super) struct Mismatch {
     /// `file:line`, so the row a reader acts on names where it was spelled.
     pub(super) at: String,
@@ -416,6 +452,25 @@ mod tests {
     }
 
     #[test]
+    fn the_yaml_null_is_read_one_way_however_it_is_spelled() {
+        // Measured in review: ONE value, THREE verdicts. `""` was the empty set, the bare word
+        // `null` was a shipped binary CALLED `null`, and `~` was an `Opaque` refusal that would
+        // have failed a correct tree. YAML says all of them are the same thing, and so does the
+        // absent value one test down, so all of them are the empty set.
+        for spelling in ["", "  ", "\"\"", "''", "~", "null", "Null", "NULL", "# nothing here"] {
+            assert_eq!(
+                super::carried(spelling),
+                Carried::Set(Vec::new()),
+                "`{spelling}` is a YAML null and has to read as the empty set"
+            );
+        }
+        // And an explicit null is a VALUE, so it does not open an input block the way an absent
+        // one does - nothing can be nested under a key that already carries `~`.
+        assert!(!super::is_null("~"), "an explicit null carries a value");
+        assert!(!super::is_null("null"));
+    }
+
+    #[test]
     fn a_null_opens_an_input_block_and_an_explicitly_empty_value_does_not() {
         // The one distinction the parent still needs: `binaries:` with no value is how an action's
         // input block OPENS, so reading it as an empty set would fail every correct action.
@@ -449,6 +504,70 @@ mod tests {
             Carried::Opaque(_)
         ));
         assert!(matches!(super::carried("sutura ${{ env.BINARIES }}"), Carried::Opaque(_)));
+    }
+
+    /// The three files the `read` tests below walk: a literal, an action input, and a page that
+    /// declares nothing. Built per test so nothing is shared between them.
+    fn tree(default_for_the_action: &str) -> std::collections::BTreeMap<String, String> {
+        std::collections::BTreeMap::from([
+            (
+                String::from(".github/workflows/release.yml"),
+                String::from("env:\n  BINARIES: sutura sutura-serve\n"),
+            ),
+            (
+                String::from(".github/actions/build/action.yml"),
+                format!("inputs:\n  binaries:\n    required: false\n    default:{default_for_the_action}\n"),
+            ),
+            (
+                String::from(".github/workflows/docs.yml"),
+                String::from("jobs:\n  build:\n    steps: []\n"),
+            ),
+        ])
+    }
+
+    #[test]
+    fn read_sorts_every_declaration_into_the_bucket_the_verdict_is_built_from() {
+        // THE CONSUMER, not the classification. Every other test here asserts on `spelled` and
+        // `carried`, and review measured what that leaves open: one arm added to the match inside
+        // `read` - `Carried::Set(names) if names.is_empty() => {}` - restored the pre-#329 silent
+        // green BYTE FOR BYTE at exit 0, with all of those tests still passing. This is where a
+        // classification becomes a mismatch, a row and an exit code, so this is where it is held.
+        let expected = [String::from("sutura"), String::from("sutura-serve")];
+        let read = super::read(&tree(" sutura sutura-serve"), &expected).expect("a clean tree is not a refusal");
+        assert_eq!(
+            read.literals,
+            [".github/actions/build/action.yml:4", ".github/workflows/release.yml:2"]
+        );
+        assert!(read.mismatches.is_empty(), "{:?}", read.mismatches);
+        // Three files walked, two of which declare something: the pair, at the level `run` uses.
+        assert_eq!(read.inspected, 3);
+    }
+
+    #[test]
+    fn read_turns_a_declaration_carrying_nothing_into_a_mismatch_the_verdict_names() {
+        // Shape A of `github.com/telekom/sutura#329`, driven through the consumer: a null
+        // `default:` under an action's `binaries:` input. It has to arrive as a MISMATCH carrying
+        // zero names at its own line, because that is what makes `run` exit 1 - and it is exactly
+        // what an `is_empty` arm takes away while every classification test stays green.
+        let expected = [String::from("sutura"), String::from("sutura-serve")];
+        let read = super::read(&tree(""), &expected).expect("an empty declaration is a mismatch, not a refusal");
+        assert_eq!(read.mismatches.len(), 1, "{:?}", read.mismatches);
+        assert_eq!(read.mismatches[0].at, ".github/actions/build/action.yml:4");
+        assert!(read.mismatches[0].spells.is_empty(), "{:?}", read.mismatches[0].spells);
+        // And it is still COUNTED - the count must not drop, which is the whole of #329.
+        assert_eq!(read.literals.len(), 2, "{:?}", read.literals);
+    }
+
+    #[test]
+    fn read_refuses_a_value_it_can_neither_compare_nor_attribute() {
+        // Shape B: an expression naming a DIFFERENT set. `None` is the refusal `run` turns into
+        // exit 1, and it must not arrive as a quietly shorter literal list.
+        let expected = [String::from("sutura"), String::from("sutura-serve")];
+        assert!(super::read(&tree(" ${{ env.SHIPPED }}"), &expected).is_none());
+        // A reference to THIS set is not that, and is named rather than dropped.
+        let read = super::read(&tree(" ${{ env.BINARIES }}"), &expected).expect("a reference is not a refusal");
+        assert_eq!(read.references, [".github/actions/build/action.yml:4 -> env.BINARIES"]);
+        assert_eq!(read.literals, [".github/workflows/release.yml:2"]);
     }
 
     #[test]

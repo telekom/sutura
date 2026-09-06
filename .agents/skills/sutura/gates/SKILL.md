@@ -423,13 +423,40 @@ therefore does not see.
   And **a refusing arm has to be preceded by a lexer**: the refusal fails the gate, and
   `BINARIES: "sutura sutura-serve"` and a trailing `# comment` are legal YAML for this set, so a
   quote and a comment come off before the classification - or the gate reddens a correct tree and
-  gets disabled. **The rows are still not a floor**, which is the third thing the same review
-  asked: a walk that stopped early would print fewer of them and read exactly like a whole one, so
-  the verdict names TWO numbers from two places - the files the finder found and the files the walk
-  read - and the second is a LIST of names rather than a count, because a count can be satisfied by
-  assigning the first one to it. Measured: `.take(1)` on the walk gives
-  `FAILED - the walk read 1 of the 12 file(s) under .github`, exit 1, naming the eleven. What it
-  still does not reach: whether a reference RESOLVES to the literal it names.
+  gets disabled. **The rows are still not a floor**, so the verdict names TWO numbers from two
+  places - the files the finder found and the files the walk read - and the second is a LIST of
+  names, because a count can be satisfied by assigning the first one to it.
+- **THAT PAIR THEN FAILED TWICE, AND BOTH ARE THE SAME MISTAKE: A WITNESS WRITTEN BEFORE THE WORK
+  IT ATTESTS TO.** Found by mutating the fix, not the original. (1) The name was pushed to the
+  *inspected* list BEFORE and independently of the parse, so a `continue` between the two - one
+  line, `if name.contains("/actions/") { continue; }` - left BOTH composite actions unread while
+  the verdict still read `ok - 2 literal(s) across 12 file(s)`, exit 0, whole suite green. The list
+  was complete because it was populated unconditionally: it witnessed that a file had been OFFERED
+  to the walk, never that anything was read out of it. The name goes in *after* the parse returns
+  now. (2) Its only floor over the result was `literals >= 2` on a tree that has 4, so losing half
+  sat INSIDE the assertion - *at least one row defends nothing about WHICH row* for the third time
+  in this file, in a gate whose own sibling doc states that rule. The test pins the exact
+  `file:line` of every literal and every reference now. **The transferable pair of questions: does
+  the witness get written before or after the work, and what does the floor let you lose without
+  moving?**
+- **AND THE CONSUMER OF A CLASSIFICATION IS A SECOND PLACE THE SAME DEFECT LIVES.** All seven tests
+  the fix added asserted on the classifier; nothing asserted on the function that turns a
+  classification into a mismatch, a row and an exit code. Measured: one match arm,
+  `Carried::Set(names) if names.is_empty() => {}`, restored the pre-fix silent green **byte for
+  byte** - `ok - 3 literal(s)`, exit 0 - with all 878 tests passing. A mutation table is only worth
+  the layer it was applied at: *an empty set is skipped again* was red at the classifier and
+  invisible three lines further on, where the exit code is actually decided. **Ask which function
+  the exit code comes out of, and test THAT one.**
+- **The same review's three cheaper findings, kept because each is a shape rather than an
+  instance.** A file the FINDER drops never reaches the walk, so `inspected == files.keys()` holds
+  trivially over it: a non-UTF-8 action gave `ok - 3 literal(s) across 11 file(s)`, exit 0, and the
+  sibling loop rule's `8 step(s)` quietly became `7` - the unreadable-input shape this file already
+  records twice, now fail-closed at the read, with *absent* and *unreadable* told apart because an
+  action legitimately has only one of `action.yml` / `action.yaml`. **A reference still lets the
+  count drop** (`${{ steps.x.outputs.binaries }}` for a literal is `ok - 3`, exit 0) and no gate
+  can resolve one, so that is held by a test pinning every row rather than by a rule that would
+  redden a correct tree. And ONE YAML null was read THREE ways - `""` as the empty set, `null` as a
+  binary named *null*, `~` as a refusal - which is what a value-shaped `const` list is for.
 - **A single unreadable input dropped in silence, twice more, and the floor did not save it.** Two
   new gates read every workflow with `.ok()` / `else continue` and failed closed only when EVERY
   file was unreadable - so one dropped file was a gating job classified by nothing, or a

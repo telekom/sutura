@@ -260,11 +260,24 @@ fn quoted_items(fragment: &str) -> Vec<String> {
     out
 }
 
+/// Every workflow and every local composite action, keyed by repo-relative path.
+///
+/// A named alias rather than the bare map, because `clippy::type_complexity` refuses the
+/// `Result<BTreeMap<..>, ..>` the fail-closed read below returns.
+type Yaml = BTreeMap<String, String>;
+
 /// Every workflow and every local composite action, as `(repo-relative path, contents)`.
 ///
 /// The same two directories `check-workflows` reads, and for the same reason: since #111 a build
 /// step is a composite action, so a literal can live in either place.
-fn yaml_files(root: &std::path::Path) -> BTreeMap<String, String> {
+///
+/// **FAIL CLOSED ON A FILE IT CANNOT READ.** Both arms used to drop one in silence, which put the
+/// whole literal rule out of reach of its own floor: a file the FINDER never hands over is not in
+/// `files` either, so `inspected == files.keys()` holds trivially over it. Measured in review with
+/// `embedded-dependency-list/action.yml` made non-UTF-8: `ok - 3 literal(s) across 11 file(s)`,
+/// exit 0, and the loop rule's `8 step(s)` quietly became `7`. Same shape as the non-UTF-8 page
+/// `documented::pages` refuses, and `.agents/skills/sutura/gates/SKILL.md` records it twice.
+fn yaml_files(root: &std::path::Path) -> Result<Yaml, String> {
     let mut files = BTreeMap::new();
     let github = root.join(".github");
     if let Ok(entries) = std::fs::read_dir(github.join("workflows")) {
@@ -277,12 +290,11 @@ fn yaml_files(root: &std::path::Path) -> BTreeMap<String, String> {
             if !yaml {
                 continue;
             }
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                let name = path
-                    .file_name()
-                    .map_or_else(String::new, |n| format!(".github/workflows/{}", n.to_string_lossy()));
-                files.insert(name, text);
-            }
+            let name = path
+                .file_name()
+                .map_or_else(String::new, |n| format!(".github/workflows/{}", n.to_string_lossy()));
+            let text = std::fs::read_to_string(&path).map_err(|error| format!("{name}: {error}"))?;
+            files.insert(name, text);
         }
     }
     // One level deep, which is not an approximation: an action IS
@@ -291,18 +303,25 @@ fn yaml_files(root: &std::path::Path) -> BTreeMap<String, String> {
         for dir in dirs.flatten() {
             for leaf in ["action.yml", "action.yaml"] {
                 let path = dir.path().join(leaf);
-                let Ok(text) = std::fs::read_to_string(&path) else {
-                    continue;
-                };
                 let name = dir
                     .path()
                     .file_name()
                     .map_or_else(String::new, |n| format!(".github/actions/{}/{leaf}", n.to_string_lossy()));
-                files.insert(name, text);
+                // ABSENT IS NOT UNREADABLE, and only the first is legitimate: an action declares
+                // ONE of the two spellings, so the other is missing by construction. Anything else
+                // - a non-UTF-8 file, a permission - is a file this gate was meant to read and did
+                // not, and it fails closed rather than shrinking the denominator.
+                match std::fs::read_to_string(&path) {
+                    Ok(text) => {
+                        files.insert(name, text);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(format!("{name}: {error}")),
+                }
             }
         }
     }
-    files
+    Ok(files)
 }
 
 /// What reconciling `probeFeatures` against the documented builds found.
@@ -380,7 +399,16 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let files = yaml_files(&root);
+    let files = match yaml_files(&root) {
+        Ok(found) => found,
+        Err(why) => {
+            eprintln!("xtask check-shipped-binaries: FAILED - a file under `.github` could not be read");
+            eprintln!("  {why}");
+            eprintln!("  Dropping it would take it out of the denominator as well as out of the scan, so");
+            eprintln!("  every count below would agree with itself over a tree this never looked at.");
+            return Verdict::Fail;
+        }
+    };
     let Some(read) = declaration::read(&files, &expected) else {
         return Verdict::Fail;
     };
@@ -849,30 +877,57 @@ mod tests {
         };
         let expected = declared(&nix);
         assert!(!expected.is_empty(), "nix/shipped.nix declares no binaries");
-        let files = super::yaml_files(&root);
+        let files = super::yaml_files(&root).expect("a file under `.github` could not be read");
         let walk = super::declaration::declarations(&files);
         // The production pair, over the real tree: the walk's own list against the finder's.
         let names: Vec<&str> = files.keys().map(String::as_str).collect();
         assert_eq!(walk.inspected, names, "the walk did not read every file `.github` holds");
-        let mut literals = 0_usize;
-        let mut references = 0_usize;
+
+        // THE EXACT ROWS, not a floor over them. `literals >= 2` was the previous assertion and
+        // the tree has four, so LOSING HALF sat inside it - which is *at least one row defends
+        // nothing about WHICH row*, the shape `loops.rs`' own header names. Measured in review:
+        // skipping both composite actions - the files `github.com/telekom/sutura#111` was about -
+        // left this test green. A row moving here is a deliberate edit to the release path, and
+        // then this list moves with it.
+        let mut literals: Vec<String> = Vec::new();
+        let mut references: Vec<String> = Vec::new();
         for (name, found) in walk.rows {
             let at = format!("{name}:{}", found.line);
             match found.carries {
                 Carried::Set(names) => {
-                    literals = literals.saturating_add(1);
                     assert_eq!(names, expected, "{at} disagrees");
+                    literals.push(at);
                 }
-                Carried::Reference(_) => references = references.saturating_add(1),
+                Carried::Reference(expression) => references.push(format!("{at} -> {expression}")),
                 // #329: this used to be the silent bucket, and it was `spelled` returning
                 // nothing rather than a bucket at all.
                 Carried::Opaque(value) => panic!("{at} carries `{value}`, which nothing compares"),
             }
         }
-        assert!(literals >= 2, "found {literals} literal(s); the release path declares more");
-        assert!(
-            references >= 1,
-            "no declaration references the literal, so nothing passes it on"
+        assert_eq!(
+            literals,
+            [
+                ".github/actions/build-artefacts/action.yml:16",
+                ".github/actions/embedded-dependency-list/action.yml:15",
+                ".github/workflows/cross-link.yml:86",
+                ".github/workflows/release.yml:82",
+            ],
+            "the set of files spelling the shipped set literally has changed"
+        );
+        // AND THE REFERENCES, because a literal turned into an expression is the same 4-to-3 drop
+        // this rule exists to close, and the gate cannot hold it: a reference is legitimate and
+        // nothing resolves one. This list is what notices.
+        assert_eq!(
+            references,
+            [
+                ".github/actions/build-artefacts/action.yml:61 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:118 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:235 -> inputs.binaries",
+                ".github/actions/embedded-dependency-list/action.yml:83 -> inputs.binaries",
+                ".github/workflows/cross-link.yml:213 -> env.BINARIES",
+                ".github/workflows/release.yml:236 -> env.BINARIES",
+            ],
+            "the set of declarations referencing the shipped set has changed"
         );
     }
 
@@ -881,7 +936,8 @@ mod tests {
         // The pointer the gate PRINTS, against the tree that has to hold it. Its absence is what
         // let two remedies go on naming `ci.yml` for a whole commit after the step left that file.
         let root = crate::repo::root().expect("could not locate the repo");
-        let host = super::refusal::hosting(&super::yaml_files(&root), &super::refusal::PROBE_REFUSAL)
+        let files = super::yaml_files(&root).expect("a file under `.github` could not be read");
+        let host = super::refusal::hosting(&files, &super::refusal::PROBE_REFUSAL)
             .expect("no single workflow refuses an EMPTY probe manifest, so the remedies name nothing");
         assert!(host.starts_with(".github/workflows/"), "{host}");
     }
