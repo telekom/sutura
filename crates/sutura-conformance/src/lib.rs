@@ -732,7 +732,7 @@ fn chain(error: &dyn core::error::Error) -> String {
 ///   would have been needed.
 /// - `warehouse` is the adapter type. It is what the `const` assertion below reads the declaration
 ///   off, and what [`census`] is instantiated at.
-/// - `open` is a **path** to an [`fn() -> Fixture<W>`](Fixture), called once per test so no state
+/// - `open` is a **path** to a function returning [`Fixture`], called once per test so no state
 ///   crosses between them. A path rather than a closure because a `macro_rules!` body resolves
 ///   items at the expansion site: a closure naming a type the caller imported at file scope would
 ///   not resolve inside the generated module, and a `crate::`-rooted path always does. The fixture
