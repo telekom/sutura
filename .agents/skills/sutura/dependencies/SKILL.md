@@ -61,6 +61,27 @@ because a transitive dependant can pin `arrow-schema` by itself and that is the 
 is what let the current split arrive unremarked - the `deny.toml` comment predicted it, deferred
 it, and was right - so the gate exists to make the *next* one arrive in a diff.
 
+**It reads the allowlist on EVERY run, and compares both ways.** It used to return before opening
+the file whenever the lock held one major, so the day a split closed it printed `ok - one Arrow
+major` and the row permitting that split stayed, permitting nothing, its dated paragraph intact.
+Now a row naming a major `Cargo.lock` does not hold fails the gate - the same direction `max-lines`
+and `check-refusal-coverage` take on their own annotated allowlists. The engine's own row is a row
+like any other and must be kept current; the alternative was a marker in the file saying which row
+is the engine's, and nothing would check that marker.
+
+**Reading it on every run is what made three more things load-bearing, and each is worth more than
+the sentence it replaced.** *A failed read used to be indistinguishable from an empty file* -
+`unwrap_or_default()` - which was survivable only while it fed a verdict that went red anyway, and
+fail-open the moment it fed a PASS asserting the list is clean. Now only `NotFound` is
+configuration and every other error is a fault, the same seam the docker gate draws between *no
+container runtime* and *an input I could not read*. *The pass line names what it read*, as a pair
+from two different places - packages in the lock, the Arrow family among them, and the row count -
+because one number cannot witness itself: a broken family filter and a lock with no Arrow both
+read zero. *A row must carry all three fields*, since a bare `<major>` permitted the split while
+the headline called it explained, and a major named twice loses the earlier paragraph in a
+`BTreeMap`. **What it still cannot read is the DATE**: the position must be filled, the value is
+never parsed, and the allowlist's own header says so.
+
 ## When the newest set cannot be made compatible
 
 **Do not vendor, inline, fork or pin back on your own judgement. Raise it.** In preference order,

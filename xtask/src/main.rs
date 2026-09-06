@@ -25,6 +25,7 @@ mod default_feature_tests;
 mod default_features;
 mod docs;
 mod examples;
+mod feature_remedies;
 mod fmt;
 mod gate_classification;
 mod guidance;
@@ -276,6 +277,16 @@ const TASKS: &[Task] = &[
         description: "every RefusalReason variant is provoked, or excused in devco/refusals-unprovoked-allow",
         kind: Kind::Hygiene(Reads::Code),
         run: refusals::run,
+    },
+    Task {
+        // Beside `check-refusal-coverage` because it is the other half of the same subject: that
+        // one asks whether a refusal can be provoked, this one whether the REMEDY it prints can be
+        // acted on. `github.com/telekom/sutura#246` made a gate's own remedy resolve; this is the
+        // same rule where the claim is about the manifest rather than about the justfile.
+        name: "check-feature-remedies",
+        description: "a refusal that says to rebuild names a feature the crate declares",
+        kind: Kind::Hygiene(Reads::Code),
+        run: feature_remedies::run,
     },
     Task {
         // The third of the newtype rules held by a check, beside `check-serde-parse`. It starts

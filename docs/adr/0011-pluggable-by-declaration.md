@@ -700,7 +700,7 @@ source that is self-contained, and the cross-source-reference case - the literal
 metrics certified here" - lands with the raw-contribution port, which is a separate decision and not
 this amendment's.
 
-## Amendment: the second composition root reads the tree too
+## Second amendment: the second composition root reads the tree too
 
 **One line of this record was left behind by the code and is corrected here rather than left to be
 re-derived.** *The composition roots already name the adapters* was written when `sutura-cli` compared
@@ -745,7 +745,7 @@ kind.
 **Amended, because the sentence here named an open question that is now closed.** It read *"the
 `sutura` command links none of it … whether it gains a feature of its own is telekom/sutura#121's
 second step"*. That step landed: **both** composition roots now open `kind: bigquery`, each behind a
-default-off `bigquery` feature of its own, and `docs/adr/0017`'s fifth amendment is the decision.
+default-off `bigquery` feature of its own, and `docs/adr/0017`'s seventh amendment is the decision.
 What is unchanged is the half that matters - `nix/shipped.nix` publishes both binaries with cargo's
 DEFAULT features, so no published artefact links the adapter, and `checks.shipped-features` reads
 `ureq`'s and `ring`'s absence off each shipped binary rather than off a manifest.

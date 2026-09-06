@@ -239,7 +239,7 @@ identity* - and nothing whatever about per-subject execution.
 
 `just bigquery-two-principals`, against the same environment's project and a **different dataset**: the
 one whose table carries a `RowAccessPolicy` per principal, granting each of two service accounts a
-disjoint set of rows. `docs/adr/0017`'s eighth amendment is the record, and issue #123 is the cell.
+disjoint set of rows. `docs/adr/0017`'s tenth amendment is the record, and issue #123 is the cell.
 
 ### What only this venue can answer
 
