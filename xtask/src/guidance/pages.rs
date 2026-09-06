@@ -31,7 +31,13 @@
 //!   here - the first word decides, and a decorated heading reads as no amendment at all rather
 //!   than as a wrong one.
 //! * **A table after a fenced block.** [`crate::markdown::prose`] blanks code, so the line above
-//!   such a table reads as blank and the rule under-claims there.
+//!   such a table reads as blank and the rule under-claims there. The same blanking is why an HTML
+//!   comment above a table is not reported: the renderer still tables it, and the lexer has already
+//!   emptied the line.
+//! * **Which lines end a block is a MEASURED list, not a grammar.** [`ends_a_block`] names the
+//!   shapes this repository's own renderer still tables, taken from it rather than from
+//!   `CommonMark`; a shape nobody probed is treated as a paragraph, which reports rather than
+//!   misses. The probe and its result are in that function's own documentation.
 
 use std::path::Path;
 
@@ -108,7 +114,7 @@ pub(super) fn amendment(line: &str) -> Option<Heading> {
 /// The first may be unnumbered: records here opened their sequence before there was one, and *the
 /// first amendment* is unambiguous with or without the word. Every later one must carry the ordinal
 /// it actually occupies, which is the whole of the rule.
-pub(super) fn sequence_problems(rel: &str, lines: &[String]) -> Vec<String> {
+pub(super) fn sequence_problems(rel: &str, lines: &[String]) -> (Vec<String>, usize) {
     let found: Vec<Found> = lines
         .iter()
         .enumerate()
@@ -140,7 +146,7 @@ pub(super) fn sequence_problems(rel: &str, lines: &[String]) -> Vec<String> {
             }
         }
     }
-    problems
+    (problems, found.len())
 }
 
 /// The word for a position, past the end of [`ORDINALS`] included.
@@ -148,11 +154,37 @@ fn name_of(position: usize) -> &'static str {
     ORDINALS.get(position.saturating_sub(1)).copied().unwrap_or("later")
 }
 
-/// A table header that no blank line separates from the paragraph above it.
+/// Does this line END a block, so that a table may start on the next one with no blank between?
 ///
-/// GFM starts a table at a line of pipes preceded by a blank; without one the pipes are part of
+/// **Measured against this repository's own renderer rather than reasoned about**, which is the
+/// rule `check-workflows` records for a gate re-implementing part of a tool. The first version of
+/// this check treated every non-blank line as a paragraph and reddened three shapes that render
+/// as real tables - a heading, a thematic break, and an admonition or collapsible opener - while
+/// printing *it renders as that paragraph*, a sentence that is false for all three. A ratchet that
+/// reddens a correct tree is a gate somebody switches off.
+///
+/// What is here is exactly what `python-markdown` with `mkdocs.yml`'s extension list still tables,
+/// and nothing more: a list item, a blockquote and a definition term all genuinely swallow the
+/// pipes, so they stay reportable. A pipe line is the table's own continuation.
+fn ends_a_block(above: &str) -> bool {
+    if above.starts_with(['#', '|']) || above.starts_with("!!!") || above.starts_with("???") {
+        return true;
+    }
+    // A thematic break: three or more of one of `-`, `*`, `_`, spaces allowed between them.
+    let bare: String = above.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut marks = bare.chars();
+    marks
+        .next()
+        .filter(|c| matches!(c, '-' | '*' | '_'))
+        .is_some_and(|first| bare.len() >= 3 && marks.all(|c| c == first))
+}
+
+/// A table header that no blank line separates from the PARAGRAPH above it.
+///
+/// GFM starts a table at a line of pipes preceded by a block boundary; without one the pipes join
 /// the paragraph and the whole table renders as a run-on sentence, which is what a dropped line in
-/// a rebase produces and what nothing else here notices.
+/// a rebase produces and what nothing else here notices. [`ends_a_block`] carries which lines are
+/// a boundary and how that was measured.
 pub(super) fn table_problems(rel: &str, lines: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for (index, line) in lines.iter().enumerate() {
@@ -160,10 +192,10 @@ pub(super) fn table_problems(rel: &str, lines: &[String]) -> Vec<String> {
             continue;
         };
         let (row, above) = (line.trim(), previous.trim());
-        if row.starts_with('|') && !above.is_empty() && !above.starts_with('|') {
+        if row.starts_with('|') && !above.is_empty() && !ends_a_block(above) {
             problems.push(format!(
-                "{rel}:{}: a table starts against the line above it, so it renders as that \
-                 paragraph rather than as a table - put a blank line before the header row",
+                "{rel}:{}: a table starts against the paragraph above it, so its pipes join that \
+                 paragraph instead of rendering as a table - put a blank line before the header row",
                 index.saturating_add(1)
             ));
         }
@@ -171,28 +203,43 @@ pub(super) fn table_problems(rel: &str, lines: &[String]) -> Vec<String> {
     problems
 }
 
+/// What one sweep read, for the caller to print.
+///
+/// Returned rather than folded into a message, because a floor nobody can see is a floor nobody
+/// checks: `check-guidance`'s success line states these, the way `check-api-links` states its own.
+pub(super) struct PageCounts {
+    /// Markdown pages in the caller's list, counted BEFORE the loop's own filter.
+    pub(super) offered: usize,
+    /// Pages this actually lexed.
+    pub(super) read: usize,
+    /// Amendment headings found on them.
+    pub(super) headings: usize,
+}
+
 /// Both rules, over every Markdown page in scope.
 ///
 /// FAIL CLOSED on a page that cannot be lexed, for [`crate::api_links`]'s reason: an unclosed fence
 /// makes every line below it ambiguous, and a scan that reads nothing reports nothing wrong.
 ///
-/// **Two floors, taken from different places on purpose**, because a file-level count staying right
-/// while the inner walk reads nothing is the failure this module would otherwise report as green:
+/// **Three floors, and each is a pair of numbers taken from a different place**, because one number
+/// in one message is what a narrowed walk moves along with itself:
 ///
-/// * `read` against `offered` - the pages the caller handed over against the pages this lexed. It
-///   is not enough that each drop also pushes a problem; the equality is what makes a silent one
-///   impossible, and it is `check-api-links`' `scanned == pages.len()` rule applied here.
-/// * `headings` - what the SEQUENCE rule actually found, which the file walk cannot produce. A
-///   lexer returning blanks, a `"## "` prefix that stopped matching, or an ordinal list read the
-///   wrong way round all leave `read == offered` intact and this at zero. This tree writes
-///   amendment headings, so zero means the rule stopped reading rather than that they went.
-pub(super) fn page_problems(root: &Path, files: &[String]) -> Vec<String> {
-    let pages: Vec<&String> = files.iter().filter(|f| super::has_ext(f, &["md"])).collect();
-    let offered = pages.len();
+/// * `read` against `offered`. `offered` is counted over the caller's WHOLE list by a different
+///   predicate than the loop's, which is the point: a filter narrowed inside the loop moves `read`
+///   and leaves `offered` where it was. Counting both off one filter is how a scan restricted to
+///   one directory passed at exit 0 with a real defect outside it.
+/// * The sequence rule's own walk against this one. `sequence_problems` returns the length of the
+///   vector it iterated, and it is compared against a count taken here - so a walk truncated inside
+///   that function is a mismatch rather than a shorter list of problems.
+/// * `headings` over the tree. This tree writes amendment headings, so zero means the rule stopped
+///   reading rather than that they went - a blanking lexer or a `"## "` prefix that stopped
+///   matching leaves both equalities above intact and this at zero.
+pub(super) fn page_problems(root: &Path, files: &[String]) -> (Vec<String>, PageCounts) {
+    let offered = files.iter().filter(|f| f.to_ascii_lowercase().ends_with(".md")).count();
     let mut problems = Vec::new();
     let mut read = 0_usize;
     let mut headings = 0_usize;
-    for rel in pages {
+    for rel in files.iter().filter(|f| super::has_ext(f, &["md"])) {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
             problems.push(format!("{rel}: could not be read, so nothing on it was judged"));
             continue;
@@ -205,8 +252,16 @@ pub(super) fn page_problems(root: &Path, files: &[String]) -> Vec<String> {
             }
         };
         read = read.saturating_add(1);
-        headings = headings.saturating_add(lines.iter().filter(|line| amendment(line).is_some()).count());
-        problems.extend(sequence_problems(rel, &lines));
+        let on_page = lines.iter().filter(|line| amendment(line).is_some()).count();
+        headings = headings.saturating_add(on_page);
+        let (sequence, walked) = sequence_problems(rel, &lines);
+        problems.extend(sequence);
+        if walked != on_page {
+            problems.push(format!(
+                "{rel}: the sequence rule walked {walked} amendment heading(s) where the page holds \
+                 {on_page} - it judged less than it read, so its verdict covers less than it appears to"
+            ));
+        }
         problems.extend(table_problems(rel, &lines));
     }
     if read != offered {
@@ -221,5 +276,5 @@ pub(super) fn page_problems(root: &Path, files: &[String]) -> Vec<String> {
              sequence rule read nothing rather than finding nothing"
         ));
     }
-    problems
+    (problems, PageCounts { offered, read, headings })
 }

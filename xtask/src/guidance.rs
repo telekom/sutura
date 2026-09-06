@@ -78,7 +78,7 @@ mod pages;
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 use constants::constant_problems;
 use hosts::{HOSTED, host_mismatches};
-use pages::page_problems;
+use pages::{PageCounts, page_problems};
 
 /// A phrase that should not appear, and what to write instead.
 struct Forbidden {
@@ -466,6 +466,30 @@ fn in_scope(files: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Every check that judges the tree against the pages, gathered where a test can call it.
+///
+/// **A function rather than a run of `extend` lines inside [`run`], and the reason is a measured
+/// hole.** Replacing one of those lines with a discard left 871 tests green and the gate reporting
+/// `ok` over a planted defect: each check is covered by its own unit tests, and the CALL was
+/// covered by nothing. `tests::a_check_dropped_from_the_run_is_caught` holds this composition over
+/// a fixture tree, so a check that stops being wired is red rather than silent.
+fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> (Vec<String>, PageCounts) {
+    let mut problems = stale_phrases(root, text_files);
+    problems.extend(version_mismatches(root, text_files));
+    problems.extend(contradicted_claims(root, text_files));
+    problems.extend(count_mismatches(root, files, text_files));
+    problems.extend(bad_task_references(root, text_files));
+    // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
+    // the scope limit is about where a claim may be made rather than about what may be read.
+    problems.extend(host_mismatches(root, files, text_files));
+    problems.extend(dead_paths(root, text_files));
+    // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
+    // in it: `text_files` again, because a page is where an ordinal and a table are written.
+    let (page, pages) = page_problems(root, text_files);
+    problems.extend(page);
+    (problems, pages)
+}
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
         eprintln!("xtask check-guidance: could not determine the repo root");
@@ -477,18 +501,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // limit below is about where a CLAIM may be made, not about what may be counted.
     let text_files = in_scope(&files);
 
-    let mut problems = stale_phrases(&root, &text_files);
-    problems.extend(version_mismatches(&root, &text_files));
-    problems.extend(contradicted_claims(&root, &text_files));
-    problems.extend(count_mismatches(&root, &files, &text_files));
-    problems.extend(bad_task_references(&root, &text_files));
-    // `all` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
-    // the scope limit is about where a claim may be made rather than about what may be read.
-    problems.extend(host_mismatches(&root, &files, &text_files));
-    problems.extend(dead_paths(&root, &text_files));
-    // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
-    // in it: `text_files` again, because a page is where an ordinal and a table are written.
-    problems.extend(page_problems(&root, &text_files));
+    let (mut problems, pages) = tree_problems(&root, &files, &text_files);
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
     problems.extend(remedy_problems(&root));
@@ -512,14 +525,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     if problems.is_empty() {
+        // The page numbers are PRINTED, not merely held: a floor nobody can read is a floor
+        // nobody checks, and `{read} of {offered}` is what makes a narrowed walk visible in a
+        // green run rather than only in a red one.
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} of {} page(s) lexed, {} amendment heading(s)",
             text_files.len(),
             FORBIDDEN.len(),
             PINS.len(),
             CONTRADICTED.len(),
             COUNTS.len(),
-            HOSTED.len()
+            HOSTED.len(),
+            pages.read,
+            pages.offered,
+            pages.headings
         );
         return Verdict::Pass;
     }
@@ -655,7 +674,9 @@ mod tests {
     fn an_amendment_list_is_consecutive_and_has_no_duplicate_ordinals() {
         use super::pages::sequence_problems;
         let straight = page("## Amendment, 2026-08-30\n## Second amendment\n## Third amendment\n");
-        assert!(sequence_problems("a.md", &straight).is_empty());
+        let (problems, walked) = sequence_problems("a.md", &straight);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(walked, 3, "the walk reports what it iterated, and it is compared per page");
 
         // The shape issue 288 reported: a second Fifth, after the Sixth.
         let drifted = page(concat!(
@@ -667,7 +688,8 @@ mod tests {
             "## Sixth amendment\n",
             "## Fifth amendment: the command-line tool opens a dataset too\n",
         ));
-        let problems = sequence_problems("a.md", &drifted);
+        let (problems, walked) = sequence_problems("a.md", &drifted);
+        assert_eq!(walked, 7, "every heading is walked, not only the ones reported");
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].starts_with("a.md:7:"), "{problems:?}");
         assert!(
@@ -682,7 +704,7 @@ mod tests {
         // Unnumbered at the top predates the sequence, and records here open that way.
         // Unnumbered in the middle is the other half of 288, and a reader cannot cite it.
         let mid = page("## Amendment, 2026-08-30\n## Second amendment\n## Amendment, 2026-09-03\n");
-        let problems = sequence_problems("a.md", &mid);
+        let (problems, _) = sequence_problems("a.md", &mid);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].starts_with("a.md:3:"), "{problems:?}");
         assert!(problems[0].contains("third"), "{problems:?}");
@@ -723,6 +745,41 @@ mod tests {
     }
 
     #[test]
+    fn a_shape_the_renderer_still_tables_is_not_reported() {
+        use super::pages::table_problems;
+        // MEASURED against this repository's own renderer - `.pixi/envs/docs` python-markdown with
+        // `mkdocs.yml`'s extension list - and the first version of this rule reddened all four
+        // while printing that they render as a paragraph. They do not: they render as tables.
+        for above in [
+            "### Heading",
+            "# Heading",
+            "---",
+            "***",
+            "___",
+            "!!! note \"T\"",
+            "??? note \"T\"",
+        ] {
+            let lines = page(&format!("{above}\n| a | b |\n| --- | --- |\n"));
+            let problems = table_problems("a.md", &lines);
+            assert!(
+                problems.is_empty(),
+                "{above:?} still tables, so it must not be reported: {problems:?}"
+            );
+        }
+        // And the shapes the SAME renderer says swallow the pipes stay reportable, so the fix is a
+        // narrowing rather than a hole: each of these renders no table at all.
+        for above in ["- an item", "* an item", "1. an item", "> quoted", "A paragraph."] {
+            let lines = page(&format!("{above}\n| a | b |\n| --- | --- |\n"));
+            let problems = table_problems("a.md", &lines);
+            assert_eq!(
+                problems.len(),
+                1,
+                "{above:?} renders no table, so it must be reported: {problems:?}"
+            );
+        }
+    }
+
+    #[test]
     fn every_page_in_scope_numbers_its_amendments_and_spaces_its_tables() {
         // The tree-wide half, and why the rules above are not a ratchet on nothing: this was RED
         // when it landed, on the record 288 names and on two others that never numbered a second
@@ -730,7 +787,44 @@ mod tests {
         let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
             panic!("could not determine the repo root");
         };
-        let problems = super::pages::page_problems(&root, &super::in_scope(&files));
+        let (problems, counts) = super::pages::page_problems(&root, &super::in_scope(&files));
         assert!(problems.is_empty(), "{problems:#?}");
+        // The floors, asserted rather than only printed: a sweep that read nothing satisfies an
+        // empty problem list, and these are the two numbers that say it did not.
+        assert_eq!(counts.read, counts.offered, "every page offered was lexed");
+        assert!(counts.headings > 0, "this tree writes amendment headings");
+    }
+
+    #[test]
+    fn a_check_dropped_from_the_run_is_caught() {
+        // MEASURED HOLE this closes: replacing `problems.extend(page_problems(..))` in the run with
+        // a discard left 871 tests green and the gate reporting `ok` over a planted defect. Every
+        // check here has unit tests; the CALL had none. This holds the composition itself.
+        let dir = std::env::temp_dir().join(format!("sutura-guidance-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).unwrap_or_default();
+        std::fs::create_dir_all(&dir).expect("a fixture directory");
+        let rel = String::from("record.md");
+        // Both defects at once, so the page half is red for the sequence rule AND the table rule.
+        // The amendment headings also keep the `headings == 0` floor satisfied, which is the point
+        // of writing a record rather than a bare table.
+        std::fs::write(
+            dir.join(&rel),
+            "## Amendment, 2026-08-30\n\ntext\n\n## Fourth amendment\n\nA paragraph.\n| a | b |\n| --- | --- |\n",
+        )
+        .expect("the fixture page");
+        let files = vec![rel];
+        let (problems, counts) = super::tree_problems(&dir, &files, &files);
+        std::fs::remove_dir_all(&dir).unwrap_or_default();
+        assert_eq!(counts.read, 1, "the fixture page was lexed");
+        assert!(
+            problems.iter().any(|p| p.contains("reads as the fourth amendment")),
+            "the sequence rule must reach the run: {problems:#?}"
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("a table starts against the paragraph above it")),
+            "the table rule must reach the run: {problems:#?}"
+        );
     }
 }
