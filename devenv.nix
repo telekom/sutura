@@ -82,14 +82,21 @@ let
   #
   # WHY THIS AND NOT AN EXTRACTOR OR A `*.sh` FILE. ShellCheck here reads the RENDERED text -
   # the exact string bash will see - so a Nix antiquotation is already resolved and there is no
-  # substitution for a reader to get wrong, which is the hard half of extracting these. It also
-  # needs no new gate and no list to keep true, and a reader following `just ship-check` still
-  # finds the sequence rather than a path to it.
+  # substitution for a reader to get wrong, which is the hard half of extracting these. And a
+  # reader following `just ship-check` still finds the sequence rather than a path to it.
   #
-  # LIMIT: CI does not use this file (see the header), so this fails on a developer machine and
-  # in `just ship-check` - which builds the profile - and never on a pull request by itself. It
-  # also reaches only what goes through the two wrappers below; `runCommand` and phase bodies in
-  # `nix/` and the `writeShellScript` apps in `flake.nix` get `bash -n` at most.
+  # WHAT HOLDS A NEW BODY TO IT, because the wrapper alone does not and saying otherwise was the
+  # defect: a body assigned as a plain literal beside the wrapped ones builds, runs, and is read
+  # by nothing - measured, with two ShellCheck findings in it and a green shell. So
+  # `cargo run -q -p xtask -- check-guidance` refuses the literal form in THIS file, and
+  # `xtask/src/hook_coverage.rs` carries the surface row that makes `just ship-check` say which
+  # task reached it. The wrapper is the linter; the gate is what keeps every body inside it.
+  #
+  # LIMIT: CI does not use this file (see the header), so the SHELLCHECK half fails on a developer
+  # machine and in `just ship-check` - which builds the profile - and never on a pull request by
+  # itself. The structural half above does run in CI, inside `hygiene`. Neither reaches beyond the
+  # two wrappers below: `runCommand` and phase bodies in `nix/` and the `writeShellScript` apps in
+  # `flake.nix` get `bash -n` at most.
   #
   # `bashOptions` is passed at each call rather than defaulted: nixpkgs would add `nounset` and
   # `pipefail` on top of the `errexit` these bodies already had, and turning those on changes
