@@ -115,7 +115,8 @@ where
     eprintln!(
         "sutura: serving the agent surface over stdin/stdout - it grants every capability to \
          whoever can launch or reach this process, answers at most {} questions at once, and gives \
-         up waiting for one after {} seconds (the question itself keeps running)",
+         up on a question after {} seconds - waiting for a slot included, and the question itself \
+         keeps running",
         admission.bound(),
         reply.seconds()
     );

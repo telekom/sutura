@@ -87,6 +87,16 @@
 //! against reusing it. It is a naming cost rather than a behavioural one, and it is cheaper than
 //! two numbers for one wait.
 //!
+//! **What the key bounds is the WHOLE wait, on both transports, and that took a second pass.** On
+//! HTTP it is an outer `tower` layer, so it covers the admission wait as well as the answer. This
+//! transport applied it *after* `admit` at first, which made a peer's worst case
+//! `admission_timeout_seconds + request_timeout_seconds` - one key with two meanings, which is
+//! precisely the divergence reusing the key was chosen to prevent, one level up from the permit
+//! set. Found by a review reading both paths. [`answer`] now wraps both waits in the one deadline,
+//! so the two surfaces mean the same thing by the same number and the shipped defaults behave
+//! exactly as before: a 5-second window inside a 30-second deadline, the window expiring first, a
+//! shed question still answered at-capacity.
+//!
 //! **What the deadline does NOT do, stated with it, because it is the same limit the admission
 //! bound has:** it does not stop the question. The permit is owned by the blocking closure, so a
 //! question whose reply deadline fired keeps its slot until the data system answers it - the
@@ -425,17 +435,43 @@ where
     result
 }
 
-/// One question through the port, on the blocking pool, under both bounds, as a tool result.
+/// One question, under both bounds, as a tool result.
 ///
-/// **The slot is acquired on this line and released on the pool thread**, and the two halves are
-/// what make the bound a bound on execution - see the module documentation. A question that cannot
-/// get one inside the admission window is shed rather than queued.
+/// **`reply` wraps the WHOLE wait - the admission window included - and that is what makes it the
+/// same key it is on HTTP.** There it is an outer `tower` layer, so `server.request_timeout_seconds`
+/// bounds a caller's total wait and the admission window is the shorter inner bound. This function
+/// applied it after `admit` for one release, which made a peer's worst case here
+/// `admission_timeout_seconds + request_timeout_seconds` - one key with two meanings, which is the
+/// divergence reusing the key was chosen to prevent, one level up from the permit set. Found by
+/// review reading both paths rather than by a test, and closed by moving the timeout out one frame.
 ///
-/// **And the wait for the answer is bounded by `reply`** - `telekom/sutura#339`. Both bounds are
-/// here rather than one being a layer, because this transport has no layers: there is no listener,
-/// no router and no `tower` stack, so the deadline a `tower` layer applies on the HTTP surface has
-/// to be applied by the one function that awaits the port.
+/// So the shipped behaviour is unchanged and the arithmetic is now stated by the code: the defaults
+/// are a 5-second window inside a 30-second deadline, the window expires first, and a shed question
+/// still comes back as at-capacity. A deployment whose window is at or above its reply deadline gets
+/// the deadline first - exactly what `docs/serving.md` already says of the HTTP layer.
 async fn answer<S>(service: &Arc<S>, admission: &Admission, reply: RequestTimeout, query: Query) -> CallToolResult
+where
+    S: Surface,
+{
+    match tokio::time::timeout(reply.duration(), admitted(service, admission, query)).await {
+        Ok(result) => result,
+        Err(_elapsed) => outran_its_deadline(reply),
+    }
+}
+
+/// A slot, then the port on the blocking pool, then the outcome.
+///
+/// **The slot is acquired here and released on the pool thread**, and the two halves are what make
+/// the bound a bound on execution - see the module documentation. A question that cannot get one
+/// inside the admission window is shed rather than queued.
+///
+/// Split out of [`answer`] so the reply deadline can wrap both waits rather than only the second.
+/// Nothing about the permit changes: this future being dropped at the deadline drops the JOIN HANDLE
+/// and nothing else - `tokio` documents that a started blocking task cannot be aborted, and dropping
+/// a handle detaches the task rather than ending it - so the question runs on holding the slot the
+/// closure owns. Dropped while still WAITING for a slot, it takes none, which is the same cost a
+/// shed waiter has: a dropped future rather than a thread.
+async fn admitted<S>(service: &Arc<S>, admission: &Admission, query: Query) -> CallToolResult
 where
     S: Surface,
 {
@@ -457,22 +493,17 @@ where
         drop(slot);
         answered
     });
-    // **The peer's wait, bounded.** The timeout drops the JOIN HANDLE and nothing else: `tokio`
-    // documents that a started blocking task cannot be aborted, and dropping a handle detaches the
-    // task rather than ending it. So the question runs on holding the slot the closure owns, which
-    // is the same posture the HTTP surface's `408` has and is why nothing here releases a permit.
-    match tokio::time::timeout(reply.duration(), working).await {
+    match working.await {
         // A refusal and an answer take the same branch, which is the point: both are `Ok`, both are
         // a tool result, and only `outcome` inside the payload tells them apart.
-        Ok(Ok(Ok(ref outcome))) => produced(outcome),
-        Ok(Ok(Err(failure))) => could_not_answer(&failure),
+        Ok(Ok(ref outcome)) => produced(outcome),
+        Ok(Err(failure)) => could_not_answer(&failure),
         // The blocking task did not finish: it panicked, or the runtime is shutting down. Reported
         // like a failure, because from a caller's side it is the same fact.
-        Ok(Err(error)) => {
+        Err(error) => {
             tracing::error!(error = %error, "the blocking task answering a tool call did not finish");
             failed("this deployment could not answer")
         }
-        Err(_elapsed) => outran_its_deadline(reply),
     }
 }
 

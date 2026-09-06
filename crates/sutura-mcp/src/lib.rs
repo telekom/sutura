@@ -39,13 +39,14 @@
 //!   `runtime.max_concurrent_queries` rather than by this crate, and the permit belongs to the
 //!   blocking work rather than to the future waiting for it. [`server`] carries both halves of that
 //!   argument and the limit on how far the second is exercised over the wire.
-//! * **A peer's wait for a reply is bounded too, and it was not** - `telekom/sutura#339`. The
-//!   admission window bounded a question that could not START; a question that got a slot waited
-//!   for as long as the data system took, because rmcp applies no per-request deadline and this
-//!   transport composed no equivalent of the HTTP surface's `tower` layer. It is
-//!   `server.request_timeout_seconds` now, applied where the port is awaited. It bounds the WAIT
-//!   and stops no work - [`server`] says which key, why that one, and what a cancelling peer still
-//!   does not get.
+//! * **A peer's whole wait is bounded too, and it was not** - `telekom/sutura#339`. The admission
+//!   window bounded a question that could not START; a question that got a slot waited for as long
+//!   as the data system took, because rmcp applies no per-request deadline and this transport
+//!   composed no equivalent of the HTTP surface's `tower` layer. It is
+//!   `server.request_timeout_seconds` now, wrapping the admission wait as well as the answer - so
+//!   the key means on this transport what it means on the other, which took a second pass to get
+//!   right. It bounds the WAIT and stops no work; [`server`] says which key, why that one, what
+//!   the arithmetic used to be, and what a cancelling peer still does not get.
 //!
 //! # Why the protocol comes from a dependency
 //!

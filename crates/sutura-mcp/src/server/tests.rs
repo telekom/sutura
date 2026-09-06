@@ -18,6 +18,12 @@ use sutura_runtime::Admission;
 use super::AgentSurface;
 use crate::testing;
 
+/// What `server.request_timeout_seconds` bounds here, in its own file.
+///
+/// Split off because this suite plus `server.rs` crosses the 1000-line cap; the module's own header
+/// says which group moved and why the admission pair did not.
+mod deadline;
+
 /// A client and a server joined by an in-memory pipe, with the peer permitted everything.
 ///
 /// **The client is `rmcp`'s own**, which is what "with no client of ours in the loop" means: the
@@ -785,105 +791,6 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     holding.release();
     assert!(
         eventually(|| admission.free() == 1).await,
-        "the slot never came back after the work finished"
-    );
-    assert_eq!(holding.inside(), 0);
-}
-
-/// **`telekom/sutura#339`, as a regression.** A peer's wait for a reply is bounded, and the question
-/// it was waiting for is not stopped.
-///
-/// The finding's own shape: before this bound the only bounded wait on this surface was the
-/// admission window, so a question that GOT a slot waited for as long as the data system took. This
-/// asserts the four things that together make the fix a bound rather than a number:
-///
-/// 1. the peer is answered, on the failure channel, once `server.request_timeout_seconds` has
-///    elapsed - measured against the number the settings document carries, not against a literal;
-/// 2. the answer carries no digit, because the deadline is the operator's configuration and not
-///    something the asking model can act on - the same call `at_capacity` makes;
-/// 3. the question is **still inside the port**, because `tokio` cannot abort a started blocking
-///    task and this deadline does not pretend otherwise;
-/// 4. its **slot is still taken**, which is the half a permit released by the waiting future would
-///    fail: a deadline that handed the slot back would let a second question start on top of work
-///    that is still running, and the bound would then count peers rather than questions.
-///
-/// A held fake and a real deadline rather than a settings assertion: what the root RESOLVES is
-/// `sutura_cli::mcp`'s own test, and what a resolved number DOES is only observable here. Real time
-/// and not a paused clock, because the work is a blocking-pool thread and the assertion is about the
-/// order two real things happen in.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_question_that_outlives_its_reply_deadline_is_answered_rather_than_waited_on() {
-    // One second is the smallest bound `RequestTimeout::parse` accepts, so this is the cheapest
-    // document that still makes the assertion about the CONFIGURED deadline.
-    let overlay = "server:\n  request_timeout_seconds: 1\n";
-    let deadline = reply(overlay);
-    let admission = admission(overlay);
-    let bound = admission.bound();
-    let (surface, holding) = testing::surface_that_can_be_held();
-    let client = Arc::new(
-        served(
-            surface,
-            Permitted::every_capability(),
-            CatalogProse::Quoted,
-            admission.clone(),
-            deadline,
-        )
-        .await,
-    );
-    holding.arm();
-
-    let began = Instant::now();
-    let asked = tokio::spawn({
-        let client = Arc::clone(&client);
-        async move { client.call_tool(ask(&a_certified_question())).await }
-    });
-    // Confirmed inside the port before anything is asserted: without this the test races the spawn
-    // and a green run could mean the deadline fired before the question ever started.
-    assert!(
-        eventually(|| holding.inside() == 1).await,
-        "the question never reached the port"
-    );
-
-    let answered = asked
-        .await
-        .expect("the calling task ran")
-        .expect("a reply deadline is a tool result and not a protocol error");
-    let waited = began.elapsed();
-
-    // Asserted BEFORE the fake is released, because three of the four claims are about the state
-    // the process is in while the question is still running.
-    assert_eq!(answered.is_error, Some(true), "{answered:?}");
-    assert!(answered.structured_content.is_none(), "{answered:?}");
-    let text = text_of(&answered);
-    assert!(
-        !text.chars().any(|character| character.is_ascii_digit()),
-        "the deadline is the operator's number and reached the model's context: {text}"
-    );
-    assert!(text.contains("may still be running"), "{text}");
-    assert!(
-        waited >= deadline.duration(),
-        "answered before the configured deadline elapsed: {waited:?}"
-    );
-    assert!(
-        waited < deadline.duration() * 20,
-        "the wait was not bounded by the deadline: {waited:?}"
-    );
-    // The work was not stopped, and its slot was not handed back by the peer that stopped waiting.
-    assert_eq!(
-        holding.inside(),
-        1,
-        "the worker left the port when its peer stopped waiting for it"
-    );
-    assert_eq!(
-        admission.free(),
-        bound - 1,
-        "the timed-out call handed its slot back while the work it started was still running"
-    );
-
-    // And handed back when the WORK finishes, which is the whole reason the permit is the closure's.
-    holding.release();
-    assert!(
-        eventually(|| admission.free() == bound).await,
         "the slot never came back after the work finished"
     );
     assert_eq!(holding.inside(), 0);

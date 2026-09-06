@@ -32,26 +32,35 @@
 //!
 //! | Rule | What it catches |
 //! | --- | --- |
-//! | Every construction site is in a crate that has a `src/main.rs` | the defect itself: a transport, an application or a port deriving its own bound |
-//! | At most one site per crate | two bounds in one binary, which is two limits each reporting one the other can exceed |
+//! | Every construction is in a crate that has a `src/main.rs` | the defect itself: a transport, an application or a port deriving its own bound |
+//! | At most one construction per crate | two bounds in one binary, which is two limits each reporting one the other can exceed |
 //! | Every root that composes a transport has a site | a serving process whose bound came from somewhere this gate cannot see |
 //! | Every declared taker is still CALLED somewhere | the rule above going vacuous on a rename - a gate that cannot notice its own subject disappearing |
 //! | The door is still defined where this gate reads it | the same, one level up: a renamed constructor leaves the scan matching nothing |
 //!
 //! # Fails closed, five ways
 //!
-//! An unreadable in-scope file, a tree with no construction site at all, a door that is no longer
-//! defined where this reads it, a taker needle nothing calls, and an aliased import of the type -
-//! each is a failure naming what could not be found. The last is a refusal rather than a check:
-//! text matching cannot follow `use sutura_runtime::Admission as Bound;`, and a root written that
-//! way would leave the site count at zero for its crate and read as *this root builds none* while
-//! building two. `check-boot-order` refuses the same shape for the same reason.
+//! An unreadable in-scope file, a tree with no construction at all, a door that is no longer defined
+//! where this reads it, a taker needle nothing calls, and a RENAME of the type - each is a failure
+//! naming what could not be found. The last is a refusal rather than a check: text matching cannot
+//! follow a rename, and a root written that way would leave the count at zero for its crate and read
+//! as *this root builds none* while building two. `check-boot-order` refuses the same shape for the
+//! same reason.
+//!
+//! **The refusal covers two spellings and it covered one**, which is worth stating precisely rather
+//! than as *an aliased import*: `use sutura_runtime::Admission as Bound;` and
+//! `type Bound = Admission;`. The second was open, was measured green over a tree that built three,
+//! and survives at module scope - an in-body `type` is refused by `clippy::items_after_statements`
+//! under `-D warnings`. What it still cannot follow: a `type` item split across two lines, and a
+//! re-export of the type through a third crate.
 //!
 //! # Four limits, stated next to the claim
 //!
-//! **It counts SITES, not permit sets.** One call inside a loop is one site and as many bounds as
-//! iterations. A bound reached through a function pointer, a trait method, a macro-generated call
-//! or a re-export through a third crate is invisible to any text scan.
+//! **It counts CONSTRUCTIONS, and a construction is a spelling of the door.** One call inside a loop
+//! is one construction and as many bounds as iterations. A bound reached through a function pointer,
+//! a trait method, a macro-generated call, a re-export through a third crate, or a qualified
+//! `<Admission as Trait>::from_settings` is invisible to any text scan. Two on ONE LINE used to be
+//! invisible too - see [`call_count`], which is where the count stopped being per line.
 //!
 //! **A crate is one process here because a crate has one binary here.** A member declaring two
 //! `[[bin]]` targets would legitimately want two sites and would fail the second rule; none does,
@@ -205,12 +214,18 @@ fn scan(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
             if tests.covers(number) {
                 continue;
             }
-            if calls(line, DOOR) {
-                found.sites.entry(owner.clone()).or_default().push(format!("{rel}:{number}"));
+            // One entry PER CONSTRUCTION and not per line - see [`call_count`] for the hole that
+            // was. Two on one line is two entries with the same location, and [`located`] is what
+            // makes the failure message say so rather than printing one place twice.
+            let built = call_count(line, DOOR);
+            if built > 0 {
+                let sites = found.sites.entry(owner.clone()).or_default();
+                sites.extend(std::iter::repeat_n(format!("{rel}:{number}"), built));
             }
             for needle in TAKERS {
-                if calls(line, needle) {
-                    *found.called.entry(needle).or_default() += 1;
+                let called = call_count(line, needle);
+                if called > 0 {
+                    *found.called.entry(needle).or_default() += called;
                     let composing = found.takers.entry(owner.clone()).or_default();
                     if !composing.contains(rel) {
                         composing.push(rel.clone());
@@ -255,13 +270,51 @@ fn roots(files: &[String]) -> BTreeSet<String> {
         .collect()
 }
 
-/// Whether `line` CALLS `needle` rather than defining or importing it.
+/// How many times `line` CALLS `needle`, rather than defining or importing it.
+///
+/// **A COUNT and not a predicate, and that distinction was a live hole rather than a refinement.**
+/// This answered a bool per line and the scan pushed one site per line, so
+/// `let (a, b) = (Admission::from_settings(r), Admission::from_settings(r));` - one line, inside
+/// `max_width = 130`, so rustfmt keeps it - read as ONE bound. `cargo fmt --check`, `just lint` and
+/// `just hygiene` were all green over a tree that built three, with this gate printing
+/// `2 execution bound(s) built, one per serving composition root`. The same two calls on two lines
+/// was red, so the whole difference was line granularity - and this file's own two-bound fixture
+/// used two lines, which is why nothing noticed. **A gate has to ask the question its claim is
+/// about**, and the claim here is about how many bounds get BUILT.
 ///
 /// [`crate::boot_order`]'s two readers rather than a second copy of them, which is the argument that
 /// module's own header makes about its recipe parser: one place knows what a Rust definition and a
 /// `use` item look like to a text scan.
-fn calls(line: &str, needle: &str) -> bool {
-    !imports(line) && line.match_indices(needle).any(|(at, _)| !defines(line, at))
+fn call_count(line: &str, needle: &str) -> usize {
+    if imports(line) {
+        return 0;
+    }
+    line.match_indices(needle).filter(|&(at, _)| !defines(line, at)).count()
+}
+
+/// The locations of a set of construction sites, with a repeat collapsed into a count.
+///
+/// Two constructions on ONE line are two sites at one location, so a plain join printed the same
+/// place twice and left a reader counting commas. This is what makes the count and the message agree.
+fn located(sites: &[String]) -> String {
+    let mut counted: Vec<(&str, usize)> = Vec::new();
+    for site in sites {
+        match counted.last_mut() {
+            Some(&mut (place, ref mut times)) if place == site.as_str() => *times += 1,
+            _ => counted.push((site.as_str(), 1)),
+        }
+    }
+    counted
+        .into_iter()
+        .map(|(place, times)| {
+            if times > 1 {
+                format!("{place} ({times} on that line)")
+            } else {
+                String::from(place)
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(", ")
 }
 
 /// The door is still defined where this gate reads for calls to it.
@@ -289,12 +342,24 @@ fn door_is_still_defined(read: &PostImage<'_>) -> Result<(), String> {
     ))
 }
 
-/// An alias defeats the scan, so a `use ... as` on the bound's type is refused.
+/// An alias defeats the scan, so BOTH spellings of a rename on the bound's type are refused.
 ///
 /// `use sutura_runtime::Admission as Bound;` makes every call site spell something this gate has
 /// never heard of, so a root written that way reads as building none while building two. Text
 /// matching cannot follow a rename, so the rename is refused instead of chased - one forbidden
-/// idiom, scoped to one name and only to the form that renames it.
+/// idiom, scoped to one name and only to the forms that rename it.
+///
+/// **`type Bound = Admission;` is the second spelling and it was open**, because this read only
+/// [`imports`]: a `type` item's first token is neither `use` nor a call, so the line was invisible
+/// and `Bound::from_settings(` matched no needle. Measured at MODULE scope, where it survives - an
+/// in-body alias is refused by `clippy::items_after_statements` under `-D warnings`, so the module
+/// is the shape that mattered. One honest construction beside one aliased one was two permit sets in
+/// one binary reading as `ok`.
+///
+/// **The `type` rule is narrow on purpose, because a false red here is a real idiom.**
+/// `crates/sutura-cli/src/mcp.rs` declares `type Served<W> = (Composed<W>, CatalogProse, Admission,
+/// RequestTimeout);` - an alias that NAMES the bound inside a tuple and is not another name FOR it.
+/// So the right-hand side has to BE the bound: equal to it, or a path ending in it.
 fn no_bound_hides_behind_an_alias(files: &[String], read: &PostImage<'_>) -> Result<(), String> {
     for rel in files.iter().filter(|rel| in_scope(rel)) {
         let Some(text) = read(rel) else { continue };
@@ -307,16 +372,39 @@ fn no_bound_hides_behind_an_alias(files: &[String], read: &PostImage<'_>) -> Res
             if tests.covers(number) {
                 continue;
             }
-            if imports(line) && line.contains(BOUND) && line.contains(" as ") {
+            if aliases(line) {
                 return Err(format!(
-                    "{rel}:{number} imports `{BOUND}` under another name. This gate counts the places a \
-                     process builds one by matching that name as text, so a construction spelled \
-                     differently is invisible to it - import the name as itself"
+                    "{rel}:{number} gives `{BOUND}` another name. This gate counts the places a process \
+                     builds one by matching that name as text, so a construction spelled differently is \
+                     invisible to it - name the type as itself, whether that is an import or a `type` item"
                 ));
             }
         }
     }
     Ok(())
+}
+
+/// Whether `line` renames the bound's type, in either of the two spellings that would do it.
+///
+/// `use ... as ...` and a `type` item whose whole right-hand side IS the bound. The second is
+/// compared after the `=` and against the WHOLE remainder, so an alias that merely mentions the
+/// bound inside a bigger type - a tuple this tree really declares - is not a rename and is left
+/// alone. `ends_with` covers a qualified path (`sutura_runtime::Admission`) without admitting a
+/// longer name that happens to end in those letters, because the segment separator is part of the
+/// comparison.
+fn aliases(line: &str) -> bool {
+    if imports(line) && line.contains(BOUND) && line.contains(" as ") {
+        return true;
+    }
+    let mut tokens = line.split_whitespace().skip_while(|token| token.starts_with("pub"));
+    if tokens.next() != Some("type") {
+        return false;
+    }
+    let Some((_, right)) = line.split_once('=') else {
+        return false;
+    };
+    let named = right.trim().trim_end_matches(';').trim();
+    named == BOUND || named.ends_with(&format!("::{BOUND}"))
 }
 
 /// Something in this tree builds a bound.
@@ -365,7 +453,7 @@ fn every_site_is_in_a_composition_root(found: &Scan, roots: &BTreeSet<String>) -
         if roots.contains(owner) {
             continue;
         }
-        let where_ = sites.join(", ");
+        let where_ = located(sites);
         return Err(format!(
             "`{owner}` builds an execution bound at {where_} and it is not a composition root - it has no \
              crates/{owner}/src/main.rs, so it is a library that some process links. A bound built there is \
@@ -386,7 +474,7 @@ fn at_most_one_bound_per_crate(found: &Scan) -> Result<(), String> {
         if sites.len() <= 1 {
             continue;
         }
-        let where_ = sites.join(", ");
+        let where_ = located(sites);
         return Err(format!(
             "`{owner}` builds {} execution bounds, at {where_}. A process gets one: two semaphores over one \
              blocking pool are two controls each reporting a limit the other can exceed, whatever numbers \
@@ -425,8 +513,8 @@ mod tests {
 
     use super::{
         BOUND, DOOR, DOOR_DEFINED_IN, DOOR_SIGNATURE, Scan, TAKERS, at_least_one_bound_is_built, at_most_one_bound_per_crate,
-        calls, crate_of, door_is_still_defined, every_serving_root_builds_one, every_site_is_in_a_composition_root,
-        every_taker_is_still_called, no_bound_hides_behind_an_alias, roots, scan,
+        call_count, crate_of, door_is_still_defined, every_serving_root_builds_one, every_site_is_in_a_composition_root,
+        every_taker_is_still_called, located, no_bound_hides_behind_an_alias, roots, scan,
     };
 
     /// A fixture tree: the paths the gate lists, and what each one holds.
@@ -535,6 +623,38 @@ fn run() -> Result<(), String> {
     }
 
     #[test]
+    fn two_bounds_on_one_line_are_red_too() {
+        // **The hole the fixture above used to leave.** It puts the two constructions on two LINES,
+        // and the scan counted lines - so a destructuring pair inside `max_width = 130`, which
+        // rustfmt keeps as one line, read as ONE bound. Measured green over a tree that built three,
+        // with the verdict printing `2 ... one per serving composition root`.
+        let found = scanned(&[(
+            "crates/sutura-serve/src/main.rs",
+            "fn run() {\n    let (admission, spare) = (Admission::from_settings(r), Admission::from_settings(r));\n    let state = ServiceState::new(service, settings, admission);\n}\n",
+        )]);
+        let error = at_most_one_bound_per_crate(&found).expect_err("two constructions on one line are two bounds");
+        assert!(error.contains("builds 2 execution bounds"), "{error}");
+        // And the message says they share a line rather than printing one place twice.
+        assert!(
+            error.contains("crates/sutura-serve/src/main.rs:2 (2 on that line)"),
+            "{error}"
+        );
+        // The count is what the verdict line prints, so the honest number reaches a reader.
+        let sites: usize = found.sites.values().map(Vec::len).sum();
+        assert_eq!(sites, 2, "{:?}", found.sites);
+    }
+
+    #[test]
+    fn a_repeated_location_is_reported_as_a_count_and_a_single_one_is_not() {
+        // The formatting half of the rule above, on its own, because a message that printed one
+        // place twice is how a reader gets talked out of a correct count.
+        let twice = [String::from("a.rs:7"), String::from("a.rs:7")];
+        assert_eq!(located(&twice), "a.rs:7 (2 on that line)");
+        let apart = [String::from("a.rs:7"), String::from("a.rs:9")];
+        assert_eq!(located(&apart), "a.rs:7, a.rs:9");
+    }
+
+    #[test]
     fn a_serving_root_that_builds_no_bound_is_red() {
         // The direction that makes the other two non-trivial: a tree with no bounds at all satisfies
         // `at most one per crate` perfectly.
@@ -594,20 +714,40 @@ fn run() -> Result<(), String> {
     }
 
     #[test]
-    fn an_aliased_import_of_the_bound_is_refused() {
-        let aliased = "use sutura_runtime::Admission as Bound;\nfn run() { let a = Bound::from_settings(r); }\n";
-        let Tree { paths, contents } = tree(&[("crates/sutura-serve/src/main.rs", aliased)]);
-        let error = no_bound_hides_behind_an_alias(&paths, &|path| contents.get(path).cloned())
-            .expect_err("an alias makes every construction invisible to a text scan");
-        assert!(error.contains("under another name"), "{error}");
-        assert!(error.contains("crates/sutura-serve/src/main.rs:1"), "{error}");
-        // The honest import is NOT refused - the rule is scoped to a rename, not to importing.
-        let plain = "use sutura_runtime::Admission;\n";
-        let Tree { paths, contents } = tree(&[("crates/sutura-serve/src/main.rs", plain)]);
-        assert_eq!(
-            no_bound_hides_behind_an_alias(&paths, &|path| contents.get(path).cloned()),
-            Ok(())
-        );
+    fn either_spelling_of_a_rename_of_the_bound_is_refused() {
+        // **BOTH spellings, and the second was open.** The refusal read only `use ... as`, so
+        // `type Bound = Admission;` at module scope left one honest construction beside one aliased
+        // one - two permit sets in one binary - reading as `ok`.
+        for renamed in [
+            "use sutura_runtime::Admission as Bound;\nfn run() { let a = Bound::from_settings(r); }\n",
+            "type Bound = Admission;\nfn run() { let a = Bound::from_settings(r); }\n",
+            "pub type Bound = sutura_runtime::Admission;\nfn run() { let a = Bound::from_settings(r); }\n",
+        ] {
+            let Tree { paths, contents } = tree(&[("crates/sutura-serve/src/main.rs", renamed)]);
+            let error = no_bound_hides_behind_an_alias(&paths, &|path| contents.get(path).cloned())
+                .expect_err("a rename makes every construction invisible to a text scan");
+            assert!(error.contains("another name"), "{error}");
+            assert!(error.contains("crates/sutura-serve/src/main.rs:1"), "{renamed} -> {error}");
+        }
+    }
+
+    #[test]
+    fn naming_the_bound_without_renaming_it_is_allowed() {
+        // The other side, and it is not hypothetical: a false red here would ban an idiom this tree
+        // already has. `sutura-cli` declares an alias for what its `mcp` composition RESOLVES, and
+        // the bound is one member of that tuple rather than the thing being renamed.
+        for honest in [
+            "use sutura_runtime::Admission;\n",
+            "type Served<W> = (Composed<W>, CatalogProse, Admission, RequestTimeout);\n",
+            "pub type Bounds = (Admission, RequestTimeout);\n",
+        ] {
+            let Tree { paths, contents } = tree(&[("crates/sutura-cli/src/mcp.rs", honest)]);
+            assert_eq!(
+                no_bound_hides_behind_an_alias(&paths, &|path| contents.get(path).cloned()),
+                Ok(()),
+                "{honest}"
+            );
+        }
     }
 
     #[test]
@@ -644,16 +784,30 @@ fn run() -> Result<(), String> {
     }
 
     #[test]
-    fn a_definition_and_an_import_are_not_calls() {
+    fn a_definition_and_an_import_are_not_calls_and_two_on_a_line_are_two() {
         // The bare `serve_stdio(` needle would otherwise read the transport's own signature as a
-        // call to it, and `use` lines are how the alias refusal above stays targeted.
-        assert!(calls("    let a = Admission::from_settings(runtime);", DOOR));
-        assert!(!calls("use sutura_runtime::Admission::from_settings;", DOOR));
-        assert!(calls("    block_on(sutura_mcp::serve_stdio(service))", "serve_stdio("));
-        assert!(!calls(
-            "pub async fn serve_stdio(service: Arc<S>) -> Result<(), NotServed> {",
-            "serve_stdio("
-        ));
-        assert!(!calls(&format!("pub fn {BOUND}"), BOUND));
+        // call to it, and `use` lines are how the rename refusal above stays targeted.
+        assert_eq!(call_count("    let a = Admission::from_settings(runtime);", DOOR), 1);
+        assert_eq!(call_count("use sutura_runtime::Admission::from_settings;", DOOR), 0);
+        assert_eq!(
+            call_count("    block_on(sutura_mcp::serve_stdio(service))", "serve_stdio("),
+            1
+        );
+        assert_eq!(
+            call_count(
+                "pub async fn serve_stdio(service: Arc<S>) -> Result<(), NotServed> {",
+                "serve_stdio("
+            ),
+            0
+        );
+        assert_eq!(call_count(&format!("pub fn {BOUND}"), BOUND), 0);
+        // THE count that used to be a bool: one line, two constructions.
+        assert_eq!(
+            call_count(
+                "    let (admission, spare) = (Admission::from_settings(r), Admission::from_settings(r));",
+                DOOR
+            ),
+            2
+        );
     }
 }

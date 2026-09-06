@@ -48,13 +48,14 @@ Five properties are load-bearing and each has a test rather than a paragraph:
   `runtime.max_concurrent_queries` rather than by this crate, and the permit belongs to the
   blocking work rather than to the future waiting for it. `server` carries both halves of that
   argument and the limit on how far the second is exercised over the wire.
-* **A peer's wait for a reply is bounded too, and it was not** - `telekom/sutura#339`. The
-  admission window bounded a question that could not START; a question that got a slot waited
-  for as long as the data system took, because rmcp applies no per-request deadline and this
-  transport composed no equivalent of the HTTP surface's `tower` layer. It is
-  `server.request_timeout_seconds` now, applied where the port is awaited. It bounds the WAIT
-  and stops no work - `server` says which key, why that one, and what a cancelling peer still
-  does not get.
+* **A peer's whole wait is bounded too, and it was not** - `telekom/sutura#339`. The admission
+  window bounded a question that could not START; a question that got a slot waited for as long
+  as the data system took, because rmcp applies no per-request deadline and this transport
+  composed no equivalent of the HTTP surface's `tower` layer. It is
+  `server.request_timeout_seconds` now, wrapping the admission wait as well as the answer - so
+  the key means on this transport what it means on the other, which took a second pass to get
+  right. It bounds the WAIT and stops no work; `server` says which key, why that one, what
+  the arithmetic used to be, and what a cancelling peer still does not get.
 
 # Why the protocol comes from a dependency
 
@@ -278,6 +279,16 @@ inventing a key of this transport's own is a decision with two arguments:**
 The key's name says `server` and this transport binds no listener, which is the one argument
 against reusing it. It is a naming cost rather than a behavioural one, and it is cheaper than
 two numbers for one wait.
+
+**What the key bounds is the WHOLE wait, on both transports, and that took a second pass.** On
+HTTP it is an outer `tower` layer, so it covers the admission wait as well as the answer. This
+transport applied it *after* `admit` at first, which made a peer's worst case
+`admission_timeout_seconds + request_timeout_seconds` - one key with two meanings, which is
+precisely the divergence reusing the key was chosen to prevent, one level up from the permit
+set. Found by a review reading both paths. `answer` now wraps both waits in the one deadline,
+so the two surfaces mean the same thing by the same number and the shipped defaults behave
+exactly as before: a 5-second window inside a 30-second deadline, the window expiring first, a
+shed question still answered at-capacity.
 
 **What the deadline does NOT do, stated with it, because it is the same limit the admission
 bound has:** it does not stop the question. The permit is owned by the blocking closure, so a
