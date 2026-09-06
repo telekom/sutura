@@ -29,10 +29,13 @@
 //! carries that, and `--surface-tasks` is how `ship-check` learns which extra task a diff needs
 //! BEFORE it can be judged - so the gap is closed rather than described.
 //!
-//! **There are TWO such surfaces, and the second one had no row here at all.** The shell inside
-//! `devenv.nix`'s script bodies is a Nix string, so the `*.sh` glob, `zizmor` and the
-//! composite-action reader all filter it out the same way - and a 74-line change to that file
-//! produced a surface list that mentioned none of it.
+//! **There are TWO such surfaces, and this sentence was false for one release.** The shell inside
+//! `devenv.nix`'s script bodies is a Nix string, so every row above filters it out the same way.
+//! Its first row claimed `hygiene`, which **could never report a gap** - that hook is
+//! `always_run: true`, so the coverage line printed whatever the diff was
+//! (`github.com/telekom/sutura#402`). Both rows declare an EMPTY hook set now, and
+//! `every_surface_the_real_config_claims_still_exists` holds both that pair and the general form:
+//! no row may claim an `always_run` hook.
 //!
 //! # Three ways a row said more than it knew, and all three printed a full house
 //!
@@ -184,16 +187,18 @@ const SURFACES: &[Surface] = &[
         // `scripts.<name>.exec` bodies and `enterShell`, none of which is a tracked `*.sh` file, a
         // workflow or a composite action - so every row above filters it out.
         //
-        // `hooks` NAMES ONE, and the honesty is in which one. ShellCheck itself runs when the dev
-        // shell is BUILT - `linted` in `devenv.nix` wraps each body in `writeShellApplication`,
-        // whose checkPhase refuses a body it cannot read - and no hook builds a dev shell. What a
-        // diff-scoped run reaches is the STRUCTURAL half: `check-guidance`, inside `hygiene`,
-        // refuses a body assigned as a literal instead of through that wrapper. So this row claims
-        // the rule, not the linter, and `reached_by` is the task that carries the same rule.
+        // `hooks` IS EMPTY, and it was `["hygiene"]` for one release - a claim that could never
+        // report a gap, because that hook is `always_run: true`. No hook's `files:` filter reaches
+        // `devenv.nix` at all, so empty is the honest value.
+        //
+        // It does NOT mean nothing checks this file: `check-devenv-shell` runs inside `hygiene` on
+        // every commit and every pull request. What no hook reaches is the LINTER - ShellCheck
+        // runs when the dev shell is BUILT, and nothing a diff-scoped run invokes builds one - so
+        // `reached_by` is that task and `just ship-check` runs it rather than describing the gap.
         label: "devenv script shell",
         paths: &["devenv.nix"],
-        hooks: &["hygiene"],
-        reached_by: "hygiene",
+        hooks: &[],
+        reached_by: "devenv-linter",
     },
 ];
 
@@ -953,14 +958,35 @@ mod tests {
         // Over the REAL file, because the fixtures above prove the reader and not the tree. This is
         // the assertion that reddens when a hook is renamed in `.pre-commit-config.yaml`.
         assert!(super::unknown_hook_ids(&declared()).is_empty());
-        // And the composite-action row still claims nothing, because the day a hook covers it this
-        // module's header stops being true.
+        // And the two rows that claim nothing are exactly the two the header says there are. The
+        // day a hook covers one of them this assertion is what says the header stopped being true
+        // - which is the direction that matters, because a row claiming a hook that cannot report
+        // a gap is what `github.com/telekom/sutura#402` measured on the second of these.
         let uncovered: Vec<&str> = super::SURFACES
             .iter()
             .filter(|s| s.hooks.is_empty())
             .map(|s| s.label)
             .collect();
-        assert_eq!(uncovered, vec!["composite-action shell"]);
+        assert_eq!(uncovered, vec!["composite-action shell", "devenv script shell"]);
+        // AND NO ROW MAY CLAIM AN `always_run` HOOK - the general form of that defect: such a hook
+        // runs whatever the diff contains, so naming it is a claim nothing can falsify. Derived
+        // from the config, and `hygiene` is asserted to BE one, or this rule is over an empty set.
+        let unconditional: Vec<String> = declared()
+            .iter()
+            .filter(|hook| hook.always_run)
+            .map(|hook| hook.id.clone())
+            .collect();
+        assert!(unconditional.iter().any(|id| id == "hygiene"), "{unconditional:?}");
+        for surface in super::SURFACES {
+            for id in surface.hooks {
+                assert!(
+                    !unconditional.iter().any(|declared| declared == id),
+                    "surface `{}` claims `{id}`, which runs on every diff and so can never report \
+                     a gap",
+                    surface.label
+                );
+            }
+        }
     }
 
     /// The real hook config, parsed by the one parser of it.

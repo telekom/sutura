@@ -244,13 +244,20 @@ fn declared_apps(text: &str) -> BTreeSet<String> {
 
 /// One line of a Nix file with everything that is not code blanked out, and the `let` depth it
 /// starts at.
-struct CodeLine {
+///
+/// `pub(crate)` rather than private, for [`declared_block`]'s reason one layer down:
+/// `crate::devenv_shell` asks a different question of the same projection - which attributes does
+/// a devenv module ASSIGN, and did the value go through a wrapper - and a second Nix reader would
+/// be a second thing to keep in step with the three shapes [`code_lines`] records. **The blanking
+/// is what that gate keys on**: a value whose code projection is empty was a string literal, which
+/// is how it tells a wrapped body from a bare one without a second parse.
+pub(crate) struct CodeLine {
     /// The line, with every character inside a comment or a string literal replaced by a space.
     /// Interpolations are kept, because `${...}` is code and its braces balance.
-    code: String,
+    pub(crate) code: String,
     /// How many `let`s are open at the START of this line. A binding inside `let ... in` is not
     /// an attribute of the enclosing set, and at brace depth alone the two are indistinguishable.
-    lets: u32,
+    pub(crate) lets: u32,
 }
 
 /// Which construct the scanner is inside.
@@ -291,7 +298,7 @@ enum Frame {
 /// So this is a small lexer instead: comments, both string forms with their escapes, `${...}`
 /// interpolation as nested code, and `let ... in` as a scope. Nothing else about Nix is modelled,
 /// and nothing else is needed to answer "which attributes does this block declare".
-fn code_lines(text: &str) -> Vec<CodeLine> {
+pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
     let chars: Vec<char> = text.chars().collect();
     let at = |index: usize| chars.get(index).copied().unwrap_or('\0');
     let word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '\'');

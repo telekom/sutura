@@ -86,17 +86,33 @@ let
   # reader following `just ship-check` still finds the sequence rather than a path to it.
   #
   # WHAT HOLDS A NEW BODY TO IT, because the wrapper alone does not and saying otherwise was the
-  # defect: a body assigned as a plain literal beside the wrapped ones builds, runs, and is read
-  # by nothing - measured, with two ShellCheck findings in it and a green shell. So
-  # `cargo run -q -p xtask -- check-guidance` refuses the literal form in THIS file, and
-  # `xtask/src/hook_coverage.rs` carries the surface row that makes `just ship-check` say which
-  # task reached it. The wrapper is the linter; the gate is what keeps every body inside it.
+  # defect. A body assigned as a plain literal beside the wrapped ones builds, runs, and is read
+  # by nothing - measured, with ShellCheck findings in it and a green shell. The first version of
+  # that rule was two forbidden LITERALS, `.exec = "` and `.exec = ''`, and it was walked past six
+  # ways (`github.com/telekom/sutura#402`): no leading dot, two spaces, a newline after the `=`,
+  # the `''` form, any attribute that is not `exec` - `enterTest`, and `enterShell` itself - and
+  # the same literal in a module `imports` reaches. So what holds it now is
+  # `cargo run -q -p xtask -- check-devenv-shell`, which reads this file and every module its
+  # `imports` reach, keys on the ATTRIBUTE NAME rather than a spelling, and refuses a body whose
+  # value does not begin with one of the wrappers below. `xtask/src/hook_coverage.rs` carries the
+  # surface row that makes `just ship-check` reach the other half.
   #
-  # LIMIT: CI does not use this file (see the header), so the SHELLCHECK half fails on a developer
-  # machine and in `just ship-check` - which builds the profile - and never on a pull request by
-  # itself. The structural half above does run in CI, inside `hygiene`. Neither reaches beyond the
-  # two wrappers below: `runCommand` and phase bodies in `nix/` and the `writeShellScript` apps in
-  # `flake.nix` get `bash -n` at most.
+  # AND THE ARGUMENT SET BELOW IS CLOSED, which is the half a textual rule cannot hold. Adding
+  # `checkPhase = "true";` here removes `bash -n` AND ShellCheck from EVERY body, and every gate
+  # in this repository stayed green over it - #402's seventh escape, and the same shape for
+  # `doCheck`, `checkInputs` and `derivationArgs`. `check-devenv-shell` refuses any argument to
+  # `writeShellApplication` beyond these three, and `just devenv-linter` reads the resulting
+  # derivation's checkPhase out of the store, so the emission is measured rather than assumed.
+  #
+  # LIMIT, and both halves are stated because the earlier version overstated one. CI does not use
+  # this file (see the header), so on a pull request the STRUCTURAL half runs - inside `hygiene`,
+  # like every other gate - and the ShellCheck half does not: it needs a built dev shell, which
+  # only a developer machine and `just ship-check` have. And these bodies get no `-x`, where the
+  # tracked `*.sh` files do (`nix/lint-workflows.sh` passes it): adding it would mean overriding
+  # the checkPhase, which is exactly the escape the closed argument set refuses, and the one
+  # `source` here is a store path already marked `source=/dev/null`, so `-x` would follow nothing.
+  # Neither half reaches beyond the wrappers below: `runCommand` and phase bodies in `nix/` and
+  # the `writeShellScript` apps in `flake.nix` get `bash -n` at most.
   #
   # `bashOptions` is passed at each call rather than defaulted: nixpkgs would add `nounset` and
   # `pipefail` on top of the `errexit` these bodies already had, and turning those on changes
@@ -106,6 +122,15 @@ let
 
   # A devenv script: the linted body, invoked with whatever arguments devenv was given.
   runs = name: body: "${linted name [ "errexit" ] body}/bin/sutura-${name} \"$@\"";
+
+  # The same for a body that has to be SOURCED rather than executed - `enterShell` runs in the
+  # developer's interactive shell, so a subprocess would export nothing.
+  #
+  # A wrapper rather than the `''source ${linted ...}''` literal it replaces, and the reason is
+  # the gate above: that literal's OUTER shell - the `source` line itself - went through no
+  # wrapper, so it was a body nothing read, one line long. Written this way the value begins with
+  # a wrapper and the rule needs no exception for it.
+  sourced = name: body: "source ${linted name [ ] body}/bin/sutura-${name}";
 
   # The same, for a gate: on stable, in its own target directory. `nix/stable-env.sh` stays a real
   # shell file so the justfile can source the SAME one - "run this the way CI runs it" is
@@ -247,9 +272,11 @@ in
   #
   # SOURCED from a linted store file rather than left as an inline Nix string, for the reason
   # `linted` states: this is the longest shell body in the file and nothing had ever read it.
-  # `bashOptions = [ ]` rather than `errexit`, because this runs IN the developer's interactive
-  # shell - `set -e` there would end the session on the first command that returns non-zero.
-  enterShell = ''source ${linted "enter-shell" [ ] ''
+  # `sourced` is what carries the `bashOptions = [ ]` that goes with it - `set -e` in the
+  # developer's interactive shell would end the session on the first non-zero command - and going
+  # through the wrapper rather than gluing a `source` line around it is what makes every character
+  # of shell here something ShellCheck read.
+  enterShell = sourced "enter-shell" ''
     export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 
     # A GitHub token for gh-axi and anything else talking to the API. Taken from the
@@ -307,7 +334,7 @@ in
     echo "  gh-axi     $(gh-axi --version 2>/dev/null || echo 'not installed')"
     # Presence only. Printing a token into a CI log is how tokens leak.
     echo "  gh token   $( [ -n "''${GITHUB_TOKEN:-}" ] && echo present || echo 'absent (GITHUB_TOKEN or .env)' )"
-  ''}/bin/sutura-enter-shell'';
+  '';
 
   # Task names are the stable interface; what they shell out to is an implementation
   # detail. `gates` is what CI runs and what a developer runs before pushing.
@@ -338,6 +365,19 @@ in
     line-endings.exec = onStable "line-endings" "cargo run -q -p xtask -- line-endings";
     check-skills.exec = onStable "check-skills" "cargo run -q -p xtask -- check-skills";
     check-guidance.exec = onStable "check-guidance" "cargo run -q -p xtask -- check-guidance";
+
+    # THE EMISSION, and the one gate that cannot be a flake check: it reads a DERIVATION, so it
+    # needs a store `linted` has been built into, and the hygiene sweep runs inside a nix
+    # derivation with no nix. A script here rather than a justfile recipe because the store path
+    # has to be interpolated by NIX - a recipe cannot name one, and naming one by hand would be a
+    # gate over a path instead of over this tree's wrapper.
+    #
+    # The witness is a body of its own rather than one of the real ones, and that is sound because
+    # `linted` is ONE function: `check-devenv-shell` refuses a second application of
+    # `writeShellApplication`, so the checkPhase this body got is the checkPhase every body got.
+    devenv-linter.exec = onStable "devenv-linter" ''
+      cargo run -q -p xtask -- check-devenv-linter "${linted "linter-witness" [ ] "echo linter-witness\n"}"
+    '';
     # The whole worktree, not just staged changes: `secrets` is for a sweep, the hook is
     # for a commit.
     secrets.exec = runs "secrets" "betterleaks dir . --config devco/gitleaks.toml --redact --verbose";
