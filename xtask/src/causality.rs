@@ -75,7 +75,11 @@ use std::path::Path;
 use crate::Verdict;
 use crate::repo;
 
-mod attributes;
+// `pub(crate)` for the reason `regions` below is: `crate::examples` asks which of a file's tests
+// a run in this venue reaches, and the attribute vocabulary that answers it already lives here.
+// A second copy of "what declares a test, and what makes one `#[ignore]`d" is a second thing to
+// keep true, and this module's own header is about what one such disagreement already cost.
+pub(crate) mod attributes;
 mod base;
 mod coverage;
 mod diff;
