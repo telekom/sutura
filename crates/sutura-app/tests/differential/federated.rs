@@ -17,14 +17,9 @@
 //! [`the_two_catalogs_differ_in_one_document`] holds the width of the difference, because an
 //! instrument whose two sides drifted apart would report a corpus edit as a federation defect.
 //!
-//! **The shared corpus is derived rather than edited**, and that is a scope decision. Placing the
-//! dimension model on a second source is not something `examples/single-player` can say - it is one
-//! deployment's topology, and the example is a single-source quickstart - and the cases below need a
-//! null join key and a metric that cannot federate, neither of which belongs in a document a reader
-//! is told to run. Every derivation is one entry in [`CATALOG_CASES`] or [`DATA_CASES`] with its
-//! reason beside it, and a `Rewrite` whose text is no longer in the shared document PANICS rather
-//! than deriving nothing - so a corpus edit upstream fails this file loudly instead of quietly
-//! emptying it.
+//! **The shared corpus is derived rather than edited**, and that is a scope decision: a
+//! second-source topology is one deployment's, not something a single-source quickstart can say.
+//! [`CATALOG_CASES`] and [`DATA_CASES`] carry each derivation with its reason.
 //!
 //! # What is compared, and what the comparison is
 //!
@@ -32,333 +27,48 @@
 //! `BigQuery` acceptance leg also call. Content first (a multiset, per-variant, tolerance on
 //! `Value::Real` alone), then order, because a plan that emits `ORDER BY` claims an order and
 //! `telekom/sutura#325`'s F6 was the combiner ranking a null group FIRST where the mono path puts it
-//! LAST. Two answers to one question, in one order, cell for cell, typed.
+//! LAST. **Every disagreement is collected and reported together**, never the first one and out:
+//! review measured that F6's single un-fix reddens ten of the twelve compared cases, so a
+//! fail-fast comparator would have described one probe as one case's worth of coverage.
+//!
+//! Each answer's `Provenance` is read too, so *the answer records which identity each leg ran as*
+//! is measured here rather than stated - see [`recorded_identities`], which is also what makes the
+//! limit below a measurement.
 //!
 //! # What this does NOT establish
 //!
 //! **No published artifact can run either side of it.** Both legs execute on `DuckDB`, which is a
 //! development dependency and the only adapter here declaring `Warehouse::EXECUTES_LEGS`; a shipped
 //! binary refuses every two-source question as `FederationNotExecutable` before minting anything.
-//! So what is measured is the implemented federation path, not a deployment's answer.
-//!
-//! And both sides run under one operating-system identity: the corpus's posture is
-//! `SharedServiceUser`, so this says nothing about two sources serving two subjects different rows.
+//! So what is measured is the implemented federation path, not a deployment's answer - and both
+//! legs record `SharedServiceUser`, so neither ran as the asker and nothing here says two subjects
+//! get different rows.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use sutura_app::Validated;
 use sutura_domain::model::SourceName;
-use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _};
+use sutura_domain::pinned::{PinnedDefinitions, Provenance, SemanticCatalog as _};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::{RowSet, Value};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{CatalogUnderTest, a_caller, posture, questions, read_question, shared_credential, source, stem, version};
+use crate::adapters::{a_caller, posture, shared_credential, source, version};
+// `#[path]` for the reason `tests/golden.rs` gives, one level down: a bare `mod corpus;` in a
+// submodule of a test target resolves beside the target root, not beside this file.
+#[path = "federated/corpus.rs"]
+mod corpus;
 
-/// The data system the derived two-source catalog puts the dimension model on.
-///
-/// A second alias and nothing else: the adapter behind it is the same `DuckDB` the fact leg runs
-/// on, opened as its own in-memory database with only that source's tables attached. Two
-/// registries under one name is what `tests/differential.rs` does to compare adapters; two names
-/// in one registry is what federation needs, and `Warehouses` is keyed by the source an adapter
-/// declares, so the two databases cannot be confused for one.
-const LOOKUP_SOURCE: &str = "geo";
+use corpus::{LOOKUP_SOURCE, derived, derived_question, every_question, lookup_source};
 
 /// An amount of working set no question in this corpus comes near, so only a defect refuses.
 ///
-/// A gibibyte, which is `sutura_config::WorkingSetCeiling::DEFAULT_BYTES` - a literal here for
-/// the reason `adapters::DataSystemUnderTest for DataFusionWarehouse` gives, so this suite does
-/// not acquire a dependency on the settings tree to obtain one number.
+/// A gibibyte, which is `sutura_config::WorkingSetCeiling::DEFAULT_BYTES` - a literal for the
+/// reason `adapters::DataSystemUnderTest for DataFusionWarehouse` gives.
 const BUDGET: u64 = 1 << 30;
 
-/// The shared corpus this differential derives from, read off the REGISTERED catalog adapter.
-///
-/// Not a path written a second time: `CatalogUnderTest::open` is what points the golden suite at
-/// `examples/single-player/catalog`, and `LocalCatalog::root` hands that same directory back - so a
-/// corpus move cannot leave this file deriving from somewhere else, and `adapters` keeps its own
-/// paths private.
-fn shared_catalog_root() -> PathBuf {
-    <sutura_catalog_local::LocalCatalog as CatalogUnderTest>::open()
-        .root()
-        .to_path_buf()
-}
-
-/// The CSVs beside that catalog, which both sides of the differential read.
-fn shared_data_root() -> PathBuf {
-    shared_catalog_root()
-        .parent()
-        .expect("the catalog root sits inside the example corpus")
-        .join("data")
-}
-
-// ------------------------------------------------------------------ deriving the two catalogs ---
-
-/// What a derived document does to the shared one it came from.
-enum Edit {
-    /// The one occurrence of `find` becomes `with`.
-    ///
-    /// Absent from the shared document, the derivation panics: a case that silently stopped
-    /// being derived is a green run over a corpus that no longer carries it.
-    Rewrite { find: &'static str, with: &'static str },
-    /// A whole document the shared corpus does not have.
-    Added(&'static str),
-    /// Rows appended to a shared file.
-    Appended(&'static str),
-}
-
-/// **The one difference between the two bundles**: which data system holds the dimension model.
-///
-/// Applied to the two-source catalog and to nothing else. Every case below is applied to BOTH,
-/// so this line is the whole of what the differential varies.
-const ON_A_SECOND_DATA_SYSTEM: (&str, Edit) = (
-    "models/customers.md",
-    Edit::Rewrite {
-        find: "source: local",
-        with: "source: geo",
-    },
-);
-
-/// The cases the shared corpus does not carry, derived into BOTH catalogs.
-///
-/// Each exists because the composed path has a branch nothing else reaches. The prose in each
-/// added document says so where a reader of the derived catalog would find it.
-const CATALOG_CASES: &[(&str, Edit)] = &[
-    // F2: a legal public dimension whose NAME is the remote join target's column name. The
-    // splitter used to alias the link column by its own text and put it in the same result
-    // namespace as the public labels, so this question produced two fact columns called
-    // `customer_key` and the combiner refused the answer. `status` is the backing column, so
-    // the name and the column deliberately disagree - which is the shape of the finding.
-    (
-        "metrics/subscription_months_billed.md",
-        Edit::Rewrite {
-            find: "anchor:\n  range:",
-            with: "  - name: customer_key\n    column: status\n    values: [active, terminated]\n    description: >\n      A legal dimension whose NAME is the remote join target's column, backed by a different\n      column. It is here so the splitter's internal link label has something to collide with.\nanchor:\n  range:",
-        },
-    ),
-    // A zero denominator in ONE subgroup, under `fails`: the answer this metric's own document
-    // argues for is a failure rather than a figure, and grouping it by a REMOTE attribute is
-    // what makes the guard fire above two legs instead of inside one statement.
-    (
-        "metrics/revenue_per_churned_subscription.md",
-        Edit::Rewrite {
-            find: "time_column: month\ngrains: [month]\n---",
-            with: "time_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---",
-        },
-    ),
-    // The same zero denominator under `yields_null`, which is the case that produces an ANSWER
-    // to compare rather than two failures: one subgroup's denominator sums to zero across the
-    // legs and must be null, while its neighbours in the same answer must still be numbers.
-    (
-        "metrics/revenue_per_churn_or_null.md",
-        Edit::Added(
-            "---\nkind: metric\nname: revenue_per_churn_or_null\nmodel: subscriptions\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: mrr_cents }\n    denominator: { count_if: churned_in_month }\n    zero_denominator: yields_null\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nWhat the month carried for each subscription it lost, or nothing where it lost none.\n\n`revenue_per_churned_subscription` under the other zero-denominator word. Both belong to this\nderived catalog rather than to the shared corpus: what they are for is a subgroup whose\ndenominator is zero while its neighbours are not, which only a grouped ratio can have, and only\na remote grouping key makes the guard run above two legs.\n",
-        ),
-    ),
-    // A distinct value that genuinely SPANS join keys: several customers subscribe to one
-    // product, so the number of distinct products in a region is strictly less than the sum of
-    // the distinct products per customer. That is what the combiner cannot re-count and what
-    // `MeasureDoesNotFederate` exists to refuse. `subscription_key` would not have shown it -
-    // a subscription belongs to one customer, so summing per-link distinct counts happens to be
-    // right over this corpus, and a refusal protecting nothing reads as coverage.
-    // **A federated AVERAGE, which is the classic wrong number.** `Descent::of(Avg)` decomposes it
-    // into a sum and a count pushed into the leg and divided ABOVE it, so a combiner that averaged
-    // the legs' averages would be wrong by exactly the unevenness of the groups - and this corpus's
-    // regions hold different numbers of subscriptions, so it would be wrong here. The shared metric
-    // declares no dimension at all, which is why nothing reached the decomposition.
-    (
-        "metrics/mean_subscription_mrr.md",
-        Edit::Rewrite {
-            find: "time_column: month\ngrains: [month]\n---",
-            with: "time_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---",
-        },
-    ),
-    // `Reduction::Greatest` and `Reduction::Least`, the two arms of the combine's reduction table
-    // that no metric in the shared corpus reaches. A leg takes the extreme of its own rows and the
-    // combine takes the extreme of those, which is only equal to the whole group's extreme because
-    // both ends of that are the same function - the property worth a question rather than a comment.
-    (
-        "metrics/largest_subscription_mrr.md",
-        Edit::Added(
-            "---\nkind: metric\nname: largest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: max, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nThe largest recurring amount any one subscription carried in the period.\n\nHere for the combine's reduction table: a maximum pushed into a leg is re-taken above it, and no\nmetric in the shared corpus declares one.\n",
-        ),
-    ),
-    (
-        "metrics/smallest_subscription_mrr.md",
-        Edit::Added(
-            "---\nkind: metric\nname: smallest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: min, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nThe smallest recurring amount any one subscription carried in the period.\n\nThe other end of `largest_subscription_mrr`, for the other arm of the same table.\n",
-        ),
-    ),
-    (
-        "metrics/products_in_use.md",
-        Edit::Added(
-            "---\nkind: metric\nname: products_in_use\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: count_distinct, column: product_key }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nHow many distinct products the period had subscriptions to.\n\nHere because the distinct value spans the join key: one product is subscribed to by several\ncustomers, so no re-aggregation above two legs can recover the count. A two-source question\nover it is refused rather than answered, and the refusal is the assertion.\n",
-        ),
-    ),
-];
-
-/// The rows the shared corpus does not carry, derived into the ONE data directory both sides read.
-///
-/// July 2026: outside every anchor range and outside every question in the shared corpus, both
-/// of which stop at `2026-07-01` exclusive. So these rows change no certified number and no
-/// existing snapshot - they are only visible to the questions below that ask for them.
-const DATA_CASES: &[(&str, Edit)] = &[(
-    "fct_subscription_monthly.csv",
-    // F1: the first row's join key is ABSENT, which is the case the corpus has none of. A null
-    // link matches nothing, so under LEFT semantics the row is unmatched by construction and
-    // must keep its measure under null remote keys; the combiner used to drop it before
-    // `include_unmatched` was consulted, losing the measure entirely. The second row's key is
-    // present and matches nothing (the corpus's own orphan customer), so the two arrive at one
-    // answer group and a defect in either is a wrong number rather than a missing row.
-    Edit::Appended(
-        "2026-07-01,1901,,3,active,1000,false,monthly\n\
-         2026-07-01,1902,41,3,active,2000,false,monthly\n\
-         2026-07-01,1903,2,3,active,3000,true,monthly\n\
-         2026-07-01,1904,1,4,active,4000,false,annual\n",
-    ),
-)];
-
-/// Questions the shared corpus does not ask, each reaching a case above.
-///
-/// Held as text rather than as files because they are read exactly once, by
-/// [`every_question`], and a question is a document the reader of this file wants beside the
-/// case it exercises.
-const DERIVED_QUESTIONS: &[(&str, &str)] = &[
-    // F1 and the orphan key in one answer, under LEFT: no remote filter, so an unmatched fact
-    // row survives with a null region. Both the absent key and the orphan land in that group.
-    (
-        "two-source-a-null-key-and-an-orphan-key",
-        "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
-    ),
-    // F2: a public dimension named after the remote join target, grouped beside the remote one.
-    (
-        "two-source-a-dimension-named-like-the-link",
-        "metric: subscription_months_billed\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [customer_key, region]\n",
-    ),
-    // A zero denominator in one subgroup, answered: July's north region churned, its south did
-    // not, and the null-region group did not either.
-    (
-        "two-source-a-zero-denominator-in-one-subgroup",
-        "metric: revenue_per_churn_or_null\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
-    ),
-    // The same subgroup under `fails`, where both sides must fail rather than answer.
-    (
-        "two-source-a-zero-denominator-that-fails",
-        "metric: revenue_per_churned_subscription\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
-    ),
-    // The average, decomposed into a sum and a count in each leg and divided above them.
-    (
-        "two-source-an-average-decomposed-above-the-legs",
-        "metric: mean_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
-    ),
-    // The two extremes, re-taken above the legs.
-    (
-        "two-source-a-maximum-re-taken-above-the-legs",
-        "metric: largest_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
-    ),
-    (
-        "two-source-a-minimum-re-taken-above-the-legs",
-        "metric: smallest_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
-    ),
-    // A distinct value spanning join keys: refused, not answered.
-    (
-        "two-source-a-distinct-value-spanning-join-keys",
-        "metric: products_in_use\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [region]\n",
-    ),
-];
-
-/// The derived corpus: one data directory, two catalogs over it.
-struct Derived {
-    data: PathBuf,
-    one_source: PathBuf,
-    two_source: PathBuf,
-}
-
-/// Derived once per process, into cargo's own temp directory for this target.
-///
-/// Per PROCESS rather than per target, because the test runner gives each test its own: two
-/// processes deriving into one directory would race on files whose bytes are identical, which is
-/// a flake with no defect behind it.
-fn derived() -> &'static Derived {
-    static ONCE: OnceLock<Derived> = OnceLock::new();
-    ONCE.get_or_init(|| {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("federated-differential-{}", std::process::id()));
-        drop(std::fs::remove_dir_all(&root));
-        let derived = Derived {
-            data: root.join("data"),
-            one_source: root.join("catalog-one-source"),
-            two_source: root.join("catalog-two-source"),
-        };
-        copy_tree(&shared_data_root(), &derived.data);
-        copy_tree(&shared_catalog_root(), &derived.one_source);
-        copy_tree(&shared_catalog_root(), &derived.two_source);
-        for &(at, ref edit) in DATA_CASES {
-            apply(&derived.data.join(at), edit);
-        }
-        for &(at, ref edit) in CATALOG_CASES {
-            apply(&derived.one_source.join(at), edit);
-            apply(&derived.two_source.join(at), edit);
-        }
-        let (at, ref only_here) = ON_A_SECOND_DATA_SYSTEM;
-        apply(&derived.two_source.join(at), only_here);
-        derived
-    })
-}
-
-/// Copies a directory of documents, recursively.
-fn copy_tree(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap_or_else(|e| panic!("could not create {}: {e}", to.display()));
-    for entry in std::fs::read_dir(from).unwrap_or_else(|e| panic!("could not read {}: {e}", from.display())) {
-        let entry = entry.expect("a directory entry is readable");
-        let target = to.join(entry.file_name());
-        if entry.file_type().expect("an entry has a type").is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), &target).unwrap_or_else(|e| panic!("could not copy {}: {e}", entry.path().display()));
-        }
-    }
-}
-
-/// Applies one edit, refusing to derive nothing.
-fn apply(to: &Path, edit: &Edit) {
-    match *edit {
-        Edit::Rewrite { find, with } => {
-            let text = std::fs::read_to_string(to).unwrap_or_else(|e| panic!("could not read {}: {e}", to.display()));
-            assert_eq!(
-                text.matches(find).count(),
-                1,
-                "{} no longer holds exactly one {find:?}, so this case would derive nothing",
-                to.display()
-            );
-            write(to, &text.replace(find, with));
-        }
-        Edit::Added(document) => {
-            assert!(!to.exists(), "{} is in the shared corpus already", to.display());
-            write(to, document);
-        }
-        Edit::Appended(rows) => {
-            let mut text = std::fs::read_to_string(to).unwrap_or_else(|e| panic!("could not read {}: {e}", to.display()));
-            assert!(
-                text.ends_with('\n'),
-                "{} does not end a row, so appending would join two",
-                to.display()
-            );
-            text.push_str(rows);
-            write(to, &text);
-        }
-    }
-}
-
-fn write(to: &Path, text: &str) {
-    std::fs::write(to, text).unwrap_or_else(|e| panic!("could not write {}: {e}", to.display()));
-}
-
 // ------------------------------------------------------------------------- opening the sides ---
-
-fn lookup_source() -> SourceName {
-    SourceName::parse(LOOKUP_SOURCE).expect("the second source alias is a name")
-}
 
 /// One bundle, loaded through the real markdown adapter over a derived catalog.
 fn bundle(catalog: &Path) -> PinnedDefinitions {
@@ -437,16 +147,6 @@ fn tables_on(name: &SourceName, pinned: &PinnedDefinitions) -> Vec<(sutura_domai
         .collect()
 }
 
-/// Every question this differential reads: the shared corpus's, then the derived ones.
-fn every_question() -> Vec<(String, Query)> {
-    let mut all: Vec<(String, Query)> = questions().iter().map(|path| (stem(path), read_question(path))).collect();
-    for &(name, text) in DERIVED_QUESTIONS {
-        let query: Query = serde_norway::from_str(text).unwrap_or_else(|e| panic!("{name} is not a question: {e}"));
-        all.push((String::from(name), query));
-    }
-    all
-}
-
 /// One answer, computed through the whole service path.
 fn answered<W>(side: &Side<W>, query: &Query, name: &str) -> Result<ToolOutcome, String>
 where
@@ -468,8 +168,8 @@ where
 /// An error and every cause beneath it, as one string.
 ///
 /// `Display` on a `thiserror` enum prints the outermost message and stops, and the outermost one
-/// here is "the data system did not answer" or "the combined answer could not be assembled" -
-/// true of an outage and of a non-finite cell alike. What tells them apart is one level down.
+/// here is true of an outage and of a non-finite cell alike. What tells them apart is one level
+/// down.
 fn chain(error: &dyn core::error::Error, name: &str) -> String {
     let mut out = format!("{name}: {error}");
     let mut cursor = error.source();
@@ -482,59 +182,6 @@ fn chain(error: &dyn core::error::Error, name: &str) -> String {
 }
 
 // ----------------------------------------------------------------------------- the instrument ---
-
-/// The width of the difference between the two bundles, as a property rather than a comment.
-///
-/// If a case were derived into one catalog and not the other, this file would report a corpus
-/// asymmetry as a federation defect - the most expensive kind of false positive a differential
-/// can have, because the diagnosis names the wrong subsystem.
-#[test]
-fn the_two_catalogs_differ_in_one_document() {
-    let derived = derived();
-    let mut differing: Vec<String> = Vec::new();
-    for &(at, _) in CATALOG_CASES {
-        compare_document(derived, at, &mut differing);
-    }
-    for path in every_document(&derived.one_source) {
-        let at = path
-            .strip_prefix(&derived.one_source)
-            .expect("the walk started at this root")
-            .to_string_lossy()
-            .into_owned();
-        compare_document(derived, &at, &mut differing);
-    }
-    differing.sort();
-    differing.dedup();
-    assert_eq!(
-        differing,
-        vec![String::from(ON_A_SECOND_DATA_SYSTEM.0)],
-        "the two catalogs must differ in exactly the document that moves the dimension model"
-    );
-}
-
-fn compare_document(derived: &Derived, at: &str, differing: &mut Vec<String>) {
-    let here = std::fs::read_to_string(derived.one_source.join(at)).unwrap_or_default();
-    let there = std::fs::read_to_string(derived.two_source.join(at)).unwrap_or_default();
-    if here != there {
-        differing.push(at.replace('\\', "/"));
-    }
-}
-
-fn every_document(root: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(&directory).unwrap_or_else(|e| panic!("could not read {}: {e}", directory.display())) {
-            let entry = entry.expect("a directory entry is readable");
-            if entry.file_type().expect("an entry has a type").is_dir() {
-                pending.push(entry.path());
-            } else {
-                found.push(entry.path());
-            }
-        }
-    }
-    found
-}
 
 /// **The differential.** Every question the two-source bundle splits, answered both ways.
 ///
@@ -549,6 +196,7 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
     let two = two_sources(bundle(&derived.two_source));
 
     let mut reached: Vec<(String, Reached)> = Vec::new();
+    let mut found: Vec<String> = Vec::new();
     for (name, query) in every_question() {
         let Split::Yes(federated) = split_or_not(&name, &query, one.bundle.get(), two.bundle.get()) else {
             continue;
@@ -557,16 +205,29 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
         let from_two = answered(&two, &query, &name);
         let outcome = match federated {
             Federated::Split => match (from_one, from_two) {
-                (Ok(ToolOutcome::Answer { rows: ref here, .. }), Ok(ToolOutcome::Answer { rows: ref there, .. })) => {
-                    agreement_between(&name, here, there);
+                (
+                    Ok(ToolOutcome::Answer {
+                        rows: ref here,
+                        provenance: ref one_ran_as,
+                    }),
+                    Ok(ToolOutcome::Answer {
+                        rows: ref there,
+                        provenance: ref two_ran_as,
+                    }),
+                ) => {
+                    found.extend(disagreements_between(&name, here, there));
+                    found.extend(recorded_identities(&name, one_ran_as, two_ran_as));
                     Reached::Agreed
                 }
                 (Err(ref here), Err(ref there)) => {
-                    failed_together(&name, here, there);
+                    found.extend(failed_together(&name, here, there));
                     Reached::FailedTogether
                 }
                 (here, there) => {
-                    panic!("{name}: one side answered and the other did not\n  one source: {here:?}\n  two sources: {there:?}")
+                    found.push(format!(
+                        "{name}: one side answered and the other did not\n  one source: {here:?}\n  two sources: {there:?}"
+                    ));
+                    Reached::Diverged
                 }
             },
             Federated::Refused(reason) => {
@@ -583,6 +244,19 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
         };
         reached.push((name, outcome));
     }
+    // **Every disagreement, then one panic - never the first one and out.** The loop used to panic
+    // where the comparison is made, which made "this change reddens exactly one case" a property of
+    // the fail-fast rather than a finding about the change: review re-ran the three mutations with
+    // the panics turned into prints and F6's null ordering reddened TEN of the twelve compared
+    // cases, not one. A regression's REACH is the more useful half of the diagnosis, and a
+    // comparator that stops at the first row cannot report it.
+    assert!(
+        found.is_empty(),
+        "{} of {} two-source question(s) disagreed with their one-source answer:\n\n{}",
+        found.len(),
+        reached.len(),
+        found.join("\n\n")
+    );
     for &(case, wanted) in MUST_BE_REACHED {
         let found = reached.iter().find(|&(name, _)| name == case);
         match found {
@@ -613,16 +287,21 @@ enum Reached {
     FailedTogether,
     /// The two-source topology refused a measure it cannot re-aggregate.
     RefusedAsUnfederatable,
+    /// The two topologies did not agree on whether there is an answer at all.
+    ///
+    /// Not in [`MUST_BE_REACHED`] and not in the arm-coverage loop, because on a tree where the
+    /// federated path is correct nothing reaches it: it is the shape a defect takes, and it is a
+    /// variant rather than a panic so that the collected report can carry it beside the others.
+    Diverged,
 }
 
 /// **The cases `telekom/sutura#325`'s F5 asks for, and which arm each has to reach.**
 ///
-/// A hand-written list, deliberately, and it is the only one in this file: the classifier above is
-/// mechanical so that a NEW customer-attribute question enrols itself, and this is the other
-/// direction - a case that stopped being a two-source question, or that started merely refusing
-/// where it used to be compared, is a coverage loss no count would show. Both halves are needed:
-/// without the classifier the file asserts over a list, and without the list the file could compare
-/// nine of the wrong questions.
+/// A hand-written list, deliberately, and the only one in this file. The classifier above is
+/// mechanical so a NEW customer-attribute question enrols itself; this is the other direction - a
+/// case that stopped being a two-source question, or that started merely refusing where it used to
+/// be compared, is a coverage loss no count would show. Without the classifier the file asserts
+/// over a list; without the list it could compare twelve of the wrong questions.
 const MUST_BE_REACHED: &[(&str, Reached)] = &[
     // F1: a null fact join key beside an unmatched non-null one, retained under LEFT with its
     // measure intact.
@@ -654,16 +333,64 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
     ),
 ];
 
-fn agreement_between(name: &str, one_source: &RowSet, two_sources: &RowSet) {
+/// What the two answers disagree about: nothing, the content, or the order.
+///
+/// Content first and order second, deliberately: the first symptom of a wrong number would otherwise
+/// be reported as a sort order. Both are reported when both hold, because they are two claims.
+fn disagreements_between(name: &str, one_source: &RowSet, two_sources: &RowSet) -> Vec<String> {
+    let mut found = Vec::new();
     if let Err(disagreement) = agree_on_content(one_source, two_sources, RealTolerance::DIFFERENTIAL) {
-        panic!("{name}: one source and two sources returned different rows - {disagreement}");
+        found.push(format!(
+            "{name}: one source and two sources returned different rows - {disagreement}"
+        ));
     }
     if let Err(disagreement) = agree_on_order(one_source, two_sources, RealTolerance::DIFFERENTIAL) {
-        panic!(
+        found.push(format!(
             "{name}: one source and two sources returned the same rows in different orders, and the \
              plan's ORDER BY claims one - {disagreement}"
-        );
+        ));
     }
+    found
+}
+
+/// **What each answer recorded itself as having run as**, which is the guarantee only this file can
+/// measure over two real legs.
+///
+/// `sutura_app::federated` merges the legs' identities through `ExecutedAs::and`, and
+/// `.agents/skills/sutura/query-surface/SKILL.md`'s *second execution leg* row states the promise as
+/// each leg running under that source's acknowledged shared identity **and the answer recording
+/// which**. Until this file existed no two-leg answer came out of a real execution, so the recording
+/// had never been read off one - and `into_outcome()` used to discard it here one line before
+/// anything could look. What the postures make measured rather than stated is this file's own
+/// limit: both legs are `SharedServiceUser`, so neither ran as the asker.
+fn recorded_identities(name: &str, one_ran_as: &Provenance, two_ran_as: &Provenance) -> Vec<String> {
+    let mut found = Vec::new();
+    let expected = posture();
+    let legs = |provenance: &Provenance| -> Vec<(String, bool)> {
+        provenance
+            .executed_as()
+            .legs()
+            .map(|(source, posture)| (String::from(source.as_str()), *posture == expected))
+            .collect()
+    };
+    let own = String::from(source().as_str());
+    let here = legs(one_ran_as);
+    if here != vec![(own.clone(), true)] {
+        found.push(format!(
+            "{name}: a whole answer from one data system records that one leg and the posture it was \
+             opened with, not {here:?}"
+        ));
+    }
+    // Source order, because `ExecutedAs` keeps its legs in a `BTreeMap` - so `geo` before `local`
+    // is the record's own order rather than the order the legs ran in.
+    let there = legs(two_ran_as);
+    if there != vec![(String::from(LOOKUP_SOURCE), true), (own, true)] {
+        found.push(format!(
+            "{name}: a two-source answer records BOTH legs and the posture each source was opened \
+             with, not {there:?}"
+        ));
+    }
+    found
 }
 
 /// Both sides failed, and this asserts they failed for the SAME reason.
@@ -671,25 +398,32 @@ fn agreement_between(name: &str, one_source: &RowSet, two_sources: &RowSet) {
 /// `zero_denominator: fails` is the one case in this corpus where a supported question has no
 /// figure, and the two sides reach it from opposite directions: the one-source side divides in
 /// the engine and the port refuses to carry a non-finite cell, while the two-source side divides
-/// above the legs and the combiner refuses. Both must name the metric.
-fn failed_together(name: &str, one_source: &str, two_sources: &str) {
-    assert!(
-        one_source.contains("is not a finite number"),
-        "{name}: the one-source side failed for some other reason:\n{one_source}"
-    );
-    assert!(
-        two_sources.contains("could not be assembled") && two_sources.contains("finite"),
-        "{name}: the two-source side failed for some other reason:\n{two_sources}"
-    );
+/// above the legs and the combiner refuses. Both must name the METRIC, which is what makes each
+/// message evidence about this definition rather than about some failure during this question:
+/// `chain` prepends the QUESTION's name, so without the metric a failure raised while computing
+/// something else would have passed this cell unchanged. Review found that gap.
+fn failed_together(name: &str, one_source: &str, two_sources: &str) -> Vec<String> {
+    let metric = "revenue_per_churned_subscription";
+    let mut found = Vec::new();
+    if !(one_source.contains("is not a finite number") && one_source.contains(metric)) {
+        found.push(format!(
+            "{name}: the one-source side must refuse a non-finite cell for `{metric}`, not:\n{one_source}"
+        ));
+    }
+    if !(two_sources.contains("could not be assembled") && two_sources.contains("finite") && two_sources.contains(metric)) {
+        found.push(format!(
+            "{name}: the two-source side must fail to assemble a non-finite `{metric}`, not:\n{two_sources}"
+        ));
+    }
+    found
 }
 
 /// **A zero denominator in ONE subgroup, and the neighbours it must not reach.**
 ///
-/// The differential above proves the two sides AGREE on this answer; without this the agreement
-/// could be over an answer with no null in it at all, and the case would read as coverage. The
-/// divide happens above both legs on this side - the guard cannot be applied inside a leg, where
-/// it would be a wrong number rather than a refusal - so what is asserted is that the group whose
-/// denominator summed to zero is null while the group beside it is a figure.
+/// The differential above proves the two sides AGREE on this answer; without this, the agreement
+/// could be over an answer with no null in it at all. The divide happens above both legs - a guard
+/// applied inside one would be a wrong number rather than a refusal - so what is asserted is that
+/// the group whose denominator summed to zero is null while the group beside it is a figure.
 #[test]
 fn a_subgroup_with_no_denominator_is_null_and_its_neighbours_are_not() {
     let two = two_sources(bundle(&derived().two_source));
@@ -709,67 +443,6 @@ fn a_subgroup_with_no_denominator_is_null_and_its_neighbours_are_not() {
         cells.iter().any(|cell| !matches!(**cell, Value::Null)),
         "{name}: every subgroup was null, so this says nothing about a zero reaching its neighbours: {rows:?}"
     );
-}
-
-/// Which join keys one (month, region, product) triple was seen under.
-type SeenUnder = std::collections::BTreeMap<(String, String, String), std::collections::BTreeSet<String>>;
-
-/// **The distinct value really does span the join keys**, which is what the refusal is for.
-///
-/// Read off the derived corpus rather than asserted, because a `MeasureDoesNotFederate` that
-/// protected nothing would read as coverage: over this corpus a distinct SUBSCRIPTION key does
-/// not span a customer, so summing per-link distinct counts would happen to be right and the
-/// refusal would be untested by the case that motivates it. A distinct PRODUCT key does span,
-/// and this is the pair that proves it.
-#[test]
-fn the_refused_distinct_value_spans_two_join_keys() {
-    let mut regions: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    for row in rows_of("dim_customer.csv") {
-        regions.insert(field(&row, 0), field(&row, 3));
-    }
-    // (month, region, product) -> the customer keys it was seen under.
-    let mut spanning: SeenUnder = std::collections::BTreeMap::new();
-    for row in rows_of("fct_subscription_monthly.csv") {
-        let customer = field(&row, 2);
-        let Some(region) = regions.get(&customer) else {
-            continue;
-        };
-        spanning
-            .entry((field(&row, 0), region.clone(), field(&row, 3)))
-            .or_default()
-            .insert(customer);
-    }
-    let widest = spanning.values().map(std::collections::BTreeSet::len).max().unwrap_or(0);
-    assert!(
-        widest > 1,
-        "no product in this corpus is subscribed to by two customers in one region and month, so \
-         `products_in_use` would federate correctly by accident and its refusal proves nothing"
-    );
-}
-
-/// One derived question, parsed.
-fn derived_question(name: &str) -> Query {
-    let (_, text) = DERIVED_QUESTIONS
-        .iter()
-        .find(|&&(at, _)| at == name)
-        .unwrap_or_else(|| panic!("{name} is not a derived question"));
-    serde_norway::from_str(text).unwrap_or_else(|e| panic!("{name} is not a question: {e}"))
-}
-
-/// The data rows of one derived CSV, header dropped.
-fn rows_of(csv: &str) -> Vec<String> {
-    let path = derived().data.join(csv);
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()));
-    text.lines()
-        .skip(1)
-        .filter(|line| !line.is_empty())
-        .map(String::from)
-        .collect()
-}
-
-/// One comma-separated field. The corpus quotes nothing, which is why this is not a CSV reader.
-fn field(row: &str, at: usize) -> String {
-    row.split(',').nth(at).map_or_else(String::new, String::from)
 }
 
 enum Federated {
@@ -804,12 +477,12 @@ fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &Pinned
 
 /// **Which registered data systems can run a leg, expanded over the registry itself.**
 ///
-/// This file's two-source side names `DuckDB` twice, and that is not a preference: it is the only
-/// registered adapter declaring [`Warehouse::EXECUTES_LEGS`], and a registry entry that cannot
-/// run a leg cannot be either half of a federated answer. Written as a cell rather than as a
-/// sentence so that registering a second leg-executing adapter REDDENS here - the diff that
-/// enrols it in this differential then arrives beside the registration, rather than being
-/// noticed the next time somebody reads this comment.
+/// This file's two-source side names `DuckDB` twice because it is the only registered adapter
+/// declaring [`Warehouse::EXECUTES_LEGS`], and an entry that cannot run a leg cannot be either half
+/// of a federated answer. A cell rather than a sentence, so registering a second leg-executing
+/// adapter REDDENS here and the diff that enrols it arrives beside the registration.
+/// `sutura-conformance`'s binding holds the per-adapter agreement between the tag and the constant;
+/// what this holds is the COUNT.
 ///
 /// [`Warehouse::EXECUTES_LEGS`]: sutura_domain::warehouse::Warehouse::EXECUTES_LEGS
 macro_rules! leg_capability {
@@ -824,8 +497,9 @@ macro_rules! leg_capability {
                 assert_eq!(
                     <$adapter as Warehouse>::EXECUTES_LEGS,
                     name == "duckdb",
-                    "{name} changed its leg capability; the two-source side of \
-                     tests/federated_differential.rs is the list of adapters that have one"
+                    "{name} changed its leg capability; \
+                     crates/sutura-app/tests/differential/federated.rs is where a second \
+                     leg-executing adapter gets enrolled in the two-source differential"
                 );
             }
         }
