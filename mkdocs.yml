@@ -208,6 +208,7 @@ nav:
       - A credential the compiler refuses to print: adr/0020-a-credential-the-compiler-refuses-to-print.md
       - How a published artefact proves where it came from: adr/0021-how-a-published-artefact-proves-where-it-came-from.md
       - Untrusted content, and what marks it: adr/0022-untrusted-content-marking.md
+      - How the agent surface learns who is asking: adr/0023-how-the-agent-surface-learns-who-is-asking.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

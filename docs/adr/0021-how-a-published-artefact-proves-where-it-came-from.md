@@ -12,11 +12,11 @@ leaf images, and SLSA provenance for every asset and for the two manifest lists.
 reads.
 
 **The second amendment closes the roadmap bullet's licence half** and is at the bottom under
-*Amendment: the licence report ships as a signed, committed document*. **The first amendment closes
-the crate-graph gap** and is at the bottom under *Amendment: the crate graph moved inside the
-binary*. The paragraphs between them are kept as written rather than corrected in place - they are
-the arguments the amendments act on, and rewriting them would leave a reader unable to tell which
-half was decided when.
+*Second amendment: the attribution document, and the licence report as a signed asset*. **The first
+amendment closes the crate-graph gap** and is at the bottom under *Amendment: the crate graph moved
+inside the binary*. The paragraphs between them are kept as written rather than corrected in place -
+they are the arguments the amendments act on, and rewriting them would leave a reader unable to tell
+which half was decided when.
 
 **Nothing here signs source, gates a merge, or says an artefact is good.** The scope is one
 question - *are these bytes the ones this pipeline emitted* - and the rest of this record is mostly
@@ -377,7 +377,7 @@ rendered differently cannot pass here and fail at the tag.
 red tag, after four cross builds and two manifest lists have been paid for, on a branch that has
 already merged.
 
-## Amendment: the attribution document, and the licence report as a signed asset
+## Second amendment: the attribution document, and the licence report as a signed asset
 
 **This record's *Not claimed* list said *"There is no attribution document, and `NOTICE` still says
 nothing about third-party crates."* There is one now, and the licence report is no longer a CI

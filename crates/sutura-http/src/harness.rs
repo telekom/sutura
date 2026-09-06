@@ -18,7 +18,6 @@ use axum::http::{Request, StatusCode};
 use sutura_config::{Environment, Settings, Sources};
 use tower::ServiceExt as _;
 
-use crate::state::ServiceState;
 use crate::surface::LocalService;
 use crate::testing::{
     bundle, call, catalog_of, fake_warehouse, request, sink, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
@@ -483,7 +482,7 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     let (engine, held) = warehouse_that_can_be_held();
     let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
         .expect("the test bundle validates");
-    let app = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
+    let app = crate::router(&crate::testing::state_over(Arc::new(service), settings)).expect("the test router assembles");
     held.arm();
 
     let (status, body) = call(
@@ -561,7 +560,7 @@ async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
     // runs. What can only be asserted here is that the ROUTER produces handles at all - the leak
     // existed because `GovernorLayer::new(Arc::new(config))` was the last anyone saw of the
     // configuration, so there was nothing left to sweep.
-    let assembled = crate::assemble(&ServiceState::new(
+    let assembled = crate::assemble(&crate::testing::state_over(
         Arc::new(
             LocalService::start(
                 &catalog_of(bundle()),
@@ -572,10 +571,10 @@ async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
             )
             .expect("the test bundle validates"),
         ),
-        Arc::new(settings(
+        settings(
             Environment::Development,
             &format!("security:\n  access_token: \"{TOKEN}\"\nrate_limit:\n  enabled: true\n"),
-        )),
+        ),
     ))
     .expect("the test router assembles");
     let tiers: Vec<&str> = assembled

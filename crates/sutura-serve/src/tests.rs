@@ -933,6 +933,37 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
 }
 
 #[test]
+fn the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for() {
+    // `github.com/telekom/sutura#366`. The refusal used to tell an operator to "build the binary
+    // with the feature that provides it". `sutura-serve` declares `tls` and `bigquery` and nothing
+    // else, and does not depend on the DataHub adapter in any form - so no `--features` value
+    // satisfied that sentence and the remedy was unactionable.
+    //
+    // What is asserted is the ABSENCE of the instruction rather than a wording: a refusal here may
+    // say what this binary cannot do, and must not send a reader after a feature that does not
+    // exist. `cargo xtask check-feature-remedies` is the same rule over every crate's messages.
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+    let datahub = CatalogSettings::parse(
+        SourceName::parse("model").expect("a test name is a name"),
+        CatalogKind::Datahub,
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+    )
+    .expect("a directory and a version are a settings");
+    let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
+    let err = super::catalog::open_catalog(&catalogs).expect_err("datahub cannot be opened by this build");
+    assert!(
+        !err.contains("feature"),
+        "the refusal may not send an operator after a feature this crate does not declare: {err}"
+    );
+    // The reachable kind is still offered, so the message stays actionable.
+    assert!(err.contains("markdown"), "{err}");
+}
+
+#[test]
 fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     // Step 4 of the issue: the settings DECLARE several metadata sources and the composition root
     // opens one adapter per entry, so there is no longer anything here to refuse - the refusal a

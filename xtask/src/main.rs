@@ -9,6 +9,7 @@
 
 mod action_shell;
 mod api_docs;
+mod api_links;
 mod arrow_major;
 mod attribution;
 mod boot_order;
@@ -25,6 +26,7 @@ mod default_feature_tests;
 mod default_features;
 mod docs;
 mod examples;
+mod feature_remedies;
 mod fmt;
 mod gate_classification;
 mod guidance;
@@ -35,6 +37,7 @@ mod line_endings;
 mod markdown;
 mod max_lines;
 mod newtype_leaks;
+mod one_bound;
 mod pins;
 mod refusals;
 mod repo;
@@ -277,6 +280,16 @@ const TASKS: &[Task] = &[
         run: refusals::run,
     },
     Task {
+        // Beside `check-refusal-coverage` because it is the other half of the same subject: that
+        // one asks whether a refusal can be provoked, this one whether the REMEDY it prints can be
+        // acted on. `github.com/telekom/sutura#246` made a gate's own remedy resolve; this is the
+        // same rule where the claim is about the manifest rather than about the justfile.
+        name: "check-feature-remedies",
+        description: "a refusal that says to rebuild names a feature the crate declares",
+        kind: Kind::Hygiene(Reads::Code),
+        run: feature_remedies::run,
+    },
+    Task {
         // The third of the newtype rules held by a check, beside `check-serde-parse`. It starts
         // GREEN - there was no first-party `Deref` and no `Borrow` in the tree when it was written
         // - so its whole job is to keep it that way, which makes it the cheapest gate here and the
@@ -296,6 +309,16 @@ const TASKS: &[Task] = &[
         description: "the pre-flight runs after the credential and before the transport",
         kind: Kind::Hygiene(Reads::Code),
         run: boot_order::run,
+    },
+    Task {
+        // Beside `check-boot-order` because it is the same shape of gate over the same files: a
+        // property of a composition root that no signature can hold, read as text. That one holds an
+        // ORDER of calls, this one holds a COUNT of them - `sutura_runtime::admission` says a process
+        // builds one bound and, until `github.com/telekom/sutura#340`, nothing said it twice.
+        name: "check-one-bound",
+        description: "one composition root builds one execution bound, and a transport builds none",
+        kind: Kind::Hygiene(Reads::Code),
+        run: one_bound::run,
     },
     Task {
         // The third of that shape, and the one whose failure mode is the most expensive to
@@ -397,6 +420,16 @@ const TASKS: &[Task] = &[
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene(Reads::Prose),
         run: docs::run,
+    },
+    Task {
+        // Beside `check-docs` because both read published pages, and a DIFFERENT concern: that one
+        // asks whether a destination resolves to a page in this tree, this one whether the
+        // destination is a URL at all. It is in the cheap sweep and `check-api-docs` is not,
+        // because this reads the committed pages as text - no rustdoc, no nightly, no registry.
+        name: "check-api-links",
+        description: "no page under docs/api links to a Rust path",
+        kind: Kind::Hygiene(Reads::Prose),
+        run: api_links::run,
     },
     Task {
         // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the

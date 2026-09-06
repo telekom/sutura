@@ -779,6 +779,45 @@ mod tests {
     }
 
     #[test]
+    fn a_deployments_reply_deadline_reaches_the_spawned_surface() {
+        // **`telekom/sutura#339` at the layer that can prove the WIRING: a settings file this
+        // process read.** The chain is `base.yaml` -> `Settings::load` -> `crate::mcp::serve` ->
+        // `mcp_service` -> `serve_stdio` -> `AgentSurface`, and the only thing this test supplies is
+        // the file. What the number then DOES to a question in flight is `sutura_mcp::server`'s own
+        // suite, over a fake that can be HELD - which is the only way to see a deadline fire, since
+        // a real engine answers the example in milliseconds. The same split the execution bound's
+        // test above states.
+        //
+        // Read off the startup notice, for that test's reason: it is where this process states its
+        // own limits on the log channel, and `stdout` here is the protocol.
+        let embedded = sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
+            .expect("the embedded defaults load")
+            .server()
+            .request_timeout()
+            .seconds();
+        let mut agent = spawn_configured(None);
+        let notice = agent.expect_log("grants every capability");
+        assert!(
+            notice.contains(&format!("after {embedded} seconds")),
+            "the notice does not state the embedded reply deadline of {embedded}: {notice}"
+        );
+        drop(agent.initialize());
+        assert!(agent.close().success(), "the process did not exit cleanly");
+
+        // And a deployment that says something else gets what it said. Seven, which no default
+        // carries, so a root that read nothing fails this half.
+        let dir = settings_tree("mcp-reply-deadline", "server:\n  request_timeout_seconds: 7\n");
+        let mut agent = spawn_configured(Some(&dir));
+        let notice = agent.expect_log("grants every capability");
+        assert!(
+            notice.contains("after 7 seconds"),
+            "the configured reply deadline did not reach the served surface: {notice}"
+        );
+        drop(agent.initialize());
+        assert!(agent.close().success(), "the process did not exit cleanly");
+    }
+
+    #[test]
     fn closing_the_pipe_stops_the_process() {
         // The shutdown path this transport actually has. An agent client that is finished closes its
         // end; `rmcp` sees end-of-file, `serve_stdio` returns, and `crate::mcp` spends its

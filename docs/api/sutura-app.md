@@ -561,7 +561,7 @@ pub enum Tool
 
 One operation a transport exposes.
 
-Two variants, because [`Surface`](crate::surface::Surface) has two methods and this enum is the
+Two variants, because `Surface` has two methods and this enum is the
 prompt's name for each. It is a list rather than a constant because the point is that a caller
 passes the subset it actually mounts: `Tool::ALL` is what a transport serving the whole surface
 passes, and a deployment that mounts only one passes only that one.
@@ -574,8 +574,8 @@ stops mounting the listing - costs a debugging session.
 
 #### Variants
 
-- `Catalog` - Reading what this deployment defines. `GET /v1/catalog`, `sutura catalog`, and whatever an MCP transport would call it. [`Surface::definitions`](crate::surface::Surface::definitions).
-- `Query` - Asking one certified question. [`Surface::answer`](crate::surface::Surface::answer).
+- `Catalog` - Reading what this deployment defines. `GET /v1/catalog`, `sutura catalog`, and whatever an MCP transport would call it. `Surface::definitions`.
+- `Query` - Asking one certified question. `Surface::answer`.
 
 #### Methods
 
@@ -1272,7 +1272,7 @@ The tables a data system does not hold, each with the models that named it.
 **Keyed by the TABLE and carrying the models, because that is the direction a refusal reads in:**
 the data system answered about a table, and the operator has to open a model to fix it. Two
 models over one table is ordinary - a bundle may declare several over one fact table - so the
-value is a set, and [`Display`](fmt::Display) renders every one of them.
+value is a set, and `Display` renders every one of them.
 
 Non-empty by construction: it is built only from a `TablesPresent::AllBut`, whose own newtype
 refuses an empty set, so a refusal that names nothing is unrepresentable rather than checked.

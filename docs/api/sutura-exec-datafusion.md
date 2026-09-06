@@ -261,7 +261,7 @@ pub struct WorkingSet
 How many bytes the engine's operators may reserve at once.
 
 **A newtype for the unit rather than for a range**, and that is the whole of its job:
-[`DataFusionWarehouse::with_worker_threads`](crate::DataFusionWarehouse::with_worker_threads)
+`DataFusionWarehouse::with_worker_threads`
 already takes a `NonZeroUsize` for a thread count, so a second bare `NonZeroUsize` beside it would
 be two arguments of one type whose meanings are a width and a quantity of memory. Swapping them
 compiles and installs a three-byte pool. Wrapped, the swap does not build.
