@@ -498,12 +498,18 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                     // run rather than read off the run. `reverted` owns the argument; the point of
                     // asking here is that `separable` is the last place both halves of it exist -
                     // what is being put back, and which files' tests are being measured.
+                    // THE BASE IMAGE IS A SECOND READER, because a removed line exists only
+                    // there: `reverted` asks whether it sat inside a test region of the tree the
+                    // revert restores, and the post-image cannot answer a question about a line it
+                    // does not contain.
+                    let base_tree = |path: &str| worktree::at_base(&root, &at, path);
                     let reach = Attempts::of(
                         &separable.revert,
                         &separable.held(),
                         &separable.test_files,
                         &files,
                         &working_tree,
+                        &base_tree,
                     );
                     prove(&root, &at, &separable, &scoped, &coverage, &reach)
                 }

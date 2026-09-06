@@ -78,10 +78,27 @@
 //!   `github.com/telekom/sutura#358` left open. A production change in an unrelated package is
 //!   still `Behaviour`, so this closes none of that - it is strictly the *no line any test could
 //!   execute* half.
-//! * **A removed line's position.** `super::diff::RemovedLine` anchors a removal beside the gap it
-//!   left, on a side that depends on the hunk shape, so [`neighbourhood`] asks about all three
-//!   lines. The first version asked about one and claimed the error direction was `Behaviour`;
-//!   review falsified both, end to end, and that paragraph now sits on the type.
+//! * **A removed line is asked of the BASE image, and it took two goes to get there.** The first
+//!   version anchored a removal beside the gap in the POST-image and required its neighbourhood to
+//!   be test code; review drove a pure deletion between two `#[cfg(test)] mod x;` declarations,
+//!   where both neighbours are inside regions and the deleted production line is not in the
+//!   post-image at all, and a non-causal diff went from `FAILED` exit 1 to `INCONCLUSIVE` exit 3.
+//!   `super::diff::RemovedLine` carries its pre-image number now and this reads the base tree, so
+//!   the question is exact rather than approximated - and the limit that paragraph asserted was
+//!   the reverse of the truth, which is the defect this repository names before the code one.
+//! * **`super::regions` DECIDES THE ANSWER FOR BOTH IMAGES NOW, and the two hazards above compose.**
+//!   `item_end` extends a region to the end of the file when braces never balance, so an
+//!   unbalanced `#[cfg(test)] mod demo {` inside a base-image fixture string would put every
+//!   production line below it inside a region - and every removal below it would be excused. Each
+//!   ingredient is stated on its own above; what is new here is that this module feeds one to the
+//!   other, in a gate where the output is whether a FAILED is suppressed.
+//! * **A `/tests/` PATH IS WHOLLY TEST CODE BY PREDICATE, not by inspection.**
+//!   `regions::is_dedicated_test_target` answers `WholeFile` for any path containing `/tests/`,
+//!   which is right for a cargo integration target and is a guess for a `src/**/tests/` module.
+//!   All four such module roots in this tree are `#[cfg(test)]`-gated today; an ungated one would
+//!   be excused wholesale. This module promoted that predicate from deciding separability to
+//!   deciding whether a FAILED is suppressed, which is the same promotion the paragraph above
+//!   records for `regions` generally.
 //!
 //! **AND IT HAS A FALSIFIER RATHER THAN ONLY AN ARGUMENT.** *Out of reach* and *a red base run*
 //! are contradictory answers about one run: this module says the revert restores nothing a test can
@@ -108,13 +125,24 @@
 
 use std::collections::BTreeSet;
 
-use crate::Verdict;
+// THE WORDS, in their own file for the seam `plan`/`remedies` already draws here: everything in
+// this module decides what a revert can reach, and everything in `verdict` says it. A child rather
+// than a sibling because the sentence reads `Excused`'s private fields, which is exactly the
+// coupling that argues for keeping the two together.
+pub(crate) mod verdict;
 
 use super::diff::ChangedFile;
 use super::names::CargoName;
 use super::place;
 use super::provenance::Reach;
 use super::regions::{PostImage, TestScope, scope};
+
+/// Reads a file's content AT THE BASE COMMIT - the tree a revert restores.
+///
+/// Same shape as `super::regions::PostImage` and deliberately a different name: a removed line is
+/// numbered in the pre-image and asking the post-image about it is what review falsified. The gate
+/// passes `super::worktree::at_base`; the tests pass a fixed map.
+pub(crate) type BaseImage<'reader> = dyn Fn(&str) -> Option<String> + 'reader;
 
 /// What the revert restores, AS FAR AS THE TESTS IN SCOPE CAN SEE - which is what a green base run
 /// is then evidence of.
@@ -138,7 +166,13 @@ impl Reverted {
     /// An EMPTY revert set is [`Self::Behaviour`] as well, and deliberately: `Nothing(vec![])`
     /// would be a claim about the partition with nothing in the output to read it off. That case
     /// has its own arm anyway - `super::remedies::report_nothing_to_revert` - and never arrives.
-    pub(crate) fn of(revert: &[String], test_files: &[String], files: &[ChangedFile], read: &PostImage<'_>) -> Self {
+    pub(crate) fn of(
+        revert: &[String],
+        test_files: &[String],
+        files: &[ChangedFile],
+        read: &PostImage<'_>,
+        at_base: &BaseImage<'_>,
+    ) -> Self {
         if revert.is_empty() {
             return Self::Behaviour;
         }
@@ -150,7 +184,7 @@ impl Reverted {
             let Some(file) = files.iter().find(|changed| changed.path == *path) else {
                 return Self::Behaviour;
             };
-            let Some(one) = excuse(file, &measured, read) else {
+            let Some(one) = excuse(file, &measured, read, at_base) else {
                 return Self::Behaviour;
             };
             excused.push(one);
@@ -189,11 +223,12 @@ impl Attempts {
         test_files: &[String],
         files: &[ChangedFile],
         read: &PostImage<'_>,
+        at_base: &BaseImage<'_>,
     ) -> Self {
         let everything: Vec<String> = revert.iter().chain(held.iter()).cloned().collect();
         Self {
-            first: Reverted::of(revert, test_files, files, read),
-            retried: Reverted::of(&everything, test_files, files, read),
+            first: Reverted::of(revert, test_files, files, read, at_base),
+            retried: Reverted::of(&everything, test_files, files, read, at_base),
         }
     }
 
@@ -208,92 +243,6 @@ impl Attempts {
 pub(crate) struct Excused {
     path: String,
     why: Why,
-}
-
-impl Excused {
-    /// The file this excuses, for the contradiction `super::base` prints beside a red base run.
-    pub(crate) fn path(&self) -> &str {
-        &self.path
-    }
-
-    /// The line the verdict prints for it.
-    pub(crate) fn line(&self) -> String {
-        match self.why {
-            Why::SameProgram => format!("    out of reach: {}  (blank lines and comments only)", self.path),
-            Why::TestCodeElsewhere(ref package) => format!(
-                "    out of reach: {}  (`{}` test code, and no test in scope is in `{}`)",
-                self.path,
-                package.as_str(),
-                package.as_str()
-            ),
-        }
-    }
-}
-
-/// Say that a green base run measured the partition, and how each reverted file is out of reach.
-///
-/// **The sentence lives beside the rule that decides it.** Every other verdict arm's words live in
-/// `super::base`; this one's whole content is which excuse applied to which file, so an excuse and
-/// the words explaining it are one thing to keep true rather than two. It also kept that module
-/// under the unexemptable 1000-line cap, which is the honest second reason.
-pub(crate) fn explain(excused: &[Excused], measured: &str) -> Verdict {
-    for line in unreachable_lines(excused, measured) {
-        println!("{line}");
-    }
-    Verdict::Inconclusive
-}
-
-/// Every line [`explain`] prints, in order.
-///
-/// PURE for the reason `super::remedies::scope_lines` is: nothing in this venue captures stdout,
-/// and what a verdict may CLAIM is exactly the thing an assertion has to be able to read. The claim
-/// that matters here is that each excused file is NAMED - a verdict saying *nothing was in reach*
-/// over a list nobody printed is the shape this gate has already been wrong in twice.
-fn unreachable_lines(excused: &[Excused], measured: &str) -> Vec<String> {
-    let mut lines = vec![String::from(
-        "  base: green - and nothing that was reverted is in reach of the tests in scope",
-    )];
-    lines.extend(excused.iter().map(Excused::line));
-    lines.push(String::new());
-    lines.extend(
-        [
-            "xtask test-causality: INCONCLUSIVE - the revert could not have reddened these tests.",
-            "Every file this run put back at base restores no line a test in scope can execute,",
-            "so they passed there for a reason that is a fact about the PARTITION rather than",
-            "about them: nothing that could have made them red was reverted. That is the argument",
-            "a build input already gets - a file that cannot be the thing under test proves",
-            "nothing when it is reverted - reaching a file that WAS reverted.",
-            "It is not a pass: this run carries NO red-before-green evidence. Prove each added",
-            "test by MUTATION - break what it claims, one at a time, scoped to a whole test",
-            "binary and never to a name pattern - or, if the change really is test-only, say",
-            "plainly that it is not a regression test.",
-        ]
-        .map(String::from),
-    );
-    lines.push(format!(
-        "This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}."
-    ));
-    lines
-}
-
-/// The lines a RED base run prints when this module said the revert could not reach these tests.
-///
-/// **A FALSIFIER, from two different places.** This module reads the diff and says the revert
-/// restores nothing a scoped test can execute; nextest says a scoped test failed once it was
-/// restored. Both cannot be right, and the pairing is the only evidence available that the reach
-/// rule has a hole in it. Empty for [`Reverted::Behaviour`], because there is no claim to
-/// contradict - so the ordinary passing run prints nothing new.
-pub(crate) fn contradiction(reverted: &Reverted) -> Vec<String> {
-    reverted
-        .out_of_reach()
-        .iter()
-        .map(|one| {
-            format!(
-                "    CONTRADICTED: {} was classified as out of reach of these tests",
-                one.path()
-            )
-        })
-        .collect()
 }
 
 /// Which of the two arguments excuses a reverted file.
@@ -318,7 +267,7 @@ fn packages(test_files: &[String], read: &PostImage<'_>) -> Option<BTreeSet<Stri
 }
 
 /// The argument that excuses reverting `file`, if there is one.
-fn excuse(file: &ChangedFile, measured: &BTreeSet<String>, read: &PostImage<'_>) -> Option<Excused> {
+fn excuse(file: &ChangedFile, measured: &BTreeSet<String>, read: &PostImage<'_>, at_base: &BaseImage<'_>) -> Option<Excused> {
     // A page, a recipe or a nix file is the implementation of every test that READS it, and
     // nothing here reads which - so neither argument below is available for one. `//` is not a
     // comment in markdown either, which would make the first one plainly wrong there.
@@ -339,8 +288,7 @@ fn excuse(file: &ChangedFile, measured: &BTreeSet<String>, read: &PostImage<'_>)
             why: Why::SameProgram,
         });
     }
-    let within = scope(&file.path, read);
-    if !only_its_own_tests(file, &within) {
+    if !only_its_own_tests(file, &scope(&file.path, read), &scope(&file.path, at_base)) {
         return None;
     }
     let package = place::package(&file.path, read)?;
@@ -350,11 +298,14 @@ fn excuse(file: &ChangedFile, measured: &BTreeSet<String>, read: &PostImage<'_>)
     })
 }
 
-/// Every line this diff changed in `file`, added and removed, with the post-image line each sits
-/// at - the gap a removal left, per [`super::diff::RemovedLine`].
-fn changed_lines(file: &ChangedFile) -> impl Iterator<Item = (usize, &str)> {
-    let added = file.added.iter().map(|line| (line.number, line.text.as_str()));
-    let removed = file.removed.iter().map(|line| (line.anchor, line.text.as_str()));
+/// Every line this diff changed in `file`, added and removed, as text.
+///
+/// No numbers: the two sides are numbered in different images, and the only question this feeds -
+/// *is every changed line inert* - does not need a position. [`only_its_own_tests`] asks the one
+/// that does, per side.
+fn changed_lines(file: &ChangedFile) -> impl Iterator<Item = &str> {
+    let added = file.added.iter().map(|line| line.text.as_str());
+    let removed = file.removed.iter().map(|line| line.text.as_str());
     added.chain(removed)
 }
 
@@ -376,8 +327,7 @@ fn changed_lines(file: &ChangedFile) -> impl Iterator<Item = (usize, &str)> {
 ///
 /// `////` and longer runs are ordinary comments in Rust and are refused here anyway: the prefix
 /// test cannot separate them, and refusing is the direction that keeps a failure a failure.
-fn inert(line: (usize, &str)) -> bool {
-    let (_, text) = line;
+fn inert(text: &str) -> bool {
     let trimmed = text.trim();
     let plain_comment = trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("//!");
     trimmed.is_empty() || plain_comment
@@ -389,36 +339,19 @@ fn inert(line: (usize, &str)) -> bool {
 /// shape is both at once: a comment corrected at the top of a file and an assertion rewritten in
 /// its `mod tests`. Neither line can reach another package's build, for its own reason.
 ///
-/// **AN ADDED LINE HAS A POSITION; A REMOVED ONE HAS A GAP, and asking about one side of it was a
-/// door.** `super::diff::RemovedLine`'s anchor is the last surviving line before the gap for a pure
-/// deletion and the first replacement line for a replacement, and `regions`' ranges INCLUDE the
-/// region's own closing line - so a production deletion immediately after a
-/// `#[cfg(test)] mod x;` anchored on that declaration and read as test code. Review drove it end to
-/// end against a two-package workspace: `INCONCLUSIVE`, exit 3, over a diff whose head compiles
-/// differently and whose added test pins the old behaviour. [`neighbourhood`] is the fix, and it is
-/// deliberately blunt.
-fn only_its_own_tests(file: &ChangedFile, within: &TestScope) -> bool {
-    let added = file
-        .added
-        .iter()
-        .all(|line| inert((line.number, &line.text)) || within.covers(line.number));
-    let removed = file
-        .removed
-        .iter()
-        .all(|line| inert((line.anchor, &line.text)) || neighbourhood(within, line.anchor));
+/// **EACH LINE IS ASKED OF THE IMAGE IT EXISTS IN, and getting that wrong was a door.** An added
+/// line is in the post-image and `head` answers for it. A removed line is in the PRE-image only,
+/// so `base` answers for it - and the first version instead took a post-image anchor beside the
+/// gap and required its whole neighbourhood to be test code. Review drove a pure deletion between
+/// two `#[cfg(test)] mod x;` declarations: both surviving neighbours are inside regions, the
+/// deleted production line is not in the post-image at all, and a genuinely non-causal diff went
+/// from `FAILED` exit 1 to `INCONCLUSIVE` exit 3. That doc claimed the error direction was a
+/// failure that stays a failure; it was the opposite, which is the one direction this module may
+/// not be wrong in.
+fn only_its_own_tests(file: &ChangedFile, head: &TestScope, base: &TestScope) -> bool {
+    let added = file.added.iter().all(|line| inert(&line.text) || head.covers(line.number));
+    let removed = file.removed.iter().all(|line| inert(&line.text) || base.covers(line.before));
     added && removed
-}
-
-/// Is the whole neighbourhood of a gap at `anchor` test code?
-///
-/// **All three lines, because the anchor names one side of the gap and WHICH side depends on the
-/// hunk.** Deriving the exact side would mean reading the new-side COUNT out of every hunk header
-/// and threading two numbers where one is; asking for `anchor - 1`, `anchor` and `anchor + 1`
-/// costs a line and is correct for both shapes plus any context width. What it costs is precision
-/// at a region's first line, where a removal is refused an excuse it might have earned - and that
-/// direction is a failure that stays a failure, which is this gate's default and not a new one.
-fn neighbourhood(within: &TestScope, anchor: usize) -> bool {
-    within.covers(anchor.saturating_sub(1)) && within.covers(anchor) && within.covers(anchor + 1)
 }
 
 #[cfg(test)]
@@ -440,6 +373,7 @@ mod tests {
                 "crates/app/src/prompt/tests.rs",
                 529,
                 &["    assert!(text.contains(&format!(\"At most {MAX} rows\")));"],
+                529,
                 &["    assert!(text.contains(&MAX.to_string()));"],
             ),
             changed(
@@ -454,6 +388,7 @@ mod tests {
                 "crates/runtime/src/banner.rs",
                 345,
                 &["        assert_eq!(layers, path);"],
+                345,
                 &["        assert!(!layers.contains(PORT));"],
             ),
             changed(
@@ -508,6 +443,7 @@ mod tests {
             ],
             &[String::from("crates/http/src/inbound/tests.rs")],
             &files,
+            &read,
             &read,
         )
     }
@@ -594,7 +530,7 @@ mod tests {
             String::from("crates/runtime/src/banner.rs"),
         ];
         let measured = vec![String::from("crates/http/src/inbound/tests.rs")];
-        let verdict = Reverted::of(&revert, &measured, &files, &read);
+        let verdict = Reverted::of(&revert, &measured, &files, &read, &read);
         let lines: Vec<String> = verdict.out_of_reach().iter().map(Excused::line).collect();
         assert_eq!(lines.len(), 3, "{verdict:?}");
         assert!(
@@ -634,7 +570,7 @@ mod tests {
         ]);
         let revert = vec![String::from("crates/x/src/parse.rs")];
         let measured = vec![String::from("crates/x/src/parse/tests.rs")];
-        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read, &read), Reverted::Behaviour);
 
         // AND AN ATTRIBUTE IS A PROGRAM, which is where this module's `inert` has to be NARROWER
         // than `super::regions`'. That one exempts an attribute wherever it lands, because it is
@@ -644,7 +580,10 @@ mod tests {
             changed("crates/x/src/parse.rs", 12, &["#[derive(Clone)]"]),
             changed("crates/x/src/parse/tests.rs", 4, &["#[test]", "fn a_name_still_parses() {}"]),
         ];
-        assert_eq!(Reverted::of(&revert, &measured, &attributed, &read), Reverted::Behaviour);
+        assert_eq!(
+            Reverted::of(&revert, &measured, &attributed, &read, &read),
+            Reverted::Behaviour
+        );
     }
 
     #[test]
@@ -658,6 +597,7 @@ mod tests {
                 "crates/x/src/harness.rs",
                 6,
                 &["    fn fixture() -> u8 { 2 }"],
+                6,
                 &["    fn fixture() -> u8 { 1 }"],
             ),
             changed(
@@ -674,20 +614,21 @@ mod tests {
         ]);
         let revert = vec![String::from("crates/x/src/harness.rs")];
         let measured = vec![String::from("crates/x/src/thing/tests.rs")];
-        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read, &read), Reverted::Behaviour);
     }
 
     #[test]
     fn a_deletion_of_production_code_is_in_reach_though_it_added_nothing() {
         // WHY `super::super::diff::RemovedLine` EXISTS. Reading additions only, this file changed
         // nothing but a comment - and reverting it puts a guard clause back into a function the
-        // measured test calls. `changed_removing` anchors the removal at the hunk, which is
-        // outside the file's test region.
+        // measured test calls. The removal sits at pre-image line 9, outside every region of
+        // the base file.
         let files = vec![
             changed_removing(
                 "crates/x/src/guard.rs",
                 9,
                 &["    // the early return is gone"],
+                9,
                 &["    if wrong { return Err(e); }"],
             ),
             changed("crates/x/tests/guarded.rs", 1, &["#[test]", "fn it_no_longer_refuses() {}"]),
@@ -699,7 +640,7 @@ mod tests {
         ]);
         let revert = vec![String::from("crates/x/src/guard.rs")];
         let measured = vec![String::from("crates/x/tests/guarded.rs")];
-        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read, &read), Reverted::Behaviour);
     }
 
     #[test]
@@ -736,6 +677,7 @@ mod tests {
             &[String::from("crates/x/src/other/tests.rs")],
             &files,
             &read,
+            &read,
         );
         // First attempt: only another package's test code went back, so a green run there measured
         // the partition rather than the tests.
@@ -745,75 +687,92 @@ mod tests {
     }
 
     #[test]
-    fn the_inconclusive_verdict_names_every_file_it_excused_and_claims_no_proof() {
-        // WHAT THE SENTENCE MAY SAY. A verdict asserting *nothing reverted was in reach* over a
-        // list nobody printed is a claim with no witness, which is the defect class this gate has
-        // already carried twice. So every excused file is named, and the same paste says in words
-        // that the run proved nothing - the exit code alone has been misread here before.
-        let excused = out_of_reach();
-        let lines = super::unreachable_lines(excused.out_of_reach(), "1 of 1 added tests measured");
-        for path in [
-            "crates/app/src/prompt/tests.rs",
-            "crates/http/src/identity_e2e.rs",
-            "crates/runtime/src/banner.rs",
-        ] {
-            assert!(lines.iter().any(|line| line.contains(path)), "{path} is not named: {lines:?}");
-        }
-        assert!(
-            lines
-                .iter()
-                .any(|line| line.contains("INCONCLUSIVE (code 3) rather than a pass")),
-            "{lines:?}"
-        );
-        assert!(
-            lines.iter().any(|line| line.contains("NO red-before-green evidence")),
-            "{lines:?}"
-        );
-    }
-
-    #[test]
-    fn a_red_run_contradicts_this_rule_per_file_and_an_ordinary_pass_prints_nothing() {
-        // The falsifier's own shape: it says which file the contradiction is about, and it is
-        // silent on every run where no excuse was given - so a passing verdict does not grow a
-        // line for a claim nobody made.
-        assert!(super::contradiction(&Reverted::Behaviour).is_empty());
-        let lines = super::contradiction(&out_of_reach());
-        assert_eq!(lines.len(), 3, "{lines:?}");
-        assert!(lines.iter().all(|line| line.contains("CONTRADICTED")), "{lines:?}");
-    }
-
-    #[test]
-    fn a_production_deletion_after_a_test_module_declaration_is_in_reach() {
-        // THE DOOR REVIEW DROVE A NON-CAUSAL DIFF THROUGH, end to end, to `INCONCLUSIVE` exit 3.
-        // `#[cfg(test)] mod probe;` is a one-line region, `regions` includes its own last line, and
-        // a pure deletion of the production line under it anchors ON that declaration. Asking
-        // about the anchor alone called a deleted `use` statement test code; asking about the whole
-        // neighbourhood does not, because the line after the gap is production.
-        let files = vec![
-            changed_removing("crates/pkg-a/src/lib.rs", 2, &[], &["use strict::accepts;"]),
-            changed("crates/pkg-b/tests/pinned.rs", 2, &["#[test]", "fn a_pinned_cell() {}"]),
-        ];
-        let read = tree(&[
+    fn a_production_deletion_between_two_test_declarations_is_in_reach() {
+        // THE DOOR REVIEW DROVE A NON-CAUSAL DIFF THROUGH, twice, end to end to `INCONCLUSIVE`
+        // exit 3 on a real two-package workspace whose `check(5)` flips when the deleted `use` is
+        // restored. Both surviving neighbours of the gap are inside `#[cfg(test)]` regions, so a
+        // post-image neighbourhood check excused it - while the line it removed is production code
+        // that is not in the post-image at all. The pre-image is where that line lives, and it is
+        // outside both regions there.
+        let base = tree(&[
             ("crates/pkg-a/Cargo.toml", &manifest("pkg-a")),
             ("crates/pkg-b/Cargo.toml", &manifest("pkg-b")),
-            // Line 1 is the attribute, line 2 the declaration - so the region is 1..=2 and the
-            // deleted line's anchor, 2, is inside it. Line 3 is production.
             (
                 "crates/pkg-a/src/lib.rs",
-                "#[cfg(test)]\nmod probe;\nuse loose::*;\npub fn accepts() {}\n",
+                "#[cfg(test)]\nmod probe;\nuse crate::strict::accepts;\n#[cfg(test)]\nmod probe2;\npub fn check(x: u8) -> bool { accepts(x) }\n",
             ),
-            ("crates/pkg-b/tests/pinned.rs", "#[test]\nfn a_pinned_cell() {}\n"),
+            ("crates/pkg-b/tests/pinned.rs", "fn placeholder() {}\n"),
         ]);
+        // The post-image the neighbourhood check used to read: line 3 is now the second
+        // declaration, so 2, 3 and 4 are all inside a region.
+        let head = tree(&[
+            ("crates/pkg-a/Cargo.toml", &manifest("pkg-a")),
+            ("crates/pkg-b/Cargo.toml", &manifest("pkg-b")),
+            (
+                "crates/pkg-a/src/lib.rs",
+                "#[cfg(test)]\nmod probe;\n#[cfg(test)]\nmod probe2;\npub fn check(x: u8) -> bool { accepts(x) }\n",
+            ),
+            (
+                "crates/pkg-b/tests/pinned.rs",
+                "fn placeholder() {}\n#[test]\nfn five_is_accepted() {}\n",
+            ),
+        ]);
+        let files = vec![
+            changed_removing("crates/pkg-a/src/lib.rs", 2, &[], 3, &["use crate::strict::accepts;"]),
+            changed("crates/pkg-b/tests/pinned.rs", 2, &["#[test]", "fn five_is_accepted() {}"]),
+        ];
         let revert = vec![String::from("crates/pkg-a/src/lib.rs")];
         let measured = vec![String::from("crates/pkg-b/tests/pinned.rs")];
-        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
-        // The neighbourhood is what decides it: inside the region on every side, it is test code.
-        let within = crate::causality::regions::scope("crates/pkg-a/src/lib.rs", &read);
-        assert!(!super::neighbourhood(&within, 2), "the line after the gap is production");
-        let whole = crate::causality::regions::scope("crates/pkg-b/tests/pinned.rs", &read);
+        assert_eq!(
+            Reverted::of(&revert, &measured, &files, &head, &base),
+            Reverted::Behaviour,
+            "a deleted production line is not test code because its neighbours are"
+        );
+        // AND THE SHAPE THAT MADE IT WRONG, pinned so the two images cannot be confused again:
+        // read against the POST-image the removal looks covered, and it is not.
+        let after = crate::causality::regions::scope("crates/pkg-a/src/lib.rs", &head);
+        let before = crate::causality::regions::scope("crates/pkg-a/src/lib.rs", &base);
+        assert!(after.covers(3), "the post-image has a declaration at 3");
+        assert!(!before.covers(3), "the pre-image had production code at 3");
+    }
+
+    #[test]
+    fn an_added_test_module_is_judged_by_the_image_it_exists_in() {
+        // THE MIRROR OF THE CASE ABOVE, and it had no test until a mutation went green: an ADDED
+        // line lives in the post-image and must be asked of it. This diff appends a whole
+        // `#[cfg(test)] mod tests { .. }` to a file that had no region at all, so asking the BASE
+        // about those lines answers "production" for every one of them and the excuse is lost.
+        // Both directions are wrong in some direction; only the image each line exists in is right.
+        let base = tree(&[
+            ("crates/other/Cargo.toml", &manifest("other")),
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/other/src/thing.rs", "pub fn thing() {}\n"),
+            ("crates/x/src/parse/tests.rs", "#[test]\nfn a_new_cell() {}\n"),
+        ]);
+        let head = tree(&[
+            ("crates/other/Cargo.toml", &manifest("other")),
+            ("crates/x/Cargo.toml", &manifest("x")),
+            (
+                "crates/other/src/thing.rs",
+                "pub fn thing() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn a_cell() {}\n}\n",
+            ),
+            ("crates/x/src/parse/tests.rs", "#[test]\nfn a_new_cell() {}\n"),
+        ]);
+        let files = vec![
+            changed(
+                "crates/other/src/thing.rs",
+                2,
+                &["#[cfg(test)]", "mod tests {", "    #[test]", "    fn a_cell() {}", "}"],
+            ),
+            changed("crates/x/src/parse/tests.rs", 2, &["#[test]", "fn a_new_cell() {}"]),
+        ];
+        let revert = vec![String::from("crates/other/src/thing.rs")];
+        let measured = vec![String::from("crates/x/src/parse/tests.rs")];
         assert!(
-            super::neighbourhood(&whole, 2),
-            "a dedicated test target is test code on every side of any gap"
+            !Reverted::of(&revert, &measured, &files, &head, &base)
+                .out_of_reach()
+                .is_empty(),
+            "the added lines are inside the region the POST-image has"
         );
     }
 
@@ -835,7 +794,7 @@ mod tests {
         ]);
         let revert = vec![String::from("crates/x/src/render.rs")];
         let measured = vec![String::from("crates/y/src/pinned/tests.rs")];
-        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read, &read), Reverted::Behaviour);
     }
 
     #[test]
@@ -863,7 +822,7 @@ mod tests {
                 changed("crates/y/src/pinned/tests.rs", 2, &["#[test]", "fn a_pinned_cell() {}"]),
             ];
             assert_eq!(
-                Reverted::of(&revert, &measured, &files, &read),
+                Reverted::of(&revert, &measured, &files, &read, &read),
                 Reverted::Behaviour,
                 "a doc comment is compiled into the program: {doc}"
             );
@@ -874,7 +833,9 @@ mod tests {
             pinned,
         ];
         assert!(
-            !Reverted::of(&revert, &measured, &plain, &read).out_of_reach().is_empty(),
+            !Reverted::of(&revert, &measured, &plain, &read, &read)
+                .out_of_reach()
+                .is_empty(),
             "a plain comment changes no program"
         );
     }
@@ -897,7 +858,7 @@ mod tests {
         ]);
         let revert = vec![String::from("docs/architecture.md")];
         let measured = vec![String::from("crates/x/tests/pages.rs")];
-        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read, &read), Reverted::Behaviour);
     }
 
     #[test]
@@ -912,10 +873,10 @@ mod tests {
         ]);
         let measured = vec![String::from("crates/x/tests/t.rs")];
         let revert = vec![String::from("stray/src/a.rs")];
-        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
-        assert_eq!(Reverted::of(&[], &measured, &files, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&[], &measured, &files, &read, &read), Reverted::Behaviour);
         // And a path the diff does not carry: nothing to classify, so nothing is excused.
         let absent = vec![String::from("crates/x/src/missing.rs")];
-        assert_eq!(Reverted::of(&absent, &measured, &files, &read), Reverted::Behaviour);
+        assert_eq!(Reverted::of(&absent, &measured, &files, &read, &read), Reverted::Behaviour);
     }
 }

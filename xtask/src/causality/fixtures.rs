@@ -48,20 +48,20 @@ pub(crate) fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
     }
 }
 
-/// A changed file that also REMOVED lines, all anchored at `first`.
+/// A changed file that also REMOVED lines, added from `at` and removed from `was`.
 ///
-/// One anchor for the whole set, because that is what a run of removals gets:
-/// `super::diff::RemovedLine` carries the gap they left rather than a per-line number - the counter
-/// does not advance over a removed line - so a fixture that invented distinct numbers would be
-/// asserting against a shape the parser cannot produce.
-pub(crate) fn changed_removing(path: &str, first: usize, added: &[&str], removed: &[&str]) -> ChangedFile {
+/// TWO starting lines because the two sides are numbered in different images: an added line has a
+/// post-image number and a removed one has a pre-image number. A fixture that shared one would be
+/// asserting against a shape `super::diff` cannot produce.
+pub(crate) fn changed_removing(path: &str, at: usize, added: &[&str], was: usize, removed: &[&str]) -> ChangedFile {
     ChangedFile {
         path: String::from(path),
-        added: added_from(first, added),
+        added: added_from(at, added),
         removed: removed
             .iter()
-            .map(|text| RemovedLine {
-                anchor: first,
+            .enumerate()
+            .map(|(offset, text)| RemovedLine {
+                before: was + offset,
                 text: String::from(*text),
             })
             .collect(),

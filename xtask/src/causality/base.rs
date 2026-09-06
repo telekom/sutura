@@ -345,6 +345,15 @@ pub(crate) fn report_base(
     reverted: &Reverted,
 ) -> Verdict {
     let measured = earned(outcome, coverage);
+    // ONE CALL SITE, and the DECISION beside it is pure. It was a loop in each red arm, and review
+    // measured what that cost: deleting the one in `RedOutsideTheDiff` reddened nothing, because
+    // every test of that arm goes through a wrapper passing `Reverted::Behaviour`. The choice of
+    // which outcomes contradict is now [`contradicts`] and has its own assertions; the `println!`
+    // itself is still uncovered, which is true of every printed line here and is why `remedies`
+    // keeps its wording in pure functions.
+    for one in reverted::verdict::contradiction(outcome, reverted) {
+        println!("{one}");
+    }
     match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
@@ -380,16 +389,11 @@ pub(crate) fn report_base(
         }
         // The SENTENCE is `super::reverted`'s, beside the rule that decides it: an excuse and the
         // words that explain it are one thing to keep true rather than two.
-        BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => reverted::explain(excused, &measured),
+        BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => reverted::verdict::explain(excused, &measured),
         BaseOutcome::RedByAssertion { ref failed } => {
             println!("  base: red by assertion, as required");
             for one in failed {
                 println!("    red on base: {one}");
-            }
-            // The same falsifier, printed rather than acted on: this run produced the evidence the
-            // gate exists for, and reddening it would be the wrong trade.
-            for one in reverted::contradiction(reverted) {
-                println!("{one}");
             }
             println!("{}", tail(output, 12));
             println!("xtask test-causality: ok - red on base, green on head ({measured})");
@@ -399,11 +403,6 @@ pub(crate) fn report_base(
             eprintln!("xtask test-causality: FAILED - the base tree is red outside this diff");
             for one in failed {
                 eprintln!("    outside the diff: {one}");
-            }
-            // The falsifier, on BOTH red arms since review: which side of the filter the failure
-            // landed on does not change what the pairing is evidence of. `super::reverted` owns it.
-            for one in reverted::contradiction(reverted) {
-                eprintln!("{one}");
             }
             eprintln!();
             eprintln!("Not one of those is a test this diff added, so the run says nothing about");
