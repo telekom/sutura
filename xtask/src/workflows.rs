@@ -258,6 +258,15 @@ pub(crate) struct CodeLine {
     /// How many `let`s are open at the START of this line. A binding inside `let ... in` is not
     /// an attribute of the enclosing set, and at brace depth alone the two are indistinguishable.
     pub(crate) lets: u32,
+    /// Does this line START inside a `''...''` literal?
+    ///
+    /// The blanking above is what makes a literal invisible, and for one caller that is the wrong
+    /// answer: `crate::devenv_shell` has to find a MULTI-LINE indented literal - a shell body's
+    /// shape - wherever it appears, including as an argument to something that is not a wrapper.
+    /// `pkgs.writeShellScriptBin "x" ''...''` projects to an application, not to a literal, so the
+    /// code alone cannot see the body in it. True on the body lines only: a literal that opens and
+    /// closes on one line sets this nowhere, which is exactly the one-liner/block discriminator.
+    pub(crate) in_indented: bool,
 }
 
 /// Which construct the scanner is inside.
@@ -312,6 +321,8 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
     // Only a line that STARTS outside every `let` can declare an attribute. Inside a string
     // literal the answer is "not a declaration", which is what a non-zero depth says.
     let mut lets = 0_u32;
+    // Whether the line being built starts inside a `''...''` literal. See `CodeLine::in_indented`.
+    let mut in_indented = false;
     let mut index = 0_usize;
     while index < chars.len() {
         let current = at(index);
@@ -319,6 +330,7 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
             lines.push(CodeLine {
                 code: std::mem::take(&mut code),
                 lets,
+                in_indented,
             });
             if matches!(stack.last(), Some(Frame::Line)) {
                 stack.pop();
@@ -327,6 +339,10 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
                 Some(&Frame::Code { lets: open, .. }) => open,
                 _ => 1,
             };
+            // The frame the NEXT line starts in. A `${...}` inside the literal pushes a code
+            // frame, so the test is whether an `Indented` frame is open anywhere below the top -
+            // otherwise an interpolation spanning a newline would read as ordinary code.
+            in_indented = stack.iter().any(|frame| matches!(frame, Frame::Indented));
             index = index.saturating_add(1);
             continue;
         }
@@ -448,7 +464,7 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
             None => break,
         }
     }
-    lines.push(CodeLine { code, lets });
+    lines.push(CodeLine { code, lets, in_indented });
     lines
 }
 

@@ -35,6 +35,9 @@
 //!   a single function and `check-devenv-shell` refuses a second application of the builder, so a
 //!   `checkPhase` any body got is the `checkPhase` this one got. If that ever stops being true,
 //!   the gate that holds it is the one to change.
+//! * **It asserts the FLAGS the tool was invoked with, never its findings.** `-x` is required
+//!   because that is the flag the 14 tracked `*.sh` files get; `excludeShellChecks` would suppress
+//!   findings and is refused at the argument set instead, by `crate::devenv_shell`.
 //! * **It does not check WHICH shellcheck, and cannot claim it is the one CI uses.** The two
 //!   locks name different nixpkgs: `flake.lock`'s is `NixOS/nixpkgs` `83199d0d`, which is what
 //!   `nix run .#shellcheck` resolves through, and `devenv.lock`'s is `cachix/devenv-nixpkgs`
@@ -52,6 +55,14 @@ const SHELLCHECK: &str = "/bin/shellcheck";
 
 /// The syntax check nixpkgs runs before it.
 const SYNTAX: &str = "bash -n";
+
+/// The flag the tracked `*.sh` files get, and these bodies now get too.
+///
+/// Asserted here rather than trusted to stay in `devenv.nix`, because it arrives through
+/// `extraShellCheckFlags` - a list interpolated into the default phase - and a list is exactly the
+/// kind of argument that gets emptied without anything noticing. Read out of the phase, so what is
+/// held is the flag the tool was INVOKED with.
+const FOLLOW: &str = "-x";
 
 /// What a `checkPhase` has to contain, or why it does not.
 ///
@@ -85,6 +96,18 @@ fn holds(phase: &str) -> Result<String, String> {
              shellcheck runs depends on PATH"
         ));
     }
+    // The flag, read off the INVOCATION line rather than off the whole phase, so a `-x` inside a
+    // comment or a filename is not the evidence.
+    let invocation = phase.lines().find(|line| line.contains(found)).unwrap_or_default();
+    if !invocation.split_whitespace().any(|token| token == FOLLOW) {
+        return Err(format!(
+            "the checkPhase runs shellcheck without `{FOLLOW}`, so a body that sources another \
+             file is linted without it - the 14 tracked `*.sh` files get that flag. It arrives \
+             through `extraShellCheckFlags` in `devenv.nix`, which is a list something emptied:\n\
+             \x20   {}",
+            invocation.trim()
+        ));
+    }
     Ok(String::from(found))
 }
 
@@ -114,13 +137,22 @@ fn check_phase(store_path: &str) -> Result<String, String> {
 /// tool upgrade reports a finding about this repository that is not one.
 fn phase_of(json: &serde_json::Value, deriver: &str) -> Result<String, String> {
     let map = json.get("derivations").unwrap_or(json);
-    // The only entry, when the key is not the deriver path verbatim - which it is on nix 2.34 and
-    // was not on every version this repository has seen.
-    let sole = map.as_object().and_then(|object| object.values().next());
-    let entry = map
-        .get(deriver)
-        .or(sole)
-        .ok_or_else(|| format!("`nix derivation show` printed no derivation for {deriver}"))?;
+    // The fallback for a key spelling this version does not use, and it is GUARDED by the map's
+    // SIZE. Unguarded, `values().next()` would pick an arbitrary derivation and the verdict would
+    // be a phase read off something that is not the wrapper, printed as though it were - the same
+    // standard this module applies to a command's exit status, applied to the parse.
+    let entries = map.as_object().map_or(0, serde_json::Map::len);
+    let sole = if entries == 1 {
+        map.as_object().and_then(|object| object.values().next())
+    } else {
+        None
+    };
+    let entry = map.get(deriver).or(sole).ok_or_else(|| {
+        format!(
+            "`nix derivation show` printed {entries} derivation(s) and none keyed by {deriver}, so \
+             which one is the wrapper's is not readable here"
+        )
+    })?;
     entry
         .get("env")
         .and_then(|env| env.get("checkPhase"))
@@ -188,11 +220,16 @@ fn refuse(reason: &str) -> Verdict {
 mod tests {
     use super::{holds, phase_of};
 
-    /// The phase measured on this tree's `sutura-ship-check` derivation, 2026-09-06.
+    /// The phase measured on this tree's `sutura-ship-check` derivation, 2026-09-07.
+    ///
+    /// The `-x` between the store path and `"$target"` is `extraShellCheckFlags` expanding. On
+    /// 2026-09-06, before that argument was passed, the same position held a DOUBLE SPACE - the
+    /// empty list - and that was the evidence, already in this file, that the flag needed no
+    /// `checkPhase` override.
     const REAL: &str = "runHook preCheck\n\
         /nix/store/szpwxfkbnw35ayiav64w8vxipsf6viwl-bash-5.3p15/bin/bash -n -O extglob \"$target\"\n\
         # use shellcheck which does not include docs\n\
-        /nix/store/1pddyb3y5gkhbwqra3r4fg5xmjg0xxi7-ShellCheck-0.11.0/bin/shellcheck  \"$target\"\n\
+        /nix/store/1pddyb3y5gkhbwqra3r4fg5xmjg0xxi7-ShellCheck-0.11.0/bin/shellcheck -x \"$target\"\n\
         \nrunHook postCheck\n";
 
     #[test]
@@ -221,9 +258,35 @@ mod tests {
 
     #[test]
     fn a_shellcheck_taken_from_path_is_refused() {
-        let loose = "runHook preCheck\n/nix/store/x-bash/bin/bash -n \"$target\"\nshellcheck/bin/shellcheck \"$target\"\n";
+        let loose = "runHook preCheck\n/nix/store/x-bash/bin/bash -n \"$target\"\nshellcheck/bin/shellcheck -x \"$target\"\n";
         let refusal = holds(loose).expect_err("a non-store shellcheck is a PATH lookup");
         assert!(refusal.contains("depends on PATH"), "{refusal}");
+    }
+
+    #[test]
+    fn an_emptied_flag_list_is_refused() {
+        // `extraShellCheckFlags` is a LIST interpolated into the default phase, so emptying it
+        // leaves a phase that still runs the linter and no longer follows a `source`. That is the
+        // 2026-09-06 phase verbatim, double space and all.
+        let without = REAL.replace("/bin/shellcheck -x ", "/bin/shellcheck  ");
+        let refusal = holds(&without).expect_err("no -x is a refusal");
+        assert!(refusal.contains("without `-x`"), "{refusal}");
+        // And a `-x` that is not on the invocation line is not the evidence.
+        let commented = REAL.replace("# use shellcheck which does not include docs", "# -x");
+        let elsewhere = commented.replace("/bin/shellcheck -x ", "/bin/shellcheck  ");
+        assert!(holds(&elsewhere).is_err(), "a -x in a comment is not the flag");
+    }
+
+    #[test]
+    fn a_map_with_two_derivations_is_a_refusal_rather_than_a_guess() {
+        // The unguarded fallback would have taken whichever came first and printed its phase as
+        // the wrapper's.
+        let two = serde_json::json!({
+            "/nix/store/a.drv": { "env": { "checkPhase": "phase-a" } },
+            "/nix/store/b.drv": { "env": { "checkPhase": "phase-b" } }
+        });
+        let refusal = phase_of(&two, "/nix/store/c.drv").expect_err("two entries and no key refuses");
+        assert!(refusal.contains("2 derivation(s)"), "{refusal}");
     }
 
     #[test]

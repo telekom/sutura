@@ -104,21 +104,29 @@ let
   # `writeShellApplication` beyond these three, and `just devenv-linter` reads the resulting
   # derivation's checkPhase out of the store, so the emission is measured rather than assumed.
   #
-  # LIMIT, and both halves are stated because the earlier version overstated one. CI does not use
-  # this file (see the header), so on a pull request the STRUCTURAL half runs - inside `hygiene`,
-  # like every other gate - and the ShellCheck half does not: it needs a built dev shell, which
-  # only a developer machine and `just ship-check` have. And these bodies get no `-x`, where the
-  # tracked `*.sh` files do (`nix/lint-workflows.sh` passes it): adding it would mean overriding
-  # the checkPhase, which is exactly the escape the closed argument set refuses, and the one
-  # `source` here is a store path already marked `source=/dev/null`, so `-x` would follow nothing.
-  # Neither half reaches beyond the wrappers below: `runCommand` and phase bodies in `nix/` and
-  # the `writeShellScript` apps in `flake.nix` get `bash -n` at most.
+  # `-x` IS PASSED, and getting there took a correction worth recording. This comment used to say
+  # `-x` would mean overriding the checkPhase and was therefore structurally out of reach. False:
+  # the builder this file resolves through declares `extraShellCheckFlags ? [ ]` and interpolates
+  # it into the DEFAULT phase, so a flag is an argument and no override at all. (The double space
+  # in the phase this repository measured - `.../bin/shellcheck  "$target"` - was that empty list
+  # expanding.) So the tracked `*.sh` files and these bodies now get the same flag, and the fourth
+  # element in the gate's closed set is a deliberate widening rather than a hole. Its sibling
+  # `excludeShellChecks` is NOT admitted: that one removes findings.
+  #
+  # LIMIT: CI does not use this file (see the header), so on a pull request the STRUCTURAL half
+  # runs - inside `hygiene`, like every other gate - and the ShellCheck half does not: it needs a
+  # built dev shell, which only a developer machine and `just ship-check` have. And `-x` follows
+  # nothing here today: there is exactly one `source` in these bodies and it carries
+  # `# shellcheck source=/dev/null`, so what the flag buys is that a body which starts sourcing
+  # something real is followed rather than a bar being equal on paper. Neither half reaches beyond
+  # the wrappers below: `runCommand` and phase bodies in `nix/` and the `writeShellScript` apps in
+  # `flake.nix` get `bash -n` at most.
   #
   # `bashOptions` is passed at each call rather than defaulted: nixpkgs would add `nounset` and
   # `pipefail` on top of the `errexit` these bodies already had, and turning those on changes
   # what they DO rather than what reads them.
   linted = name: bashOptions: text:
-    pkgs.writeShellApplication { name = "sutura-${name}"; inherit bashOptions text; };
+    pkgs.writeShellApplication { name = "sutura-${name}"; inherit bashOptions text; extraShellCheckFlags = [ "-x" ]; };
 
   # A devenv script: the linted body, invoked with whatever arguments devenv was given.
   runs = name: body: "${linted name [ "errexit" ] body}/bin/sutura-${name} \"$@\"";
@@ -126,10 +134,15 @@ let
   # The same for a body that has to be SOURCED rather than executed - `enterShell` runs in the
   # developer's interactive shell, so a subprocess would export nothing.
   #
-  # A wrapper rather than the `''source ${linted ...}''` literal it replaces, and the reason is
-  # the gate above: that literal's OUTER shell - the `source` line itself - went through no
-  # wrapper, so it was a body nothing read, one line long. Written this way the value begins with
-  # a wrapper and the rule needs no exception for it.
+  # A wrapper rather than the `''source ${linted ...}''` literal it replaces, and BE PRECISE ABOUT
+  # WHAT THAT BUYS. It is not that every character of shell here is linted: the `source
+  # <store-path>/bin/<name>` prefix this returns is a string devenv concatenates into its own
+  # shell hook, so that line is in no linted body - same for `runs`' trailing `"$@"`. What changed
+  # is WHERE the glue lives. At the call site it was a loose literal, which is a shape the gate
+  # above catches (`a_body_glued_into_a_string_around_a_wrapper_is_still_loose`); inside the
+  # wrapper it is invisible by construction, so the class is now unheld rather than held-and-
+  # passing. One line per wrapper, trivially correct today, and stated because a reader would
+  # otherwise take the stronger claim.
   sourced = name: body: "source ${linted name [ ] body}/bin/sutura-${name}";
 
   # The same, for a gate: on stable, in its own target directory. `nix/stable-env.sh` stays a real
@@ -273,9 +286,9 @@ in
   # SOURCED from a linted store file rather than left as an inline Nix string, for the reason
   # `linted` states: this is the longest shell body in the file and nothing had ever read it.
   # `sourced` is what carries the `bashOptions = [ ]` that goes with it - `set -e` in the
-  # developer's interactive shell would end the session on the first non-zero command - and going
-  # through the wrapper rather than gluing a `source` line around it is what makes every character
-  # of shell here something ShellCheck read.
+  # developer's interactive shell would end the session on the first non-zero command. What going
+  # through the wrapper buys, and what it does not, is stated at `sourced` itself: the body below
+  # is linted, the one-line `source` prefix around it is not.
   enterShell = sourced "enter-shell" ''
     export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 

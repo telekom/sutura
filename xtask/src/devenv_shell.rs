@@ -32,13 +32,16 @@
 //!    argument: over a whole-repo falsifier tree only 3 of 31 refused because their own rule
 //!    fired, 20 refused on a missing input and 8 on an empty-scan floor - so a gate wants all
 //!    three arms, and wants to say which one answered.
-//! 3. **The wrapper's argument set is CLOSED.** #402's seventh escape defeated the linter rather
-//!    than the rule: `checkPhase = "true";` added to `linted` removes `bash -n` AND `shellcheck`
-//!    from every body, and every textual gate stayed green because they held the spelling
-//!    `onStable`/`runs` rather than the emission. A blocklist of that one attribute would not
-//!    have closed it either: `doCheck`, `checkInputs` and `derivationArgs` each do the same job.
-//!    So what is held is that `writeShellApplication` is handed nothing but the three arguments a
-//!    body needs. See [`WRAPPER_ARGUMENTS`].
+//! 3. **The wrapper's argument set is CLOSED, over EVERY attrset in the call.** #402's seventh
+//!    escape defeated the linter rather than the rule: `checkPhase = "true";` added to `linted`
+//!    removes `bash -n` AND `shellcheck` from every body, and every textual gate stayed green
+//!    because they held the spelling `onStable`/`runs` rather than the emission. A blocklist of
+//!    that one attribute would not have closed it either: `doCheck`, `checkInputs` and
+//!    `derivationArgs` each do the same job. Reading only the FIRST balanced attrset did not
+//!    close it either - `{ ... } // { checkPhase = "true"; }` and
+//!    `.overrideAttrs (_: { checkPhase = "true"; })` were both measured green with the verdict
+//!    still printing the closed set - so every attrset at every depth is read, and a call naming
+//!    `//` or [`PAST_THE_ARGUMENTS`] is refused outright. See [`WRAPPER_ARGUMENTS`].
 //!
 //! # The limits, next to the claims
 //!
@@ -48,19 +51,22 @@
 //!   `just devenv-linter` is that venue, and `just ship-check` runs it when a diff touches a
 //!   devenv module. So on a pull request the structural half runs and the linter half does not.
 //! * **A one-line string body under an attribute name this does not know is unheld.** Rule 1 keys
-//!   on [`SHELL_ATTRIBUTES`], which is devenv's shell options and not a list nix can derive here;
-//!   rule 1b catches a multi-line literal whatever it is assigned to, because a shell body of any
-//!   size is a block. What falls between is a single-line body under a NEW devenv option.
+//!   on [`SHELL_ATTRIBUTES`], which is devenv's shell options and not a list nix can derive here.
+//!   The third arm catches a multi-line `''` literal at any depth and under any name, because a
+//!   shell body of any size is a block; what falls between is a one-liner under a NEW option. A
+//!   `''` literal that belongs to no assignment - a bare element of a list - is unheld too, and
+//!   that is the price of not counting every enclosing set as a body of its own.
 //! * **A module devenv loads and git does not publish is invisible.** `devenv.local.nix` is
-//!   gitignored by design, so it is neither read nor held.
-//! * **`-x` is not passed, and the tracked `*.sh` files get it.** `nix/lint-workflows.sh` runs
-//!   `nix run .#shellcheck -- -x`; `writeShellApplication`'s checkPhase does not, and adding it
-//!   would mean overriding `checkPhase` - which is exactly what rule 3 refuses. The one `source`
-//!   in these bodies is a store path already marked `source=/dev/null`, so `-x` would follow
-//!   nothing today. Stated rather than closed, because closing it reopens the seventh escape.
+//!   gitignored by design, so it is neither read nor held. Both declaration sites git DOES publish
+//!   are read: `devenv.nix`'s `imports` attribute and `devenv.yaml`'s `imports:` list.
+//! * **A wrapper is admitted by its vocabulary, so a legitimate one reaching for a nixpkgs helper
+//!   is refused until that name is added.** The direction is deliberate: the bodies through it
+//!   then read as loose and the failure names the identifier that kept it out. Nix SCOPING is not
+//!   modelled at all - a name bound twice is refused rather than resolved.
+//! * **A body reaching a wrapper through a conditional is not followed.** A text scan cannot; what
+//!   replaces following it is the vocabulary rule, which refuses the binding instead.
 
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::Verdict;
 use crate::repo;
@@ -70,16 +76,15 @@ use tally::{Body, Discovered, Held, Judged};
 mod scan;
 mod tally;
 
-/// The devenv module every other one is reached from.
-const ROOT_MODULE: &str = "devenv.nix";
-
 /// The devenv options whose value is a shell body.
 ///
 /// Written down because nothing here can derive it - devenv's option set lives in its own flake,
 /// and this gate runs where there is no nix. `exec` covers `scripts`, `tasks` and `processes`
 /// alike, which is the whole reason the attribute NAME is the key: the path in front of it is
 /// what the six measured spellings differed in.
-const SHELL_ATTRIBUTES: &[&str] = &["enterShell", "enterTest", "exec", "startupCommand"];
+/// `status` is `tasks.<name>.status`, which devenv 2.2.2 turns into a script through
+/// `pkgs.writeScript` - a shell body under a name nothing else here would have looked at.
+const SHELL_ATTRIBUTES: &[&str] = &["enterShell", "enterTest", "exec", "startupCommand", "status"];
 
 /// The only attributes the wrapper may hand `writeShellApplication`.
 ///
@@ -88,121 +93,110 @@ const SHELL_ATTRIBUTES: &[&str] = &["enterShell", "enterTest", "exec", "startupC
 /// `checkInputs` empties its tool set, `derivationArgs` carries any of those one level down. A
 /// blocklist would be a list of spellings to keep complete; this is the complement, so a
 /// wrapper that grows an argument is a visible diff a reviewer has to agree with.
-const WRAPPER_ARGUMENTS: &[&str] = &["name", "bashOptions", "text"];
+///
+/// `extraShellCheckFlags` is the fourth element and a DELIBERATE widening: the pinned builder
+/// interpolates it into the DEFAULT phase, so it adds a flag without replacing anything - which
+/// is how these bodies get `-x`, the flag the tracked `*.sh` files were already getting. Its
+/// sibling `excludeShellChecks` is NOT admitted: that one removes findings.
+const WRAPPER_ARGUMENTS: &[&str] = &["name", "bashOptions", "text", "extraShellCheckFlags"];
+
+/// Ways to reach the derivation past the argument set, which is what makes reading the argument
+/// set enough. Named in a call, they are a refusal.
+///
+/// `{ ... } // { checkPhase = "true"; }` and `.overrideAttrs (_: { checkPhase = "true"; })` both
+/// move the effective phase; the first version of this gate read only the FIRST balanced attrset
+/// in the call and printed the three-element set as though it were the whole argument list, with
+/// `hygiene` green over a body nothing had read. Refused rather than parsed, because a merge whose
+/// operands come from anywhere is not something a text scan can bound.
+const PAST_THE_ARGUMENTS: &[&str] = &["overrideAttrs", "overrideDerivation"];
+
+/// Everything a wrapper's value may name besides its own parameters, another wrapper and the
+/// builder.
+///
+/// The reason this is a list rather than a blocklist of script builders: a wrapper that reaches a
+/// wrapper on one branch and `pkgs.writeShellScriptBin` on another was ADMITTED by a growth rule
+/// that only asked whether a wrapper was mentioned, and the verdict then named it as the wrapper
+/// that held a body. Enumerating the builders it must not name is a list to keep complete; naming
+/// what it MAY use is not. An addition here is a deliberate widening a reviewer sees.
+const WRAPPER_VOCABULARY: &[&str] = &[
+    "if", "then", "else", "let", "in", "with", "inherit", "rec", "assert", "or", "true", "false", "null", "builtins", "import",
+    "toString",
+];
 
 /// The nixpkgs builder whose `checkPhase` is the linter. The wrapper set is seeded from it.
 const LINTER: &str = "writeShellApplication";
 
-/// One devenv module, read.
-struct Module {
-    /// Repo-relative path, for a message a reader can open.
-    rel: String,
-    /// Every assignment in it.
-    assignments: Vec<Assignment>,
+mod modules;
+
+use modules::Module;
+
+/// The wrapper set, and why each candidate that did not make it did not.
+struct Chain {
+    /// Bindings whose value reaches the linter and nothing else.
+    admitted: BTreeSet<String>,
+    /// A binding that mentions a wrapper and was refused, with the identifier that refused it.
+    /// Read by [`loose`], so a body assigned through such a name says WHY rather than only that
+    /// it was not routed.
+    turned_away: BTreeMap<String, String>,
 }
 
-/// Read `devenv.nix` and every module its `imports` reach.
+/// Which `let` bindings reach the linter, transitively - and only the linter.
 ///
-/// FAILS CLOSED on anything it cannot read, and that is deliberate rather than defensive: #402's
-/// sixth escape was the identical literal in an imported module, which the old rule READ and
-/// declined to judge. A module this cannot follow is the same hole with a different cause, so it
-/// is a refusal naming the entry rather than a silent narrowing.
-fn modules(root: &Path) -> Result<Vec<Module>, String> {
-    let mut queue = vec![String::from(ROOT_MODULE)];
-    let mut seen = BTreeSet::new();
-    let mut read = Vec::new();
-
-    while let Some(rel) = queue.pop() {
-        if !seen.insert(rel.clone()) {
-            continue;
-        }
-        let text = std::fs::read_to_string(root.join(&rel))
-            .map_err(|error| format!("could not read the devenv module {rel}: {error}"))?;
-        let assignments = scan::assignments(&text);
-        for import in imports(&rel, &assignments)? {
-            queue.push(import);
-        }
-        read.push(Module { rel, assignments });
-    }
-    Ok(read)
-}
-
-/// Is this token a Nix file? Through `Path::extension`, which is what the workspace's lint set
-/// asks for in place of a suffix compare.
-fn is_nix(token: &str) -> bool {
-    Path::new(token)
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("nix"))
-}
-
-/// The modules one module's `imports` names, as repo-relative paths.
+/// DERIVED rather than named, which is what makes a new wrapper work the day it is written.
+/// Seeded from the bindings that mention [`LINTER`], so replacing `writeShellApplication` with a
+/// builder that has no `checkPhase` empties the set, and the empty set is a refusal.
 ///
-/// Only a relative path literal is followed, and anything else in the list is a refusal: an
-/// import that resolves through a flake input is a module this gate cannot read, and a gate that
-/// silently holds less than the tree is the defect it exists to close.
-fn imports(rel: &str, assignments: &[Assignment]) -> Result<Vec<String>, String> {
-    let directory = rel.rsplit_once('/').map_or("", |(head, _)| head);
-    let mut found = Vec::new();
-    for assignment in assignments.iter().filter(|a| a.lets == 0 && a.attribute == "imports") {
-        for token in assignment.code.split_whitespace() {
-            let token = token.trim_end_matches(']').trim_start_matches('[');
-            if token.is_empty() {
-                continue;
-            }
-            let named = token.strip_prefix("./").filter(|p| is_nix(p));
-            let Some(path) = named else {
-                return Err(format!(
-                    "{rel}:{}: `imports` names `{token}`, which this gate cannot read as a file - \
-                     so the shell bodies in it would be held by nothing. Import a relative `.nix` \
-                     path, or state the module here",
-                    assignment.line
-                ));
-            };
-            found.push(if directory.is_empty() {
-                String::from(path)
-            } else {
-                format!("{directory}/{path}")
-            });
-        }
-    }
-    Ok(found)
-}
-
-/// Which `let` bindings reach the linter, transitively.
-///
-/// DERIVED rather than named, which is what makes a new wrapper work the day it is written and a
-/// binding that only looks like one still fail. Seeded from the bindings that mention
-/// [`LINTER`] - so replacing `writeShellApplication` with a builder that has no `checkPhase`
-/// empties this set, and the empty set is a refusal.
-fn wrappers(modules: &[Module]) -> BTreeSet<String> {
+/// **MENTIONING A WRAPPER IS NOT ROUTING THROUGH ONE, and that was a live escape**:
+/// `hybrid = name: body: if false then runs name body else "${pkgs.writeShellScriptBin name
+/// body}/bin/${name}";` was admitted at exit 0 and the verdict named it as the wrapper that held a
+/// body. So a candidate is admitted only if EVERY identifier its value uses is one of its own
+/// parameters, an already-admitted wrapper, the builder, or [`WRAPPER_VOCABULARY`]. A closed
+/// vocabulary rather than a blocklist of script builders, for the reason that constant states.
+fn wrappers(modules: &[Module]) -> Chain {
     let bindings: Vec<&Assignment> = modules
         .iter()
         .flat_map(|module| module.assignments.iter())
         .filter(|a| a.lets > 0)
         .collect();
 
-    let mut set: BTreeSet<String> = bindings
-        .iter()
-        .filter(|a| scan::mentions(&a.code, LINTER))
-        .map(|a| a.attribute.clone())
-        .collect();
-
+    let mut admitted = BTreeSet::new();
+    let mut turned_away = BTreeMap::new();
     loop {
-        let grown: BTreeSet<String> = bindings
-            .iter()
-            .filter(|a| {
-                !set.contains(&a.attribute)
-                    && set
-                        .iter()
-                        .any(|known| known != &a.attribute && scan::mentions(&a.code, known))
-            })
-            .map(|a| a.attribute.clone())
-            .collect();
-        if grown.is_empty() {
-            return set;
+        let mut grown = false;
+        for binding in &bindings {
+            if admitted.contains(&binding.attribute) {
+                continue;
+            }
+            let reaches = scan::mentions(&binding.code, LINTER)
+                || admitted
+                    .iter()
+                    .any(|known: &String| known != &binding.attribute && scan::mentions(&binding.code, known));
+            if !reaches {
+                continue;
+            }
+            if let Some(stranger) = unknown_identifier(binding, &admitted) {
+                turned_away.insert(binding.attribute.clone(), stranger);
+            } else {
+                turned_away.remove(&binding.attribute);
+                admitted.insert(binding.attribute.clone());
+                grown = true;
+            }
         }
-        set.extend(grown);
+        if !grown {
+            return Chain { admitted, turned_away };
+        }
     }
+}
+
+/// The first identifier in `binding`'s value that a wrapper may not use.
+fn unknown_identifier(binding: &Assignment, admitted: &BTreeSet<String>) -> Option<String> {
+    scan::identifiers(&binding.code).into_iter().find(|token| {
+        let last = token.rsplit('.').next().unwrap_or(token);
+        !binding.params.contains(token)
+            && !admitted.contains(token)
+            && last != LINTER
+            && !WRAPPER_VOCABULARY.contains(&token.as_str())
+    })
 }
 
 /// A wrapper name bound more than once, if there is one.
@@ -267,6 +261,25 @@ fn arguments(modules: &[Module]) -> Result<BTreeSet<String>, String> {
         }
     };
 
+    // Reaching the derivation past the argument set makes reading that set say nothing, so it is
+    // refused ahead of reading it.
+    for escape in PAST_THE_ARGUMENTS {
+        if scan::mentions(&call.code, escape) {
+            return Err(format!(
+                "the `{LINTER}` call names `{escape}`, which reaches the derivation past its \
+                 argument set - so reading that set says nothing about the phase. Pass what the \
+                 body needs as an argument, or this gate cannot hold the emission"
+            ));
+        }
+    }
+    if call.code.contains("//") {
+        return Err(format!(
+            "the `{LINTER}` call merges with `//` - the operands can come from anywhere, so the \
+             argument set is not readable here. `{{ ... }} // {{ checkPhase = \"true\"; }}` was \
+             measured green with the verdict still naming the closed set"
+        ));
+    }
+
     let mut names = BTreeSet::new();
     for member in members(&call.code)? {
         let member = member.trim();
@@ -287,50 +300,103 @@ fn arguments(modules: &[Module]) -> Result<BTreeSet<String>, String> {
     Ok(names)
 }
 
-/// The `;`-separated members of the first attrset in `code`.
+/// The `;`-separated members of EVERY attrset in `code`, at every depth.
+///
+/// Not the first balanced one, which is what it used to be and is the defect that made
+/// `{ ... } // { checkPhase = "true"; }` invisible while the verdict printed the three-element
+/// set. Depth-keyed buffers rather than one, so a nested attrset's members belong to it and not
+/// to its parent.
 fn members(code: &str) -> Result<Vec<String>, String> {
-    let mut depth = 0_i32;
-    let mut inside = String::new();
-    let mut opened = false;
+    let mut buffers: Vec<String> = Vec::new();
+    let mut segments = Vec::new();
+    let mut seen = false;
+    // `${...}` is an INTERPOLATION, not an attrset, and the lexer keeps both braces - so reading
+    // it as one made `name = "sutura-${name}"` contribute a member called `name` with no `=`.
+    // Counted as an interpolation depth instead, whose interior belongs to the enclosing member.
+    let mut interpolations = 0_usize;
+    let mut previous = ' ';
     for c in code.chars() {
+        let opens_interpolation = c == '{' && previous == '$';
+        previous = c;
         match c {
-            '{' => {
-                depth = depth.saturating_add(1);
-                opened = true;
-                continue;
-            }
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if opened && depth == 0 {
-                    return Ok(inside.split(';').map(String::from).collect());
+            '{' if opens_interpolation => {
+                interpolations = interpolations.saturating_add(1);
+                if let Some(open) = buffers.last_mut() {
+                    open.push(c);
                 }
-                continue;
             }
-            _ => {}
-        }
-        if opened && depth == 1 {
-            inside.push(c);
+            '}' if interpolations > 0 => {
+                interpolations = interpolations.saturating_sub(1);
+                if let Some(open) = buffers.last_mut() {
+                    open.push(c);
+                }
+            }
+            '{' => {
+                seen = true;
+                buffers.push(String::new());
+            }
+            '}' => match buffers.pop() {
+                Some(open) => segments.extend(open.split(';').map(String::from)),
+                None => {
+                    return Err(format!(
+                        "the `{LINTER}` application's braces do not balance, so its argument set \
+                         is not readable: `{}`",
+                        code.trim()
+                    ));
+                }
+            },
+            _ => {
+                if let Some(open) = buffers.last_mut() {
+                    open.push(c);
+                }
+            }
         }
     }
-    Err(format!(
-        "the `{LINTER}` application has no attrset this gate can read: `{}`",
-        code.trim()
-    ))
+    if !buffers.is_empty() {
+        return Err(format!(
+            "the `{LINTER}` application has an attrset that never closes: `{}`",
+            code.trim()
+        ));
+    }
+    if !seen {
+        return Err(format!(
+            "the `{LINTER}` application has no attrset this gate can read: `{}`",
+            code.trim()
+        ));
+    }
+    Ok(segments)
 }
 
 /// Every shell-bearing assignment in the module set.
 ///
-/// Two reasons an assignment is picked up, and they are stated on the body because their limits
-/// differ: an attribute devenv treats as shell, or a multi-line string literal - which is what a
-/// shell body of any size looks like, whatever it is assigned to.
+/// THREE reasons an assignment is picked up, and each is stated on the body because their limits
+/// differ.
+///
+/// * A [`SHELL_ATTRIBUTES`] name, **at module level only** - a `let` binding is not a devenv
+///   option, and `crate::workflows::code_lines`' `lets` is what tells the two apart.
+/// * A multi-line string literal as the whole value.
+/// * A multi-line `''...''` literal **anywhere in the value's span, at any `let` depth**, which is
+///   the reason the scope rule above is only on the first arm. `helper = pkgs.writeShellScriptBin
+///   "helper" ''...'';` in a `let` block projects to an APPLICATION rather than to a literal, so
+///   the second arm cannot see it, and a `lets == 0` filter took the whole `let` block out of
+///   reach - measured at exit 0 over an unlinted body.
 fn discover(modules: &[Module]) -> Discovered {
     let mut bodies = Vec::new();
     for module in modules {
-        for assignment in assignments_of(module) {
-            let because = if SHELL_ATTRIBUTES.contains(&assignment.attribute.as_str()) {
+        for assignment in &module.assignments {
+            let named = assignment.lets == 0 && SHELL_ATTRIBUTES.contains(&assignment.attribute.as_str());
+            let because = if named {
                 "a devenv option whose value is a shell body"
             } else if matches!(assignment.value, Value::Literal { lines } if lines > 1) {
                 "a multi-line string literal, which is the shape of a shell body"
+            } else if assignment.indented && !matches!(assignment.value, Value::Structure) {
+                // NOT a set or a list: `scripts = { fmt.exec = ...; }` spans every body inside it,
+                // and those are assignments of their own that this loop reaches separately.
+                // Counting the enclosing set as well would report it as a loose body and make the
+                // discovered count a tree walk rather than a set of bodies. The cost is stated in
+                // the module header: a `''` literal as a bare LIST element belongs to no
+                // assignment and is unheld.
+                "an assignment carrying a multi-line `''` literal, whatever it is assigned to"
             } else {
                 continue;
             };
@@ -340,6 +406,7 @@ fn discover(modules: &[Module]) -> Discovered {
                 path: assignment.path.clone(),
                 attribute: assignment.attribute.clone(),
                 value: assignment.value.clone(),
+                applied: assignment.applied.clone(),
                 because,
             });
         }
@@ -347,32 +414,35 @@ fn discover(modules: &[Module]) -> Discovered {
     Discovered::of(bodies)
 }
 
-/// A module's assignments at module level - not the `let` bindings above them.
-///
-/// A named helper rather than the filter inline, because the `lets == 0` half is a claim: a
-/// binding inside `let ... in` is not a devenv option, and at brace depth alone the two are
-/// indistinguishable. `crate::workflows::code_lines` is what answers it.
-fn assignments_of(module: &Module) -> impl Iterator<Item = &Assignment> {
-    module.assignments.iter().filter(|a| a.lets == 0)
-}
-
 /// Did this body's value go through a wrapper?
-fn judge(body: &Body, wrappers: &BTreeSet<String>) -> Held {
-    match &body.value {
-        Value::Head(head) if wrappers.contains(head) => Held::Routed(head.clone()),
+///
+/// Keyed on what the value APPLIES rather than on what it begins with, and the difference is a
+/// measured escape: the head of `name: body: runs name ''...''` is the parameter `name`, so a
+/// wrapper's own definition read as unrouted while a lambda hiding a builder read as routed.
+fn judge(body: &Body, wrapped: &BTreeSet<String>) -> Held {
+    match &body.applied {
+        Some(applied) if wrapped.contains(applied) => Held::Routed(applied.clone()),
         _ => Held::Loose,
     }
 }
 
 /// What a loose body's failure line says.
-fn loose(body: &Body, wrappers: &BTreeSet<String>) -> String {
-    let through = wrappers.iter().cloned().collect::<Vec<String>>().join("`, `");
-    let shape = match &body.value {
-        Value::Head(head) => format!("its value begins with `{head}`, which reaches no wrapper"),
-        Value::Structure => String::from("its value is a set or a list, so no wrapper saw the body"),
-        Value::Literal { lines } => {
+fn loose(body: &Body, chain: &Chain) -> String {
+    let through = chain.admitted.iter().cloned().collect::<Vec<String>>().join("`, `");
+    let shape = match (&body.applied, &body.value) {
+        // The sharpest case to read: a binding that DOES mention a wrapper and was refused. Saying
+        // only "reaches no wrapper" would send a reader to the call site rather than to the cause.
+        (Some(applied), _) if chain.turned_away.contains_key(applied) => format!(
+            "it applies `{applied}`, which this gate refused as a wrapper because that binding \
+             also names `{}` - so which of the two a body reaches is not readable here",
+            chain.turned_away.get(applied).map_or("", String::as_str)
+        ),
+        (Some(applied), _) => format!("it applies `{applied}`, which reaches no wrapper"),
+        (None, Value::Structure) => String::from("its value is a set or a list, so no wrapper saw the body"),
+        (None, Value::Literal { lines }) => {
             format!("its value is a bare string literal over {lines} line(s)")
         }
+        (None, Value::Head(head)) => format!("its value begins with `{head}` and applies nothing"),
     };
     format!(
         "{}:{}: `{}` assigns the `{}` option, which is {} - {shape}.\n      \
@@ -390,18 +460,19 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    let read = match modules(&root) {
+    let read = match modules::modules(&root) {
         Ok(read) => read,
         Err(reason) => return refuse("a module it could not read", &[reason]),
     };
 
-    let wrapped = wrappers(&read);
+    let chain = wrappers(&read);
+    let wrapped = chain.admitted.clone();
     if wrapped.is_empty() {
         return refuse(
             "its own rule",
             &[format!(
-                "no `let` binding in any devenv module reaches `{LINTER}` - so no body is read by \
-                 ShellCheck, whatever it is assigned through"
+                "no `let` binding in any devenv module reaches `{LINTER}` and only `{LINTER}` - so \
+                 no body is read by ShellCheck, whatever it is assigned through"
             )],
         );
     }
@@ -447,7 +518,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             .rows()
             .iter()
             .filter(|row| matches!(row.held, Held::Loose))
-            .map(|row| loose(&row.body, &wrapped)),
+            .map(|row| loose(&row.body, &chain)),
     );
 
     if problems.is_empty() {
@@ -499,13 +570,13 @@ fn refuse(arm: &str, problems: &[String]) -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{Held, Judged, LINTER, Module, WRAPPER_ARGUMENTS, arguments, discover, imports, judge, scan, wrappers};
+    use super::{Held, Judged, LINTER, Module, WRAPPER_ARGUMENTS, arguments, discover, judge, scan, wrappers};
 
     /// A devenv module with the real shapes: the wrapper chain in a `let`, and wrapped bodies.
     const GOOD: &str = r#"{ pkgs, ... }:
 let
   linted = name: bashOptions: text:
-    pkgs.writeShellApplication { name = "sutura-${name}"; inherit bashOptions text; };
+    pkgs.writeShellApplication { name = "sutura-${name}"; inherit bashOptions text; extraShellCheckFlags = [ "-x" ]; };
   runs = name: body: "${linted name [ "errexit" ] body}/bin/sutura-${name}";
   sourced = name: body: "source ${linted name [ ] body}/bin/sutura-${name}";
   onStable = name: body: runs name ''
@@ -530,6 +601,9 @@ in
     /// The one line in [`GOOD`] a planted body replaces.
     const ANCHOR: &str = "  env.PLAIN = \"not shell\";";
 
+    /// The `let` line a planted binding replaces.
+    const LET_ANCHOR: &str = "  sourced = name: body: \"source ${linted name [ ] body}/bin/sutura-${name}\";";
+
     fn module(text: &str) -> Vec<Module> {
         vec![Module {
             rel: String::from("devenv.nix"),
@@ -540,8 +614,8 @@ in
     /// Every body in `text` the gate would refuse, by assigned path.
     fn loose_paths(text: &str) -> Vec<String> {
         let read = module(text);
-        let wrapped = wrappers(&read);
-        let judged = Judged::of(discover(&read), |body| judge(body, &wrapped));
+        let chain = wrappers(&read);
+        let judged = Judged::of(discover(&read), |body| judge(body, &chain.admitted));
         judged
             .rows()
             .iter()
@@ -552,46 +626,63 @@ in
 
     #[test]
     fn the_wrapper_chain_is_derived_from_the_builder_and_not_listed() {
-        let derived = wrappers(&module(GOOD));
-        assert!(derived.contains("linted"), "the seed reaches the builder: {derived:?}");
-        assert!(derived.contains("runs"), "one hop: {derived:?}");
-        assert!(derived.contains("onStable"), "two hops: {derived:?}");
-        assert!(derived.contains("sourced"), "one hop the other way: {derived:?}");
-        // A binding that only looks like a wrapper is not one.
+        let chain = wrappers(&module(GOOD));
+        for expected in ["linted", "runs", "onStable", "sourced"] {
+            assert!(chain.admitted.contains(expected), "{expected}: {:?}", chain.admitted);
+        }
+        // A binding that mentions nothing is not a wrapper, and neither is one this gate has no
+        // vocabulary for.
         let faked = wrappers(&module(
             "let\n  linted = n: b: t: pkgs.writeShellApplication { };\n  fake = n: b: b;\nin\n{ }",
         ));
-        assert!(faked.contains("linted"));
-        assert!(!faked.contains("fake"), "{faked:?}");
+        assert!(faked.admitted.contains("linted"));
+        assert!(!faked.admitted.contains("fake"), "{:?}", faked.admitted);
     }
 
     #[test]
-    fn a_wrapper_name_bound_twice_is_a_refusal_rather_than_a_guess() {
-        // A NAME is the whole of rule 1, so a second binding of one - `onStable = n: b: b;` in a
-        // nested `let` - would make a routed body reach no linter. Nix scoping is not modelled
-        // here, so the duplicate is refused instead of resolved.
-        let read = module(&GOOD.replace("in\n{", "  nested = let onStable = n: b: b; in onStable;\nin\n{"));
-        let wrapped = wrappers(&read);
-        let refusal = super::shadowed(&read, &wrapped).expect("a shadowed wrapper refuses");
-        assert!(refusal.contains("`onStable` is bound 2 times"), "{refusal}");
-        // And the real tree has one binding per wrapper name.
-        assert!(super::shadowed(&module(GOOD), &wrappers(&module(GOOD))).is_none());
+    fn a_binding_that_mentions_a_wrapper_and_also_a_builder_is_not_one() {
+        // MUTATION OF THE GROWTH READER. The rule used to be *mentions a wrapper name*, which
+        // admitted a binding reaching a wrapper on one branch and a builder with no `checkPhase`
+        // on the other - and the verdict then named it as the wrapper that held a body.
+        let hybrid = "  hybrid = name: body: if false then runs name body \
+                      else \"${pkgs.writeShellScriptBin name body}/bin/${name}\";";
+        let text = GOOD
+            .replace(LET_ANCHOR, &format!("{LET_ANCHOR}\n{hybrid}"))
+            .replace(ANCHOR, "  scripts.planted.exec = hybrid \"planted\" \"echo bad\";");
+        let chain = wrappers(&module(&text));
+        assert!(!chain.admitted.contains("hybrid"), "{:?}", chain.admitted);
+        assert_eq!(
+            chain.turned_away.get("hybrid").map(String::as_str),
+            Some("pkgs.writeShellScriptBin"),
+            "the refusal has to name what kept it out: {:?}",
+            chain.turned_away
+        );
+        // And the body assigned through it is refused, with the cause rather than only the effect.
+        assert_eq!(loose_paths(&text), vec![String::from("scripts.planted.exec")]);
+        let body = super::Body {
+            module: String::from("devenv.nix"),
+            line: 1,
+            path: String::from("scripts.planted.exec"),
+            attribute: String::from("exec"),
+            value: super::Value::Head(String::from("hybrid")),
+            applied: Some(String::from("hybrid")),
+            because: "a devenv option whose value is a shell body",
+        };
+        let said = super::loose(&body, &chain);
+        assert!(said.contains("refused as a wrapper"), "{said}");
+        assert!(said.contains("pkgs.writeShellScriptBin"), "{said}");
     }
 
     #[test]
     fn a_builder_with_no_checkphase_empties_the_wrapper_set() {
-        // The seed IS the builder's name, so swapping it for one that reads nothing empties the
-        // set - which `run` refuses on, rather than following the rename.
         let swapped = wrappers(&module(
             "let\n  linted = n: t: pkgs.writeShellScriptBin n t;\nin\n{ enterTest = linted \"a\" \"b\"; }",
         ));
-        assert!(swapped.is_empty(), "{swapped:?}");
+        assert!(swapped.admitted.is_empty(), "{:?}", swapped.admitted);
     }
 
     #[test]
     fn every_measured_escape_is_a_loose_body() {
-        // One row per spelling `github.com/telekom/sutura#402` measured GREEN on the merged tree,
-        // plus one this gate adds: an option name it does not know, written as a block.
         let cases = [
             (
                 "no leading dot",
@@ -611,6 +702,10 @@ in
                 "  enterTest = ''\n    for f in $(ls *.rs); do echo $f; done\n  '';",
             ),
             (
+                "tasks.<name>.status, a str devenv turns into a script",
+                "  tasks.\"x:y\".status = \"for f in $(ls *.rs); do echo $f; done\";",
+            ),
+            (
                 "an option this gate does not know",
                 "  novelOption = ''\n    for f in $(ls *.rs); do echo $f; done\n  '';",
             ),
@@ -622,15 +717,27 @@ in
     }
 
     #[test]
+    fn a_body_bound_in_the_let_block_is_discovered_too() {
+        // MUTATION OF THE SCOPE READER. `lets == 0` is right for the option-name arm and was
+        // wrong for the literal one: a body built by `writeShellScriptBin` inside `let ... in`
+        // projects to an APPLICATION, so neither the name arm nor a whole-value literal saw it.
+        let planted = format!(
+            "{LET_ANCHOR}\n  helper = pkgs.writeShellScriptBin \"helper\" ''\n    for f in $(ls *.rs); do echo $f; done\n  '';"
+        );
+        let text = GOOD.replace(LET_ANCHOR, &planted);
+        assert_eq!(loose_paths(&text), vec![String::from("helper")]);
+        // And the real `let` bindings are not swept up with it: `onStable` carries a `''` literal
+        // and routes through `runs`, so it is discovered AND held.
+        assert_eq!(loose_paths(GOOD), Vec::<String>::new());
+    }
+
+    #[test]
     fn the_real_shapes_are_not_flagged() {
         assert_eq!(loose_paths(GOOD), Vec::<String>::new());
     }
 
     #[test]
     fn a_body_glued_into_a_string_around_a_wrapper_is_still_loose() {
-        // `enterShell`'s shape before this gate: a `''source ${linted ...}...''` literal, so the
-        // OUTER shell - the `source` line itself - went through no wrapper. One line today and a
-        // reader would call it harmless, which is why the rule keys on the value and not the size.
         let text = GOOD.replace(
             "  enterShell = sourced \"enter-shell\" ''\n    echo hello\n  '';",
             "  enterShell = ''source ${linted \"enter-shell\" [ ] ''echo hello''}/bin/x'';",
@@ -639,12 +746,13 @@ in
     }
 
     #[test]
-    fn the_wrapper_argument_set_is_closed() {
+    fn the_wrapper_argument_set_is_closed_over_every_attrset() {
         let declared = arguments(&module(GOOD)).expect("the real shape reads");
         let expected: BTreeSet<String> = WRAPPER_ARGUMENTS.iter().map(|a| String::from(*a)).collect();
         assert_eq!(declared, expected);
 
-        // #402's seventh escape, and the three siblings a blocklist of that one spelling misses.
+        // #402's seventh escape written inside the first brace pair, plus the three siblings a
+        // blocklist of that one spelling misses.
         for extra in [
             "checkPhase = \"true\";",
             "doCheck = false;",
@@ -652,9 +760,39 @@ in
             "derivationArgs = { };",
         ] {
             let text = GOOD.replace("inherit bashOptions text;", &format!("inherit bashOptions text; {extra}"));
-            let declared = arguments(&module(&text)).expect("the call still reads");
-            assert_ne!(declared, expected, "`{extra}` has to move the argument set");
+            let moved = arguments(&module(&text)).expect("the call still reads");
+            assert_ne!(moved, expected, "`{extra}` has to move the argument set");
         }
+    }
+
+    #[test]
+    fn an_attribute_merged_on_past_the_first_attrset_is_refused() {
+        // MUTATION OF THE ARGUMENT READER. It used to stop at the first balanced attrset, so both
+        // of these left the verdict printing the closed set while the effective phase was `true`.
+        let merged = GOOD.replace(
+            "pkgs.writeShellApplication { name = \"sutura-${name}\"; inherit bashOptions text; extraShellCheckFlags = [ \"-x\" ]; };",
+            "pkgs.writeShellApplication ({ name = \"sutura-${name}\"; inherit bashOptions text; extraShellCheckFlags = [ \"-x\" ]; } // { checkPhase = \"true\"; });",
+        );
+        let refusal = arguments(&module(&merged)).expect_err("a `//` merge is refused");
+        assert!(refusal.contains("merges with `//`"), "{refusal}");
+
+        let overridden = GOOD
+            .replace("    pkgs.writeShellApplication {", "    (pkgs.writeShellApplication {")
+            .replace(
+                "extraShellCheckFlags = [ \"-x\" ]; };",
+                "extraShellCheckFlags = [ \"-x\" ]; }).overrideAttrs (_: { checkPhase = \"true\"; });",
+            );
+        let refusal = arguments(&module(&overridden)).expect_err("overrideAttrs is refused");
+        assert!(refusal.contains("overrideAttrs"), "{refusal}");
+
+        // And a nested attrset that is NOT the first one still contributes its members, which is
+        // what makes the refusals above a belt rather than the only reader.
+        let nested = GOOD.replace(
+            "extraShellCheckFlags = [ \"-x\" ];",
+            "extraShellCheckFlags = [ \"-x\" ]; derivationArgs = { checkPhase = \"true\"; };",
+        );
+        let seen = arguments(&module(&nested)).expect("the call reads");
+        assert!(seen.contains("checkPhase"), "a deeper attrset is read too: {seen:?}");
     }
 
     #[test]
@@ -670,21 +808,58 @@ in
     }
 
     #[test]
+    fn a_wrapper_name_bound_twice_is_a_refusal_rather_than_a_guess() {
+        let read = module(&GOOD.replace("in\n{", "  nested = let onStable = n: b: b; in onStable;\nin\n{"));
+        let chain = wrappers(&read);
+        let refusal = super::shadowed(&read, &chain.admitted).expect("a shadowed wrapper refuses");
+        assert!(refusal.contains("`onStable` is bound 2 times"), "{refusal}");
+        let clean = module(GOOD);
+        assert!(super::shadowed(&clean, &wrappers(&clean).admitted).is_none());
+    }
+
+    #[test]
     fn an_import_this_gate_cannot_read_is_a_refusal() {
-        let followed = imports("devenv.nix", &scan::assignments("{ imports = [ ./nix/dev-scripts.nix ]; }")).expect("a path");
+        let followed =
+            crate::devenv_shell::modules::imports("devenv.nix", &scan::assignments("{ imports = [ ./nix/dev-scripts.nix ]; }"))
+                .expect("a path");
         assert_eq!(followed, vec![String::from("nix/dev-scripts.nix")]);
-        // Relative to the IMPORTING module, so a module two levels down resolves.
-        let nested = imports("nix/a.nix", &scan::assignments("{ imports = [ ./b.nix ]; }")).expect("a path");
+        let nested =
+            crate::devenv_shell::modules::imports("nix/a.nix", &scan::assignments("{ imports = [ ./b.nix ]; }")).expect("a path");
         assert_eq!(nested, vec![String::from("nix/b.nix")]);
-        let refused = imports("devenv.nix", &scan::assignments("{ imports = [ inputs.x.modules.y ]; }"))
-            .expect_err("an unreadable import refuses");
+        let refused =
+            crate::devenv_shell::modules::imports("devenv.nix", &scan::assignments("{ imports = [ inputs.x.modules.y ]; }"))
+                .expect_err("an unreadable import refuses");
         assert!(refused.contains("cannot read"), "{refused}");
     }
 
     #[test]
+    fn a_yaml_import_this_gate_cannot_read_is_a_refusal() {
+        // MUTATION OF THE MODULE-SET READER. devenv 2.2.2 loads `devenv.yaml`'s `imports:` beside
+        // the Nix attribute, and reading only the Nix one left a bare body in such a module at
+        // `20 of 20 ... in 1 module(s)`, exit 0 - the module count the only tell, compared to
+        // nothing.
+        let root = crate::repo::root().expect("the repo root");
+        let refusal =
+            crate::devenv_shell::modules::resolved("nixpkgs-python", &root, 3).expect_err("an input name is not a module");
+        assert!(refusal.contains("not a relative path"), "{refusal}");
+        let missing =
+            crate::devenv_shell::modules::resolved("./nowhere", &root, 3).expect_err("a directory with no devenv.nix refuses");
+        assert!(missing.contains("nowhere/devenv.nix"), "{missing}");
+        // A relative `.nix` path resolves without touching the filesystem.
+        assert_eq!(
+            crate::devenv_shell::modules::resolved("./nix/x.nix", &root, 3).expect("a path"),
+            "nix/x.nix"
+        );
+        // And the real file declares no imports, so the queue it contributes is empty.
+        assert!(
+            crate::devenv_shell::modules::yaml_imports(&root)
+                .expect("devenv.yaml reads")
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn a_body_in_an_imported_module_is_held_the_same_way() {
-        // The sixth escape, end to end: the identical literal in a second module. The old rule
-        // READ that file and declined to judge it, because its scope was one basename.
         let read = vec![
             Module {
                 rel: String::from("devenv.nix"),
@@ -695,8 +870,8 @@ in
                 assignments: scan::assignments("{ scripts.planted.exec = \"for f in $(ls *.rs); do echo $f; done\"; }"),
             },
         ];
-        let wrapped = wrappers(&read);
-        let judged = Judged::of(discover(&read), |body| judge(body, &wrapped));
+        let chain = wrappers(&read);
+        let judged = Judged::of(discover(&read), |body| judge(body, &chain.admitted));
         let loose: Vec<&str> = judged
             .rows()
             .iter()
@@ -708,20 +883,20 @@ in
 
     #[test]
     fn the_real_tree_is_held_and_every_body_is_routed() {
-        // The gate over this repository, which is what the sweep runs. Not a smoke test: the
-        // floor is the arm that catches a scan which stopped reading, and a fixed number here
-        // would rot - so what is asserted is that the set is non-trivial and NOTHING in it is
-        // loose.
+        // The gate over this repository, which is what the sweep runs. The floor is the arm that
+        // catches a scan which stopped reading, and a fixed number here would rot - so what is
+        // asserted is that the set is non-trivial and NOTHING in it is loose.
         let root = crate::repo::root().expect("the repo root");
-        let read = super::modules(&root).expect("devenv.nix reads");
-        let wrapped = wrappers(&read);
-        let judged = Judged::of(discover(&read), |body| judge(body, &wrapped));
+        let read = crate::devenv_shell::modules::modules(&root).expect("devenv.nix reads");
+        let chain = wrappers(&read);
+        let judged = Judged::of(discover(&read), |body| judge(body, &chain.admitted));
         assert!(
             judged.rows().len() > 10,
             "only {} bodies in the real tree",
             judged.rows().len()
         );
         assert!(judged.gap().is_none(), "{:?}", judged.gap());
+        assert!(chain.turned_away.is_empty(), "{:?}", chain.turned_away);
         let loose: Vec<String> = judged
             .rows()
             .iter()
@@ -729,5 +904,8 @@ in
             .map(|row| format!("{}:{}", row.body.module, row.body.line))
             .collect();
         assert_eq!(loose, Vec::<String>::new());
+        // The argument set of the real wrapper, so `-x` cannot be dropped without a diff here.
+        let declared = arguments(&read).expect("the real call reads");
+        assert!(declared.contains("extraShellCheckFlags"), "{declared:?}");
     }
 }

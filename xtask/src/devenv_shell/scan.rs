@@ -52,6 +52,22 @@ pub(super) struct Assignment {
     /// The value's whole code projection, `=` to terminator. Used to derive which bindings are
     /// wrappers, and to read the argument set of a `writeShellApplication` call.
     pub(super) code: String,
+    /// The value's lambda parameters, if it is a lambda. `name: body: runs name ...` gives
+    /// `["name", "body"]` - which is what makes the identifier check below able to tell a
+    /// parameter from a builder it has never heard of.
+    pub(super) params: Vec<String>,
+    /// The first identifier path AFTER the lambda parameters: what the value APPLIES.
+    ///
+    /// Separate from [`Assignment::value`], and the difference is a measured escape: the head of
+    /// `name: body: runs name ''...''` is the parameter `name`, while what it applies is `runs`.
+    /// Routing is about the second.
+    pub(super) applied: Option<String>,
+    /// Does the value's span carry a MULTI-LINE `''...''` literal?
+    ///
+    /// The shape of a shell body, wherever it sits. `pkgs.writeShellScriptBin "x" ''...''`
+    /// projects to an application rather than to a literal, so [`Value`] alone cannot see the
+    /// body in it - measured as escape 3b on `github.com/telekom/sutura#409`.
+    pub(super) indented: bool,
 }
 
 /// How many lines a value may span before this stops looking for its terminator.
@@ -130,6 +146,8 @@ struct Head {
     value: Value,
     /// The value's code, `=` to terminator.
     code: String,
+    /// Did any line of the span start inside a `''...''` literal?
+    indented: bool,
 }
 
 /// Walk the projection from just after an `=` to the value's terminator.
@@ -142,10 +160,12 @@ fn head_of(lines: &[crate::workflows::CodeLine], start: usize, column: usize) ->
     let mut code = String::new();
     let mut value: Option<Value> = None;
     let mut spanned = 1_usize;
+    let mut indented = false;
 
     for offset in 0..SPAN_LIMIT {
         let index = start.saturating_add(offset);
         let Some(line) = lines.get(index) else { break };
+        indented = indented || line.in_indented;
         let chars: Vec<char> = line.code.chars().collect();
         let from = if offset == 0 { column } else { 0 };
         spanned = offset.saturating_add(1);
@@ -198,7 +218,78 @@ fn head_of(lines: &[crate::workflows::CodeLine], start: usize, column: usize) ->
             Some(other) => other,
         },
         code,
+        indented,
     }
+}
+
+/// The lambda parameters a value opens with, and where they end.
+///
+/// `name: body: runs name ...` gives `(["name", "body"], <byte offset of `runs`>)`. A `:` that
+/// follows anything but a bare identifier ends the walk, so an attrset argument pattern
+/// (`{ a, b }: ...`) contributes no parameters rather than a wrong one.
+fn lambda(code: &str) -> (Vec<String>, usize) {
+    let mut params = Vec::new();
+    let mut rest = code;
+    let mut consumed = 0_usize;
+    loop {
+        let trimmed = rest.trim_start();
+        let skipped = rest.len().saturating_sub(trimmed.len());
+        let taken: String = trimmed.chars().take_while(|c| ident(*c)).collect();
+        let after = trimmed.get(taken.len()..).unwrap_or_default();
+        if taken.is_empty() || !after.starts_with(':') {
+            return (params, consumed.saturating_add(skipped));
+        }
+        consumed = consumed.saturating_add(skipped).saturating_add(taken.len()).saturating_add(1);
+        params.push(taken);
+        rest = code.get(consumed..).unwrap_or_default();
+    }
+}
+
+/// Every identifier path in `code` that is a USE rather than a declaration.
+///
+/// An attribute key (`x =`) and an `inherit` name are excluded: those are the argument set, which
+/// its own rule reads. A Nix PATH is excluded too - a token containing `/` - so
+/// `${./nix/stable-env.sh}` does not read as three unknown identifiers.
+pub(super) fn identifiers(code: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let chars: Vec<char> = code.chars().collect();
+    let mut index = 0_usize;
+    let mut inheriting = false;
+    while index < chars.len() {
+        let Some(&current) = chars.get(index) else { break };
+        if !word(current) && current != '/' {
+            if current == ';' {
+                inheriting = false;
+            }
+            index = index.saturating_add(1);
+            continue;
+        }
+        let mut token = String::new();
+        let mut walk = index;
+        while let Some(&c) = chars.get(walk).filter(|c| word(**c) || **c == '/') {
+            token.push(c);
+            walk = walk.saturating_add(1);
+        }
+        index = walk;
+        // The next non-space character decides whether this was a key.
+        let mut probe = walk;
+        while chars.get(probe).is_some_and(|c| c.is_whitespace()) {
+            probe = probe.saturating_add(1);
+        }
+        let is_key = chars.get(probe) == Some(&'=') && chars.get(probe.saturating_add(1)) != Some(&'=');
+        if token == "inherit" {
+            inheriting = true;
+            continue;
+        }
+        if is_key || inheriting || token.contains('/') {
+            continue;
+        }
+        let trimmed = token.trim_matches('.');
+        if !trimmed.is_empty() {
+            found.push(String::from(trimmed));
+        }
+    }
+    found
 }
 
 /// Every assignment in one Nix module, as this projection can see one.
@@ -214,6 +305,18 @@ pub(super) fn assignments(text: &str) -> Vec<Assignment> {
             let Some(path) = path_before(&chars, column) else { continue };
             let head = head_of(&lines, index, column.saturating_add(1));
             let attribute = path.rsplit('.').next().unwrap_or(path.as_str());
+            let (params, after) = lambda(&head.code);
+            // ONLY when the value is an application. A `${...}` inside a blanked string is code to
+            // the lexer, so the first identifier in `''source ${linted ...}''` is `linted` - and
+            // reading that as what the value applies made a bare literal wrapped in a `source`
+            // line report as routed. `Value` already says whether the value STARTS with an
+            // identifier; that is the discriminator.
+            let applied = match &head.value {
+                Value::Head(_) => identifiers(head.code.get(after..).unwrap_or_default())
+                    .into_iter()
+                    .find(|token| !params.contains(token)),
+                Value::Structure | Value::Literal { .. } => None,
+            };
             found.push(Assignment {
                 line: index.saturating_add(1),
                 attribute: String::from(attribute),
@@ -221,6 +324,9 @@ pub(super) fn assignments(text: &str) -> Vec<Assignment> {
                 lets: line.lets,
                 value: head.value,
                 code: head.code,
+                params,
+                applied,
+                indented: head.indented,
             });
         }
     }

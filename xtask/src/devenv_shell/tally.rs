@@ -26,6 +26,8 @@ pub(super) struct Body {
     pub(super) attribute: String,
     /// What the value begins with.
     pub(super) value: Value,
+    /// What the value applies, past its lambda parameters. The routing rule keys on this.
+    pub(super) applied: Option<String>,
     /// Why the discovery pass picked it up. Printed, because a rule whose reason is unstated gets
     /// reverted - and because the two reasons have different limits.
     pub(super) because: &'static str,
@@ -112,13 +114,16 @@ impl Judged {
 /// every element. Keeping it callable makes the arm testable without giving production code a way
 /// to build a `Judged` whose numbers were never counted.
 pub(super) fn unread(discovered: usize, inspected: usize) -> Option<String> {
-    if inspected >= discovered {
+    // `!=`, not `>=`. The claim is that the two numbers are the same; a numerator LARGER than the
+    // denominator is a scan that judged something it never found, and reading it as "no gap" was
+    // one direction of the comparison masquerading as the whole of it.
+    if inspected == discovered {
         return None;
     }
     Some(format!(
-        "reached a verdict about {inspected} of the {discovered} shell body(s) found - the scan \
-         dropped {}, so this verdict is about less than the tree",
-        discovered.saturating_sub(inspected)
+        "reached a verdict about {inspected} of the {discovered} shell body(s) found - the two \
+         numbers have to be equal, and this verdict is about a different set from the one the \
+         scan produced"
     ))
 }
 
@@ -134,6 +139,7 @@ mod tests {
             path: String::from(attribute),
             attribute: String::from(attribute),
             value: Value::Literal { lines: 1 },
+            applied: None,
             because: "a test",
         }
     }
@@ -152,8 +158,10 @@ mod tests {
         // the two numbers are compared, so a scan that judged four of five refuses.
         let refusal = unread(5, 4).expect("a short scan refuses");
         assert!(refusal.contains("4 of the 5"), "{refusal}");
-        assert!(refusal.contains("dropped 1"), "{refusal}");
         assert!(unread(5, 5).is_none());
+        // BOTH directions. `>=` read a numerator larger than the denominator as no gap, which is
+        // one direction of a comparison the module header calls a comparison of two numbers.
+        assert!(unread(4, 5).is_some(), "judging more bodies than were found is not agreement");
     }
 
     #[test]
