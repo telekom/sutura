@@ -458,9 +458,15 @@ enum Lexeme {
     Code,
     LineComment,
     BlockComment(usize),
-    /// Inside a string. `hashes` is 0 for an ordinary one and the `#` count for a raw one.
+    /// Inside a string.
+    ///
+    /// `hashes` is the `#` count a raw string must be closed by, and `raw` is whether it IS one -
+    /// **two facts, because `r"..."` has ZERO hashes exactly like an ordinary literal.** Reading
+    /// rawness off the count conflated them, which broke `\` handling in a raw string in two
+    /// places: the escape below, and the line-continuation rule in [`continued`].
     Text {
         hashes: usize,
+        raw: bool,
     },
 }
 
@@ -599,7 +605,7 @@ fn step(state: Lexeme, character: char, characters: &mut core::str::Chars<'_>, s
             sink.skipped(character);
             in_block_comment(character, characters, depth)
         }
-        Lexeme::Text { hashes } => in_text(character, characters, sink, hashes),
+        Lexeme::Text { hashes, raw } => in_text(character, characters, sink, hashes, raw),
     }
 }
 
@@ -614,7 +620,7 @@ fn in_code(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
         ('"', _) => {
             sink.held_at = sink.lines.len();
             sink.held = Some(String::new());
-            Lexeme::Text { hashes: 0 }
+            Lexeme::Text { hashes: 0, raw: false }
         }
         ('\'', _) => {
             let width = char_literal_width(characters);
@@ -638,7 +644,7 @@ fn in_code(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
             }
             sink.held_at = sink.lines.len();
             sink.held = Some(String::new());
-            Lexeme::Text { hashes }
+            Lexeme::Text { hashes, raw: true }
         }
         _ => {
             sink.code(character);
@@ -667,40 +673,43 @@ fn in_block_comment(character: char, characters: &mut core::str::Chars<'_>, dept
 }
 
 /// One character inside a string literal.
-fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Sink, hashes: usize) -> Lexeme {
+fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Sink, hashes: usize, raw: bool) -> Lexeme {
     if let Some(ref mut held) = sink.held {
         held.push(character);
     }
-    // Escapes exist in an ordinary string only; in a raw one `\` is just a character.
-    if hashes == 0 && character == '\\' {
+    // Escapes exist in an ordinary string only; in a raw one `\` is just a character. Keyed on
+    // `raw` and NOT on `hashes == 0`, which was the same test for a different question and made
+    // `r"a\"` swallow its own closing quote. Latent rather than live - the tree holds raw strings
+    // with a backslash but none with `\"` - and latent is not a reason to leave it.
+    if !raw && character == '\\' {
         if let Some(escaped) = characters.next()
             && let Some(ref mut held) = sink.held
         {
             held.push(escaped);
         }
-        return Lexeme::Text { hashes };
+        return Lexeme::Text { hashes, raw };
     }
     if character != '"' || !closes_text(characters, hashes) {
-        return Lexeme::Text { hashes };
+        return Lexeme::Text { hashes, raw };
     }
     for _ in 0..hashes {
         characters.next();
     }
     let held = sink.held.take().unwrap_or_default();
-    emit_text(&held, sink, hashes);
+    emit_text(&held, sink, raw);
     Lexeme::Code
 }
 
 /// Write a finished string literal back out: kept if it was one line, blanked if it spanned
 /// several. Its newlines are kept either way, so no line number moves.
-fn emit_text(held: &str, sink: &mut Sink, hashes: usize) {
+fn emit_text(held: &str, sink: &mut Sink, raw: bool) {
     let body = held.strip_suffix('"').unwrap_or(held);
     // Recorded BEFORE the blanking decision below, which is `code_lines`'s question and not a
     // property of the literal: a multi-line message is exactly what a reader of `string_literals`
     // is looking for.
     sink.literals.push(Literal {
         line: sink.held_at.saturating_add(1),
-        body: if hashes == 0 { continued(body) } else { String::from(body) },
+        body: if raw { String::from(body) } else { continued(body) },
     });
     if !body.contains('\n') {
         sink.current.push('"');
