@@ -1,10 +1,14 @@
 //! What ordinary CI reaches, and what it may not build once it gets there.
 //!
 //! **The finding this exists for.** The release-output refusal read exactly one file name -
-//! `.github/workflows/ci.yml` - while the set ordinary CI runs is plural. A reusable workflow
-//! `ci.yml` calls runs on the same pull request, and the unexemptable 1000-line cap is what put a
-//! job there: `cross-link.yml` was lifted out of `ci.yml` at 999 lines. So the refusal read one
-//! file of the four ordinary CI reaches and printed `ok` over the rest.
+//! `.github/workflows/ci.yml` - while the set ordinary CI runs is plural in two directions. A
+//! reusable workflow `ci.yml` calls runs on the same pull request, and the unexemptable 1000-line
+//! cap is what put a job there: `cross-link.yml` was lifted out of `ci.yml` at 999 lines. And
+//! `docs.yml` and `security-audit.yml` run on a pull request without being called by anything, so
+//! naming `ci.yml` missed them too - reported in review, after the walk had already removed the
+//! name from the CALL side and left it on the ROOT side. The root set is derived now
+//! ([`super::contexts::OrdinaryCi`]), which is why the verdict prints the set it walked: a green
+//! line that names no set cannot be told from one over a smaller set.
 //!
 //! **The same blind spot reached the other half of this gate.** [`super::contexts`] classified a
 //! job by reading the workflows whose own `on:` block gates a merge, and a called workflow's `on:`
@@ -12,16 +16,25 @@
 //! printed *every gating job classified*. A job nobody classified is the omission that section
 //! exists to make impossible.
 //!
+//! **What a `nix build` line is read for** is in [`literal_release_builds`], and it now skips
+//! leading flags: `nix build -L .#sutura-serve` used to walk past the refusal, and that it never
+//! bit was a property of this tree's text rather than of the rule.
+//!
 //! One walk, two readers, for [`super::sources`]' reason: a reference leaves a gate's sight
 //! whenever a step moves out of a workflow, a hard line cap is what forces steps out, and when it
 //! happens again both halves follow together or neither does.
 //!
-//! # Two arms, and both are counts read off a value rather than numbers in a sentence
+//! # Three arms, and every count in one is read off a value rather than passed into a sentence
 //!
 //! * **a call it cannot follow.** A `uses:` this walk cannot open is a step this gate cannot
 //!   refuse, so a target that is missing, unreadable, or outside this repository fails closed.
-//!   [`Closure::drift`] reports it when the set of files the walk *set out* to open is larger than
-//!   the set it opened.
+//!   The trigger is the unfollowed set itself. It was once *the set it set out to open is larger
+//!   than the set it opened*, which could only SUPPRESS: that comparison unions repo-relative
+//!   paths with raw `uses:` values, so a target whose text equalled a path already reached
+//!   collided in it and the sentence went unprinted at exit 0.
+//! * **the conservation law**, which is that comparison as its own rule rather than as the other's
+//!   guard: everything discovered was opened. It can now only fire when the two DISAGREE, which is
+//!   a reader bug, and it says so instead of quietly gating a real refusal.
 //! * **a shape the key reader stopped recognising.** Every line the pass EXAMINES is also put to a
 //!   second, deliberately stupid predicate: does it carry both `uses:` and a `./` path? That
 //!   predicate knows nothing about where a key sits, so a line it accepts and the key reader made
@@ -29,9 +42,14 @@
 //!   start of a trimmed line, could not see `- binaries: ...` inside a `strategy.matrix.include`,
 //!   and reported `ok - 4 literal(s)` over a drifted set - this is the arm that would have said so.
 //!   **What it holds constant is the block-scalar boundary**: both readers run over the same
-//!   examined lines, so a shell body naming a call is a floor for neither. That boundary is
-//!   therefore covered by the fixtures below and not by this arm, and it is the one shape class
-//!   where a single mistake blinds both.
+//!   examined lines, so a shell body naming a call is a floor for neither, and a boundary error is
+//!   silent in both. That is the one shape class where a single mistake blinds both, so it is held
+//!   by fixtures - and it needs TWO, one per direction. It had one, over the correctly-bounded
+//!   direction, and could not fail on the mis-bounded one: the scalar was recorded at the DASH's
+//!   column, so every sibling key of a sequence item whose first key opened a scalar was swallowed
+//!   with the body. `- if: >` followed by a sibling `uses:` is idiomatic YAML that GitHub runs, and
+//!   its edge disappeared at exit 0 with `just lint-workflows` green over it. **A fixture over one
+//!   direction of a two-directional boundary is not the assertion a header can claim for it.**
 //!
 //! # The YAML shapes this reader does handle
 //!
@@ -226,19 +244,36 @@ impl Closure {
     pub(super) fn drift(&self) -> Vec<String> {
         let mut out = Vec::new();
 
+        // ARM ONE, and its trigger is the unfollowed set ITSELF. It used to be gated on
+        // `discovered > reached`, which can only ever SUPPRESS: `discovered` unions two
+        // namespaces - repo-relative paths out of `reached`, raw `uses:` values out of
+        // `unfollowed` - so a target whose text equals a path already reached collided in that set
+        // and the sentence went unprinted at exit 0. A non-empty `unfollowed` IS the failure this
+        // arm names, so it is what reports; the conservation law below is a second rule over a
+        // second property, and neither licenses the other.
+        for un in &self.unfollowed {
+            out.push(format!(
+                "UNFOLLOWED CALL: {}:{} names `{}` and this walk could not open it - {}. {} file(s) inspected of {} discovered, and a call it cannot read is a step it cannot refuse",
+                un.call.from,
+                un.call.line,
+                un.call.target,
+                un.why,
+                self.reached.len(),
+                self.discovered().len()
+            ));
+        }
+
+        // THE CONSERVATION LAW: everything the walk set out to open, it opened. Arm one reports
+        // every reason that can fail, so this firing on its own means the two disagree - a target
+        // discovered and neither opened nor refused, which is a reader bug rather than a workflow
+        // defect, and it says so.
         let discovered = self.discovered();
-        if discovered.len() > self.reached.len() {
-            for un in &self.unfollowed {
-                out.push(format!(
-                    "UNFOLLOWED CALL: {}:{} names `{}` and this walk could not open it - {}. {} of {} discovered file(s) inspected, and a call it cannot read is a step it cannot refuse",
-                    un.call.from,
-                    un.call.line,
-                    un.call.target,
-                    un.why,
-                    self.reached.len(),
-                    discovered.len()
-                ));
-            }
+        if self.unfollowed.is_empty() && discovered.len() > self.reached.len() {
+            out.push(format!(
+                "UNRECONCILED WALK: {} file(s) inspected of {} discovered, and nothing was refused - a file was set out for and neither opened nor reported, so this reader is wrong rather than the workflows",
+                self.reached.len(),
+                discovered.len()
+            ));
         }
 
         let unread = self.unread();
@@ -285,6 +320,15 @@ impl Closure {
 /// missing manifest a failed `nix build` rather than a green run over nothing.
 const PROBE_MANIFEST: &str = "feature-probes-";
 
+/// What the walk opened, by label, for a verdict to print.
+///
+/// A verdict that names no set cannot be told from one over a smaller set, which is this gate's own
+/// finding turned on its own output: `67 reference(s) in 20 workflow(s)` is the REFERENCE scan's
+/// number and says nothing about whether the refusal below walked four files or one.
+pub(super) fn walked(closure: &Closure) -> Vec<&str> {
+    closure.inspected().iter().map(|file| file.label.as_str()).collect()
+}
+
 /// Every literal release output ordinary CI builds, and the file and line that builds it.
 ///
 /// Over the whole closure and not over one file name, which is the widening this module exists
@@ -309,7 +353,15 @@ fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
         let Some((_, after)) = line.split_once("nix build ") else {
             continue;
         };
-        let after = after.trim_start().trim_start_matches('"');
+        // SKIP LEADING FLAGS. This used to require the installable to be the very next token, so
+        // `nix build -L .#sutura-serve` - an ordinary spelling - walked past the refusal at exit 0.
+        // That it did not bite was a property of this tree's text (flags written after the
+        // installable everywhere) rather than of the rule.
+        let after = after
+            .split_whitespace()
+            .find(|token| !token.starts_with('-'))
+            .unwrap_or_default();
+        let after = after.trim_start_matches('"');
         let Some(after) = after.strip_prefix(".#") else {
             continue;
         };
@@ -345,8 +397,11 @@ fn plainly_a_call(trimmed: &str) -> bool {
 fn scan(file: &Reached) -> Scan {
     let mut out = Vec::new();
     let mut sighted = Vec::new();
-    // The column of the key that opened a block scalar. Everything more indented is its body,
-    // which is shell rather than YAML - so a `uses:` written inside a `run:` is not a call.
+    // The column of the KEY that opened a block scalar - not of the dash in front of it, which is
+    // the mistake that swallowed a sibling key. Everything more indented is the scalar's body,
+    // which is shell rather than YAML, so a `uses:` written inside a `run:` is not a call; a
+    // SIBLING key of a sequence item whose first key opened the scalar sits at exactly the key's
+    // column, and `>` rather than `<=` is what keeps it examined.
     let mut scalar: Option<usize> = None;
     // The column of a `steps:` key. Everything more indented is a step, which is what tells a
     // job-level `uses:` from a step's without assuming a fixed indent width.
@@ -379,16 +434,20 @@ fn scan(file: &Reached) -> Scan {
         // trimmed line is precisely what cannot see one.
         let item = trimmed.starts_with("- ");
         let key_line = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+        // Where the KEY starts, which is the dash's column plus the dash and its space. Every
+        // sibling of a sequence item's first key sits here, so this - and not `column` - is what
+        // bounds a scalar that key opens.
+        let key_column = column.saturating_add(trimmed.len().saturating_sub(key_line.len()));
         let Some((key, value)) = key_line.split_once(':') else {
             continue;
         };
         let key = key.trim();
         let value = value.trim().trim_matches('"').trim_matches('\'');
         if opens_a_scalar(value) {
-            scalar = Some(column);
+            scalar = Some(key_column);
         }
         if key == "steps" {
-            steps = Some(column);
+            steps = Some(key_column);
             continue;
         }
         if key != "uses" || value.is_empty() {
@@ -547,7 +606,7 @@ mod tests {
         assert!(sentence.contains("ci.yml:14"), "{sentence}");
         assert!(sentence.contains("./.github/workflows/leg.yml"), "{sentence}");
         // The count is read off the witness: two files opened, three discovered.
-        assert!(sentence.contains("2 of 3 discovered file(s) inspected"), "{sentence}");
+        assert!(sentence.contains("2 file(s) inspected of 3 discovered"), "{sentence}");
         std::fs::remove_dir_all(&at).expect("the scratch tree");
     }
 
@@ -597,6 +656,70 @@ mod tests {
             "{sentence}"
         );
         assert!(sentence.contains("0 of 1 such line(s) became edges"), "{sentence}");
+        std::fs::remove_dir_all(&at).expect("the scratch tree");
+    }
+
+    #[test]
+    fn a_sibling_key_of_a_sequence_item_that_opens_a_scalar_is_still_read() {
+        // THE OTHER DIRECTION OF THE BOUNDARY, and the one it was wrong in. The scalar used to be
+        // recorded at the DASH's column, so every sibling key of a sequence item whose first key
+        // opened a scalar was swallowed with the body - and `- if: >` is idiomatic YAML that
+        // GitHub runs. Silent in BOTH readers, because the body skip precedes the floor, so the
+        // fixture over the correctly-bounded direction could not fail on it.
+        let at = scratch("mis-bounded");
+        let caller = concat!(
+            "on:\n  pull_request:\njobs:\n  build:\n    steps:\n",
+            "      - if: >\n",
+            "          always()\n",
+            "        uses: ./.github/actions/tidy\n",
+        );
+        let closure = walk(&at, caller);
+        assert!(closure.drift().is_empty(), "{:?}", closure.drift());
+        let labels: Vec<&str> = closure.inspected().iter().map(Reached::label).collect();
+        assert_eq!(labels, vec!["ci.yml", "actions/tidy"], "the sibling `uses:` made no edge");
+        std::fs::remove_dir_all(&at).expect("the scratch tree");
+    }
+
+    #[test]
+    fn a_flag_written_before_the_installable_does_not_walk_past_the_refusal() {
+        // `nix build -L .#sutura-serve` is an ordinary spelling. The scan required the installable
+        // to be the very next token, so it passed at exit 0 - and that it never bit was a property
+        // of this tree's text rather than of the rule.
+        let found = super::literal_release_builds(concat!(
+            "          nix build -L .#sutura-serve\n",
+            "          nix build --no-link \".#oci\"\n",
+            "          nix build -L .#checks.x86_64-linux.hygiene\n",
+        ));
+        assert_eq!(found, vec![(1, String::from("sutura-serve")), (2, String::from("oci"))]);
+    }
+
+    #[test]
+    fn an_unfollowable_target_naming_a_reached_path_is_still_reported() {
+        // The arm's trigger used to be `discovered > reached` over a set unioning repo paths with
+        // raw `uses:` values, so a target whose TEXT equalled a path already reached collided in
+        // it and the refusal went unprinted at exit 0.
+        let at = scratch("collision");
+        std::fs::write(
+            at.join(".github/workflows/leg.yml"),
+            "on:\n  workflow_call:\njobs:\n  link:\n",
+        )
+        .expect("the leg");
+        let caller = concat!(
+            "on:\n  pull_request:\njobs:\n",
+            "  called:\n    uses: ./.github/workflows/leg.yml\n",
+            // The same file, spelled without `./` - so it is `Edge::Elsewhere`, unfollowable, and
+            // its target text is exactly the path the job above reached.
+            "  alias:\n    uses: .github/workflows/leg.yml\n",
+        );
+        let closure = walk(&at, caller);
+        let drift = closure.drift();
+        assert_eq!(drift.len(), 1, "{drift:?}");
+        let sentence = drift.first().expect("the refusal");
+        assert!(sentence.starts_with("UNFOLLOWED CALL: ci.yml:7"), "{sentence}");
+        // AND THE PROOF THE GUARD WAS THE CAUSE: the two counts are EQUAL here, because the
+        // unfollowable target's text collides with a path already reached. The old trigger read
+        // exactly that comparison and printed nothing.
+        assert!(sentence.contains("2 file(s) inspected of 2 discovered"), "{sentence}");
         std::fs::remove_dir_all(&at).expect("the scratch tree");
     }
 
@@ -673,23 +796,25 @@ mod tests {
     }
 
     #[test]
-    fn the_committed_tree_reaches_past_ci_yml() {
-        // ANTI-VACUITY, over the real files. The whole point of this module is that ordinary CI is
-        // more than one file, so a walk that read only its root would make both rules above pass
-        // over nothing - and a correct tree cannot tell the two apart from the verdict alone.
+    fn the_committed_tree_walks_every_pull_request_workflow_and_past_it() {
+        // ANTI-VACUITY, over the real files, through the DERIVED root set the gate uses. Ordinary
+        // CI is more than one file in two directions, and a correct tree cannot tell a walk that
+        // covered both from one that covered neither by its verdict alone: `ci.yml` CALLS a
+        // workflow a line cap moved a job into, and `docs.yml` runs on the same pull request
+        // without being called by anything.
         let root = crate::repo::root().expect("the repo root");
-        let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("ci.yml");
-        let closure = Closure::from_roots(&root, vec![Reached::workflow("ci.yml", ci)]);
-        assert!(closure.drift().is_empty(), "{:?}", closure.drift());
-        let labels: Vec<&str> = closure.inspected().iter().map(Reached::label).collect();
+        let ci = super::super::contexts::OrdinaryCi::read(&root);
+        assert!(ci.unreachable().is_empty(), "{:?}", ci.unreachable());
+        let labels = super::walked(ci.closure());
         assert!(
             labels.contains(&"cross-link.yml"),
             "ci.yml no longer reaches the workflow a line cap moved its link matrix into: {labels:?}"
         );
         assert!(
-            labels.len() > 1,
-            "the walk read its root and nothing else, so both rules are over one file again: {labels:?}"
+            labels.contains(&"docs.yml"),
+            "a pull-request workflow nothing calls is outside the walk again: {labels:?}"
         );
-        assert!(super::release_outputs(&closure).is_empty());
+        assert!(labels.len() > 2, "the walk read its roots and nothing they call: {labels:?}");
+        assert!(super::release_outputs(ci.closure()).is_empty());
     }
 }

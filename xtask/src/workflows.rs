@@ -93,37 +93,39 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    let ci = match std::fs::read_to_string(root.join(".github/workflows/ci.yml")) {
-        Ok(text) => text,
-        Err(error) => {
-            eprintln!("xtask check-workflows: could not read ci.yml: {error}");
-            return Verdict::Fail;
-        }
-    };
-    // ORDINARY CI IS PLURAL, and reading one file name is how the refusal below stopped covering
-    // it: `cross-link.yml` was lifted out of `ci.yml` at 999 lines against the 1000-line cap, and
-    // a literal release build written there was refused by nothing.
-    let ordinary = reach::Closure::from_roots(&root, vec![reach::Reached::workflow("ci.yml", ci)]);
-    let drift = ordinary.drift();
-    if !drift.is_empty() {
+    // ORDINARY CI IS PLURAL, and NAMING one file is how the refusal below stopped covering it:
+    // `cross-link.yml` was lifted out of `ci.yml` at 999 lines against the 1000-line cap, and a
+    // literal release build written there was refused by nothing. The root set is DERIVED - every
+    // workflow whose `on:` block names a gating event - because rooting the walk at `ci.yml` left
+    // `docs.yml` and `security-audit.yml` outside it, which is the same defect one file over.
+    let ordinary = contexts::OrdinaryCi::read(&root);
+    let unreachable = ordinary.unreachable();
+    if !unreachable.is_empty() {
         eprintln!("xtask check-workflows: FAILED - ordinary CI is not fully readable from here\n");
-        for problem in &drift {
+        for problem in &unreachable {
             eprintln!("  {problem}");
         }
         eprintln!();
         eprintln!("A call this gate cannot open is a step it cannot refuse, so it fails closed. The");
         eprintln!("release-output refusal is over the files the walk opened, and that has to be all");
-        eprintln!("of them - see the header of xtask/src/workflows/reach.rs for both arms.");
+        eprintln!("of them - see the header of xtask/src/workflows/reach.rs for its arms.");
         return Verdict::Fail;
     }
-    let release_builds = reach::release_outputs(&ordinary);
+    let walked = reach::walked(ordinary.closure());
+    if walked.is_empty() {
+        eprintln!("xtask check-workflows: no workflow runs on a pull request - the scan is broken");
+        eprintln!("  rather than the workflows, and every rule below would pass over nothing");
+        return Verdict::Fail;
+    }
+    let release_builds = reach::release_outputs(ordinary.closure());
     if !release_builds.is_empty() {
         eprintln!("xtask check-workflows: ordinary CI builds release outputs");
         for found in &release_builds {
             eprintln!("  {found}");
         }
         eprintln!("Release outputs belong to the tag-triggered release workflow, not ordinary CI -");
-        eprintln!("and ordinary CI is ci.yml plus every local workflow or action it calls.");
+        eprintln!("and ordinary CI is every pull-request workflow plus everything they call:");
+        eprintln!("  {}", walked.join(", "));
         return Verdict::Fail;
     }
 
@@ -159,7 +161,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
     // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
     // readers and checked by nothing - and it was false.
-    let unclassified = contexts::problems(&root);
+    let unclassified = contexts::problems(&root, &ordinary);
     if !unclassified.is_empty() {
         eprintln!(
             "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
@@ -188,9 +190,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .collect();
 
     if missing.is_empty() {
+        // TWO NUMBERS, because they are two scans. `files` is the REFERENCE scan's - every file
+        // under the three places CI invokes from - and nothing in it distinguished a release
+        // refusal that walked four files from one that walked one. So the walked set is printed
+        // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified",
-            references.len()
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, no release output in the {} file(s) ordinary CI runs: {}",
+            references.len(),
+            walked.len(),
+            walked.join(", ")
         );
         return Verdict::Pass;
     }

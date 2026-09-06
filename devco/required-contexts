@@ -99,20 +99,31 @@ ci.yml:cross
 # The called workflow's own job - the one that reports those four legs. ADVISORY DELIBERATELY, and
 # this is the entry where that decision is written down rather than left to the reader:
 #
-#   * REQUIRING THE LEGS was weighed and refused. Four context strings maintained by hand, each
-#     carrying a matrix value and the caller's job name, and `cargo xtask check-workflows` cannot
-#     derive any of them - so the gate would be blind exactly where the cost is. And the failure
-#     mode of a required context that stops reporting is a PERMANENTLY PENDING merge, which is
-#     worse than an ungated leg.
+#   * REQUIRING THE LEGS DIRECTLY was weighed and refused. Four context strings maintained by
+#     hand, each carrying a matrix value and the caller's job name, and `cargo xtask
+#     check-workflows` cannot derive any of them - so the gate would be blind exactly where the
+#     cost is. Note what does NOT discriminate here, because the first draft of this bullet leaned
+#     on it: *a required context that stops reporting is a permanently pending merge* is equally
+#     true of `ci`, which is required. What decides it is only that these contexts are
+#     matrix-expanded.
 #   * MOVING THE CHECK INSIDE `ci` would make it required, since `ci` is the required context and a
 #     STEP inside it is gated. It is refused on what the matrix buys: four runners build four
 #     dependency closures in parallel, so a branch waits for one target instead of four. Inside
 #     `ci` the same work is sequential, on the job every pull request waits for, and `needs: [ci]`
 #     exists so a tree that fails clippy does not spend four runners proving it also links.
-#   * MAKING `ci` DEPEND ON THE LEGS is not available: `cross` has `needs: [ci]`, so the edge
-#     cannot be inverted without a cycle, and an aggregating job in between reports a NEW context
-#     name - advisory by construction until the ruleset changes, which is a change no gate here can
-#     read. Every option that adds a required context is a claim this file cannot check.
+#   * MAKING `ci` DEPEND ON THE LEGS is not available: `cross` has `needs: [ci]`, so that edge
+#     cannot be inverted without a cycle.
+#   * AN AGGREGATING JOB IS AVAILABLE, AND WAS NOT TAKEN. This is the option the previous wording
+#     folded into the line above and so declared closed - which was wrong twice over, because it is
+#     also the remedy `cargo xtask check-workflows` PRINTS when a `[required]` entry names a
+#     context it cannot derive: *require an aggregating job instead, its context resolves like any
+#     other*. A job with `needs: [cross]` reporting one plain context, plus one ruleset edit, would
+#     make this coverage required AND checkable by the rule above - a rename of the legs behind it
+#     would then fail that rule instead of the merge box. It costs one hand-maintained name and one
+#     edit nobody here can verify, and it was not taken; that is a decision, not an impossibility,
+#     and the reader is entitled to know which. What *the ruleset is unreachable from the sandbox*
+#     is, is a limit on VERIFICATION rather than a reason: `ci` is required by exactly the same
+#     unverifiable edit.
 #
 # So the coverage stays advisory, and what is mechanised instead is that the classification is
 # complete: this entry is what `cargo xtask check-workflows` needs in order to fail when a job is
