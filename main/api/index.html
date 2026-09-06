@@ -1476,6 +1476,8 @@
       
         
       
+        
+      
     
     
     
@@ -1926,6 +1928,34 @@
   
   
     <li class="md-nav__item">
+      <a href="sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="sutura-dev/" class="md-nav__link">
         
   
@@ -2265,6 +2295,9 @@ arrow points inward, at the domain.</p>
   side effect of being linked: the subscriber, the panic hook, the shutdown signal</li>
 <li><a href="sutura-http/">sutura-http</a> - transport only. It consumes the <code>Surface</code> port rather than
   declaring it, so a second transport reaches for <code>sutura-app</code> and never for this crate</li>
+<li><a href="sutura-conformance/">sutura-conformance</a> - the conformance packs: test bodies written once
+  against the ports, bound to an adapter by a macro. It points inward like everything else - at the
+  domain and at no adapter, which is what lets an adapter's own crate take it as a dev-dependency</li>
 </ul>
 <h2 id="these-pages-are-generated">These pages are generated<a class="headerlink" href="#these-pages-are-generated" title="Permanent link">&para;</a></h2>
 <p>Do not edit them; every page carries a header saying so. The source of the text is the doc comments
