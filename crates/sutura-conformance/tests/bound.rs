@@ -232,7 +232,7 @@ fn a_source() -> Fake<false> {
 #[cfg(test)]
 mod faults {
     use super::{Check, Distortion, Fake};
-    use sutura_conformance::{Behaviour, Declination, Fault, Outcome, execute};
+    use sutura_conformance::{Behaviour, Declination, Fault, Outcome, Spent, execute};
 
     /// A relabelled answer is a labels fault, and it is reported as one rather than as wrong rows.
     ///
@@ -364,6 +364,55 @@ mod faults {
     #[test]
     #[should_panic(expected = "a behaviour without a test is coverage this run did not earn")]
     fn a_binding_that_skips_a_behaviour_fails_the_census() {
-        sutura_conformance::census::<Fake<false>>("short", &[Behaviour::Content]);
+        sutura_conformance::census::<Fake<false>>("short", &[Behaviour::Content], Spent::building(crate::a_source));
+    }
+
+    /// **A cell's cost is measured, not stated**, which is the whole reason [`Spent`] is a type:
+    /// `docs/adr/0012` claimed per-pack timings were reported from the start and nothing measured
+    /// one (`telekom/sutura#353`). The fields are private and both constructors measure, so a
+    /// caller cannot report a number nobody took.
+    #[test]
+    fn a_cells_cost_is_measured_around_the_fixture_and_the_behaviour_separately() {
+        let slow = core::time::Duration::from_millis(15);
+        let (conformed, spent) = Spent::measuring(
+            || {
+                std::thread::sleep(slow);
+                Fake::<false>::faithful()
+            },
+            |fake| {
+                std::thread::sleep(slow);
+                execute::content_agrees_with_the_reference(fake)
+            },
+        );
+        assert_eq!(conformed.expect("the faithful fake holds"), Outcome::Held);
+        // Both halves are attributed to the work they timed, which a single total cannot do - and
+        // that split is the point, because the fixture is rebuilt once per behaviour.
+        assert!(spent.fixture() >= slow, "fixture: {:?}", spent.fixture());
+        assert!(spent.pack() >= slow, "pack: {:?}", spent.pack());
+    }
+
+    /// The census's own measurement runs no behaviour, and says so by measuring only the fixture.
+    #[test]
+    fn the_census_measures_the_fixture_and_not_a_behaviour() {
+        let spent = Spent::building(|| {
+            std::thread::sleep(core::time::Duration::from_millis(15));
+            Fake::<false>::faithful()
+        });
+        assert!(spent.fixture() >= core::time::Duration::from_millis(15), "{spent}");
+        // Not "roughly zero": the census ran nothing, so the pack half is not a measurement of a
+        // behaviour at all, and a floor computed from it would be about nothing.
+        assert!(spent.pack() < spent.fixture(), "{spent}");
+    }
+
+    /// What a reader of a green run sees, and it carries both halves - so the per-pack aggregate
+    /// `docs/adr/0012` asks for is a `grep` over a run whose behaviour names are on the same lines.
+    #[test]
+    fn the_reported_cost_names_both_halves_beside_the_total() {
+        let printed = Spent::building(crate::a_source).to_string();
+        assert!(printed.contains("(fixture "), "{printed}");
+        assert!(printed.contains(" + pack "), "{printed}");
+        // The total is FIRST, so a reader scanning a green run sorts on the number that matters
+        // and reads the split only where it does.
+        assert!(!printed.starts_with("(fixture"), "{printed}");
     }
 }
