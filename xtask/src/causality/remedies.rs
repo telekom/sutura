@@ -125,8 +125,8 @@ fn scope_lines(coverage: &Coverage) -> Vec<String> {
 /// BEFORE that block are precisely where a manifest is the whole implementation change:
 /// `Cargo.toml` plus a test that needs the dependency it adds gives an empty `revert`, so
 /// [`report_nothing_to_revert`] answered *tests changed but no implementation did* at exit 0 and
-/// never named the manifest. That is `github.com/telekom/sutura#343`'s exact shape, and it was the
-/// one arm where the naming was the point. The sentence that arm carried instead pointed at *"the
+/// never named the manifest. Naming it is all this does; what a manifest diff PUT INTO THE BUILD is
+/// `super::features`' question and its own refusal. The sentence that arm carried instead pointed at *"the
 /// proof's own block"*, which that arm never prints - the cross-arm citation `super::base`'s own
 /// header records as not allowed.
 pub(super) fn report_unreverted(build_inputs: &[String]) {

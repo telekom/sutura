@@ -37,11 +37,24 @@
 //! | a test in a SUBMODULE of the enabled module | only the module's own file is read for a test declaration | the silent pass |
 //! | a nested workspace member under another member's directory | its sources would be read against the outer table | a refusal that is not the author's fault. There is none: every member manifest here is one level under `crates/`, `dev/` or the root |
 //!
-//! WHAT MAY NOT HAPPEN, and it is what the types are for. Every changed manifest the diff carries
-//! lands in exactly one place: a resolved pair of tables, or [`Unread`]. There is no third path, so
-//! *nothing was enabled* cannot be said about a manifest whose base table was never read, and it
-//! cannot be said about a package whose sources came back empty either - an empty subject set is
-//! [`Unread::Sources`] rather than a pass.
+//! WHAT MAY NOT HAPPEN. Every changed manifest the diff carries lands in exactly one place: a
+//! resolved pair of tables, or [`Unread`]. So *nothing was enabled* cannot be said about a manifest
+//! whose base table was never read, and it cannot be said about a package whose sources came back
+//! empty either - an empty subject set is [`Unread::Sources`] rather than a pass.
+//!
+//! **What holds that, at the strength it actually has**, because *the types* would be an
+//! overstatement: `Activation::one` returns `Result<_, Unread>` and every path in it that has not
+//! yet resolved both tables returns `Err`, so an answer of *nothing* is reachable only after both
+//! were read. Nothing in the type system stops a future early `Ok(Vec::new())` from being added
+//! above them - what does is
+//! `tests::a_manifest_whose_base_table_could_not_be_read_is_refused_rather_than_answered`, which
+//! reddens on exactly that mutation and names the input that went missing.
+//!
+//! WHAT IT CANNOT BE ASKED OF, so the widest reading of the scan is not the one a reader takes: a
+//! manifest with no `[package]` declares no `[features]` - cargo rejects a feature table on a
+//! virtual manifest - so this workspace's root `Cargo.toml` resolves to an empty set on both sides
+//! and no source under it is ever listed. That is the reason the package directory can be derived
+//! from the manifest path at all.
 
 use std::collections::BTreeSet;
 
