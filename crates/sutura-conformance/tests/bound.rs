@@ -14,8 +14,13 @@
 //!    a fault is a panic - so a variant that stopped being reachable would leave a pack that
 //!    reports nothing. This is the half that would be missing if the bindings alone were green: a
 //!    pack that returned `Ok` unconditionally passes every binding in this file.
+//! 3. **The venue.** `Fixture::Absent` is the harness's answer to *no tier is up here*, and what is
+//!    worth proving about it is what it STOPS: a cell over an absent fixture must not run the pack,
+//!    and the same distorted fake standing up must fail. One fake, two venues, opposite verdicts -
+//!    which is what makes an absence a decision rather than a swallowed failure. Either half alone
+//!    is satisfied by a harness that swallows every fault.
 
-use sutura_conformance::corpus;
+use sutura_conformance::{Fixture, corpus};
 use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
@@ -218,13 +223,17 @@ mod conformance {
 }
 
 /// The faithful leg-executing fake, with a pre-flight that really answers.
-fn an_engine() -> Fake<true> {
-    Fake::<true>::checking(Check::Accepted)
+///
+/// `Fixture::standing` unconditionally, because a fake stands up wherever the test binary does -
+/// which is what makes the ABSENT direction below a statement about the harness rather than about
+/// any environment this file needs.
+fn an_engine() -> Fixture<Fake<true>> {
+    Fixture::standing(Fake::<true>::checking(Check::Accepted))
 }
 
 /// The faithful non-federating fake, which offers no pre-flight.
-fn a_source() -> Fake<false> {
-    Fake::<false>::faithful()
+fn a_source() -> Fixture<Fake<false>> {
+    Fixture::standing(Fake::<false>::faithful())
 }
 
 // The fault half, in its own `#[cfg(test)]` module because `clippy::tests_outside_test_module`
@@ -364,7 +373,7 @@ mod faults {
     #[test]
     #[should_panic(expected = "a behaviour without a test is coverage this run did not earn")]
     fn a_binding_that_skips_a_behaviour_fails_the_census() {
-        sutura_conformance::census::<Fake<false>>("short", &[Behaviour::Content], Spent::building(crate::a_source));
+        sutura_conformance::census::<Fake<false>>("short", &[Behaviour::Content], None, crate::a_source);
     }
 
     /// **A cell's cost is measured, not stated**, which is the whole reason [`Spent`] is a type:
@@ -414,5 +423,183 @@ mod faults {
         // The total is FIRST, so a reader scanning a green run sorts on the number that matters
         // and reads the split only where it does.
         assert!(!printed.starts_with("(fixture"), "{printed}");
+    }
+}
+
+// The VENUE half. Its own `#[cfg(test)]` module, for the reason `faults` has one.
+#[cfg(test)]
+mod venue {
+    use super::{Distortion, Fake};
+    use sutura_conformance::{Behaviour, Fixture, Missing, execute};
+
+    /// The absence every cell here is written around.
+    fn absent() -> Fixture<Fake<false>> {
+        Fixture::Absent(Missing::tier("postgres", &"nothing in this worktree publishes an endpoint"))
+    }
+
+    /// **The absent direction stops the pack, and the proof is that a fake which FAULTS survives it.**
+    ///
+    /// `Distortion::ANumberChanged` makes [`execute::content_agrees_with_the_reference`] return
+    /// `Fault::Content`, and `conduct` panics on a fault - so if an absent fixture ran the pack
+    /// anyway this cell would fail. It passes, which says the behaviour never ran. The cell below
+    /// asserts the same distortion in a venue where the fixture stands up, and that one must panic:
+    /// either half alone is satisfied by a harness that swallows every fault.
+    #[test]
+    fn a_behaviour_over_an_absent_fixture_does_not_run_the_pack() {
+        // `None` for the venue's declaration, and it is the seam rather than a shortcut: a fake
+        // absence IS a fabricated one as a value, so a cell that let the environment answer was
+        // refused inside `checks.nextest`, which provisions the tier and sets the variable.
+        // `unsafe_code` is `forbid` here, so no test can unset it either.
+        sutura_conformance::conduct(
+            "absent",
+            Behaviour::Content,
+            None,
+            absent,
+            execute::content_agrees_with_the_reference,
+        );
+    }
+
+    /// The other half: the SAME distortion, standing up, fails the cell.
+    #[test]
+    #[should_panic(expected = "the rows are not the reference's")]
+    fn the_same_distortion_standing_up_fails_that_behaviour() {
+        sutura_conformance::conduct(
+            "standing",
+            Behaviour::Content,
+            None,
+            || Fixture::standing(Fake::<false>::distorted(Distortion::ANumberChanged)),
+            execute::content_agrees_with_the_reference,
+        );
+    }
+
+    /// A census over an absent fixture still holds what it can.
+    ///
+    /// The assertions it makes - that the emitted behaviours are the pack's, and that the corpus is
+    /// not empty - are facts about this TREE, so a venue with no tier does not excuse them. What it
+    /// must not do is print a behaviour count, a case count and a floor beside cells that each
+    /// reported `NOT RUN`; that suppression is a printed line and no test can read it, so what is
+    /// asserted here is the half a test can reach.
+    #[test]
+    fn a_census_over_an_absent_fixture_reports_rather_than_failing() {
+        sutura_conformance::census::<Fake<false>>("absent", Behaviour::EVERY, None, absent);
+    }
+
+    /// And an absent venue does NOT excuse a binding that lost a behaviour.
+    #[test]
+    #[should_panic(expected = "a behaviour without a test is coverage this run did not earn")]
+    fn an_absent_fixture_does_not_excuse_a_short_binding() {
+        sutura_conformance::census::<Fake<false>>("absent", &[Behaviour::Content], None, absent);
+    }
+
+    /// The absence names the service AND carries the provisioner's own diagnostic.
+    ///
+    /// Both halves, because a message with only the service is a skip nobody can act on and a
+    /// message with only the diagnostic does not say which tier went missing. The remedy itself is
+    /// `sutura_dev::provisioned::Absent`'s to derive, and three checks hold it there - so what this
+    /// asserts is that the harness passes it through rather than composing a fourth copy beside it.
+    #[test]
+    fn an_absence_names_the_service_and_carries_the_provisioners_diagnostic() {
+        let printed = Missing::tier("postgres", &"run `just postgres-tier start`").to_string();
+        assert!(printed.contains("`postgres`"), "{printed}");
+        assert!(printed.contains("run `just postgres-tier start`"), "{printed}");
+        // And it says what the cell established, which is nothing - the sentence a reader of a
+        // green run needs, because libtest has no outcome for it. It is deliberately NOT the
+        // census's own wording: the two lines appear one after the other on an absent binding, and
+        // a reader who saw the same clause twice would have to work out whether one of them was
+        // about something else.
+        assert!(printed.contains("nothing was asked of this adapter"), "{printed}");
+    }
+
+    /// **The requirement this harness reads is the one the provisioner writes.**
+    ///
+    /// `sutura_conformance` spells `SUTURA_DEV_REQUIRE_TIER` and its truthiness a second time,
+    /// because `not_here` has to judge an absence and the packs crate may not reach the crate that
+    /// publishes that decision through a normal dependency. Two statements about one fact can
+    /// disagree - `nix/with-tier.sh` records that defect at a count of one, which is why the
+    /// variable is exported there by the thing that STARTED the tier rather than asserted beside
+    /// it. So this cell is the mechanism that keeps the copies equal rather than a comment claiming
+    /// they are. Both halves, because a name that matches with a truthiness that does not is the
+    /// worse of the two failures: it would read as agreement.
+    #[test]
+    fn the_requirement_this_harness_reads_is_the_one_the_provisioner_writes() {
+        assert_eq!(sutura_conformance::REQUIRE_TIER, sutura_dev::requirement::FORCE);
+        // **The falsy spellings are ITERATED from the owner, not listed here**, and that is the
+        // correction review asked for: a fixed literal array is a SAMPLE, and the sample was
+        // chosen in the crate that would not be the one changed. Add `"off"` to
+        // `sutura_dev::requirement::NOT_REQUIRED` - the obvious next spelling for a variable people
+        // set by hand - and `SUTURA_DEV_REQUIRE_TIER=off` would mean *optional* to
+        // `provisioned::here`, which skips, and *required* to `a_tier_is_required`, which then
+        // refuses the very absence that skip produced. Red on a machine that asked to skip, with a
+        // message naming the one thing that did not happen. Iterating the constant makes that a
+        // failure of this cell instead.
+        let falsy = sutura_dev::requirement::NOT_REQUIRED
+            .iter()
+            .flat_map(|spelling| [(*spelling).to_owned(), format!("  {spelling}"), spelling.to_uppercase()]);
+        // The truthy side stays a sample and has to: *anything not falsy* has no list to iterate,
+        // so what is asserted is that both copies agree over the spellings a reader would try.
+        let truthy = ["1", "true", "TRUE", "yes", "CI", "on"].into_iter().map(String::from);
+        for value in falsy.chain(truthy) {
+            assert_eq!(
+                sutura_conformance::a_tier_is_required(Some(&value)),
+                sutura_dev::requirement::decide(Some(&value)).is_required(),
+                "`{value}`"
+            );
+        }
+        // And the unset direction, which is the one a host with no tier binary is in.
+        assert!(!sutura_conformance::a_tier_is_required(None));
+        assert!(!sutura_dev::requirement::decide(None).is_required());
+    }
+
+    /// **A tier absence declared where a venue said it PROVISIONED one is a defect, not a skip.**
+    ///
+    /// The hole this closes was measured rather than imagined: with the tier UP and the variable
+    /// set, a fixture answering `Fixture::Absent` unconditionally was 21 tests passed, and the only
+    /// tell was seven printed `NOT RUN` lines. Only the thing that brought a tier up sets that
+    /// variable, so where it is set an absent tier is impossible.
+    ///
+    /// Both directions, and the second is not symmetry: a refusal that fired wherever an absence
+    /// appeared would make the suite red on every machine without the tier binary, which is the
+    /// fail-OPEN direction `sutura_dev::requirement` decides for this whole repository and that
+    /// this crate does not get to re-decide.
+    #[test]
+    fn a_declared_tier_absence_is_impossible_where_a_venue_provisioned_one() {
+        let absent = Missing::tier("postgres", &"a fixture that did not ask");
+        assert!(sutura_conformance::absence_is_impossible(&absent, Some("1")));
+        assert!(!sutura_conformance::absence_is_impossible(&absent, None));
+        assert!(!sutura_conformance::absence_is_impossible(&absent, Some("0")));
+    }
+
+    /// **A fabricated absence fails the BEHAVIOUR cell where a venue provisioned a tier.**
+    ///
+    /// End to end through `conduct`, message included, which the seam is what makes possible: the
+    /// venue's declaration is a parameter, so this cell states `Some("1")` instead of depending on
+    /// which venue ran it. It is the same fixture the cell above passes `None` for, so the pair is
+    /// one value judged two ways.
+    #[test]
+    #[should_panic(expected = "so it provisioned a tier and an absent one is not possible here")]
+    fn a_fabricated_absence_fails_a_behaviour_where_a_venue_provisioned_a_tier() {
+        sutura_conformance::conduct(
+            "fabricated",
+            Behaviour::Content,
+            Some("1"),
+            absent,
+            execute::content_agrees_with_the_reference,
+        );
+    }
+
+    /// **And the CENSUS cell too**, which is the half that was missing when the refusal lived in
+    /// one ending only: measured at 6 of 7 failing, with the binding's own census the cell that
+    /// passed over a fabricated absence.
+    #[test]
+    #[should_panic(expected = "so it provisioned a tier and an absent one is not possible here")]
+    fn a_fabricated_absence_fails_the_census_where_a_venue_provisioned_a_tier() {
+        sutura_conformance::census::<Fake<false>>("fabricated", Behaviour::EVERY, Some("1"), absent);
+    }
+
+    /// The two variants answer [`Fixture::missing`] apart, which is what `census` branches on.
+    #[test]
+    fn a_standing_fixture_reports_nothing_missing_and_an_absent_one_reports_why() {
+        assert!(Fixture::standing(Fake::<false>::faithful()).missing().is_none());
+        assert!(absent().missing().is_some());
     }
 }

@@ -82,9 +82,21 @@ pub fn decide(forced: Option<&str>) -> Requirement {
     Requirement::Optional
 }
 
+/// Every spelling of [`FORCE`] that means *no*, lowercased and trimmed.
+///
+/// **Public because a second reader of this decision exists and may not depend on this crate.**
+/// `sutura-conformance` has to judge whether an absent tier is a defect where a venue declared one,
+/// and `xtask/src/boundaries/harness.rs` holds that crate to `sutura-domain` through a normal
+/// dependency - so it spells the same predicate a second time. Two statements about one fact can
+/// disagree, which is the defect `nix/with-tier.sh` records at a count of one, so this list is the
+/// OWNER and that crate's own test iterates it as a DEV-dependency. A spelling added here fails
+/// that cell until the copy agrees, rather than making the two disagree silently about a variable
+/// people set by hand.
+pub const NOT_REQUIRED: &[&str] = &["", "0", "false", "no"];
+
 /// GitHub Actions sets `CI=true`; a developer who exports `CI=0` means it.
 fn truthy(value: &str) -> bool {
-    !matches!(value.trim().to_lowercase().as_str(), "" | "0" | "false" | "no")
+    !NOT_REQUIRED.contains(&value.trim().to_lowercase().as_str())
 }
 
 #[cfg(test)]
@@ -117,9 +129,18 @@ mod tests {
         assert_eq!(decide(Some("0")), Requirement::Optional);
     }
 
+    /// Every spelling [`NOT_REQUIRED`] carries, plus the case and whitespace variants around them.
+    ///
+    /// Iterating the CONSTANT rather than a literal list, so a spelling added there is covered
+    /// here without a second edit - which is the same reason `sutura-conformance`'s own cell
+    /// iterates it rather than a list of its own.
     #[test]
     fn an_empty_or_negative_forced_value_does_not_require_a_tier() {
-        for value in ["", " ", "0", "false", "no", "FALSE"] {
+        let variants: Vec<String> = super::NOT_REQUIRED
+            .iter()
+            .flat_map(|spelling| [(*spelling).to_owned(), format!(" {spelling} "), spelling.to_uppercase()])
+            .collect();
+        for value in variants.iter().map(String::as_str) {
             assert!(!truthy(value), "`{value}` read as CI");
             // `truthy` still decides what a FORCED value means, which is the reading that survives.
             assert_eq!(decide(Some(value)), Requirement::Optional, "`{value}`");

@@ -481,15 +481,27 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
 
     let config_path = root.join(CONFIG);
-    let Ok(config) = std::fs::read_to_string(&config_path) else {
-        // Not an error: a repo need not have a site. Pages with no configuration are.
-        let orphans = pages(&root, DEFAULT_DOCS_DIR);
-        if orphans.is_empty() {
-            println!("xtask check-docs: ok - no site");
-            return Verdict::Pass;
+    let config = match std::fs::read_to_string(&config_path) {
+        Ok(config) => config,
+        Err(error) => {
+            // FAIL CLOSED, BOTH WAYS. This arm used to answer `ok - no site` on the argument that
+            // a repo need not have one - but this gate is registered in THIS repository's sweep,
+            // where `just validate` renders the site and every rule below is about what that
+            // render publishes. A missing configuration is the one input whose absence makes every
+            // other rule here vacuous, and it announced success: `github.com/telekom/sutura#371`'s
+            // class, a gate answering `ok` before reading its subject.
+            //
+            // The REASON is the one `read_to_string` established, not `does not exist`: this guard
+            // cannot tell an absent file from a present-but-unreadable one, and a sentence naming
+            // the wrong cause sends its reader to the wrong fix.
+            eprintln!("xtask check-docs: FAILED - could not read {CONFIG}: {error}");
+            if !pages(&root, DEFAULT_DOCS_DIR).is_empty() {
+                eprintln!("  and pages exist under {DEFAULT_DOCS_DIR}, so they are published by nothing.");
+            }
+            eprintln!("  Every rule this gate holds - nav reachability, exclusions, link targets, assets -");
+            eprintln!("  is read out of that file, so without it there is no verdict to give.");
+            return Verdict::Fail;
         }
-        eprintln!("xtask check-docs: FAILED - pages exist under {DEFAULT_DOCS_DIR} but {CONFIG} does not");
-        return Verdict::Fail;
     };
 
     let docs_dir = top_level_scalar(&config, "docs_dir").unwrap_or_else(|| String::from(DEFAULT_DOCS_DIR));

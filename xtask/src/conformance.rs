@@ -27,6 +27,16 @@
 //! derived from the first path segment of the adapter type the entry names - not from a name
 //! written here. Both ends of the comparison move with the tree.
 //!
+//! # The exemption list is EMPTY as of `telekom/sutura#348`
+//!
+//! This gate shipped with one declared exemption - `postgres`, registered in the golden matrix and
+//! carrying no binding because `sutura_conformance` had no way to say *no tier is up here* that was
+//! not a pass. It has one now (`sutura_conformance::Fixture`), the adapter binds the packs from its
+//! own crate, and the entry is deleted rather than reworded: an exemption for something that is
+//! bound after all is itself a failure here, so it could not have been left behind. The mechanism
+//! stays with the list empty, because the alternative to a declared exemption is an EXCLUSION,
+//! which hides an entry instead of classifying it.
+//!
 //! # This is also the gate `telekom/sutura#135` needs
 //!
 //! That issue wants CI's job matrix intersected with path-filter categories, keyed by the registry
@@ -166,6 +176,15 @@
 //!
 //! Both directions are the price of reading text rather than a compiled artefact, which is not
 //! available - see [`scan`]'s header for why.
+//!
+//! **Two things the witnesses do NOT reach, and both are pre-existing rather than introduced by
+//! the change that wrote this paragraph.** [`Reconciled`]'s `judged` field is `pub(super)`, so a
+//! struct literal written in [`reconcile`] bypasses `Reconciled::of` and the one-decision-per-entry
+//! law with it - the law is held against every caller that exists, and nothing stops a future one
+//! in that module. And the `N file(s) read` figure printed on green is a plain `usize` counter, not
+//! a witness type: it is honest because an unreadable file in scope is a hard error rather than a
+//! skip, so `read` cannot be short of what was in scope without the run having already failed -
+//! which is an argument about the other guard rather than about the number.
 //!
 //! **The derivation from a type to a crate is `_` to `-` plus a manifest that declares that
 //! name.** A crate whose directory disagrees with its package name is found through the manifest;
@@ -467,10 +486,17 @@ fn explain() {
     eprintln!("So the fix is one of exactly two things, and both are visible in a diff:");
     eprintln!("  1. bind the adapter from its own crate - `sutura_conformance::execute_packs!` in");
     eprintln!("     <the crate>/{BINDING_FILE}, wrapped in `mod {BINDING_MODULE}`; or");
-    eprintln!("  2. declare it unbound in UNBOUND in xtask/src/conformance.rs, with what and why.");
+    eprintln!("  2. declare it unbound in UNBOUND in xtask/src/conformance/reconcile.rs, with what");
+    eprintln!("     and why.");
     eprintln!();
     eprintln!("The second is an architecture decision: `docs/adr/0012` says one registration, not");
     eprintln!("two, and an exemption is that consequence going unmet. Today:");
+    if UNBOUND.is_empty() {
+        // Said out loud rather than left as an empty list, because *nothing is exempt* is the
+        // state this gate was built to reach and a reader arriving at a failure needs to know
+        // that the first option above is the only one anybody has taken.
+        eprintln!("  nothing is declared unbound, so option 1 is what every registered adapter did.");
+    }
     for allowance in UNBOUND {
         eprintln!("  {} in {} - {}", allowance.name, allowance.crate_name, allowance.what);
         eprintln!("    Why: {}", allowance.why);
@@ -582,6 +608,26 @@ mod tests {
                 entry.crate_dir
             );
         }
+    }
+
+    /// **The third empty-scan floor, which had no cell.**
+    ///
+    /// `check-conformance-bindings` refuses an empty scan in three places, and the other two are
+    /// covered: `scan::cells` refuses a registry arm with no entry, and `Reconciled::of` refuses a
+    /// verdict short of what was found. This is the outermost one - *no Rust under `crates/` was
+    /// read* - and it is the arm that fires when the tree has moved out from under the gate, which
+    /// is the failure mode a gate exists to prevent and the least likely to be noticed, because a
+    /// scan that read nothing has nothing to disagree with.
+    ///
+    /// Called with an empty file list rather than by moving the tree, which is what makes it a
+    /// cell and not a manual experiment.
+    #[test]
+    fn a_scan_that_read_no_rust_is_a_failure_and_not_a_clean_tree() {
+        let repo::RepoFiles { root, .. } = repo::all_files().expect("the tests run inside the repo");
+        let Err(why) = super::collect(&root, &[]) else {
+            panic!("a scan that read nothing is not a verdict")
+        };
+        assert!(why.contains("was read, so this gate checked nothing"), "{why}");
     }
 
     #[test]

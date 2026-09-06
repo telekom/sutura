@@ -9,7 +9,7 @@
 //! // In the adapter's own crate, in `tests/conformance.rs`.
 //! #[cfg(test)]
 //! mod conformance {
-//!     fn open() -> DuckDbWarehouse { /* attach `corpus::on_disk()` */ }
+//!     fn open() -> Fixture<DuckDbWarehouse> { /* attach `corpus::on_disk()` */ }
 //!
 //!     sutura_conformance::execute_packs! {
 //!         adapter: duckdb,
@@ -41,6 +41,7 @@
 //! | A capability with **no constant to declare** (`Warehouse::dry_run`) | The pack returns [`Outcome::Declined`] carrying a typed [`Declination`], which [`hold`] prints as `DECLINED` and `.config/nextest.toml`'s second override keeps on a green run. Stated limit: it is observed at RUN TIME, so it is weaker than the row above and would become that row the day the port carries the constant |
 //! | A behaviour that loses its test | The `#[test]`s and the list [`census`] compares are ONE repetition inside [`execute_packs`], so a test cannot be deleted without deleting its census element, and the element is compared against [`Behaviour::EVERY`]. **This is the corrected version:** it was two hand-written lists 370 lines apart in this file, and a review deleted the content behaviour's test while leaving the variant in both - every census passed |
 //! | The corpus being empty, which would make every behaviour vacuously green | [`census`] fails on a corpus with no cases, and prints the case count beside the behaviour count. Reachable as a [`Fault::EmptyCorpus`] too, through [`execute::a_leg_is_refused_over`] |
+//! | The **environment** a networked adapter needs not being here, which is not a case above because it is not about the adapter at all | [`Fixture`] is what a binding's `open` returns, so an absence is a VALUE rather than a panic in a fixture; [`not_here`] prints `NOT RUN` under the behaviour's own name, and [`census`] prints no coverage line at all where the fixture did not stand up. The skip-or-fail DIRECTION is deliberately not this crate's - a provisioner that set `SUTURA_DEV_REQUIRE_TIER` gets a failure out of `sutura_dev::provisioned::here` before an absence can reach here at all |
 //!
 //! # What a green conformance run does NOT establish
 //!
@@ -61,6 +62,35 @@
 //!   crate cannot help with:** it holds that a registered data system HAS a binding, never that a
 //!   pack's body asserts anything - the four mechanisms above are what cover that, and a pack
 //!   returning `Ok` unconditionally passes all of them and the gate.
+//! - **That a binding reporting its fixture ABSENT asked anything, on a machine that provisioned
+//!   nothing.** [`Fixture`] is a type a binding fills in and this crate cannot see a socket:
+//!   `xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone, and that gate's own
+//!   remedy assigns *reaching a provisioned tier* to the adapter's fixture. **In a venue that
+//!   provisioned one this is closed** - [`not_here`] and [`census`] both fail a declared absence
+//!   wherever [`REQUIRE_TIER`] is set, and `nix/with-tier.sh`'s `sutura_tier_up` STARTS a tier and
+//!   then exports it, so that is `just test`, `just gates`, `just causality`'s head run and
+//!   `nix/run-gate.sh tests` on a machine with the tier binary, plus `checks.nextest` in the
+//!   sandbox. Measured before that arm existed: a fixture answering [`Fixture::Absent`]
+//!   unconditionally, with the tier UP and the variable set, was 21 passed and the only tell was
+//!   seven printed `NOT RUN` lines; with it, 7 of 7 fail.
+//!
+//!   **The residual is two venues rather than *a developer machine*, and both are checkable** -
+//!   *a developer machine* was the sentence that stood here and it points at the case where the
+//!   refusal DOES fire. (1) A host with no `sutura-postgres-tier` on `PATH`: `sutura_tier_up`'s
+//!   `command -v` arm returns before the export, which is that file's *a hook that cannot run must
+//!   not be a wall* posture. (2) `just causality`'s BASE run, where `xtask::causality` removes the
+//!   variable on purpose, because an export follows a process tree and the endpoint file the base
+//!   worktree would need does not. In those two a declared absence and a discovered one are the
+//!   same value.
+//! - **That [`corpus::on_disk`] is this run's corpus and nobody else's.** It renames the rows onto
+//!   `<temp_dir>/sutura-conformance/<table>.csv`, a name carrying no worktree and no digest, so a
+//!   second checkout of this repository is a second WRITER of that file. *The bytes are identical
+//!   either side* holds per tree, not per machine, and two `just test` runs in two worktrees is how
+//!   the change that wrote this paragraph was reviewed. A cell would fail as a
+//!   [`Fault::Content`] naming the case and the adapter while the run that caused it stayed green -
+//!   the one reading these packs exist to make unambiguous. `telekom/sutura#405` is where the path
+//!   gets per-worktree isolation; it is deliberately not fixed here, because it is a change to a
+//!   fixture every binding shares and this file's diff is about one adapter.
 //! - **A COST, rather than a budget.** [`Spent`] reports what every cell and every fixture took,
 //!   and [`census`] prints the per-adapter floor; nothing thresholds either, and nothing joins two
 //!   adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
@@ -75,6 +105,12 @@ pub use sutura_domain;
 
 pub mod corpus;
 pub mod execute;
+pub mod venue;
+
+// Re-exported at the crate root, so the split is an implementation detail rather than a rename:
+// `execute_packs!` expands `$crate::Fixture` at every binding, and a path that moved would be a
+// breaking change bought for nothing. `clippy::pub_use` is allowed here for exactly this shape.
+pub use venue::{Fixture, Missing, REQUIRE_TIER, a_tier_is_required, absence_is_impossible, declared_here};
 
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::agreement::{ContentDisagreement, OrderDisagreement};
@@ -129,6 +165,40 @@ impl Behaviour {
         Self::Leg,
     ];
 
+    /// This behaviour's position in [`Self::EVERY`].
+    ///
+    /// **The half that made [`Self::EVERY`] stop being a hand-written list, and it was earned
+    /// twice.** The `#[test]`s and the census elements are one macro repetition, so a test cannot
+    /// lose its element - that was the first correction. `EVERY` was still a THIRD list tied to
+    /// neither, and a review measured what that costs: delete `Self::Content` from it AND its entry
+    /// from [`execute_packs`]'s `@behaviours` list, and all three bindings print
+    /// *5 behaviour(s) over 2 case(s)*, `21 tests run` becomes `18 tests run: 18 passed`, and
+    /// `-D warnings` says nothing - `execute::content_agrees_with_the_reference` stays alive because
+    /// `tests/bound.rs`'s fault half calls it. What `execute`'s own header calls *the* conformance
+    /// claim left the pack on a green run, in every binding.
+    ///
+    /// This is an **exhaustive** match, so both directions are now the compiler's:
+    ///
+    /// * a NEW variant does not compile until it is given a position here, which is the direction
+    ///   `matches!` and a wildcard would have handed a default to;
+    /// * a variant DELETED from `EVERY` shifts every later one, and the assertion below walks
+    ///   `EVERY` requiring `EVERY[i].index() == i` - so the review's mutation is a compile error
+    ///   rather than a smaller green run.
+    ///
+    /// Deleting the arm as well does not escape it: the variant still exists, so this match is
+    /// non-exhaustive. Deleting the VARIANT then breaks [`Self::as_str`] and the macro's own entry
+    /// for it. Every step of that path is a compile error, which is what *held by a type* means.
+    const fn index(self) -> usize {
+        match self {
+            Self::Labels => 0,
+            Self::Content => 1,
+            Self::Order => 2,
+            Self::Determinism => 3,
+            Self::PreFlight => 4,
+            Self::Leg => 5,
+        }
+    }
+
     /// The name a report carries.
     #[inline]
     #[must_use]
@@ -143,6 +213,28 @@ impl Behaviour {
         }
     }
 }
+
+// **[`Behaviour::EVERY`] and [`Behaviour::index`] are torn apart here unless they agree**, at
+// compile time, in a `const` block - so a behaviour cannot leave the pack the way a review measured
+// it leaving: `18 tests run: 18 passed` with every census green at five.
+//
+// The indexing is deliberate and is not the lint's usual hazard: in a `const` block an
+// out-of-range index is a BUILD failure, not a panic somebody meets at run time.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a const block, where an out-of-range index fails the build rather than a run - which \
+              is the whole point of asserting the pairing here rather than in a test"
+)]
+const _: () = {
+    let mut position = 0;
+    while position < Behaviour::EVERY.len() {
+        assert!(
+            Behaviour::EVERY[position].index() == position,
+            "Behaviour::EVERY and Behaviour::index disagree - a behaviour deleted from EVERY shifts every later one, and a behaviour without a test is coverage no run earns"
+        );
+        position += 1;
+    }
+};
 
 /// What running one behaviour against one adapter established.
 ///
@@ -171,6 +263,21 @@ pub enum Declination {
     /// declination and not a pass.
     #[error("the adapter offers no pre-flight: `dry_run` answered `NotAsked`, so nothing was checked")]
     OffersNoPreFlight,
+}
+
+/// What one cell did once the environment had its say.
+///
+/// Private, and deliberately: the vocabulary a BINDING needs is [`Fixture`] and the vocabulary a
+/// READER needs is the printed line, so a third public enum would be an API for a decision nobody
+/// outside [`conduct`] makes.
+enum Attempted<E>
+where
+    E: core::error::Error + 'static,
+{
+    /// The fixture stood up and the behaviour answered.
+    Ran(Conformed<E>),
+    /// It did not, so the behaviour never ran.
+    NotHere(Missing),
 }
 
 /// What one cell of the matrix cost, measured rather than stated.
@@ -342,8 +449,9 @@ pub type Conformed<E> = Result<Outcome, Fault<E>>;
 
 /// Reports one behaviour with what it cost, and fails the test if it did not hold.
 ///
-/// The only place in this crate that ends a test, so what a failure prints is decided once: the
-/// adapter, the behaviour, the cost, and the whole cause chain. `Display` on a `thiserror` enum
+/// One of the two places in this crate that end a test - [`not_here`] is the other, for a reason
+/// that is not about the adapter at all - so what a failure prints is decided once: the adapter,
+/// the behaviour, the cost, and the whole cause chain. `Display` on a `thiserror` enum
 /// prints the outermost message and stops, and the outermost message here is the pack's - what
 /// tells a rejected statement from an outage is one and two levels down.
 ///
@@ -369,9 +477,67 @@ where
     }
 }
 
+/// Reports a behaviour that did not run, because this venue could not stand the fixture up.
+///
+/// **`NOT RUN` in the first column, and not `DECLINED`**, for the reason [`Fixture`]'s header
+/// gives: one word is about the adapter and the other is about the environment, and a reader who
+/// could not tell them apart would read a green run over an absent Postgres as a green run against
+/// one. `.config/nextest.toml` already keeps this line on a green run - it scopes
+/// `success-output` by BINARY, so `binary(conformance)` covers it with no second edit.
+///
+/// **Which venue may skip is deliberately not this crate's to choose, and where a venue said it
+/// provisioned a tier this REFUSES.** `sutura_dev::requirement` decides skip-or-fail once for
+/// every harness in this repository, from [`REQUIRE_TIER`], and only the thing that provisioned a
+/// tier sets it - so an honest fixture in that venue never reaches here at all, because
+/// `sutura_dev::provisioned::here` has already failed the run. What does reach here is a fixture
+/// that answered [`Fixture::Absent`] without asking, and [`absence_is_impossible`] is what makes
+/// that cost something rather than taking a whole tier quiet and green. Everywhere else - a machine
+/// that provisioned nothing - it prints and returns, which is the fail-OPEN direction that module
+/// decided and this one does not re-decide.
+pub fn not_here(adapter: &str, behaviour: Behaviour, missing: &Missing, spent: Spent, declared: Option<&str>) {
+    venue::refuse_a_declared_absence(adapter, behaviour.as_str(), missing, declared);
+    println!(
+        "conformance {adapter}: NOT RUN - {} - {spent} - {missing}",
+        behaviour.as_str()
+    );
+}
+
+/// Builds the fixture, runs the behaviour where the environment stood one up, and reports either way.
+///
+/// **The one place a cell's endings are decided**, which is why the test [`execute_packs`] emits is
+/// a single call to this: HELD or DECLINED through [`hold`], `NOT RUN` through [`not_here`], and a
+/// [`Fault`] is [`hold`]'s panic.
+///
+/// Both halves of [`Spent`] are measured around the work they are about, so the pack half of an
+/// absent fixture is a measurement of nothing rather than a number nobody took - and the fixture
+/// half is still real, because asking a provisioner and being told no costs something.
+///
+/// The pack arrives as `impl FnOnce(&W) -> Conformed<E>` and every binding hands over a FUNCTION
+/// ITEM, which is what keeps `clippy::result_large_err` off the adapter's own crate: that lint
+/// inspects a closure's return type at its definition site, and the one closure this needs is
+/// defined here, generic in the adapter's error, rather than six times per binding.
+pub fn conduct<W, E>(
+    adapter: &str,
+    behaviour: Behaviour,
+    declared: Option<&str>,
+    open: impl FnOnce() -> Fixture<W>,
+    pack: impl FnOnce(&W) -> Conformed<E>,
+) where
+    E: core::error::Error + 'static,
+{
+    let (attempted, spent) = Spent::measuring(open, |fixture| match *fixture {
+        Fixture::Standing(ref warehouse) => Attempted::Ran(pack(warehouse)),
+        Fixture::Absent(ref missing) => Attempted::NotHere(missing.clone()),
+    });
+    match attempted {
+        Attempted::Ran(conformed) => hold(adapter, behaviour, conformed, spent),
+        Attempted::NotHere(ref missing) => not_here(adapter, behaviour, missing, spent, declared),
+    }
+}
+
 /// What a binding actually covered, asserted and printed - with the cost of covering it.
 ///
-/// Four things, and the first is the one a review had to correct:
+/// Five things, and the first is the one a review had to correct:
 ///
 /// 1. **the behaviours the binding actually emitted tests for are [`Behaviour::EVERY`]**. `bound`
 ///    is not a second hand-written list: [`execute_packs`] generates it from the same repetition
@@ -390,13 +556,20 @@ where
 ///    so `behaviours x fixture` is the cost this binding pays before a single assertion runs - the
 ///    multiplicative term the record's *stops being fast quietly* is about. It is derived from the
 ///    same `bound` slice the comparison above uses, so the multiplier is the number of tests that
-///    were actually emitted rather than a constant beside it.
+///    were actually emitted rather than a constant beside it;
+/// 5. **a venue where the fixture did not stand up prints NO coverage line at all.** It takes the
+///    `open` path rather than a [`Spent`] for exactly this: a census that printed *6 behaviour(s)
+///    over 2 case(s)* beside six cells that each reported `NOT RUN` is the skip that reads as
+///    coverage, which is the failure mode the packs were built against. What it prints instead
+///    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
+///    two assertions above it still run, because what a binding emitted and whether the corpus has
+///    cases are facts about this tree rather than about this venue.
 ///
 /// What it cannot do: know that a behaviour's BODY asserts anything. A pack that returned `Ok`
 /// unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for. And
 /// the floor is a FLOOR: it is not the tier's cost, it says nothing about another adapter's cells,
 /// and no gate reads it - see [`Spent`] for why each of those is deliberate.
-pub fn census<W>(adapter: &str, bound: &[Behaviour], fixture: Spent)
+pub fn census<W>(adapter: &str, bound: &[Behaviour], declared: Option<&str>, open: impl FnOnce() -> Fixture<W>)
 where
     W: Warehouse,
 {
@@ -413,6 +586,25 @@ where
         "conformance {adapter}: the corpus holds no cases, so every behaviour above is green over \
          nothing"
     );
+    // Both assertions ABOVE the fixture, and that order is the point: what a binding emitted and
+    // whether the corpus has cases are facts about this tree, so a venue with no tier still holds
+    // them. Only the FLOOR needs a fixture, and a floor is what an absent one cannot have.
+    let (missing, fixture) = Spent::measuring(open, |built| built.missing().cloned());
+    if let Some(why) = missing {
+        // The same refusal the behaviour cells make, and it belongs here TOO rather than only
+        // there: written in `not_here` alone, this cell stayed green over a fabricated absence -
+        // measured at 6 of 7 failing, with the binding's own census the one that passed.
+        venue::refuse_a_declared_absence(adapter, "the census", &why, declared);
+        // Deliberately NOT the coverage line below. Every behaviour in this binding reported
+        // `NOT RUN`, so printing a behaviour count, a case count and a floor here would be the skip
+        // that reads as coverage - which is the failure mode the packs were built against.
+        println!(
+            "conformance {adapter}: NOT RUN - the {} behaviour(s) this binding declares asserted \
+             nothing, because no fixture stood up here - {why}",
+            bound.len()
+        );
+        return;
+    }
     let direction = if W::EXECUTES_LEGS {
         "EXECUTED (the adapter declares it executes legs)"
     } else {
@@ -447,7 +639,7 @@ fn chain(error: &dyn core::error::Error) -> String {
 /// ```ignore
 /// #[cfg(test)]
 /// mod conformance {
-///     fn open() -> DuckDbWarehouse { /* attach `corpus::on_disk()` */ }
+///     fn open() -> Fixture<DuckDbWarehouse> { /* attach `corpus::on_disk()` */ }
 ///
 ///     sutura_conformance::execute_packs! {
 ///         adapter: duckdb,
@@ -468,12 +660,15 @@ fn chain(error: &dyn core::error::Error) -> String {
 ///   would have been needed.
 /// - `warehouse` is the adapter type. It is what the `const` assertion below reads the declaration
 ///   off, and what [`census`] is instantiated at.
-/// - `open` is a **path** to an `fn() -> W`, called once per test so no state crosses between them.
-///   A path rather than a closure because a `macro_rules!` body resolves items at the expansion
-///   site: a closure naming a type the caller imported at file scope would not resolve inside the
-///   generated module, and a `crate::`-rooted path always does. The fixture lives in a
-///   `#[cfg(test)]` module because the strict lints exempt what is inside one, which is why the
-///   path in the example names that module.
+/// - `open` is a **path** to a function returning [`Fixture`], called once per test so no state
+///   crosses between them. A path rather than a closure because a `macro_rules!` body resolves
+///   items at the expansion site: a closure naming a type the caller imported at file scope would
+///   not resolve inside the generated module, and a `crate::`-rooted path always does. The fixture
+///   lives in a `#[cfg(test)]` module because the strict lints exempt what is inside one, which is
+///   why the path in the example names that module. **The return type is [`Fixture`] and not `W`**,
+///   which is what lets an adapter needing a provisioned service be bound at all - see that type
+///   for why an absence is a value here rather than a panic, and why it is not an
+///   [`Outcome::Declined`].
 /// - the last tag is the adapter's leg **declaration**, `executes_legs` or `refuses_legs`.
 ///
 /// # Why the declaration is written at the binding as well as on the adapter
@@ -492,9 +687,11 @@ fn chain(error: &dyn core::error::Error) -> String {
 /// `conformance::duckdb::the_rows_are_the_reference_rows`. One adapter's tier is then
 /// `cargo nextest run --workspace --all-features -E 'test(conformance::duckdb)'` and every adapter's is
 /// `cargo nextest run --workspace --all-features -E 'binary(conformance)'`, which is what `just test` runs as part of the
-/// workspace. **Nothing enforces the file name or the wrapper module**; they are a convention, and
-/// an adapter that ignores them is still run by `just test` under a name a filter has to spell
-/// differently.
+/// workspace. **Both are enforced now** - `cargo xtask check-conformance-bindings` refuses a
+/// registered adapter whose binding is in another file or another module, with the selector
+/// COMPUTED from where the invocation sits, because those two properties are what the filters above
+/// rest on. What it still cannot see is an emitted test: the evidence is a written invocation and
+/// its position.
 #[macro_export]
 macro_rules! execute_packs {
     (
@@ -582,30 +779,45 @@ macro_rules! execute_packs {
         $(
             #[test]
             fn $test_name() {
-                // `Spent::measuring` builds the fixture AND runs the behaviour, so the two numbers
-                // it reports cannot be paired with the wrong work - and the split is what says
-                // whether a slow cell is a slow behaviour or a fixture paid once per behaviour.
+                // ONE call, because `conduct` is where a cell's endings are decided: it measures
+                // the fixture and the behaviour separately (so the two numbers cannot be paired
+                // with the wrong work), runs the behaviour only where the fixture stood up, and
+                // reports HELD, DECLINED or NOT RUN. A binding that made that decision itself
+                // would make it differently from the next binding, and one of them would make it
+                // silently - which is the argument `sutura_dev::provisioned` makes one level down.
                 //
                 // The pack is handed over as a FUNCTION ITEM rather than wrapped in a closure, and
                 // that is a lint rather than a style: `clippy::result_large_err` inspects a
                 // closure's return type at its definition site, so `|w| pack(w)` reported every
                 // adapter's own `Fault<E>` as too large to return - six errors per binding, in the
                 // adapter's crate, about a type this crate owns.
-                let (conformed, spent) = $crate::Spent::measuring($open, $crate::execute::$pack);
-                $crate::hold(ADAPTER, $crate::Behaviour::$variant, conformed, spent);
+                //
+                // `declared_here()` is read HERE rather than inside the reporters, and that is a
+                // seam this crate paid for: with the read down there, `checks.nextest` - which
+                // provisions the tier and sets the variable - refused two of the packs crate's own
+                // fake-venue cells, because a fake absence and a fabricated one are the same value.
+                $crate::conduct(
+                    ADAPTER,
+                    $crate::Behaviour::$variant,
+                    $crate::declared_here().as_deref(),
+                    $open,
+                    $crate::execute::$pack,
+                );
             }
         )*
 
         #[test]
         fn every_behaviour_this_declaration_selects_has_a_test_here() {
-            // The fixture is measured HERE rather than passed in, so the number this binding's
-            // floor is computed from is one this crate took. It costs one more `open` in a target
-            // that already pays one per behaviour, which is the cheapest place to buy the
-            // multiplicative term `docs/adr/0012` asks to have measured.
+            // The fixture is opened HERE rather than passed in, so the number this binding's floor
+            // is computed from is one this crate took, and so a venue that stood no fixture up
+            // prints no coverage line. It costs one more `open` in a target that already pays one
+            // per behaviour, which is the cheapest place to buy the multiplicative term
+            // `docs/adr/0012` asks to have measured.
             $crate::census::<$warehouse>(
                 ADAPTER,
                 &[$($crate::Behaviour::$variant),*],
-                $crate::Spent::building($open),
+                $crate::declared_here().as_deref(),
+                $open,
             );
         }
     };
