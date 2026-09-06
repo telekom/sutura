@@ -315,13 +315,30 @@ declaration. Neither touches a pack body, and that is the property the requireme
   reports one duration per cell, which cannot be split at the seam that makes this matrix
   multiplicative: `execute_packs!` rebuilds the fixture once per BEHAVIOUR, so a cell's number is
   *fixture plus behaviour* and aggregating it would report the fixture as the behaviour's cost.
-  Measured 2026-09-06 over the two bindings with the instrumented split
-  (`cargo nextest run -p sutura-exec-duckdb -p sutura-exec-datafusion --all-features -E 'binary(conformance)'`):
-  `duckdb` at 39.2 ms of fixture against 16.4 ms of pack, `datafusion` at 24.2 ms against 49.9 ms. So
-  the fixture is the larger term for one of the two adapters and the smaller for the other, which is
-  the reading a single per-cell duration cannot give. It is also unreachable from where the sentence
-  put it: under nextest each test is its own process, so nothing inside a run can join two numbers,
-  and the aggregation it assumed would have to be a gate reading a run's machine-readable output.
+  **Measured, and stated as the measurement survived re-taking.** The figure this record rests on is
+  a FRACTION rather than an ordering: over the two bindings with the instrumented split, *the
+  fixture is between a third and three quarters of every cell* - 43-68% per cell across four
+  serialized re-takes of
+  `cargo nextest run -p sutura-exec-duckdb -p sutura-exec-datafusion --all-features -E 'binary(conformance)'`
+  with `--test-threads=1`, and 35-71% per cell on a `just test` run of the whole suite, where the
+  per-adapter totals came out 74.1 of 125.0 ms for `duckdb` and 42.5 of 88.1 ms for `datafusion`.
+  The limit case is the DECLINED cell, and it is the clearest statement of the seam: `datafusion`'s
+  pre-flight behaviour ran 5.6 ms of fixture against 22.5 µs of pack, because `dry_run` answered
+  `NotAsked` and nothing was checked - a per-cell duration would have reported that as the cost of
+  the behaviour.
+
+  **An earlier version of this paragraph read the ORDERING off one sample, and that does not
+  reproduce - withdrawn rather than quietly kept.** It said the fixture was the larger term for one
+  adapter and the smaller for the other, from `duckdb` at 39.2 against 16.4 ms and `datafusion` at
+  24.2 against 49.9 ms; re-taken, `datafusion`'s fixture was the larger term in three of four runs,
+  so the reading held in one run of four. The absolute numbers moved by about 5x across those runs
+  on a machine with concurrent builds, which is exactly why a single sample cannot carry an
+  ordering - and why `n` and the spread are printed here beside the number that survived.
+
+  The structural argument needs no ordering, and that is the point of keeping it separate: nextest
+  reports one duration per cell, the fixture is INSIDE it, and under nextest each test is its own
+  process, so nothing in a run can join two numbers. The aggregation the withdrawn sentence assumed
+  would have to be a gate reading a run's machine-readable output.
 
   So the deliverable is a REPORT, taken at the two `Instant`s that sentence said were unnecessary.
   `sutura_conformance::Spent` is a witness whose fields are private and whose constructors both
@@ -373,6 +390,15 @@ declaration. Neither touches a pack body, and that is the property the requireme
   exactly that). It holds both directions, and it also holds the two properties the per-adapter and
   whole-suite nextest selectors rest on and nothing enforced - the binding's file name and its
   wrapper module - which is why `telekom/sutura#135` wants the same gate.
+
+  **What it compares is a written INVOCATION and its position, never an emitted test name, and the
+  strong form is DEFERRED rather than claimed.** Three text shapes were measured satisfying a needle
+  while emitting no cell - a `cfg` the gate cannot evaluate, a one-line string literal spelling the
+  invocation, and the invocation inside an uninvoked `macro_rules!` body - and each is now a refusal
+  naming the file and line, alongside a manifest that turns off test autodiscovery. That is as far
+  as text reaches: proving the test EXISTS needs a run's machine-readable output, which is the same
+  artefact the withdrawn aggregation sentence above assumed and the same one a per-pack aggregate
+  would need. Recording it here is the decision; a gate over a run's output is where it would live.
 
   **It arrives with ONE declared exemption, and that exemption IS this consequence going unmet:**
   `sutura-exec-postgres`, registered and deliberately unbound until the harness has a way to say

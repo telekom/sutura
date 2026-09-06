@@ -16,12 +16,23 @@
 //! own module header carries a whole worked example of a binding in a doc comment.
 //!
 //! **The limit both scans share, and it is the one `code_lines` declares:** a SINGLE-line string
-//! literal keeps its interior, so a brace or a needle inside one is live. For [`module_paths`]
-//! that means a doubled `{{` in a one-line literal makes the file unbalanced, which comes out as
-//! an error naming the line rather than as a wrong module path. There is no such literal in any
-//! file this gate lexes today, checked over every binding in the tree.
+//! literal keeps its interior, so a brace or a needle inside one is live. That has two
+//! consequences and they fail in OPPOSITE directions, which is why stating only the first was the
+//! defect a review caught:
+//!
+//! * a doubled `{{` in a one-line literal makes the file unbalanced, which comes out as an error
+//!   naming the line rather than as a wrong module path - **closed**, the safe direction;
+//! * a one-line literal that SPELLS the binding is a live needle, and a needle is the whole
+//!   evidence this gate has - **fail-open**, measured: a `let shape = "…execute_packs! { adapter:
+//!   duckdb, … }";` with an `assert!` on it (so no `dead_code`) reported `duckdb` bound over a
+//!   target emitting zero conformance cells.
+//!
+//! The second is closed by [`quoted`], which asks `code_lines`' own inverse - `string_literals`,
+//! the same walk - which literals spell the needle, and refuses the file. *"No such literal exists
+//! in the tree today"* is a reading of today's tree, and this repository deletes a rule that loses
+//! its mechanism rather than demoting it to advice.
 
-use crate::serde_parse::scan::code_lines;
+use crate::serde_parse::scan::{code_lines, string_literals};
 
 /// The registry arm this gate reads, as it is written in the matcher.
 ///
@@ -82,8 +93,42 @@ impl Invocation {
 /// A file's blanked lines, and the same lines with their whitespace removed.
 pub(crate) type Lexed = (Vec<String>, Vec<String>);
 
-/// The module path each line of a file sits inside, one entry per line.
-pub(crate) type ModulePaths = Vec<Vec<String>>;
+/// Where one line of a file sits: its module path, and the two things that decide whether the
+/// compiler emits what is written there.
+///
+/// **The distinction this type exists for.** A needle's presence is evidence about TEXT, and the
+/// property the gate needs is about an emitted test. Neither of the two shapes below can be told
+/// from a live invocation by a needle, and each was measured leaving an adapter reported `bound`
+/// over a target emitting zero cells - so both are recorded here and refused by [`invocation`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Place {
+    /// The module path this line sits inside, outermost first.
+    pub(crate) module: Vec<String>,
+    /// Inside a `macro_rules!` body, which is a TEMPLATE: nothing written there is emitted unless
+    /// the macro is invoked, and a text scan cannot tell whether it is.
+    pub(crate) template: bool,
+    /// Every `cfg(..)` predicate enclosing this line - from the attribute run above each open
+    /// block, and from the run directly above the line itself. Carried as WRITTEN, because a gate
+    /// that evaluated a predicate would be a second answer to what the compiler does with it.
+    pub(crate) cfg: Vec<String>,
+}
+
+/// Where every line of a file sits, one entry per line.
+pub(crate) type Places = Vec<Place>;
+
+/// One open block: the module name if it is a `mod`, whether it is a macro template, and the
+/// `cfg` predicates the attribute run above its opening line carried.
+#[derive(Debug, Clone, Default)]
+struct Block {
+    name: Option<String>,
+    template: bool,
+    cfg: Vec<String>,
+}
+
+/// `text` with every whitespace character removed, so a declaration may be spaced any way.
+pub(crate) fn dense(text: &str) -> String {
+    text.chars().filter(|character| !character.is_whitespace()).collect()
+}
 
 /// Every line of `text` with the non-code half blanked, plus each line's whitespace-dense form.
 ///
@@ -91,11 +136,8 @@ pub(crate) type ModulePaths = Vec<Vec<String>>;
 /// twice is how a needle comes to be matched against one and reported against the other.
 pub(crate) fn lexed(text: &str) -> Lexed {
     let code = code_lines(text);
-    let dense: Vec<String> = code
-        .iter()
-        .map(|line| line.chars().filter(|character| !character.is_whitespace()).collect())
-        .collect();
-    (code, dense)
+    let stripped: Vec<String> = code.iter().map(|line| dense(line.as_str())).collect();
+    (code, stripped)
 }
 
 /// The 1-based lines of `dense` containing `needle`.
@@ -105,6 +147,21 @@ pub(crate) fn sites(dense: &[String], needle: &str) -> Vec<usize> {
         .enumerate()
         .filter(|&(_, line)| line.contains(needle))
         .map(|(index, _)| index.saturating_add(1))
+        .collect()
+}
+
+/// The 1-based lines of the STRING LITERALS in `text` whose value spells `needle`.
+///
+/// The half of `code_lines`' declared limit that fails OPEN, asked of the same walk rather than of
+/// a second lexer: `string_literals` is the documented inverse of `code_lines`, so a needle inside
+/// a comment is not a literal here exactly as it is not code there. A caller refuses the file - a
+/// literal spelling a declaration is not that declaration, and a scan whose whole evidence is a
+/// needle may not accept one that is quoted.
+pub(crate) fn quoted(text: &str, needle: &str) -> Vec<usize> {
+    string_literals(text)
+        .into_iter()
+        .filter(|literal| dense(&literal.body).contains(needle))
+        .map(|literal| literal.line)
         .collect()
 }
 
@@ -142,9 +199,32 @@ pub(crate) fn cells(dense: &[String], line: usize) -> Result<Vec<Cell>, String> 
 
 /// The invocation opening at 1-based `line`, with its `adapter:` and its module path.
 ///
-/// `paths` is [`module_paths`]' answer for the same file, passed in rather than recomputed: one
+/// `places` is [`module_paths`]' answer for the same file, passed in rather than recomputed: one
 /// lex per file, and a caller cannot pair a site with another file's paths.
-pub(crate) fn invocation(dense: &[String], paths: &[Vec<String>], line: usize) -> Result<Invocation, String> {
+///
+/// **Two refusals before anything is parsed, and they are the ones that make a needle mean
+/// something.** A `macro_rules!` template and a `cfg` this gate cannot evaluate each leave the
+/// text in place and the test unemitted, so each is an error naming the line rather than a binding
+/// this gate counts. Both fail CLOSED, which is the direction the registry side already fails in.
+pub(crate) fn invocation(dense: &[String], places: &[Place], line: usize) -> Result<Invocation, String> {
+    let place = places
+        .get(line.saturating_sub(1))
+        .ok_or_else(|| format!("line {line}: is past the end of the file"))?;
+    if place.template {
+        return Err(format!(
+            "line {line}: `{BINDING}` is written inside a `macro_rules!` body, which is a TEMPLATE - \
+             nothing there is emitted unless that macro is invoked, and a text scan cannot tell \
+             whether it is. The invocation belongs in the module itself"
+        ));
+    }
+    if let Some(predicate) = place.cfg.iter().find(|written| *written != "test") {
+        return Err(format!(
+            "line {line}: `{BINDING}` sits under `cfg({predicate})`, and only `cfg(test)` - or no \
+             `cfg` at all - is accepted here. A predicate this gate cannot evaluate strips the code \
+             and leaves the needle readable, which is a binding that emits no test: `cfg(all(test, \
+             any()))` was measured doing exactly that"
+        ));
+    }
     let body = block(dense, line, BINDING)?;
     let named: Vec<&str> = body
         .split("adapter:")
@@ -161,32 +241,68 @@ pub(crate) fn invocation(dense: &[String], paths: &[Vec<String>], line: usize) -
     if adapter.is_empty() {
         return Err(format!("line {line}: this binding's `adapter:` argument is empty"));
     }
-    let module = paths
-        .get(line.saturating_sub(1))
-        .ok_or_else(|| format!("line {line}: is past the end of the file"))?
-        .clone();
     Ok(Invocation {
         line,
         adapter: (*adapter).to_owned(),
-        module,
+        module: place.module.clone(),
     })
 }
 
-/// The module path every line sits inside, one entry per line, outermost first.
+/// Where every line sits: its module path outermost first, whether it is inside a macro template,
+/// and the `cfg` predicates enclosing it.
 ///
-/// A brace walk over the blanked code, tracking whether each `{` was a module's - so the answer is
-/// the path the compiler would give and not a guess from indentation. **An unbalanced file is an
+/// A brace walk over the blanked code, tracking what each `{` belonged to - so the answer is the
+/// path the compiler would give and not a guess from indentation. **An unbalanced file is an
 /// error**: a `}` closing nothing, or a `{` still open at the end, is reported with its line rather
 /// than yielding a path a caller cannot tell from a correct one.
 ///
-/// A line's own path is recorded BEFORE its braces are walked, which is what makes `mod x {` sit
-/// outside `x` and everything below it inside.
-pub(crate) fn module_paths(code: &[String]) -> Result<ModulePaths, String> {
-    let mut out: ModulePaths = Vec::with_capacity(code.len());
-    let mut open: Vec<Option<String>> = Vec::new();
+/// A line's own place is recorded BEFORE its braces are walked, which is what makes `mod x {` sit
+/// outside `x` and everything below it inside. The attribute run above a line is carried the same
+/// way [`crate::serde_parse::scan`] carries one - blank and comment lines keep the run, so a
+/// `#[cfg(test)]` above a doc comment above the item is still that item's attribute.
+pub(crate) fn module_paths(code: &[String]) -> Result<Places, String> {
+    let mut out: Places = Vec::with_capacity(code.len());
+    let mut open: Vec<Block> = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+    let mut file: Vec<String> = Vec::new();
+    let mut unclosed = 0_usize;
     for (index, line) in code.iter().enumerate() {
-        out.push(open.iter().flatten().cloned().collect());
-        walk(line, &mut open).map_err(|why| format!("line {}: {why}", index.saturating_add(1)))?;
+        let trimmed = line.trim();
+        let attribute = unclosed > 0 || trimmed.starts_with("#[") || trimmed.starts_with("#![");
+        // Only an attribute line contributes a predicate, so a method called `cfg` on a code line
+        // is not read as one. Computed BEFORE the walk, because `#[cfg(test)] mod x {` is one line
+        // and the block it opens has to inherit the attribute written in front of it.
+        let here = if attribute {
+            cfg_predicates(&dense(trimmed))
+        } else {
+            Vec::new()
+        };
+        let inherited: Vec<String> = pending.iter().cloned().chain(here.clone()).collect();
+        out.push(Place {
+            module: open.iter().filter_map(|block| block.name.clone()).collect(),
+            template: open.iter().any(|block| block.template),
+            cfg: file
+                .iter()
+                .cloned()
+                .chain(open.iter().flat_map(|block| block.cfg.clone()))
+                .chain(inherited.clone())
+                .collect(),
+        });
+        walk(line, &mut open, &inherited).map_err(|why| format!("line {}: {why}", index.saturating_add(1)))?;
+        if attribute {
+            // An INNER attribute applies to the whole file, so it never leaves scope; an outer one
+            // belongs to the next item and is dropped once that item's line is behind us.
+            if trimmed.starts_with("#![") {
+                file.extend(here);
+            } else {
+                pending.extend(here);
+            }
+            unclosed = unclosed
+                .saturating_add(brackets(trimmed, '['))
+                .saturating_sub(brackets(trimmed, ']'));
+        } else if !trimmed.is_empty() {
+            pending.clear();
+        }
     }
     if !open.is_empty() {
         return Err(format!("{} block(s) are still open at the end of the file", open.len()));
@@ -196,9 +312,11 @@ pub(crate) fn module_paths(code: &[String]) -> Result<ModulePaths, String> {
 
 /// One line's braces, applied to the stack of open blocks.
 ///
-/// A `{` preceded by the two words `mod <ident>` opens a named block; every other `{` opens an
-/// anonymous one, which is tracked too - the path is only right while every brace is accounted for.
-fn walk(line: &str, open: &mut Vec<Option<String>>) -> Result<(), String> {
+/// A `{` preceded by the two words `mod <ident>` opens a named block and one preceded by
+/// `macro_rules! <ident>` opens a template; every other `{` opens an anonymous block, which is
+/// tracked too - the path is only right while every brace is accounted for. Each inherits the
+/// attribute run above the line it opens on, which is where a `#[cfg(..)]` on a module comes from.
+fn walk(line: &str, open: &mut Vec<Block>, inherited: &[String]) -> Result<(), String> {
     let mut before = String::new();
     let mut previous = String::new();
     let mut word = String::new();
@@ -211,7 +329,11 @@ fn walk(line: &str, open: &mut Vec<Option<String>>) -> Result<(), String> {
             before = core::mem::replace(&mut previous, core::mem::take(&mut word));
         }
         match character {
-            '{' => open.push((before == "mod").then(|| previous.clone())),
+            '{' => open.push(Block {
+                name: (before == "mod").then(|| previous.clone()),
+                template: before == "macro_rules",
+                cfg: inherited.to_vec(),
+            }),
             '}' => drop(
                 open.pop()
                     .ok_or_else(|| String::from("a `}` closes a block that was never opened"))?,
@@ -220,6 +342,29 @@ fn walk(line: &str, open: &mut Vec<Option<String>>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Every `cfg(..)` predicate written on this dense attribute line, as written.
+///
+/// `cfg_attr` is deliberately not matched: it decides which ATTRIBUTE applies rather than whether
+/// the item exists, and reading it would need the evaluation this gate refuses to do.
+fn cfg_predicates(dense: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = dense;
+    while let Some(at) = rest.find("cfg(") {
+        let after = rest.get(at.saturating_add("cfg(".len())..).unwrap_or_default();
+        let Some((inside, tail)) = group(after) else {
+            break;
+        };
+        out.push(String::from(inside));
+        rest = tail;
+    }
+    out
+}
+
+/// How many `bracket` characters this line holds, for tracking an attribute broken over lines.
+fn brackets(line: &str, bracket: char) -> usize {
+    line.chars().filter(|character| *character == bracket).count()
 }
 
 /// The delimited body that opens after `needle` on 1-based `line` of `dense`, without delimiters.
@@ -457,7 +602,75 @@ mod conformance {
         let text = "mod outer {\n    mod inner {\n        fn f() {\n            let x = 1;\n        }\n    }\n}\n";
         let paths = module_paths(&super::lexed(text).0).expect("the fixture is balanced");
         let inside_the_function = paths.get(3).expect("line 4 exists");
-        assert_eq!(inside_the_function, &vec![String::from("outer"), String::from("inner")]);
+        assert_eq!(inside_the_function.module, vec![String::from("outer"), String::from("inner")]);
+    }
+
+    /// **The first of the three shapes a needle cannot tell from a live binding.** A template is
+    /// not code this file emits, and the measured verdict before this refusal existed was
+    /// `bound duckdb`, printed with its selector, over a target emitting zero conformance cells.
+    #[test]
+    fn a_binding_inside_a_macro_rules_body_is_refused_rather_than_counted() {
+        let text = "mod conformance {\n    macro_rules! bind {\n        () => {\n            sutura_conformance::execute_packs! {\n                adapter: duckdb,\n                executes_legs,\n            }\n        };\n    }\n}\n";
+        let why = bound(text).expect_err("a template is not an emitted test");
+        assert!(why.contains("`macro_rules!` body"), "{why}");
+        assert!(why.contains("unless that macro is invoked"), "{why}");
+    }
+
+    /// **The second shape, and the one nothing else caught.** `#[cfg(all(test, any()))]` strips the
+    /// module and leaves every needle readable: `just hygiene` was `ok` and `just lint` exit 0 with
+    /// seven of fourteen conformance tests gone.
+    #[test]
+    fn a_binding_under_a_cfg_this_gate_cannot_evaluate_is_refused() {
+        let text = "#[cfg(all(test, any()))]\nmod conformance {\n    sutura_conformance::execute_packs! {\n        adapter: duckdb,\n        executes_legs,\n    }\n}\n";
+        let why = bound(text).expect_err("a predicate this gate cannot evaluate is refused");
+        assert!(why.contains("cfg(all(test,any()))"), "{why}");
+        assert!(why.contains("emits no test"), "{why}");
+    }
+
+    /// The same refusal for the shape that needs no second line, because the attribute run is read
+    /// before the brace it sits in front of is walked.
+    #[test]
+    fn a_cfg_written_on_the_same_line_as_the_module_is_read_as_that_modules_cfg() {
+        let text = "#[cfg(feature = \"x\")] mod conformance {\n    sutura_conformance::execute_packs! {\n        adapter: duckdb,\n        executes_legs,\n    }\n}\n";
+        let why = bound(text).expect_err("a feature gate is not `cfg(test)`");
+        assert!(why.contains("cfg(feature=\"x\")"), "{why}");
+    }
+
+    /// An INNER attribute applies to the file, so it does not leave scope at the next item.
+    #[test]
+    fn a_file_level_cfg_reaches_every_binding_in_the_file() {
+        let text = "#![cfg(any())]\n\nmod conformance {\n    sutura_conformance::execute_packs! {\n        adapter: duckdb,\n        executes_legs,\n    }\n}\n";
+        let why = bound(text).expect_err("a file nothing compiles emits nothing");
+        assert!(why.contains("cfg(any())"), "{why}");
+    }
+
+    /// `#[cfg(test)]` is what the two adapter bindings in this tree actually carry, so accepting it
+    /// is as load-bearing as refusing the rest - a gate that failed correct code gets disabled.
+    #[test]
+    fn a_binding_under_cfg_test_is_accepted() {
+        let found = bound(BOUND).expect("`#[cfg(test)]` is the shape this tree writes");
+        assert_eq!(found.selector(), "conformance::duckdb");
+    }
+
+    /// **The third shape, and the fail-open half of `code_lines`' declared limit.** A one-line
+    /// literal keeps its interior, so a literal spelling the binding is a live needle; it is a
+    /// literal rather than a declaration, and [`super::quoted`] is what says so.
+    #[test]
+    fn a_one_line_literal_that_spells_the_binding_is_found_as_a_literal() {
+        let text =
+            "mod conformance {\n    let shape = \"sutura_conformance::execute_packs! { adapter: duckdb, executes_legs, }\";\n}\n";
+        assert_eq!(super::quoted(text, super::BINDING), vec![2]);
+        // And the needle IS live in the dense form, which is why the caller has to ask.
+        let (_, dense) = lexed(text);
+        assert_eq!(sites(&dense, super::BINDING), vec![2]);
+    }
+
+    /// A comment that spells the binding is not a literal, because `string_literals` is the inverse
+    /// of the same walk `code_lines` runs - one answer to what a literal is, not two.
+    #[test]
+    fn a_comment_that_spells_the_binding_is_not_a_literal() {
+        let text = "// sutura_conformance::execute_packs! { adapter: duckdb, }\nfn f() {}\n";
+        assert!(super::quoted(text, super::BINDING).is_empty());
     }
 
     /// An unbalanced file is an ERROR, and this repository has three recorded instances of a scan
@@ -474,10 +687,12 @@ mod conformance {
         assert!(why.contains("still open"), "{why}");
     }
 
-    /// **The declared limit, asserted so it stays declared.** `code_lines` keeps a ONE-LINE
-    /// string's interior, so a doubled brace in one is counted - and the honest consequence is an
-    /// error naming a line, never a module path a caller cannot tell from a correct one. No file
-    /// this gate lexes carries such a literal today.
+    /// **The declared limit, asserted so it stays declared** - the direction of it that fails
+    /// CLOSED. `code_lines` keeps a ONE-LINE string's interior, so a doubled brace in one is
+    /// counted, and the honest consequence is an error naming a line rather than a module path a
+    /// caller cannot tell from a correct one. The same limit's fail-OPEN direction is a literal
+    /// that spells the needle, and that one has a mechanism of its own rather than a note: see
+    /// [`super::quoted`] and the test two above.
     #[test]
     fn a_doubled_brace_in_a_one_line_literal_is_an_error_rather_than_a_wrong_answer() {
         let text = "mod m {\n    fn f() { println!(\"{{\"); }\n}\n";

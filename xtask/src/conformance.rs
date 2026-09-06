@@ -36,19 +36,49 @@
 //! macro's own documentation said so: the file name, and the wrapper module. Both are checked here,
 //! per entry:
 //!
-//! * the binding is `<the entry's crate>/tests/conformance.rs`, which is what makes
-//!   `binary(conformance)` name every adapter's tier and nothing else;
-//! * it sits in a module path of exactly `conformance`, so the emitted test is
+//! * the binding is written in `<the entry's crate>/tests/conformance.rs`, which is what makes
+//!   `binary(conformance)` name every adapter's tier - and, since a fake in the harness crate may
+//!   not take that file name either, nothing else under `crates/`;
+//! * it sits in a module path of exactly `conformance`, so the name the expansion emits is
 //!   `conformance::<name>::<behaviour>` and the per-adapter selector is spellable.
 //!
 //! The selector is COMPUTED from where the invocation sits ([`scan::Invocation::selector`]) and
-//! printed on green, so a matrix generated from the registry and a test name emitted by the macro
-//! cannot drift apart without this failing.
+//! printed on green, so the position a matrix generated from the registry keys on is checked
+//! rather than assumed. **What is compared is a written INVOCATION and its position, never an
+//! emitted test name** - the next section is what that costs and what closes it. Worth recording
+//! beside it: `.config/nextest.toml` already spells `binary(conformance) + binary(bound)` and
+//! nextest exits 96 (`no binary names matched this`) when a name matches nothing, so the binary's
+//! EXISTENCE was already held; what had no mechanism is that every registered adapter's binding is
+//! in its own crate's file, in that module.
 //!
-//! # Fails closed, in eight directions
+//! # The evidence is a WRITTEN INVOCATION, and what makes that mean an emitted test
+//!
+//! A needle proves text. The property is about a test the compiler emits, and three text shapes
+//! were measured satisfying the first while producing none of the second - each leaving `duckdb`
+//! reported `bound` with its selector printed while its target emitted zero conformance cells,
+//! `just hygiene` `ok` and `just lint` exit 0, with `-E 'binary(conformance)'` running 7 tests
+//! instead of 14. So the needle is no longer the whole evidence:
+//!
+//! | Shape | Refused by |
+//! | --- | --- |
+//! | a one-line string literal spelling the invocation | [`scan::quoted`], which asks `code_lines`' own inverse which literals spell the needle |
+//! | the invocation inside an uninvoked `macro_rules!` body | [`scan::Place::template`], recorded by the same brace walk that resolves a module path |
+//! | any `cfg` other than `cfg(test)` enclosing it - `cfg(all(test, any()))` strips the module and leaves every needle readable | [`scan::Place::cfg`], from the attribute run above each open block and above the line |
+//! | a crate whose manifest turns off test autodiscovery, so the file is no target at all | [`manifest_dir`] |
+//!
+//! Each is a refusal naming the file and line rather than a binding this gate counts, which is the
+//! direction the registry side already failed in: a literal shaped like the registry arm makes
+//! [`one`] refuse, and a literal shaped like a binding used to satisfy an entry. **The strong
+//! form, that the test EXISTS, still needs a run's machine-readable output** - the same deferred
+//! mechanism `telekom/sutura#353`'s half names for per-pack aggregation, and `docs/adr/0012`
+//! records it as deferred rather than claimed here.
+//!
+//! # Fails closed, and in which directions
 //!
 //! Each is a failure rather than a pass over silence, because a scan that finds nothing is how the
-//! property went unheld in the first place:
+//! property went unheld in the first place. No count is given here on purpose: the four refusals
+//! in the section above belong to this list too, and a total in a heading is the second thing to
+//! keep true.
 //!
 //! * **No `.rs` under `crates/` read.** The tree moved out from under the gate.
 //! * **A file in scope it cannot read.** Not skipped: a file this gate did not read is a file it
@@ -66,6 +96,14 @@
 //!   discovery that failed would silently reclassify the packs' own fakes.
 //! * **Fewer decisions than entries.** [`Reconciled::of`] refuses a verdict that did not judge
 //!   every entry it found, so the printed count is a witness rather than a number in a message.
+//! * **A binding the split dropped.** One conservation law per level: `matched + strays` is the
+//!   number of bindings found, or [`reconcile::Classified::of`] refuses. A second binding for one
+//!   registered name used to overwrite the first, and *which* verdict came out was decided by the
+//!   file listing's sort order - a silent green from `tests/aaa.rs`, a failure naming the wrong
+//!   file from `tests/zz.rs`. Both are now one message naming both files.
+//! * **A fake in the harness crate written in the binding FILE.** The one placement rule that
+//!   crate shares, because `binary(conformance)` would otherwise select its fake cells alongside
+//!   every adapter's tier.
 //! * **An exemption that is inert** - naming an entry the registry does not carry, naming the
 //!   wrong crate for one it does, or excusing an entry that turns out to be bound. Reported
 //!   ALONGSIDE the violations rather than instead of them, which is the defect `max-lines`'
@@ -74,16 +112,31 @@
 //!
 //! # Measured, by mutation, on 2026-09-06
 //!
-//! A gate is worth what breaking it proves, so each of these was run and its verdict read:
+//! A gate is worth what breaking it proves, so each of these was run and its verdict read. The
+//! venue is `just hygiene`, which is this gate's own; the `TASKS` row is `just check-changed`.
 //!
 //! | Mutation | Verdict |
 //! | --- | --- |
-//! | `git rm` the `duckdb` binding | FAILED, naming it: *`duckdb` is registered as a data system ... and no crate binds it* |
-//! | delete this gate's `TASKS` entry | `cargo check -p xtask --all-features` exit 101 - `-D dead-code` over `run`, `judge`, `collect`, `classify`, `decide`, `render`, `explain`, `UNBOUND`, `Held`, `Stray` and the rest |
+//! | delete the `duckdb` binding from the index | FAILED, naming it: *`duckdb` is registered as a data system ... and no crate binds it* |
+//! | delete this gate's `TASKS` entry | exit 101, **61** errors under `-D dead-code` - `CRATES`, `BINDING_FILE`, `Entry`, `Binding`, `Site`, `Report`, `run`, `judge`, `collect`, `render`, `explain` and the rest, in both modules |
 //! | empty the `data_systems` arm | FAILED: *the `data_systems` arm declares no `$cell!(..)` entry* |
 //! | `.take(1)` on the decision loop | FAILED: *3 registered data system(s) were found and 1 judged* |
 //! | declare `duckdb` (bound) and `nobody` (unregistered) unbound | FAILED, both named in ONE run |
-//! | `git mv tests/conformance.rs tests/packs.rs` | FAILED, naming the path a `binary()` filter needs |
+//! | move `tests/conformance.rs` to `tests/packs.rs` | FAILED, naming the path a `binary()` filter needs |
+//!
+//! **The second round, and it is the one that mattered.** Every mutation below was GREEN before
+//! this change. The first three were green everywhere - `just hygiene: ok`, `just lint` exit 0,
+//! with the duckdb tier simply absent from the run - which is why the section above exists:
+//!
+//! | Mutation | Verdict |
+//! | --- | --- |
+//! | `#[cfg(all(test, any()))]` on `mod conformance` | FAILED: *sits under `cfg(all(test,any()))`, and only `cfg(test)` - or no `cfg` at all - is accepted here* |
+//! | the invocation replaced by a **used** one-line string literal spelling it | FAILED: *a string literal spells `execute_packs!` ... a quoted declaration is not a declaration* |
+//! | the invocation moved inside an uninvoked `macro_rules!`, same file and module | FAILED: *written inside a `macro_rules!` body, which is a TEMPLATE* |
+//! | `autotests = false` in the adapter's manifest | FAILED: *turns off test autodiscovery, so a `tests/conformance.rs` in that crate is not a target Cargo builds* |
+//! | a second binding at `tests/aaa.rs`, which sorts FIRST | FAILED, two problems in one run: `aaa.rs` is not where a `binary()` filter reaches it, and *`duckdb` is bound twice - ...aaa.rs:47 and ...conformance.rs:47* |
+//! | the same file at `tests/zz.rs`, which sorts LAST | FAILED, naming BOTH files - the earlier version named `zz.rs` as the sole binding, and the `aaa.rs` direction was a silent green whose only tell was the file count moving 239 to 240 |
+//! | a third fake at `crates/sutura-conformance/tests/conformance.rs` | FAILED: *a fake in the crate that DEFINES the packs, written in tests/conformance.rs* |
 //!
 //! # The limits, next to the claim
 //!
@@ -98,22 +151,35 @@
 //! compared for a catalog adapter, and a metadata adapter is under no obligation this gate can
 //! see. It grows a second arm the day those packs exist.
 //!
-//! **A crate outside `crates/` is invisible**, and so is a binding laundered through a macro of
-//! somebody else's: the needle is the packs macro's own name, and a wrapper macro expanding to it
-//! would satisfy nothing here. Both are the price of reading text rather than a compiled artefact,
-//! which is not available - see [`scan`]'s header for why.
+//! **What is invisible is the STRAY direction, not the registered one.** A registered adapter
+//! whose type resolves outside `crates/` fails CLOSED at [`resolve`], with the derivation printed -
+//! measured with `crate::adapters::DuckDbWarehouse` as the cell's type. What nothing here sees is a
+//! *binding* written in a crate outside `crates/`: it is compared to nothing and reported as
+//! nothing.
+//!
+//! **A wrapper macro is two shapes, and this gate used to hold only one of them.** Defined in
+//! another file and invoked in the binding file, it fails closed and names the adapter - the needle
+//! is the packs macro's own name and the invocation does not spell it. Defined INSIDE the binding
+//! file and never invoked, it satisfied the needle, and the mechanism that caught that shape was
+//! `unused_macros` under `-D warnings` rather than anything here. It is now refused by
+//! [`scan::Place::template`], which is the first time this gate can be credited with it.
+//!
+//! Both directions are the price of reading text rather than a compiled artefact, which is not
+//! available - see [`scan`]'s header for why.
 //!
 //! **The derivation from a type to a crate is `_` to `-` plus a manifest that declares that
 //! name.** A crate whose directory disagrees with its package name is found through the manifest;
 //! a package name that is not a path segment of the adapter type fails closed with the derivation
 //! printed, rather than passing.
 
+mod reconcile;
 pub(crate) mod scan;
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::{Verdict, repo};
+use reconcile::{Classified, Reconciled, Stray, UNBOUND, decide};
 
 /// Where every crate in this workspace lives.
 const CRATES: &str = "crates/";
@@ -123,47 +189,6 @@ const BINDING_FILE: &str = "tests/conformance.rs";
 
 /// The module a binding must sit in, so `-E 'test(conformance::<name>)'` names one tier.
 const BINDING_MODULE: &str = "conformance";
-
-/// A registered data system that is deliberately not bound, and why.
-///
-/// Declared rather than excluded from the comparison, for the reason `check-bounded-wait` declares
-/// its one allowance: an exclusion hides an entry and a declaration classifies it - and then
-/// [`inert`] makes the classification answer for itself.
-#[derive(Debug)]
-struct Unbound {
-    /// The registry cell's name, matched exactly.
-    name: &'static str,
-    /// The crate that entry derives. Held as well as the name so that an entry cannot survive the
-    /// adapter type moving to another crate, which is exactly when the reason below stops applying.
-    crate_name: &'static str,
-    /// What is registered and unbound. Printed, so a reader hitting the inert-exemption failure
-    /// knows what the entry was about.
-    what: &'static str,
-    /// Why that is not a hole. Printed, because an exemption whose reason is unstated is
-    /// indistinguishable from an oversight.
-    why: &'static str,
-}
-
-/// Every registered data system this gate accepts as unbound.
-///
-/// **One entry, and it arrives with the gate.** `docs/adr/0012`'s *one registration, not two* is
-/// violated as built, and this is the whole of the violation: the third data system in the matrix
-/// is registered and carries no binding on purpose.
-///
-/// **Adding one is an architecture decision** - the sentence `BLOCKING` in
-/// `xtask/src/bounded_wait.rs` carries for the same reason. The diff is where the argument happens,
-/// and an entry that stops being true fails the gate rather than quietly widening it.
-const UNBOUND: &[Unbound] = &[Unbound {
-    name: "postgres",
-    crate_name: "sutura-exec-postgres",
-    what: "registered in the golden matrix and carrying no `tests/conformance.rs`",
-    why: "its cells need a provisioned tier, and the packs have no way to say `no tier is up here` \
-          that is not a pass. The golden matrix has one - `DataSystemUnderTest::available`, whose \
-          false answer SKIPS a cell and whose skip-or-fail direction a provisioner decides - and \
-          the packs carry no equivalent, so a binding written today would be green over a data \
-          system that never answered. `telekom/sutura#348` is where the harness grows that, and \
-          this entry is deleted by the same change",
-}];
 
 /// One registry entry, with the crate it belongs to derived from the adapter type it names.
 #[derive(Debug)]
@@ -187,38 +212,6 @@ struct Binding {
     invocation: scan::Invocation,
 }
 
-/// What the tree says about one registry entry. Two states are held and two are the defect.
-#[derive(Debug)]
-enum Held {
-    /// Bound, in the file and module the selectors need.
-    Bound(Binding),
-    /// Bound, and not where a selector can reach it.
-    Misbound(String),
-    /// Declared unbound, by this entry.
-    Exempt(&'static Unbound),
-    /// Neither bound nor declared, which is the hole this gate exists for.
-    Unheld,
-}
-
-/// A binding that no registry entry claims.
-enum Stray {
-    /// In the crate that DEFINES the packs: the harness's own fakes, which are not a data system
-    /// and must not be. Printed on green rather than hidden, so a fake that moved is visible.
-    Fake(Binding),
-    /// In a crate the registry names no data system from - so nothing schedules it, and the CI
-    /// matrix `docs/adr/0012` emits from the registry cannot see it.
-    Unregistered(Binding),
-    /// In a registry crate, under a name that crate's entry does not carry - so the selector the
-    /// matrix would spell names no test. Carries the name the registry does declare there.
-    Misnamed(Binding, String),
-}
-
-/// One registry entry and the decision made about it. The unit [`Reconciled`] refuses to be short of.
-type Decision = (Entry, Held);
-
-/// Which binding was matched to which registry name.
-type Matched = BTreeMap<String, Binding>;
-
 /// A file holding one of the two declarations, and the dense lines it was recognised in.
 ///
 /// The lines are CARRIED rather than re-read, so the text a cell is parsed out of is the text the
@@ -238,138 +231,6 @@ type Registry = (String, Vec<Entry>);
 
 /// A package name and the directory declaring it.
 type Declared = (String, String);
-
-/// Every registry entry, paired with what the tree says about it.
-///
-/// **The pairing is the witness.** A count in a message is not one: this repository has shipped a
-/// gate reporting `17 page(s), 16 generated` with 16 of 17 unscanned, and a census comparing two
-/// hand-written lists that never read the tests it was about. [`Self::of`] refuses a decision list
-/// that is not one decision per entry found, so a scan that judged fewer members than it found
-/// cannot reach the line that prints a number.
-#[derive(Debug)]
-struct Reconciled {
-    judged: Vec<Decision>,
-}
-
-impl Reconciled {
-    /// Pairs the entries with their decisions, refusing anything that is not one-for-one.
-    fn of(entries: Vec<Entry>, decided: Vec<Held>) -> Result<Self, String> {
-        if entries.is_empty() {
-            return Err(String::from(
-                "the registry declares no data system, so every comparison below would be about nothing",
-            ));
-        }
-        if entries.len() != decided.len() {
-            return Err(format!(
-                "{} registered data system(s) were found and {} judged - a verdict over a subset is \
-                 not a verdict, so the count is refused rather than printed",
-                entries.len(),
-                decided.len()
-            ));
-        }
-        Ok(Self {
-            judged: entries.into_iter().zip(decided).collect(),
-        })
-    }
-
-    /// Every way the two declarations disagree, as one message each.
-    fn problems(&self, strays: &[Stray]) -> Report {
-        let mut problems: Vec<String> = self
-            .judged
-            .iter()
-            .filter_map(|(entry, held)| match held {
-                Held::Bound(..) | Held::Exempt(_) => None,
-                Held::Misbound(why) => Some(why.clone()),
-                Held::Unheld => Some(format!(
-                    "`{}` is registered as a data system ({}) and no crate binds it to the \
-                     conformance packs - {}{BINDING_FILE} holds no `{}`",
-                    entry.name,
-                    entry.adapter,
-                    entry.crate_dir,
-                    scan::BINDING
-                )),
-            })
-            .collect();
-        problems.extend(strays.iter().filter_map(Stray::problem));
-        problems.extend(inert(&self.judged));
-        problems
-    }
-
-    /// The entries that are bound, with the selector each one's binding makes spellable.
-    fn bound(&self) -> impl Iterator<Item = (&Entry, &Binding)> {
-        self.judged.iter().filter_map(|(entry, held)| match held {
-            Held::Bound(binding) => Some((entry, binding)),
-            _ => None,
-        })
-    }
-
-    /// The entries declared unbound.
-    fn exempt(&self) -> impl Iterator<Item = (&Entry, &'static Unbound)> {
-        self.judged.iter().filter_map(|(entry, held)| match held {
-            Held::Exempt(allowance) => Some((entry, *allowance)),
-            _ => None,
-        })
-    }
-}
-
-impl Stray {
-    /// The message, for the two kinds that are a defect. The harness's own fakes are not one.
-    fn problem(&self) -> Option<String> {
-        match self {
-            Self::Fake(_) => None,
-            Self::Unregistered(binding) => Some(format!(
-                "{}:{} binds `{}` to the packs and the registry names no data system from that \
-                 crate - so no CI matrix emitted from the registry schedules it, which is *one \
-                 registration, not two* failing in the other direction",
-                binding.path, binding.invocation.line, binding.invocation.adapter
-            )),
-            Self::Misnamed(binding, expected) => Some(format!(
-                "{}:{} binds `{}` and the registry calls that crate's data system `{expected}` - \
-                 the emitted tests are `{}::<behaviour>` and a matrix keyed on the registry would \
-                 select nothing",
-                binding.path,
-                binding.invocation.line,
-                binding.invocation.adapter,
-                binding.invocation.selector()
-            )),
-        }
-    }
-}
-
-/// Every declared exemption that no longer excuses anything.
-///
-/// Three ways, and each one widens what is permitted while reading as a considered decision: an
-/// entry for a name the registry does not carry, an entry naming the wrong crate for a name it
-/// does, and an entry excusing something that is bound after all.
-fn inert(judged: &[Decision]) -> Vec<String> {
-    let mut problems = Vec::new();
-    for allowance in UNBOUND {
-        let Some((entry, held)) = judged.iter().find(|(entry, _)| entry.name == allowance.name) else {
-            problems.push(format!(
-                "`{}` is declared here as deliberately unbound ({}) and the registry carries no data \
-                 system of that name - delete the entry rather than leaving it to excuse something \
-                 nobody registered",
-                allowance.name, allowance.what
-            ));
-            continue;
-        };
-        if entry.crate_name != allowance.crate_name {
-            problems.push(format!(
-                "`{}` is declared here as unbound in `{}` and the registry derives `{}` for it - the \
-                 reason an entry gives is about a crate, so an entry that names another one is stale",
-                allowance.name, allowance.crate_name, entry.crate_name
-            ));
-        }
-        if let Held::Bound(binding) = held {
-            problems.push(format!(
-                "`{}` is declared here as deliberately unbound ({}) and {} binds it - delete the \
-                 entry rather than leaving it to excuse a binding that exists",
-                allowance.name, allowance.what, binding.path
-            ));
-        }
-    }
-    problems
-}
 
 /// What one pass over the Rust under `crates/` found.
 struct Sources {
@@ -418,13 +279,13 @@ fn judge(root: &Path, files: &[String]) -> Result<Report, Report> {
         .and_then(|path| owner(&path).ok_or_else(|| format!("{path} is not inside a crate")))
         .map_err(|why| vec![why])?;
 
-    let (matched, strays) = classify(&entries, &harness, &sources.bindings);
-    let decided = entries.iter().map(|entry| decide(entry, &matched)).collect();
+    let classified = Classified::of(&entries, &harness, &sources.bindings).map_err(|why| vec![why])?;
+    let decided = entries.iter().map(|entry| decide(entry, classified.matched())).collect();
     let reconciled = Reconciled::of(entries, decided).map_err(|why| vec![why])?;
 
-    let problems = reconciled.problems(&strays);
+    let problems = reconciled.problems(classified.strays());
     if problems.is_empty() {
-        Ok(render(&reconciled, &registry, &harness, &sources, &strays))
+        Ok(render(&reconciled, &registry, &harness, &sources, classified.strays()))
     } else {
         Err(problems)
     }
@@ -484,6 +345,16 @@ fn inspect(rel: &str, text: &str, found: &mut Sources) -> Result<(), String> {
     if sites.is_empty() || !is_test_target(rel) {
         return Ok(());
     }
+    // A needle inside a one-line string literal is live in the dense form and satisfies nothing
+    // the compiler emits, so it is refused before anything is parsed rather than counted as a
+    // binding - the fail-open half of the limit `scan`'s header declares.
+    if let Some(line) = scan::quoted(text, scan::BINDING).first() {
+        return Err(format!(
+            "{rel}: line {line}: a string literal spells `{}`, and a needle is the whole evidence \
+             this gate has - a quoted declaration is not a declaration",
+            scan::BINDING
+        ));
+    }
     let paths = scan::module_paths(&code).map_err(|why| format!("{rel}: {why}"))?;
     for line in sites {
         let invocation = scan::invocation(&dense, &paths, line).map_err(|why| format!("{rel}: {why}"))?;
@@ -532,78 +403,6 @@ fn resolve(cell: &scan::Cell, dirs: &BTreeMap<String, String>) -> Result<Entry, 
         crate_name,
         crate_dir: crate_dir.clone(),
     })
-}
-
-/// Which binding belongs to which entry, and which belongs to none.
-///
-/// Keyed on the crate FIRST and the name second, so a binding written in a registry crate under
-/// the wrong name is reported as that rather than as two separate absences.
-fn classify(entries: &[Entry], harness: &str, bindings: &[Binding]) -> (Matched, Vec<Stray>) {
-    let mut matched = Matched::new();
-    let mut strays = Vec::new();
-    for binding in bindings {
-        let dir = owner(&binding.path).unwrap_or_default();
-        if dir == harness {
-            strays.push(Stray::Fake(binding.clone()));
-            continue;
-        }
-        let here: Vec<&Entry> = entries.iter().filter(|entry| entry.crate_dir == dir).collect();
-        if here.is_empty() {
-            strays.push(Stray::Unregistered(binding.clone()));
-        } else if here.iter().any(|entry| entry.name == binding.invocation.adapter) {
-            drop(matched.insert(binding.invocation.adapter.clone(), binding.clone()));
-        } else {
-            let expected = here.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>().join("`, `");
-            strays.push(Stray::Misnamed(binding.clone(), expected));
-        }
-    }
-    (matched, strays)
-}
-
-/// What the tree says about one entry: bound where a selector reaches it, declared, or unheld.
-fn decide(entry: &Entry, matched: &Matched) -> Held {
-    matched.get(&entry.name).map_or_else(
-        || {
-            UNBOUND
-                .iter()
-                .find(|allowance| allowance.name == entry.name)
-                .map_or(Held::Unheld, Held::Exempt)
-        },
-        |binding| misplacement(entry, binding).map_or_else(|| Held::Bound(binding.clone()), Held::Misbound),
-    )
-}
-
-/// Why this binding is not where the tier selectors can reach it, if it is not.
-///
-/// The two properties `telekom/sutura#135` rests on, and the macro's own documentation said
-/// nothing enforced either of them.
-fn misplacement(entry: &Entry, binding: &Binding) -> Option<String> {
-    let expected = format!("{}{BINDING_FILE}", entry.crate_dir);
-    let (path, invocation) = (&binding.path, &binding.invocation);
-    if *path != expected {
-        return Some(format!(
-            "`{}` is bound at {path}:{} and a tier is selected by binary, so it has to be \
-             {expected} for `-E 'binary({BINDING_MODULE})'` to name it",
-            entry.name, invocation.line
-        ));
-    }
-    if !matches!(invocation.module.as_slice(), [only] if only == BINDING_MODULE) {
-        return Some(format!(
-            "`{}` is bound at {path}:{} inside `{}`, so its tests are `{}::<behaviour>` and the \
-             per-adapter selector `-E 'test({BINDING_MODULE}::{})'` names nothing - the invocation \
-             belongs in `mod {BINDING_MODULE}`",
-            entry.name,
-            invocation.line,
-            if invocation.module.is_empty() {
-                String::from("the file's own root")
-            } else {
-                invocation.module.join("::")
-            },
-            invocation.selector(),
-            entry.name
-        ));
-    }
-    None
 }
 
 /// The green verdict: the counts, and every decision that produced one.
@@ -703,6 +502,21 @@ fn manifest_dir(root: &Path, rel: &str) -> Result<Option<Declared>, String> {
         return Ok(None);
     }
     let text = std::fs::read_to_string(root.join(rel)).map_err(|e| format!("could not read {rel}: {e}"))?;
+    // The manifest half of *is this test EMITTED*. Autodiscovery is what makes a file under
+    // `tests/` a target at all, so a crate that turns it off leaves every binding this gate reads
+    // there in a file nothing compiles - the same class as the three text shapes `scan` refuses,
+    // one level further out. No manifest in this workspace sets it, so this arm starts green, and
+    // a crate that needs it argues in the diff the way a declared exemption does.
+    if text
+        .lines()
+        .map(str::trim)
+        .any(|line| !line.starts_with('#') && scan::dense(line) == "autotests=false")
+    {
+        return Err(format!(
+            "{rel} turns off test autodiscovery, so a `{BINDING_FILE}` in that crate is not a \
+             target Cargo builds - a binding this gate could read and nothing would run"
+        ));
+    }
     let name = text
         .lines()
         .map(str::trim)
@@ -739,199 +553,14 @@ fn is_test_target(rel: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Held, Reconciled, Stray, UNBOUND, decide, inert, misplacement, owner, repo, scan};
+    use super::{owner, repo};
 
-    fn entry(name: &str, crate_name: &str) -> Entry {
-        Entry {
-            name: String::from(name),
-            adapter: format!("{}::Warehouse", crate_name.replace('-', "_")),
-            crate_name: String::from(crate_name),
-            crate_dir: format!("crates/{crate_name}/"),
-        }
-    }
-
-    fn invocation(adapter: &str, module: &[&str]) -> scan::Invocation {
-        scan::Invocation {
-            line: 42,
-            adapter: String::from(adapter),
-            module: module.iter().map(|part| String::from(*part)).collect(),
-        }
-    }
-
-    fn binding(adapter: &str, path: &str, module: &[&str]) -> super::Binding {
-        super::Binding {
-            path: String::from(path),
-            invocation: invocation(adapter, module),
-        }
-    }
-
-    fn bound_at(adapter: &str, path: &str, module: &[&str]) -> super::Matched {
-        let mut matched = super::Matched::new();
-        drop(matched.insert(String::from(adapter), binding(adapter, path, module)));
-        matched
-    }
-
-    /// A registered adapter with no binding and no exemption is a failure that NAMES it.
-    #[test]
-    fn an_unbound_registered_adapter_is_reported_by_name() {
-        let entries = vec![entry("ghost", "sutura-exec-ghost")];
-        let decided = vec![Held::Unheld];
-        let reconciled = Reconciled::of(entries, decided).expect("one entry, one decision");
-        let problems = reconciled.problems(&[]);
-        let named = problems
-            .iter()
-            .find(|why| why.contains("`ghost` is registered"))
-            .unwrap_or_else(|| panic!("the unbound entry is named: {problems:?}"));
-        assert!(named.contains("crates/sutura-exec-ghost/tests/conformance.rs"), "{named}");
-        // The rest of the list is the inert-exemption half firing over this fixture's registry,
-        // which is the point of reporting both in one run: a gate that knew two numbers and
-        // printed one cost a round trip (`telekom/sutura#311`).
-        assert_eq!(problems.len(), 2, "{problems:?}");
-    }
-
-    /// **The witness.** A verdict that judged fewer members than it found is refused rather than
-    /// printed: this repository has shipped `17 page(s), 16 generated` with 16 of 17 unscanned.
-    #[test]
-    fn judging_fewer_entries_than_were_found_is_refused() {
-        let entries = vec![entry("one", "sutura-exec-one"), entry("two", "sutura-exec-two")];
-        let why = Reconciled::of(entries, vec![Held::Unheld]).expect_err("a subset is not a verdict");
-        assert!(why.contains("2 registered data system(s) were found and 1 judged"), "{why}");
-    }
-
-    /// An empty registry is a failure, not a green run over nothing.
-    #[test]
-    fn an_empty_registry_is_refused() {
-        let why = Reconciled::of(Vec::new(), Vec::new()).expect_err("an empty adapter set is refused");
-        assert!(why.contains("declares no data system"), "{why}");
-    }
-
-    /// A binding outside the file a `binary()` filter names is reported, with the path it needs.
-    #[test]
-    fn a_binding_in_another_file_is_not_where_a_tier_selector_reaches_it() {
-        let subject = entry("duckdb", "sutura-exec-duckdb");
-        let matched = bound_at("duckdb", "crates/sutura-exec-duckdb/tests/packs.rs", &["conformance"]);
-        let Held::Misbound(why) = decide(&subject, &matched) else {
-            panic!("a binding in the wrong file is misplaced")
-        };
-        assert!(why.contains("tests/packs.rs"), "{why}");
-        assert!(why.contains("crates/sutura-exec-duckdb/tests/conformance.rs"), "{why}");
-    }
-
-    /// A binding outside `mod conformance` is reported with the selector it actually produces.
-    #[test]
-    fn a_binding_outside_the_wrapper_module_is_not_selectable_per_adapter() {
-        let subject = entry("duckdb", "sutura-exec-duckdb");
-        let matched = bound_at("duckdb", "crates/sutura-exec-duckdb/tests/conformance.rs", &["packs"]);
-        let Held::Misbound(why) = decide(&subject, &matched) else {
-            panic!("a binding outside the wrapper module is misplaced")
-        };
-        assert!(why.contains("inside `packs`"), "{why}");
-        assert!(why.contains("packs::duckdb"), "{why}");
-    }
-
-    /// The bound case, and the selector is DERIVED from where the invocation sits.
-    #[test]
-    fn a_binding_in_the_right_place_is_held_and_carries_its_selector() {
-        let subject = entry("duckdb", "sutura-exec-duckdb");
-        let here = binding("duckdb", "crates/sutura-exec-duckdb/tests/conformance.rs", &["conformance"]);
-        assert!(misplacement(&subject, &here).is_none());
-        let matched = bound_at("duckdb", "crates/sutura-exec-duckdb/tests/conformance.rs", &["conformance"]);
-        let Held::Bound(found) = decide(&subject, &matched) else {
-            panic!("a binding in the right place is bound")
-        };
-        assert_eq!(found.invocation.selector(), "conformance::duckdb");
-    }
-
-    /// **The inert exemption**, which is the `max-lines` defect this gate must not repeat: an
-    /// entry excusing something that is bound after all is a failure, and it is reported in the
-    /// same run as everything else the gate knows.
-    #[test]
-    fn an_exemption_for_something_that_is_bound_is_reported_as_inert() {
-        let declared = UNBOUND.first().expect("one declared exemption");
-        let judged = vec![(
-            entry(declared.name, declared.crate_name),
-            Held::Bound(binding(
-                declared.name,
-                &format!("crates/{}/tests/conformance.rs", declared.crate_name),
-                &["conformance"],
-            )),
-        )];
-        let problems = inert(&judged);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(
-            problems.first().is_some_and(|why| why.contains("delete the entry")),
-            "{problems:?}"
-        );
-    }
-
-    /// An exemption for something the registry does not carry is inert too, and in the direction
-    /// a stale entry actually goes: the registry moved and the exemption stayed.
-    #[test]
-    fn an_exemption_for_an_unregistered_name_is_reported_as_inert() {
-        let problems = inert(&[(entry("somebody-else", "sutura-exec-other"), Held::Unheld)]);
-        assert!(
-            problems.iter().any(|why| why.contains("carries no data system of that name")),
-            "{problems:?}"
-        );
-    }
-
-    /// An exemption naming the wrong crate for a registered name is inert: the reason an entry
-    /// gives is about a crate, so it stops applying when the adapter type moves.
-    #[test]
-    fn an_exemption_naming_the_wrong_crate_is_reported_as_inert() {
-        let declared = UNBOUND.first().expect("one declared exemption");
-        let problems = inert(&[(entry(declared.name, "sutura-exec-moved"), Held::Unheld)]);
-        assert!(
-            problems
-                .iter()
-                .any(|why| why.contains("the reason an entry gives is about a crate")),
-            "{problems:?}"
-        );
-    }
-
-    /// A binding in a crate the registry names nothing from is the other direction of *one
-    /// registration, not two*: coverage no emitted matrix schedules.
-    #[test]
-    fn a_binding_the_registry_does_not_name_is_reported() {
-        let stray = Stray::Unregistered(binding(
-            "bigquery",
-            "crates/sutura-exec-bigquery/tests/conformance.rs",
-            &["conformance"],
-        ));
-        let why = stray.problem().expect("an unregistered binding is a problem");
-        assert!(why.contains("the registry names no data system from that crate"), "{why}");
-    }
-
-    /// The harness's own fakes are not a data system and are not reported as one - they are
-    /// PRINTED on green instead, so a fake that moved crate is visible rather than silent.
-    #[test]
-    fn the_packs_crates_own_fake_bindings_are_not_a_violation() {
-        let stray = Stray::Fake(binding(
-            "a_fake_that_executes_legs",
-            "crates/sutura-conformance/tests/bound.rs",
-            &["conformance"],
-        ));
-        assert!(stray.problem().is_none());
-    }
-
-    #[test]
-    fn every_declared_exemption_carries_its_reason() {
-        for allowance in UNBOUND {
-            assert!(!allowance.what.is_empty(), "{} has no `what`", allowance.name);
-            assert!(!allowance.why.is_empty(), "{} has no `why`", allowance.name);
-            assert!(
-                allowance.crate_name.starts_with("sutura-"),
-                "{} names no crate",
-                allowance.name
-            );
-        }
-    }
-
-    /// **Every fixture above is hand-written, and this is what stops them from describing a shape
-    /// the tree no longer has.** The failure `check-docs` paid for was a gate re-implementing part
-    /// of a tool and being tested against the documentation rather than against the tool; the same
-    /// shape here is a needle that stopped matching the real declarations, which would leave every
-    /// fixture green. So this reads THIS tree through the same functions the gate uses and asserts
+    /// **Every fixture in `reconcile` and `scan` is hand-written, and this is what stops them
+    /// describing a shape the tree no longer has.** The failure `check-docs` paid for was a gate
+    /// re-implementing part of a tool and being tested against the documentation rather than
+    /// against the tool; the same shape here is a needle that stopped matching the real
+    /// declarations, which would leave every fixture green. So this reads THIS tree through the
+    /// same functions the gate uses and asserts
     /// both declarations were found: one registry, one packs macro, and bindings under `tests/`.
     #[test]
     fn the_declarations_in_this_tree_are_found_by_the_needles_this_gate_keys_on() {
