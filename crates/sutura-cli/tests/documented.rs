@@ -68,6 +68,22 @@ mod tests {
     /// through the other surface.
     const DIGEST_PAGES: &[&str] = &["docs/serving.md"];
 
+    /// The page `docs/index.md` sends a stranger down, whose guided half must run on an artefact.
+    const GUIDED: &str = "docs/getting-started.md";
+
+    /// The heading that opens the contributor's route, and therefore closes the guided path.
+    ///
+    /// The split point is a HEADING rather than a line number because a page grows: what is being
+    /// held is that a toolchain appears below it and never above, and a page that lost the heading
+    /// is a failure rather than a walk with nothing to compare against.
+    const CONTRIBUTOR: &str = "## Building from source";
+
+    /// The workflow that publishes the release, whose `TARGETS` is the set of triples it produces.
+    const RELEASE: &str = ".github/workflows/release.yml";
+
+    /// The route to a tree that [`GUIDED`] may not print anywhere: it is a download, not a clone.
+    const CLONE: &str = "git clone";
+
     /// The repository root, which is the working directory every documented command assumes: the
     /// paths in them are repo-relative, exactly as a reader at a clone types them.
     fn repo_root() -> PathBuf {
@@ -183,16 +199,23 @@ mod tests {
 
     /// The subcommands this file runs when a page prints them.
     ///
-    /// All four are required to exit `0`, the refusal among them: a refusal is a RESULT, and
+    /// All five are required to exit `0`, the refusal among them: a refusal is a RESULT, and
     /// `docs/getting-started.md` says so in the sentence above the one it prints. So there is no
     /// per-subcommand status table to keep - there is one rule, and a command that started
     /// erroring would break it.
+    ///
+    /// `doctor` is here because the guided path prints it: it is the first thing a reader runs on a
+    /// binary they just downloaded, and it takes no catalog and reads no settings. **What running
+    /// it here does NOT hold is its `data systems` line**, and the reason is this suite's own
+    /// build: `just documented` compiles the binary with `--all-features`, so the `bigquery` arm of
+    /// that line is the one that prints here while a published artefact prints the other. `just
+    /// shipped` is the venue for that half, out of the released binary's embedded dependency list.
     ///
     /// **This is not an allowlist that may quietly grow a gap.** A documented subcommand that is
     /// neither here nor in `SKIPPED` fails the walk, and every name in both is checked against the
     /// listing the binary itself prints - so adding a subcommand, renaming one, or documenting one
     /// is a decision somebody writes down rather than a fence that stops being read.
-    const RUNNABLE: &[&str] = &["catalog", "describe", "compile", "query"];
+    const RUNNABLE: &[&str] = &["doctor", "catalog", "describe", "compile", "query"];
 
     /// The subcommands a page may print that this file does not run, each with the venue that does.
     ///
@@ -596,5 +619,184 @@ mod tests {
             }
         }
         assert!(held > 0, "no digest read out of any page - the scan is broken, not the pages");
+    }
+
+    /// The triples a release publishes, read out of [`RELEASE`]'s `TARGETS`.
+    ///
+    /// DERIVED rather than written down here, for the reason [`subcommands`] is derived: a second
+    /// copy of the set is a second thing to keep true, and it would rot in the direction that
+    /// matters - a page naming an asset no release produces is a reader whose first command 404s.
+    /// That literal is the authority a test can reach without evaluating a flake, and it is
+    /// already reconciled inside its own file: `publish` asserts that exactly these four arrived,
+    /// and `strategy.matrix.target` is held against it there.
+    ///
+    /// Read as a YAML block scalar - the more-indented single-word lines under the key, stopping
+    /// at the first line that is neither. **A reshaped literal yields fewer than four**, which its
+    /// caller turns into a red test rather than an empty set that would accept any asset name at
+    /// all.
+    fn published_triples() -> Vec<String> {
+        let text = page(RELEASE);
+        let mut lines = text.lines();
+        let key = lines
+            .by_ref()
+            .find(|line| line.trim_start().starts_with("TARGETS:"))
+            .unwrap_or_else(|| panic!("{RELEASE} declares no TARGETS: the published set moved"));
+        let indent = key.len() - key.trim_start().len();
+        lines
+            .take_while(|line| {
+                let trimmed = line.trim_start();
+                line.len() - trimmed.len() > indent && trimmed.split_whitespace().count() == 1
+            })
+            .map(|line| String::from(line.trim()))
+            .collect()
+    }
+
+    /// Every binary tarball a page names, as the triple in its name.
+    ///
+    /// A `.sha256` or `.sigstore.json` sidecar is the same asset, and `sutura-serve-` is the other
+    /// shipped binary at the same triples - so all three shapes reduce to the triple, and anything
+    /// else that happens to end `.tar.gz` reduces to a string no release publishes, which is a
+    /// failure. The split is on the characters a file name cannot hold, so a name inside a table
+    /// cell, a backtick span or a shell quote is read the same way.
+    fn named_assets(text: &str) -> Vec<String> {
+        text.split(|c: char| c.is_whitespace() || "`|()'\",".contains(c))
+            .filter_map(|word| {
+                let asset = word
+                    .strip_suffix(".sha256")
+                    .or_else(|| word.strip_suffix(".sigstore.json"))
+                    .unwrap_or(word);
+                let triple = asset.strip_prefix("sutura-")?.strip_suffix(".tar.gz")?;
+                Some(String::from(triple.strip_prefix("serve-").unwrap_or(triple)))
+            })
+            .collect()
+    }
+
+    /// Every fenced line on a page, with the line its fence opened at.
+    fn fenced(rel: &str, text: &str) -> Vec<(usize, String)> {
+        fences(rel, text)
+            .into_iter()
+            .flat_map(|fence| {
+                let at = fence.opened_at;
+                logical_lines(&fence.lines).into_iter().map(move |line| (at, line))
+            })
+            .collect()
+    }
+
+    /// The page a stranger is sent to leads with a published artefact, and the toolchain is the
+    /// contributor's route below it.
+    ///
+    /// **The defect this is the mechanism for.** `docs/index.md` offered *"Install it and ask a
+    /// question"* and sent a reader here, and every runnable command on the page was a
+    /// `cargo run -p sutura-cli --`: the page promising an install delivered a source build, named
+    /// no release asset, and said nothing about which platforms have one. The release-download
+    /// instructions were in `docs/serving.md`, a later chapter about a different surface, and its
+    /// recipe's second command was `cd examples/single-player` - a directory no release asset
+    /// carries.
+    ///
+    /// **What is held here, and what is held elsewhere.** This asserts the SHAPE of the page: the
+    /// guided half names assets a release actually publishes, spells the commands the way somebody
+    /// holding one of them types them, mentions no `cargo` at all, and reaches the corpus without a
+    /// clone. That the commands then WORK is
+    /// [`every_command_the_pages_print_runs_and_every_line_of_output_is_one_it_printed`], which
+    /// runs each one - though over a locally built binary rather than the downloaded one, because a
+    /// test cannot fetch a release. The artefact itself is `just shipped` and the release
+    /// workflow's own smoke tests.
+    #[test]
+    fn the_guided_path_installs_a_published_binary_rather_than_a_toolchain() {
+        let text = page(GUIDED);
+
+        // The page names an artefact. FIRST, because it is the whole defect: without one, the only
+        // way to run anything the page prints is to build the tree.
+        let named = named_assets(&text);
+        assert!(
+            !named.is_empty(),
+            "{GUIDED} names no release asset, so nothing on it can be run without building the \
+             tree - which is a Rust toolchain a reader was never told they needed"
+        );
+
+        // And the assets it names are the ones a release produces - every one of them, in both
+        // directions, so the platform table cannot be a subset a reader takes for the whole.
+        let published = published_triples();
+        assert_eq!(
+            published.len(),
+            4,
+            "{RELEASE}'s TARGETS parsed as {published:?}, which is not the published set - its \
+             shape changed and this parse did not"
+        );
+        for triple in &published {
+            // The platform claim, measured rather than written on the page: every published
+            // artefact is Linux. A darwin or windows triple here is a red test until the page
+            // stops saying otherwise.
+            assert!(
+                triple.contains("-linux-"),
+                "{RELEASE} publishes `{triple}`, so {GUIDED} may no longer say every asset is Linux"
+            );
+            assert!(
+                named.contains(triple),
+                "{RELEASE} publishes `{triple}` and {GUIDED} names {named:?} - a reader on that \
+                 platform is left to find out by failing"
+            );
+        }
+        for triple in &named {
+            assert!(
+                published.contains(triple),
+                "{GUIDED} names `sutura-{triple}.tar.gz`, which no release publishes: {published:?}"
+            );
+        }
+
+        // Where the guided path ends. Exactly one heading, so the walk below cannot be vacuous.
+        let heading: Vec<usize> = text
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.trim_end() == CONTRIBUTOR)
+            .map(|(index, _)| index + 1)
+            .collect();
+        assert_eq!(
+            heading.len(),
+            1,
+            "{GUIDED} carries {} `{CONTRIBUTOR}` headings - the source build is the contributor's \
+             route and belongs under exactly one",
+            heading.len()
+        );
+        let opens_at = heading[0];
+
+        let mut guided = 0_usize;
+        let mut source = 0_usize;
+        for (at, line) in fenced(GUIDED, &text) {
+            assert!(
+                !line.trim().starts_with(CLONE),
+                "{GUIDED}:{at} reaches something with `{CLONE}`, and the corpus is taken as a \
+                 tarball at the tag so that the guided path needs no git and no toolchain"
+            );
+            if at < opens_at {
+                assert!(
+                    !line.contains("cargo"),
+                    "{GUIDED}:{at} prints `{line}` above `{CONTRIBUTOR}`, and everything above it \
+                     must run on a downloaded artefact"
+                );
+                if line.trim_start().starts_with("sutura ") {
+                    guided = guided.saturating_add(1);
+                }
+            } else if line.contains(SEPARATOR) {
+                source = source.saturating_add(1);
+            }
+        }
+        assert!(
+            guided > 0,
+            "{GUIDED} prints no `sutura <args>` command above `{CONTRIBUTOR}` - that spelling is \
+             what a reader holding the published binary types"
+        );
+        assert!(
+            source > 0,
+            "{GUIDED} prints no `cargo run{SEPARATOR}` command under `{CONTRIBUTOR}` - the source \
+             build is moved and relabelled there, not deleted"
+        );
+
+        // Download, VERIFY, run. The page does not repeat what a signature does and does not say,
+        // and the page that does is the one it has to send a reader to.
+        assert!(
+            text.contains("verifying-a-release.md"),
+            "{GUIDED} tells a reader to download an artefact and links no verification page"
+        );
     }
 }

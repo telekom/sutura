@@ -1,24 +1,117 @@
 ---
 title: Getting started
-description: Point the binary at a catalogue and a file, and ask one question.
+description: Download the published binary, verify it, take the corpus, and ask one certified question - no clone and no Rust toolchain.
 ---
 
 # Getting started
 
-There is a catalogue, the data behind it and a directory of questions in the repository already -
-`examples/single-player`, the one corpus both test suites run on. The fastest way to see what this
-does is to point the binary at those.
+Download the binary, verify it, take the corpus, ask a question. **No Rust toolchain and no
+clone**, and nothing to provision on the data side either: the engine is compiled into the binary
+and reads CSV and Parquet files where they lie.
+
+**What you need** is a Linux host on x86_64 or aarch64, and `gh` authenticated against this
+repository. `gh` is the shortest route to a release asset rather than a requirement - every asset
+has a plain HTTPS URL on the release page, and the `.sha256` sidecar beside it is checkable with
+nothing but the two files.
+
+## What a release publishes, and for which platforms
+
+**Four triples, and all four are Linux.** There is no macOS binary and no Windows binary - that is
+what a release builds rather than a note about what has not been tried yet, and `nix/shipped.nix`
+is where the set is declared:
+
+| Asset | libc |
+| --- | --- |
+| `sutura-x86_64-unknown-linux-gnu.tar.gz` | glibc, so a host no older than the builder's |
+| `sutura-aarch64-unknown-linux-gnu.tar.gz` | glibc, same floor |
+| `sutura-x86_64-unknown-linux-musl.tar.gz` | none - statically linked, no dynamic loader and no version floor |
+| `sutura-aarch64-unknown-linux-musl.tar.gz` | none, same |
+
+Take a musl one unless you have a reason not to: it has nothing to resolve at load time, so the
+only question it can fail on is the architecture. Each tarball holds one file, the executable, at
+its root.
+
+**On macOS or Windows there is no binary to download**, and the two ways in are the image and a
+source build. The unsuffixed image tags at `ghcr.io/telekom/sutura` are this command-line tool -
+[verifying a release](verifying-a-release.md) is the tag table, and [serving over
+HTTP](serving.md) is the shape for the server, whose tags are the `-serve` ones.
+[Building from source](#building-from-source) is at the bottom of this page.
+
+**Both published binaries carry cargo's default features**, which for this one means it links no
+data-system adapter at all - `sutura doctor`'s `data systems` line reads
+`none - this build reads files, and pushes down to nothing`. That is not a hole in this tutorial.
+Reading files is the whole of what this build does and it is enough for every command below, up to
+and including a certified answer with its anchors re-executed. `just shipped` is what asserts it,
+out of the shipped binary's own embedded dependency list rather than out of a manifest.
+
+## Install it
 
 ```bash
-cargo run -p sutura-cli -- \
-  catalog examples/single-player/catalog
+gh release download --repo telekom/sutura \
+  --pattern 'sutura-x86_64-unknown-linux-musl.tar.gz' \
+  --pattern 'sutura-x86_64-unknown-linux-musl.tar.gz.sha256'
+sha256sum -c sutura-x86_64-unknown-linux-musl.tar.gz.sha256
+gh attestation verify sutura-x86_64-unknown-linux-musl.tar.gz --repo telekom/sutura
+tar -xzf sutura-x86_64-unknown-linux-musl.tar.gz
+mkdir -p ~/.local/bin
+install -m755 sutura ~/.local/bin/sutura
 ```
 
-No feature flag, nothing to install. The engine is compiled into the binary and reads the CSVs
-itself, so `query` works in a plain `cargo run`. A data system's driver is a development dependency
-here - present to prove the SQL we render actually runs, not to answer your questions.
+No tag on the first command takes the latest release; `gh release download <tag>` pins one.
+Anywhere on your `PATH` will do instead of `~/.local/bin`, and `sutura` with no arguments lists the
+commands.
+
+**The two checks answer different questions and neither answers the other's.** `sha256sum -c` says
+the bytes match the digest published beside them, which catches a truncated or corrupted download
+and nothing else. `gh attestation verify` says these bytes are what this repository's release
+workflow emitted at a tag - so a substituted file fails it, and it exits non-zero on a single
+changed byte. What neither of them says is that the release is fit for what you want to do with
+it; [verifying a release](verifying-a-release.md) is that page, and its last section is the list of
+things a green verification does **not** establish.
+
+```bash
+sutura doctor
+```
+
+That prints what the binary in your hand was built with - profile, allocator, engine, the
+`data systems` line above, and a redaction probe that proves a secret still renders as one in the
+shipped build rather than only under test.
+
+## The corpus
+
+There is a catalogue, the data behind it and a directory of questions in this repository already:
+`examples/single-player`, the one corpus both test suites run on. Take it as a tarball at the tag
+the binary came from.
+
+```bash
+TAG=$(gh release view --repo telekom/sutura --json tagName --jq .tagName)
+mkdir -p sutura-corpus
+gh api "/repos/telekom/sutura/tarball/$TAG" | tar -xz -C sutura-corpus --strip-components=1
+cd sutura-corpus
+```
+
+**The corpus is deliberately not a release asset.** A published asset is signed, attested,
+inventoried by an SBOM and named in the release notes, once per binary per triple; `nix/shipped.nix`
+is where that set is declared and it declares executables. Sample data does not earn that
+machinery, and adding it would make every release carry a second thing to sign in order to ship
+360 KB of sample definitions and CSV. So the corpus stays in the repository, and the way to it is a
+**download rather than a clone** - no git, no toolchain, one request. Our own release smoke test
+takes it the same way: `.github/serve-smoke.sh` mounts a checkout's `examples/single-player` into
+the image it tests.
+
+**The limit, next to the claim.** That tarball is not signed, carries no provenance and has no
+published checksum - the signed artefact is the binary. Treat the corpus as what it is, sample data
+you are about to read, and note that nothing on this page writes to it.
+
+Every path below is relative to `sutura-corpus/`, which is the repository's own layout - which is
+why the same commands run unchanged in a clone, and why `just documented` can run every one of them
+in CI.
 
 ## What a catalogue says
+
+```bash
+sutura catalog examples/single-player/catalog
+```
 
 Eleven metrics; five of them below, and the elision is this page's rather than the command's:
 
@@ -59,7 +152,9 @@ subscription_base
 ```
 
 The digest is over the canonical form of the parsed definitions, so reformatting a document does not
-move it and changing what a metric means does. It travels with every answer.
+move it and changing what a metric means does. It travels with every answer. `local-working-tree` is
+the version a directory of markdown gets when nobody said otherwise - a deployment passes a commit
+id, and the digest is what says what the content actually is.
 
 Two of those five are worth reading together. `active_subscriptions` and `subscription_base` are the
 same count over the same rows in the same month, with one definitional predicate between them, and
@@ -70,8 +165,7 @@ asserted in a sentence.
 what the markdown half of the format is for.
 
 ```bash
-cargo run -p sutura-cli -- \
-  describe examples/single-player/catalog recurring_revenue
+sutura describe examples/single-player/catalog recurring_revenue
 ```
 
 ## Asking
@@ -92,9 +186,8 @@ dimensions: [region]
 command to reach for when the question is what we would have run:
 
 ```bash
-cargo run -p sutura-cli -- \
-  compile examples/single-player/catalog \
-          examples/single-player/questions/recurring-revenue-by-region.yaml
+sutura compile examples/single-player/catalog \
+               examples/single-player/questions/recurring-revenue-by-region.yaml
 ```
 
 ```sql
@@ -136,21 +229,20 @@ that is quietly missing its tail.
 did not all match:
 
 ```bash
-cargo run -p sutura-cli -- \
-  query examples/single-player/catalog \
-        examples/single-player/questions/recurring-revenue-by-region.yaml \
-        examples/single-player/data
+sutura query examples/single-player/catalog \
+             examples/single-player/questions/recurring-revenue-by-region.yaml \
+             examples/single-player/data
 ```
 
 ```text
 -- definitions local-working-tree 8042ba92eaddce5e96e055cc43a635a64161d54ec21bd4f3367e7a1f58f5b4c5
-region	period	recurring_revenue
-central	2026-06-01	51739
-east	2026-06-01	32598
-north	2026-06-01	42157
-south	2026-06-01	21203
-west	2026-06-01	49425
-null	2026-06-01	4999
+region  period  recurring_revenue
+central 2026-06-01  51739
+east    2026-06-01  32598
+north   2026-06-01  42157
+south   2026-06-01  21203
+west    2026-06-01  49425
+null    2026-06-01  4999
 ```
 
 That last row is the `LEFT JOIN` above, visible. One subscription in the data names a customer the
@@ -165,10 +257,9 @@ A refusal is a result, not an error, and the exit status says so. Ask for a regi
 not declare a value for:
 
 ```bash
-cargo run -p sutura-cli -- \
-  query examples/single-player/catalog \
-        examples/single-player/questions/refused-value-not-allowed.yaml \
-        examples/single-player/data
+sutura query examples/single-player/catalog \
+             examples/single-player/questions/refused-value-not-allowed.yaml \
+             examples/single-player/data
 ```
 
 ```text
@@ -239,20 +330,26 @@ before anything is served, and a metric that declares none is answered out of wh
 under the catalogue's real digest. That is true of the service too. Anchor the metrics you care
 about; [Being refused](#being-refused) is what a mismatch looks like when one is declared.
 
-A configuration that will not SERVE will not answer here either - `SUTURA_ENVIRONMENT=production`
-with no access token configured stops this command too, and says so. That is one door into the
-settings rather than two, and the refusal names the two variables that get you back to answering from
-the directory on the command line.
+**A configuration that will not SERVE will not answer here either**, and that is one door into the
+settings rather than two - `sutura prompt` goes through the same one, so the two cannot refuse
+differently. The consequence catches people out on a first run, because it reaches variables that
+have nothing to do with the question:
+
+- `SUTURA_ENVIRONMENT=production` with no access token configured stops this command, and the
+  refusal names the two variables that get you back to answering from the directory on the command
+  line.
+- **`SUTURA__SERVER__HOST` set off-loopback in your shell stops it too**, on TLS termination, from a
+  command that binds no listener at all. Every settings key can be set as one `SUTURA__`-prefixed
+  variable, and this command reads the server's refusals; that one is the variable whose refusal
+  does not name it. Unset it. It is not the environment or the configuration directory, so the
+  remedy printed underneath will not point at it.
 
 `kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries
 deliberately do not link an outbound TLS stack, which `checks.shipped-features` reads out of each
 released binary rather than out of a manifest. (It is not a build-time saving: `docs/adr/0017`
-measured the feature at twelve compiled units, under 2% of a cross job.) Build one, and the same
-command submits the plan to a dataset:
-
-```bash
-cargo build --release -p sutura-cli --features bigquery
-```
+measured the feature at twelve compiled units, under 2% of a cross job.)
+[Building from source](#building-from-source) is how to get one, and the same command then submits
+the plan to a dataset.
 
 **The `security:` block above is still required** - the snippet below replaces the `sources:` block
 and nothing else. Any non-empty `sources:` with no `security.identity` is refused at startup, naming
@@ -396,3 +493,35 @@ For the data, `query` expects one file per model, named after the model's table,
 pass it - `<table>.parquet` if it is there, `<table>.csv` otherwise. Nothing is written and there is
 no database: the engine registers each file in process and reads it where it lies on every run, so
 the answer cannot drift from the files.
+
+## Building from source
+
+**This is the contributor's route, and it is the second half of this page rather than the first for
+a reason.** Everything above runs on a published artefact, which is what a reader who wants an
+answer should be holding. You want a source build for one of two things: a change to this
+repository, or a feature no published binary carries.
+
+A clone and the toolchain the repository pins are what this needs -
+[Contributing](contributing.md) is the setup, and `just` with no argument lists every task. Every
+command above then has a second spelling, which is the one this repository's own suites run:
+
+```bash
+cargo run -p sutura-cli -- \
+  query examples/single-player/catalog \
+        examples/single-player/questions/recurring-revenue-by-region.yaml \
+        examples/single-player/data
+```
+
+No feature flag and nothing to install for that: the engine is compiled into the binary and reads
+the CSVs itself, so `query` works in a plain `cargo run`. A data system's driver is a development
+dependency here - present to prove the SQL we render actually runs, not to answer your questions.
+
+A build that can open a BigQuery dataset is the one thing above that a published binary cannot do,
+and it is a feature away:
+
+```bash
+cargo build --release -p sutura-cli --features bigquery
+```
+
+`sutura doctor` on the result says `bigquery, over the wire` where a published artefact says `none`,
+which is how somebody holding a binary finds out which of the two they have.

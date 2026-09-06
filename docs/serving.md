@@ -866,7 +866,9 @@ a catalog naming a source nobody declared is a startup refusal that names the so
 
 **From a published release**, with no Rust toolchain. Take the tarball for your triple - the musl
 ones are statically linked and need no libc at all - and verify it before you run it;
-[verifying a release](verifying-a-release.md) is that page.
+[verifying a release](verifying-a-release.md) is that page. The `cd` below is into the corpus, and
+**no release asset carries it**: [the corpus](getting-started.md#the-corpus) is the two commands
+that put it beside you, and the reason it is not an asset.
 
 ```bash
 tar -xzf sutura-serve-x86_64-unknown-linux-musl.tar.gz
