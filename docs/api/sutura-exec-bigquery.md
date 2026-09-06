@@ -1299,7 +1299,7 @@ money somebody else pays.
 
 Where the bearer token a job is submitted with comes from.
 
-**A second narrow port, for the reason [`JobTransport`](crate::transport::JobTransport) is one.**
+**A second narrow port, for the reason `JobTransport` is one.**
 The wire needs two things from a credential - a token that is usable right now, and whether a
 request carrying it has to name a quota project - and everything else about how a deployment
 authenticates is somebody else's decision. So `AccessTokens` is those two things, and the

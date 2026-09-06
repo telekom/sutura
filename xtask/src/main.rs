@@ -9,6 +9,7 @@
 
 mod action_shell;
 mod api_docs;
+mod api_links;
 mod arrow_major;
 mod attribution;
 mod boot_order;
@@ -384,6 +385,16 @@ const TASKS: &[Task] = &[
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene(Reads::Prose),
         run: docs::run,
+    },
+    Task {
+        // Beside `check-docs` because both read published pages, and a DIFFERENT concern: that one
+        // asks whether a destination resolves to a page in this tree, this one whether the
+        // destination is a URL at all. It is in the cheap sweep and `check-api-docs` is not,
+        // because this reads the committed pages as text - no rustdoc, no nightly, no registry.
+        name: "check-api-links",
+        description: "no page under docs/api links to a Rust path",
+        kind: Kind::Hygiene(Reads::Prose),
+        run: api_links::run,
     },
     Task {
         // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the

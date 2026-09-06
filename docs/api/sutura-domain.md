@@ -454,7 +454,7 @@ of those two conventions produces off-by-one bugs at month boundaries and the ot
 wire form is a two-field mapping - `start` and `end`, which is how a catalog author writes one -
 and both halves already agree on it: `Serialize` derives that mapping and `try_from` reads it back
 through `TimeRange::new`. What this type does NOT have is a canonical text form to convert into.
-[`Display`](core::fmt::Display) renders `[2026-06-01, 2026-07-01)` for a human reading a refusal,
+`Display` renders `[2026-06-01, 2026-07-01)` for a human reading a refusal,
 and nothing parses that shape, so serializing into it would produce exactly the asymmetry the
 `into` on `Date` exists to remove. The round trip that has to hold here is the mapping one, and it
 is asserted as such.
@@ -1096,7 +1096,7 @@ the caller gets `DimensionNotFilterable` rather than a query.
 
 Takes a `DimensionValue` rather than a `&str`, so the two sides of the comparison are the
 same type: a caller's value is parsed by `DimensionValue::parse` at the wire boundary the way
-their metric name is parsed by [`MetricName::parse`](crate::model::MetricName::parse), and text
+their metric name is parsed by `MetricName::parse`, and text
 that could not have been declared never reaches this comparison to be found absent from it.
 
 ```rust
@@ -1227,7 +1227,7 @@ metric's dimensions name one label and nothing downstream re-asks. `assemble` co
 asked - by the time a `Metric` reaches it the map has collapsed an exact pair - and the
 DECLARED order is here and nowhere later, so the refusal names the two spellings in the
 order the file wrote them. Same shape, and the same argument, as
-[`StatementTables::parse`](crate::plan::StatementTables::parse).
+`StatementTables::parse`.
 
 **What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
 (`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
@@ -1442,7 +1442,7 @@ a human and may be reworded without breaking a caller that matched on `WrongLeng
 
 The escape hatch: SQL a catalog author wrote, for the metrics the closed vocabulary cannot say.
 
-[`measure`](crate::measure) is closed and stays closed. A window function, a percentile, an
+`measure` is closed and stays closed. A window function, a percentile, an
 expression over two columns - `SUM(price * quantity)` - has no `Measure` and cannot get one
 without turning that vocabulary into an expression language. Two things forced a second path
 anyway. Metrics people actually certify use those constructs; and a provider whose catalog
@@ -1810,7 +1810,7 @@ repository exists to prevent.
 **A measure that does not descend is not a refusal.** Decision 2 is explicit: where an aggregate
 cannot be computed per leg and re-aggregated, the leg carries finer-grained rows and the
 aggregate happens above, paying the processing cost. So there is no error type in this module and
-no [`RefusalReason`](crate::query::RefusalReason) variant behind it - `Descent` is total over
+no `RefusalReason` variant behind it - `Descent` is total over
 the vocabulary, and its third variant is a plan rather than a decline.
 
 **Three exhaustive matches, and each of them is the mechanism.** `Descent::of` matches
@@ -3220,7 +3220,7 @@ folds all three:
   IMPLICIT alias `FROM a.b.orders` gives the table;
 - the alias a projected column is labelled with, which `GoogleSQL` resolves ahead of a table of
   the same spelling - the wrong-answer report behind
-  [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable);
+  `LabelShadowsTable`;
 - the name of a result column, which is what makes two labels one column rather than two.
 
 # Why the catalog and the plan both compare under `Self::COARSEST`
@@ -4272,7 +4272,7 @@ pub const fn capabilities(&self) -> &MetadataCapabilities
 ```
 
 What this source declared it supplies, the manifest record of
-[`SemanticCatalog::capabilities`](crate::pinned::SemanticCatalog::capabilities).
+`SemanticCatalog::capabilities`.
 
 ```rust
 pub const fn missing(capabilities: MetadataCapabilities) -> Self
@@ -4703,7 +4703,7 @@ pub const fn max_rows(&self) -> u32
 The most rows this plan's result may carry before it is refused.
 
 The cap itself, which is what a row count is compared against. Read it with
-[`row_limit`](QueryPlan::row_limit): the two differ by one, deliberately, and neither is
+`row_limit`: the two differ by one, deliberately, and neither is
 useful without the other.
 
 ```rust
@@ -4752,13 +4752,13 @@ each other at all.
 pub const fn row_limit(&self) -> u32
 ```
 
-How many rows an adapter asks for: one more than [`max_rows`](QueryPlan::max_rows).
+How many rows an adapter asks for: one more than `max_rows`.
 
 **The extra row is the whole mechanism.** Fetching exactly the cap makes a result AT the cap
 indistinguishable from a result the cap cut short, and the second of those is a partial total
 under a certified name. Asking for one more makes "there is more" observable at no cost - the
 extra row is never returned to a caller, because a result carrying it is refused as
-[`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge).
+`RefusalReason::ResultTooLarge`.
 
 Saturating, so a cap of `u32::MAX` stays a number rather than wrapping to zero and asking
 a data system for nothing.
@@ -4791,15 +4791,15 @@ The table's own name, which is what this plan's columns are qualified by.
 pub struct AnchorPlan<'bundle>
 ```
 
-The one thing [`Warehouse::verify_anchor`](crate::warehouse::Warehouse::verify_anchor) accepts:
+The one thing `Warehouse::verify_anchor` accepts:
 a plan the pinned bundle itself agrees is one of its anchors' own.
 
 # What this type is, and what it is not
 
 **It is a self-check on the boot path, and it is NOT an authority.** That distinction is the whole
 of what a second review corrected, and getting it wrong once put a false sentence in ten places
-across seven files - `docs/adr/0008`'s second amendment to its correction 2 lists them. [`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
-[`Presented`](crate::identity::Presented); `verify_anchor` deliberately takes no credential,
+across seven files - `docs/adr/0008`'s second amendment to its correction 2 lists them. `Warehouse::execute` cannot be called without a
+`Presented`; `verify_anchor` deliberately takes no credential,
 because there is no caller at boot, and it therefore runs under whatever identity the deployment
 configured that adapter with. So the question is what bounds its INPUT.
 
@@ -4948,7 +4948,7 @@ real budget this becomes its floor.
 **It is a refusal and not a truncation, and that is the correction a review forced.** This used
 to be the `LIMIT` on the statement and nothing else: nothing compared the rows that came back
 against it. So a question at `day` grain over a year, grouped by up to
-[`MAX_DIMENSIONS`](crate::query::MAX_DIMENSIONS) keys, answered with the first ten thousand
+`MAX_DIMENSIONS` keys, answered with the first ten thousand
 groups by group key, carried a provenance digest, and said nowhere that it was partial. Summing
 those rows gives a wrong number under a certified name, arrived at by omission - which is the
 failure mode this repository exists to prevent, and the one a caller has no way to detect.
@@ -4956,7 +4956,7 @@ failure mode this repository exists to prevent, and the one a caller has no way 
 What holds it up is two things that have to be read together. `QueryPlan::row_limit` is one
 MORE than this, so a result that reached the cap is distinguishable from a result the cap cut
 short; and a row count above this is
-[`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge). A refusal is the
+`RefusalReason::ResultTooLarge`. A refusal is the
 honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
 the caller's move is to narrow the range or drop a dimension.
 
@@ -4982,16 +4982,16 @@ result carries public dimension labels beside the internal ones, so an internal 
 an identifier is a label a legal dimension name can collide with - reproduced. `InternalLabel`
 is the type that cannot be spelled by one.
 
-**The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
-happens instead.** The [`Above`](crate::federation::Above) tree already carries the only
-[`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path; this module walks it
+**The division cannot happen in a leg, and `combine` is where it
+happens instead.** The `Above` tree already carries the only
+`ZeroDenominator` in the federated path; this module walks it
 above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
 the wrong number this shape exists to prevent.
 
 **What this module will not do, because `combine` cannot express it.** The re-aggregation
 `combine` performs covers the leaves a *decomposable* measure produces - a re-aggregating
-[`Sum`](crate::model::Aggregate::Sum), [`Min`](crate::model::Aggregate::Min) or
-[`Max`](crate::model::Aggregate::Max) over already-aggregated leg columns. A measure that does not
+`Sum`, `Min` or
+`Max` over already-aggregated leg columns. A measure that does not
 decompose at all (a distinct count) has no re-aggregating function, and the honest answer for this
 slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
 have to re-count. The refusal names the aggregate.
@@ -5006,7 +5006,7 @@ The one federated shape this workspace combines: a fact leg on one source and a 
 another, linked by a single column.
 
 **Two legs, as two named fields.** A match over `LegPlan` is exhaustive, so the fact leg *is*
-the [`Fact`](LegPlan::Fact) variant and the lookup leg the [`Lookup`](LegPlan::Lookup) one, and
+the `Fact` variant and the lookup leg the `Lookup` one, and
 a plan that had anything other than exactly these two is a type that does not exist rather than a
 count a caller checks. The shape is deliberately the one `crate::plan::leg` pins in its goldens:
 the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
@@ -5028,8 +5028,8 @@ Turns one result per leg into one answer's rows.
 
 The fact and lookup results are joined on the recorded link column, grouped by the answer's
 keys - in the order the question asked them, matching the mono path - and the bucket,
-re-aggregated by each leaf's own [`Carried::combine`](crate::federation::Carried::combine),
-and only then divided through the [`Above`](crate::federation::Above) tree. Those last two
+re-aggregated by each leaf's own `Carried::combine`,
+and only then divided through the `Above` tree. Those last two
 steps belong to `reaggregate`, reached as `Leaves::of` and `Leaves::measure`; the join, the
 grouping and the budget are this file's.
 
@@ -5179,7 +5179,7 @@ pub enum FederatedFailure
 Why a federated answer could not be assembled.
 
 The shape failures are defects in this workspace's own wiring - a leg result missing a column
-`labels` named, or a row narrower than its result's own columns. The [`NonFinite`](FederatedFailure::NonFinite)
+`labels` named, or a row narrower than its result's own columns. The `NonFinite`
 variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
 value for.
 
@@ -5229,7 +5229,7 @@ measure. The splitter spelled the first with the physical remote join COLUMN's t
 second as `metric__{n}`, and both of those are legal identifiers: a metric with a legal dimension
 named `customer_key`, backed by a different column, projected two fact columns under one label
 and the combiner refused the answer it could not disambiguate. A dimension is free to be named
-anything [`DimensionName`](crate::model::DimensionName) accepts, so the internal labels are what
+anything `DimensionName` accepts, so the internal labels are what
 has to move - keeping a legal question legal is the constraint, not a naming rule for authors.
 
 **What makes the two namespaces disjoint, and it is one character.** Every rendering here starts
@@ -5241,7 +5241,7 @@ label as each of those names and requiring the refusal, rather than leaving it t
 
 **The disjointness has a second half, and it is the one a parse check cannot answer: every target
 has to ACCEPT the label as a quoted alias.** The character this scheme is built on is the one
-[`BadFirstCharacter`](crate::model::InvalidIdentifier::BadFirstCharacter) refuses because it is
+`BadFirstCharacter` refuses because it is
 *"legal in some dialects and not others, so accepting it would make a model portable by luck"* -
 so the same sentence that justifies the namespace is the reason to doubt it. Two different
 questions live under it: whether a target accepts a digit-leading string as an **identifier**,
@@ -5281,9 +5281,9 @@ fallible. What the type buys is that the TEXT can only come from here.
 
 **The other half of the namespace is held elsewhere, and this is the whole of it in one place.**
 The labels a result carries besides these are public: the answer's dimension labels, the time
-bucket's [`TIME_BUCKET_LABEL`](crate::catalog::TIME_BUCKET_LABEL) and the measure's metric name.
+bucket's `TIME_BUCKET_LABEL` and the measure's metric name.
 Those are held against each other at load by
-[`Definitions::assemble`](crate::catalog::Definitions::assemble) -
+`Definitions::assemble` -
 `DimensionShadowsTimeBucket`, `DimensionShadowsMeasure`, `TwoDimensionsOneLabel` and
 `LabelShadowsTable`, each case-folded to the coarsest dialect rule. So a public label collides
 with another public label at load, and cannot collide with an internal one at all. **The limit:**
@@ -5291,8 +5291,8 @@ nothing compares the two halves, because a leading digit makes the comparison un
 is the property the test asserts, and the thing to re-establish if this spelling ever changes.
 
 **And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
-This half is a type. The public half is not: [`PlanKey`](crate::plan::PlanKey) and
-[`LegTerm`](crate::plan::LegTerm) carry their labels as `String`, so what keeps a public label out
+This half is a type. The public half is not: `PlanKey` and
+`LegTerm` carry their labels as `String`, so what keeps a public label out
 of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
 `DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
 test: the test above asks the four name parsers to refuse these spellings, which is a property of
@@ -5358,20 +5358,20 @@ module says it rather than leaving it to be discovered.
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 
 **Why a leg is not a `QueryPlan`, which is the whole reason this module exists.** A
-`QueryPlan` requires a `PlanBucket`, a [`PlanMeasure`](crate::plan::PlanMeasure) and a measure
+`QueryPlan` requires a `PlanBucket`, a `PlanMeasure` and a measure
 label, and a dimension lookup has none of the three: a dimension table has no time column, no
 measure and no metric name. Reaching for `Option` on those three fields would make *a dimension
 leg carrying a time range* constructible, which is the checked shape where this one is the
 unrepresentable one.
 
-And the measure is worse than absent. [`PlanMeasure`](crate::plan::PlanMeasure) has exactly two
+And the measure is worse than absent. `PlanMeasure` has exactly two
 variants and the only one carrying two terms is the one that **divides** them -
 `sutura_sql::generate` renders a `Ratio` as `CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)`.
 So a decomposed `Avg` travelling as a sum beside a count, and a ratio travelling as an undivided
 numerator and denominator, are not expressible by `PlanMeasure` at all - and the division per leg
 that 0009's Decision 2 forbids is exactly what it *would* express. `LegTerm` is the answer: a
 `PlanTerm` and a label, with no shape that divides and no field a
-[`ZeroDenominator`](crate::measure::ZeroDenominator) fits in, at any depth. That is the same
+`ZeroDenominator` fits in, at any depth. That is the same
 argument `crate::federation::Carried` makes one level up, and the two are deliberately built
 the same way.
 
@@ -5384,7 +5384,7 @@ metric name; and a one-hop dimension join does not start from it, so no joins. S
 key list, group by the key list. So the distinct-key leg is a `LegPlan::Fact` whose `terms` are
 empty, and it needs no variant of its own.
 
-**No leg carries a row cap.** A leg is not an answer, and [`MAX_ROWS`](crate::plan::MAX_ROWS)
+**No leg carries a row cap.** A leg is not an answer, and `MAX_ROWS`
 caps one answer's rows; `sutura_sql::generate_leg` emits no `LIMIT` for the same reason.
 
 #### `struct LegTerm`
@@ -5395,7 +5395,7 @@ pub struct LegTerm
 
 One number a leg computes, and the label it is projected under.
 
-**A `PlanTerm` and not a [`PlanMeasure`](crate::plan::PlanMeasure), and that is a type rather
+**A `PlanTerm` and not a `PlanMeasure`, and that is a type rather
 than a convention.** There is no shape here that divides, so a leg's statement cannot carry a
 `NULLIF` guard and a per-leg quotient is unrepresentable rather than discouraged. The bug that
 closes is specific: applied *inside* a leg, `ZeroDenominator::Null` turns a subgroup with a zero
@@ -5757,11 +5757,11 @@ for a reason. An alias on one side of a join and not the other is not a fix.
 
 So the decision is the other one, and it is made where the plan is built rather than where it is
 rendered: **a statement whose tables cannot be told apart is unrepresentable.** There is no
-[`QueryPlan`](crate::plan::QueryPlan) and no [`LegPlan::Fact`](crate::plan::LegPlan::Fact) holding
+`QueryPlan` and no `LegPlan::Fact` holding
 such a set, because `StatementTables` is the only way to construct either and its canonical
 constructor refuses the pair. `sutura_semantic::plan` turns
 that refusal into
-[`PlanTablesShareAnIdentifier`](crate::query::RefusalReason::PlanTablesShareAnIdentifier), so the
+`PlanTablesShareAnIdentifier`, so the
 question is declined and the metric stays authorable: a question that does NOT reach the colliding
 table is still answered. The alternative - refusing the metric at load - would make the estate
 shape unauthorable, and unlike a label a physical table is not something an author can rename.
@@ -5781,11 +5781,11 @@ reintroduce it - **a prediction in a doc comment is not a mechanism, which is th
 keeping from this.**
 
 What remains is narrow and stated so it is not mistaken for the above. A
-[`Lookup`](crate::plan::LegPlan::Lookup) leg reads ONE table and declares no joins, so it has no
+`Lookup` leg reads ONE table and declares no joins, so it has no
 pair to compare - the shape is the check. And two LEGS whose tables collide are not this defect:
 each leg is its own statement on its own data system, so nothing binds one identifier to two
 tables; what the combiner joins on is a label, and a label that shadowed a table is
-[`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable)'s refusal at
+`LabelShadowsTable`'s refusal at
 load.
 
 #### `enum AmbiguousTables`
@@ -5826,7 +5826,7 @@ The tables one statement reads: the `FROM` table, and one per join.
 
 **If an instance of this type exists, every table in it is distinguishable from every other one
 inside the statement** - which is the whole return on the newtype, and what lets
-[`QueryPlan::new`](crate::plan::QueryPlan::new) stay infallible while the plan it builds cannot be
+`QueryPlan::new` stay infallible while the plan it builds cannot be
 the ambiguous one. See this module's header for what the ambiguity does and why it is refused
 rather than aliased around.
 
@@ -5921,7 +5921,7 @@ request side wanted it too. It does, for four reasons, and the last one is the d
 
 **What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses the value
 and reports `filters[i].value` without the parse error underneath it, because
-[`InvalidDimensionValue`](crate::catalog::InvalidDimensionValue) carries the offending input and
+`InvalidDimensionValue` carries the offending input and
 `RefusalReason`'s own rule is that caller-supplied text is never reflected into a message that
 reaches a log, a UI and an agent's context.
 
@@ -6012,7 +6012,7 @@ works.
 so such a refusal could never be provoked, and a variant with no test that can reach it looks
 like coverage while being dead code. The type does that job instead.
 
-[`TimeRangeTooLong`](RefusalReason::TimeRangeTooLong) is the variant that exists for the half the
+`TimeRangeTooLong` is the variant that exists for the half the
 type does *not* do, and the pair is worth reading together: an absent bound is unrepresentable, a
 bound that is present and enormous is refused. The second has to be a refusal rather than a parse
 error because the same `TimeRange` is also a catalog author's anchor range, and a maximum on the
@@ -6239,7 +6239,7 @@ part nobody writes unless the type demands it.** A boolean acknowledgement recor
 clicked past a question; this records what they meant, on the source's own entry, and the startup
 log prints it beside the posture.
 
-Construct it with [`parse`](Self::parse). There is no other way in: the field is private, there is
+Construct it with `parse`. There is no other way in: the field is private, there is
 no `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
 
 No `Default`, deliberately. A default reason is a reason nobody gave.
@@ -6292,7 +6292,7 @@ behind it arrives with the credential port. Least authority on it is a configura
 an operator arranges - an identity holding a row-level-security bypass certifies the *unfiltered*
 number, so the anchor passes and proves less than it appears to.
 
-Construct it with [`parse`](Self::parse). No `Deserialize` and no `Default`, so it cannot be
+Construct it with `parse`. No `Deserialize` and no `Default`, so it cannot be
 arrived at by leaving anything unset and cannot be inherited from a neighbouring source.
 
 #### Methods
@@ -6666,7 +6666,7 @@ how a date is written on the wire.
 
 **There is no `Integer`, and its absence is the decision rather than an omission.** The variant
 was here and nothing in the workspace constructed one: every caller value and every required
-filter binds as [`Text`](ParamValue::Text), because that is the type both of them are. Both
+filter binds as `Text`, because that is the type both of them are. Both
 adapters carried an arm for it and the goldens carried a rendering, so it read as covered while
 no question could reach it - and the dead arm was the lesser half of the cost. The real half is
 that a *numeric* definitional filter cannot be expressed safely here: `equals: { column:
@@ -6999,7 +6999,7 @@ property the record wanted, reached by removing the argument instead of by typin
 **What bounds a method with no credential is WHERE it is called from, and that is a lint here
 rather than a type - which is a second review's correction to a claim this comment used to make.**
 The first correction gave `Self::verify_anchor` an `AnchorPlan` instead of a bare
-[`QueryPlan`](crate::plan::QueryPlan) and said the method could no longer be handed a question. A
+`QueryPlan` and said the method could no longer be handed a question. A
 reviewer disproved that in one function: the constructor is `pub`, every value it read was
 publicly constructible, and a fabricated tuple passed all four guards. That is not a hole a fifth
 guard closes - a shape check over caller-constructible values can only ever be a shape check, and
@@ -7136,7 +7136,7 @@ data system has no such step - the tables live in the dataset, and this process 
 one is there when a question reaches it. So the same mistyped table name cost a boot refusal on
 one kind of deployment and a failed answer for whoever asked first on the other.
 
-[`Warehouse::preflight`](crate::warehouse::Warehouse::preflight) is the port that closes it, and
+`Warehouse::preflight` is the port that closes it, and
 this is the answer it returns.
 
 **The links here are `crate::`-prefixed rather than `super::`-prefixed on purpose.** The API
@@ -7208,7 +7208,7 @@ pub enum TablesPresent
 What a data system said about the tables it was asked for.
 
 **`Self::NotAsked` is not `Self::All`, and no caller can read it as one.** That is the shape
-[`PreFlight`](crate::warehouse::PreFlight) already uses and it is here for the same reason: the port's
+`PreFlight` already uses and it is here for the same reason: the port's
 default has to be *nothing to report*, because an adapter that cannot ask a data system cheaply
 must not be forced to lie - and a default of "every table is there" is exactly that lie, told at
 boot, in the one place a deployment is deciding whether to serve at all. An adapter that really
@@ -7305,11 +7305,11 @@ place it is made. What was wrong is using a display form as an equality.
 - **Multiplicity survives.** Content is a MULTISET, not a set: a row answered twice by one side
   and once by the other is a disagreement, which a set cannot see.
 - **The one approximation is named and scoped.**
-  [`RealTolerance`](crate::warehouse::agreement::RealTolerance) applies to `Value::Real` and to
+  `RealTolerance` applies to `Value::Real` and to
   nothing else. An integer, a date-as-text and a text cell are compared exactly.
 - **Order is a separate assertion.**
-  [`agree_on_content`](crate::warehouse::agreement::agree_on_content) says nothing about order
-  and [`agree_on_order`](crate::warehouse::agreement::agree_on_order) says nothing else, so *a
+  `agree_on_content` says nothing about order
+  and `agree_on_order` says nothing else, so *a
   wrong number* and *the right rows in the wrong order* stay two diagnoses rather than one. Call
   the content one first, or the first symptom of a wrong number is reported as a sort order.
 
@@ -7317,7 +7317,7 @@ place it is made. What was wrong is using a display form as an equality.
 
 Whether an order was promised at all. A plan that emits `ORDER BY` claims one, and a leg
 comparing an answer to a plan without one should not call
-[`agree_on_order`](crate::warehouse::agreement::agree_on_order). Nothing here can tell, because
+`agree_on_order`. Nothing here can tell, because
 a `RowSet` does not carry the plan that produced it.
 
 # Three limits worth reading before citing this
