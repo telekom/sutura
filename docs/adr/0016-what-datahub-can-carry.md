@@ -1,6 +1,6 @@
 ---
 title: What DataHub can carry, and the measure it cannot
-description: A research spike, measured against the SemanticCatalog port rather than reasoned about - DataHub 1.7.0 does now have first-class metric and semanticModel entities, and what it holds a measure as is a raw expression string tagged with a dialect, so it carries the physical model, the descriptions, the join columns and a conditional glossary, and carries no measure this repository will execute, no reliable cardinality, no definitional filter, no grain, no value allowlist and no anchor; the two golden adapters stay the reference and keep the strict oracle test, and DataHub is a DECLARING adapter whose declaration must name every one of those absences rather than leave it to silence.
+description: A research spike, measured against the SemanticCatalog port rather than reasoned about - DataHub 1.7.0 does have first-class metric and semanticModel entities, and what it holds a measure as is a raw expression string tagged with a dialect, which this repository reads and reports and will not execute. The physical model, the descriptions and the join columns are what a deployment carries unconditionally; the Amendment, 2026-09-02 below narrows the rest, because a deployment-defined structured property carries a certified metric whole - so the metric layer and everything riding with it are conditional provides the adapter DECLARES rather than absences, and that declaration, not this sentence, is the authority for which kinds a bundle may carry. The two golden adapters stay the reference and keep the strict oracle test, and DataHub is a DECLARING adapter.
 ---
 
 # What DataHub can carry, and the measure it cannot
@@ -462,7 +462,9 @@ one thing here that is a change to a port rather than a new adapter.
 **3. What DataHub declares, concretely - and this is where the research lands.**
 
 Not a list of blockers. The content of a declaration, with the negatives named because naming them is
-what makes the source safe to use:
+what makes the source safe to use. **Every *does NOT provide* below that a deployment-defined structured
+property can supply is narrowed by the *Amendment, 2026-09-02*** to a declared-and-empty may-provide, and
+the adapter's own capability declaration - not this table - is the authority for which those are:
 
 | Kind | DataHub declares | On the evidence of |
 | --- | --- | --- |

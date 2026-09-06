@@ -5,11 +5,19 @@ description: The blocking decision the BigQuery adapter step was gated on - thre
 
 # What a BigQuery test runs against
 
-Status: **accepted, and amended twice.** The rendering half is built and green. The acceptance leg is
-no longer opt-in-only and no longer absent from CI - see *Amendment, 2026-08-30* - and the adapter is
-no longer unwired: a composition root links it, behind a default-off feature, which is *Amendment,
-2026-08-30 (second)* at the foot of this page. **Read the amendments before citing anything above
-them**; the reasoning stands, two of its conclusions do not.
+Status: **accepted, and amended repeatedly - the amendments below carry the current state.** The
+rendering half is built and green. The acceptance leg is no longer opt-in-only and no longer absent
+from CI - see *Amendment, 2026-08-30* - and the adapter is no longer unwired: a composition root
+links it, behind a default-off feature, which is the *Second amendment, 2026-08-30* below. **Read
+the amendments before citing anything above them**; the reasoning stands, several of its conclusions
+do not.
+
+**The ordinals were renumbered on 2026-09-06, and a citation older than that may name a different
+section than it did.** Three branches appended here in two days and the sequence drifted into two
+*Fifth* amendments - the second after the *Sixth* - plus an unnumbered one mid-list. The headings now
+run consecutively in file order, and `cargo xtask check-guidance` holds that rather than a reviewer:
+`xtask/src/guidance/pages.rs` is the rule and states what it does not reach, which is chronology and
+every cross-reference outside this page.
 
 `docs/implementation-plan-bigquery.md` gates its first BigQuery step on one decision, to be made
 before the adapter is written: **what does a test run against?** There is no BigQuery in a container.
@@ -356,9 +364,9 @@ the request it is answering is billed for a result nobody is waiting for.
 ### Which binaries link it, and the one that deliberately does not
 
 **`sutura-serve`, behind a default-off `bigquery` feature. `sutura-cli`, not at all.**
-*(The second half is SUPERSEDED by the fifth amendment at the end of this record: `sutura-cli` has a
-default-off `bigquery` feature of its own since telekom/sutura#121. The reason given below is why it
-took a feature rather than a plain dependency, and that half still holds.)* The reason is
+*(The second half is SUPERSEDED by the seventh amendment below: `sutura-cli` has a default-off
+`bigquery` feature of its own since telekom/sutura#121. The reason given below is why it took a
+feature rather than a plain dependency, and that half still holds.)* The reason is
 the four cross builds and it is measured rather than assumed:
 
 - the release derivations pass `--package sutura-cli`, so they never compile `sutura-serve` itself;
@@ -423,7 +431,7 @@ than by an intention.
 | Bullet | Where it stands |
 | --- | --- |
 | the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison. Measured: **22 accepted, 9 refused by the compiler before a statement existed** |
-| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT - *exactly* in the sense the **ninth amendment** narrows, which is rendered content and not cell type - with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
+| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT - *exactly* in the sense the **eleventh amendment** narrows, which is rendered content and not cell type - with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
 | the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
 | the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
 | *(not one of the four)* the **anchors** hold | Measured: **6 anchors reproduced by the endpoint**, the same verdict the engine reaches |
@@ -593,7 +601,7 @@ rather than anything this repository can carry.
   Four tables named after the example models - `dim_customer`, `dim_product`,
   `fct_subscription_monthly` and `fct_usage_daily` - used to be replaced on every run under names
   that were fixed because the generator rendered them unqualified and the job's `defaultDataset`
-  resolved them. The seventh amendment below is the closure: every table is now suffixed with the
+  resolved them. The ninth amendment below is the closure: every table is now suffixed with the
   run's own token, and a per-run table name stays safe to print because only the dataset and the
   project are resources. The committed fixture names themselves need no `::add-mask::` in a public
   log.
@@ -658,7 +666,7 @@ bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agre
                  31 in the corpus
 ```
 
-**Read `exactly` as the ninth amendment narrows it.** The comparison behind this tally was
+**Read `exactly` as the eleventh amendment narrows it.** The comparison behind this tally was
 render-based, so it establishes acceptance, rendered row content and ORDER - and says nothing about
 cell type. No number is restated for the typed policy that replaced it.
 
@@ -843,7 +851,7 @@ no run, owned by the enterprise-IdP half ([#105](https://github.com/telekom/sutu
 amendment changes nothing about it; it is recorded here so the two venues are not elided into one
 "identity is provisioned now".
 
-## Fifth amendment: the command-line tool opens a dataset too, behind its own default-off feature
+## Seventh amendment: the command-line tool opens a dataset too, behind its own default-off feature
 
 **This record decided `sutura-cli`, not at all, and telekom/sutura#121 reverses that half.** The
 reason it was refused is worth reading before the reversal, because the reason has not gone away: the
@@ -940,7 +948,7 @@ both spent by telekom/sutura#111, which publishes both binaries. And *"the image
 which links the engine only"* needs the qualifier *as published*: the crate can now link a second
 adapter, and the artefact still does not.
 
-## Amendment, 2026-09-03: the build nothing asked for has been run, and it went the other way
+## Eighth amendment, 2026-09-03: the build nothing asked for has been run, and it went the other way
 
 **The sentence this amendment exists to correct** is in *The measurement this record's own rule asks
 for, taken 2026-09-02*, above: *"What would price the alternative - the feature ON for four triples -
@@ -1163,7 +1171,7 @@ target that is not a release target has no
 cannot be derived because `strategy.matrix` takes literals, which is exactly the argument for
 reconciling this pair too. It is the same shape as the rule above and is a separate change.
 
-## Seventh amendment, 2026-09-04: the acceptance leg is re-entrant, and two runs no longer race
+## Ninth amendment, 2026-09-04: the acceptance leg is re-entrant, and two runs no longer race
 
 **Status of the amendment: accepted.** The third amendment's "NEW" bullet - *this leg WRITES, and two
 runs against one dataset will race* - stopped being true in #119, and this is its record. The bullet
@@ -1218,7 +1226,7 @@ run suffix.
 Cross-dataset fixtures (#118) and the conformance packs (#116) are still future work; this change
 makes the first safe to add rather than doing it.
 
-## Eighth amendment, 2026-09-04: the two-principal cell exists, and what it is *not*
+## Tenth amendment, 2026-09-04: the two-principal cell exists, and what it is *not*
 
 **Status of the amendment: accepted; the cell is written and has not been run.** The sixth amendment
 said the cell's two prerequisites were provisioned and that "what is still required is the cell
@@ -1345,7 +1353,7 @@ Two rounds, and no count in this heading on purpose - it was *three* and then it
 round's other findings are recorded where they belong rather than listed again here: the control leg
 accepting fourteen error variants is under *Three decisions* above, the seed job and the two policies
 being unordered is under *The measurement that closed a question the wrong way*, and four citations
-pointing at the seventh amendment when this one is the eighth were simply wrong and are corrected.
+pointing at the ninth amendment when this one is the tenth were simply wrong and are corrected.
 
 **A verdict was carrying two states.** The venue page's `can` meant *the venue is capable and the
 standing test lives somewhere else*, and this cell needed *the standing test lives here and nothing
@@ -1397,7 +1405,7 @@ is 672 lines now, with the five properties in `acceptance/properties.rs` (#323).
 nextest filter expression - so renaming the target would silently un-filter the acceptance app.
 Two nextest profiles carrying the pair once, next to the tests, is the shape that would close it.
 
-## Ninth amendment, 2026-09-05: what *exactly* meant on the measured run, and what it did not
+## Eleventh amendment, 2026-09-05: what *exactly* meant on the measured run, and what it did not
 
 **Status of the amendment: accepted; it corrects a published claim and carries no live run.** The
 fourth amendment above records `21 answers agreed exactly on content AND order`, and the third

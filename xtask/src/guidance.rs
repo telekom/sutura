@@ -10,7 +10,7 @@
 //! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
 //! than read.
 //!
-//! Nine checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Ten checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
@@ -21,6 +21,7 @@
 //! * `advice` - a task a failure prints must exist, over every `.rs` file this repository publishes
 //! * `constants` - a doc comment naming a variant of a constant it links must name the one it holds
 //! * `hosts` - the file a sentence names as holding a mechanism must be the file that holds it
+//! * `pages` - a page's amendment ordinals and its table headers, held against the page's own shape
 //!
 //! `remedies`, `advice` and `constants` are the three that read Rust rather than prose;
 //! `hosts` reads prose and derives its answer from anywhere. `remedies` is here because of
@@ -69,10 +70,15 @@ mod constants;
 // `github.com/telekom/sutura#297`. Prose again, so it could have been lines here - it is a module
 // because it grows by ENTRY like the tables above and this file is what has to have room for those.
 mod hosts;
+// `github.com/telekom/sutura#288`, and the one check here that registers NOTHING: what it reads is
+// the page's own structure, so it needs no table and grows by rule rather than by entry. Its
+// assertions are in `tests` below rather than beside it, for the reason `mod claims` gives.
+mod pages;
 
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 use constants::constant_problems;
 use hosts::{HOSTED, host_mismatches};
+use pages::page_problems;
 
 /// A phrase that should not appear, and what to write instead.
 struct Forbidden {
@@ -437,6 +443,29 @@ fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
     problems
 }
 
+/// Where a claim may be MADE: documentation and configuration, not Rust source.
+///
+/// Two reasons, and the second is the one that matters: a rule table written in Rust contains the
+/// very phrases it forbids, so scanning `.rs` makes this gate report itself - and the only fix
+/// would be an exclusion list, which is a hole anything can be added to. The narrower scope is
+/// honest instead. A stale comment beside Rust code is reviewed with that code.
+///
+/// A function rather than a filter inline in [`run`] so the tree-wide assertion in `tests` asks
+/// the same question this gate asks, off one definition of the scope rather than a second copy.
+/// Filtered BEFORE cloning, which `iter_overeager_cloned` requires and is also the cheaper order:
+/// the strings that do not survive the filter are never copied.
+fn in_scope(files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|f| has_ext(f, &["md", "nix", "yml", "yaml", "toml", "sh"]))
+        // Mirrored upstream material makes claims about ITS repo, not ours.
+        .filter(|f| !f.starts_with(".agents/skill-library/"))
+        .filter(|f| !f.starts_with(".agents/skills/engineering/ms-rust/0"))
+        .filter(|f| !f.starts_with(".agents/skills/engineering/ms-rust/1"))
+        .cloned()
+        .collect()
+}
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
         eprintln!("xtask check-guidance: could not determine the repo root");
@@ -446,22 +475,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // Only text we might make a claim in. `files` is kept whole for `count_mismatches`, which
     // counts things in Rust, in snapshots and in anything else the claim is about - the scope
     // limit below is about where a CLAIM may be made, not about what may be counted.
-    // Filtered BEFORE cloning, which `iter_overeager_cloned` requires and is also the cheaper
-    // order: the strings that do not survive the filter are never copied.
-    let text_files: Vec<String> = files
-        .iter()
-        // Documentation and configuration, NOT Rust source. Two reasons, and the second is
-        // the one that matters: a rule table written in Rust contains the very phrases it
-        // forbids, so scanning `.rs` makes this gate report itself - and the only fix would
-        // be an exclusion list, which is a hole anything can be added to. The narrower scope
-        // is honest instead. A stale comment beside Rust code is reviewed with that code.
-        .filter(|f| has_ext(f, &["md", "nix", "yml", "yaml", "toml", "sh"]))
-        // Mirrored upstream material makes claims about ITS repo, not ours.
-        .filter(|f| !f.starts_with(".agents/skill-library/"))
-        .filter(|f| !f.starts_with(".agents/skills/engineering/ms-rust/0"))
-        .filter(|f| !f.starts_with(".agents/skills/engineering/ms-rust/1"))
-        .cloned()
-        .collect();
+    let text_files = in_scope(&files);
 
     let mut problems = stale_phrases(&root, &text_files);
     problems.extend(version_mismatches(&root, &text_files));
@@ -472,6 +486,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // the scope limit is about where a claim may be made rather than about what may be read.
     problems.extend(host_mismatches(&root, &files, &text_files));
     problems.extend(dead_paths(&root, &text_files));
+    // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
+    // in it: `text_files` again, because a page is where an ordinal and a table are written.
+    problems.extend(page_problems(&root, &text_files));
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
     problems.extend(remedy_problems(&root));
@@ -515,7 +532,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     eprintln!("Guidance that no longer matches the repo is read as current. Fix the text, or");
     eprintln!(
         "if the rule itself is wrong, change it in xtask/src/guidance.rs - or in\n\
-         xtask/src/guidance/claims.rs for a claim or a count - with a reason."
+         xtask/src/guidance/claims.rs for a claim or a count, or\n\
+         xtask/src/guidance/pages.rs for a page's own shape - with a reason."
     );
     Verdict::Fail
 }
@@ -626,5 +644,93 @@ mod tests {
         assert!(known.contains("max-lines"));
         assert!(known.contains("check-guidance"));
         assert!(!known.contains("no-cranelift"), "deleted gate must not be dispatchable");
+    }
+
+    /// A page's prose lines, the way the gate reads them.
+    fn page(text: &str) -> Vec<String> {
+        crate::markdown::prose(text).unwrap_or_else(|why| panic!("{why}"))
+    }
+
+    #[test]
+    fn an_amendment_list_is_consecutive_and_has_no_duplicate_ordinals() {
+        use super::pages::sequence_problems;
+        let straight = page("## Amendment, 2026-08-30\n## Second amendment\n## Third amendment\n");
+        assert!(sequence_problems("a.md", &straight).is_empty());
+
+        // The shape issue 288 reported: a second Fifth, after the Sixth.
+        let drifted = page(concat!(
+            "## Amendment, 2026-08-30\n",
+            "## Second amendment\n",
+            "## Third amendment\n",
+            "## Fourth amendment\n",
+            "## Fifth amendment: where each identity claim is proven\n",
+            "## Sixth amendment\n",
+            "## Fifth amendment: the command-line tool opens a dataset too\n",
+        ));
+        let problems = sequence_problems("a.md", &drifted);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("a.md:7:"), "{problems:?}");
+        assert!(
+            problems[0].contains("fifth") && problems[0].contains("seventh"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn only_the_first_amendment_may_be_unnumbered() {
+        use super::pages::sequence_problems;
+        // Unnumbered at the top predates the sequence, and records here open that way.
+        // Unnumbered in the middle is the other half of 288, and a reader cannot cite it.
+        let mid = page("## Amendment, 2026-08-30\n## Second amendment\n## Amendment, 2026-09-03\n");
+        let problems = sequence_problems("a.md", &mid);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("a.md:3:"), "{problems:?}");
+        assert!(problems[0].contains("third"), "{problems:?}");
+    }
+
+    #[test]
+    fn a_subsection_or_a_heading_about_something_else_is_not_in_the_sequence() {
+        use super::pages::{Heading, amendment};
+        assert_eq!(
+            amendment("## Amendment, 2026-08-30: the run happened"),
+            Some(Heading::Unnumbered)
+        );
+        assert_eq!(
+            amendment("## Second amendment, 2026-08-30: registered"),
+            Some(Heading::Numbered(2))
+        );
+        // A level-three heading is how this tree writes an addendum TO an amendment.
+        assert_eq!(amendment("### Addendum to the amendment"), None);
+        assert_eq!(amendment("### Second amendment"), None);
+        assert_eq!(amendment("## The decision"), None);
+        // An ordinal on its own is not a claim about the sequence.
+        assert_eq!(amendment("## Second thoughts on the corpus"), None);
+    }
+
+    #[test]
+    fn a_markdown_table_header_is_preceded_by_a_blank_line() {
+        use super::pages::table_problems;
+        let spaced = page("A paragraph.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n");
+        assert!(table_problems("a.md", &spaced).is_empty());
+        // What a rebase did to one record's four-venues table: the pipes joined the paragraph.
+        let run_on = page("A paragraph.\n| a | b |\n| --- | --- |\n");
+        let problems = table_problems("a.md", &run_on);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("a.md:2:"), "{problems:?}");
+        // The same shape shown inside a fence is an example, not a table.
+        let shown = page("A paragraph.\n\n```text\nA paragraph.\n| a | b |\n```\n");
+        assert!(table_problems("a.md", &shown).is_empty());
+    }
+
+    #[test]
+    fn every_page_in_scope_numbers_its_amendments_and_spaces_its_tables() {
+        // The tree-wide half, and why the rules above are not a ratchet on nothing: this was RED
+        // when it landed, on the record 288 names and on two others that never numbered a second
+        // amendment at all.
+        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
+            panic!("could not determine the repo root");
+        };
+        let problems = super::pages::page_problems(&root, &super::in_scope(&files));
+        assert!(problems.is_empty(), "{problems:#?}");
     }
 }
