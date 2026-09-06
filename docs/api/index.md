@@ -32,6 +32,9 @@ arrow points inward, at the domain.
   side effect of being linked: the subscriber, the panic hook, the shutdown signal
 - [sutura-http](sutura-http.md) - transport only. It consumes the `Surface` port rather than
   declaring it, so a second transport reaches for `sutura-app` and never for this crate
+- [sutura-conformance](sutura-conformance.md) - the conformance packs: test bodies written once
+  against the ports, bound to an adapter by a macro. It points inward like everything else - at the
+  domain and at no adapter, which is what lets an adapter's own crate take it as a dev-dependency
 
 ## These pages are generated
 

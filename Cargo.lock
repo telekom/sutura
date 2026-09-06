@@ -3745,6 +3745,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-conformance"
+version = "0.4.1"
+dependencies = [
+ "sutura-domain",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "sutura-dev"
 version = "0.4.1"
 dependencies = [
@@ -3790,6 +3798,7 @@ name = "sutura-exec-datafusion"
 version = "0.4.1"
 dependencies = [
  "datafusion",
+ "sutura-conformance",
  "sutura-domain",
  "thiserror 2.0.20",
  "tokio",
@@ -3800,6 +3809,7 @@ name = "sutura-exec-duckdb"
 version = "0.4.1"
 dependencies = [
  "duckdb",
+ "sutura-conformance",
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.20",

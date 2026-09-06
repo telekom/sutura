@@ -27,3 +27,22 @@
 # and nothing else in the workspace becomes noisy.
 filter = 'binary(provisioned)'
 success-output = "immediate"
+
+[[profile.default.overrides]]
+# The conformance packs, which decline for a SECOND reason and are the header above's argument
+# applied to it. `sutura_conformance::Outcome::Declined` is an adapter saying *I cannot do this* -
+# `dry_run` answering `NotAsked`, so nothing was checked before the rows were read - and libtest has
+# no outcome for that either, so it returns a pass. Without this override the engine's pre-flight
+# cell is byte-for-byte the shape of the DuckDB cell for the same behaviour, where DuckDB prepared
+# the statement and the engine checked nothing. Measured on a green `just test`: `DECLINED` appeared
+# zero times in 2696 lines.
+#
+# It carries the census line too, and that is the half worth naming: the packs print behaviours over
+# cases per adapter precisely because a suite that reports a ratio it has not earned is the failure
+# this repository has already met twice - and a ratio discarded on every green run is not read at
+# all.
+#
+# Scoped by BINARY, like the override above: `conformance` is every adapter's binding and `bound` is
+# the packs crate's own, so a behaviour added to a pack is covered without a second edit here.
+filter = 'binary(conformance) + binary(bound)'
+success-output = "immediate"

@@ -24,5 +24,10 @@ datafusion = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 thiserror = { workspace = true }
 
+# The conformance packs, which `tests/conformance.rs` binds this engine to. A DEV-dependency, for
+# the reason the sibling adapter's manifest gives.
+[dev-dependencies]
+sutura-conformance = { workspace = true }
+
 [lints]
 workspace = true
