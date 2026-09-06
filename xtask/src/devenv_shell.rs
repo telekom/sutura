@@ -397,8 +397,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return refuse(
             "an empty-scan floor",
             &[format!(
-                "found no shell body in {} devenv module(s) - this repository's dev shell has \
-                 twenty of them, so an empty read is a broken scan and not a clean tree",
+                "found no shell body in {} devenv module(s) - the dev shell is built out of them, \
+                 so an empty read is a broken scan and not a clean tree",
                 read.len()
             )],
         );

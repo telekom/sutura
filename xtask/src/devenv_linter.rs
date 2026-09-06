@@ -35,10 +35,13 @@
 //!   a single function and `check-devenv-shell` refuses a second application of the builder, so a
 //!   `checkPhase` any body got is the `checkPhase` this one got. If that ever stops being true,
 //!   the gate that holds it is the one to change.
-//! * **It does not check the tool's VERSION**, and the two locks disagree about it: `nix run
-//!   .#shellcheck` resolves through `flake.lock`'s nixpkgs and this wrapper through
-//!   `devenv.lock`'s, so the store holds two `ShellCheck-0.11.0` closures. Same tool, same
-//!   version, two paths - what is asserted here is that a `shellcheck` is in the phase at all.
+//! * **It does not check WHICH shellcheck, and cannot claim it is the one CI uses.** The two
+//!   locks name different nixpkgs: `flake.lock`'s is `NixOS/nixpkgs` `83199d0d`, which is what
+//!   `nix run .#shellcheck` resolves through, and `devenv.lock`'s is `cachix/devenv-nixpkgs`
+//!   `256551e4`, which is what this wrapper resolves through (measured 2026-09-06, from the two
+//!   lock files). So a `checkPhase` here can name a different store path from the app the
+//!   `*.sh` glob runs, and #395's commit message claiming *"the same nixpkgs"* was wrong. What
+//!   is asserted is that a shellcheck is in the phase at all, by store path.
 
 use std::process::Command;
 
