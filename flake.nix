@@ -745,7 +745,7 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(two_principals)' "$@"
+              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity)' "$@"
           '');
         };
         # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth
@@ -768,6 +768,22 @@
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
               --run-ignored only -E 'binary(two_principals)' "$@"
+          '');
+        };
+
+        # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376. Its own
+        # app for the two-principal app's reason, and here it is the claim: this is the only leg
+        # holding no principal's key. **No workflow invokes it** - `tests/exchanged_identity.rs`
+        # says which two of the five values it needs are absent from `bq-test`, and why.
+        apps.bigquery-exchanged-identity = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-exchanged-identity" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'binary(exchanged_identity)' "$@"
           '');
         };
 

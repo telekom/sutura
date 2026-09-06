@@ -61,7 +61,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
 | **A real dataset under two keys** | a GitHub environment, on demand | two more service-account keys, and a row access policy per principal | `just bigquery-two-principals` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
-| **A real token exchange, and two grants** | nowhere yet | a workload-identity pool and two subjects with different access | not built |
+| **A real token exchange, and two grants** | nowhere yet - the leg exists and nothing can point it at a subject | a workload-identity pool, and a subject assertion per principal that nothing mints | `just bigquery-exchanged-identity` |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -108,7 +108,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no | **only here** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **only here** |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **unrun** - the standing test is here and nothing has run it |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
 
@@ -353,18 +353,70 @@ of this page.
 
 ## A real token exchange, and two grants
 
-Not built. `sutura_exec_bigquery::WorkloadIdentityBroker` decides correctly against a fake exchange,
+`just bigquery-exchanged-identity`, against the `bq-test` environment's workload-identity provider.
+`crates/sutura-exec-bigquery/tests/exchanged_identity.rs` is the standing test and its header is the
+long form of everything below.
+
+### What only this venue can answer, and the word for its state today
+
+**Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data
+system resolves to a DIFFERENT principal.** That is the half the two-keys venue above cannot reach at
+any cost, because a key on disk is not an asking subject - and it is the half that separates
+impersonation from credential selection. `each_principal_is_who_this_source_says_it_is_executing_as`
+exchanges a subject's own assertion through the composition `sutura-serve` ships and reads
+`SESSION_USER()` back through the adapter, asserting the account each leg became;
+`the_deployments_own_identity_is_neither_principal` is the control, the same read under the
+credential the transport itself holds, without which an exchange that did nothing at all would pass.
+
+**The state is `unrun`**, and that is the token rather than a caveat: the test is written, no run has
+happened, and nothing in CI reaches it. It may not be cited for anything.
+
+### Why nothing reaches it, which is a finding rather than a schedule
+
+**Two subject assertions do not exist, and cannot be derived from the CI workload identity with what
+this adapter ships.** A plain RFC 8693 exchange yields exactly one identity per subject token -
+whoever the token's `sub` is - so two principals need two subject tokens, and one CI job holds one
+workload identity and can mint one `sub`. `SUTURA_BQ_PRINCIPAL_A_ASSERTION` and
+`SUTURA_BQ_PRINCIPAL_B_ASSERTION` are what the cell is pointed at, they are not in the environment,
+and the cell fails on their absence rather than skipping.
+
+**And the shipped exchange cannot answer a service account's own identifier at all.**
+`wire::StsOverHttp` posts one token-exchange request and returns what comes back, which for a
+workload-identity pool is a FEDERATED credential: Google resolves it to a pool subject, not to a
+service account. Becoming a service account from one is a second call this adapter does not make. So
+against the stack as provisioned this cell would come back red, naming that - which is why *a
+federated pool subject* is one of its four verdicts rather than falling in with *neither principal*.
+**A red run naming the missing hop is the outcome this cell is built to produce**, and it is worth
+more than the row above staying `not built` while the sentence sat in prose.
+
+### What a green run here still would NOT establish
+
+1. **Anything about rows.** No row access policy is involved and none is asserted on. Whether the
+   data system then filters correctly for that identity is the vendor's guarantee, and the row-grant
+   claim stays with the two-keys venue.
+2. **Anything about another source.** `BigQuery`'s adapter is the only one declaring
+   `PerSubjectCredential`; the in-process engines execute under one identity.
+3. **That a browser-facing caller's token reaches the exchange.** That is the transport's half, and
+   the mock-issuer venue's `the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified` is
+   where it is answered.
+4. **That any deployment answered anybody.** This cell drives the composition directly; no served
+   binary is involved, so `AGENTS.md`'s position is unchanged by any run of it.
+
+### The half that is still nowhere
+
+`sutura_exec_bigquery::WorkloadIdentityBroker` decides correctly against a fake exchange,
 `StsOverHttp` serializes the documented request, and the mock-issuer venue above now shows that broker
 reached **through the transport** with the caller's own verified token as the `subject_token`. What has
 never happened is an exchange against a real endpoint, and no answer any deployment has produced was
 evaluated under an asker.
 
-Two things would make it a venue, and **one of them is now provisioned**: two identities whose access
-at the data system genuinely differs exist, and the two-keys venue above is what they became. What is
-left is the exchange itself - a workload-identity pool to exchange against, and a caller whose own
-verified token is what a broker turns into one of those two identities. So *two subjects read two row
-sets* is still a claim rather than a hope, and the reason has narrowed from *no differing access* to *no
-subject bound to either grant*. Until that exists, `AGENTS.md` keeps the shipped position:
+Two identities whose access at the data system genuinely differs exist - the two-keys venue above is
+what they became - and a pool to exchange against exists. What is missing is a caller whose own
+verified token a broker turns into one of those two identities, which is the same gap the cell above
+fails on: no subject is bound to either grant. So *two subjects read two row sets* is still a claim
+rather than a hope, and the reason has narrowed twice - from *no differing access*, to *no subject
+bound to either grant*, to *the shipped exchange resolves to a pool subject and the hop to a service
+account is not built*. Until that exists, `AGENTS.md` keeps the shipped position:
 
 > no source a deployment SERVES executes as the asking subject.
 

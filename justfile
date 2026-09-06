@@ -812,6 +812,23 @@ bigquery-two-principals:
     echo "bigquery-two-principals: CI runs it through \`nix run .#bigquery-two-principals\`, in the bq-test job."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(two_principals)'
 
+# Run the exchanged-identity cell: one workload identity, exchanged per subject, against SESSION_USER().
+#
+# The only BigQuery leg that holds no principal's key - which is what separates impersonation from
+# credential selection, and the whole reason it is a cell of its own. NO WORKFLOW INVOKES IT: two of
+# the five values it is pointed at are not in the `bq-test` environment, and
+# `crates/sutura-exec-bigquery/tests/exchanged_identity.rs` carries why they cannot be derived from
+# the CI workload identity with the exchange this adapter ships. **It has never run.**
+bigquery-exchanged-identity:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "bigquery-exchanged-identity: scope sutura-exec-bigquery - one workload identity, exchanged per subject."
+    echo "bigquery-exchanged-identity: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "bigquery-exchanged-identity: no workflow runs it - see the test file's header for what is missing."
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(exchanged_identity)'
+
 # ------------------------------------------------------------------ dev flow ---
 
 # This worktree's service ports and compose project.

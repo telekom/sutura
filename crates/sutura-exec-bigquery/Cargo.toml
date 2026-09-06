@@ -107,6 +107,23 @@ name = "two_principals"
 path = "tests/two_principals.rs"
 required-features = ["wire"]
 
+# The EXCHANGED-IDENTITY cell - the only leg here that holds no principal's key.
+#
+# A fourth target rather than more of `two_principals.rs`, and the reason is the claim rather than
+# the line count: that cell holds a service-account key per principal and this one holds none, so a
+# reader who ran one must not have to work out which of the two they got. `wire` only, and for the
+# same reason that cell needs no `fixtures`: this leg loads nothing and creates nothing - it projects
+# one fixed statement about the caller.
+#
+# It is NOT picked up by `nix run .#bigquery-acceptance`, which filters both this binary and
+# `two_principals` out. That filter is a two-name list now where the eighth amendment's shape had
+# one, and the property it was defending survives: what is filtered is a BINARY, so a test added to
+# any of the four targets is reached without a count anywhere being edited.
+[[test]]
+name = "exchanged_identity"
+path = "tests/exchanged_identity.rs"
+required-features = ["wire"]
+
 [dependencies]
 sutura-domain = { workspace = true }
 # Rendering, shared with every other SQL adapter, for the reason `sutura-exec-duckdb` states: this
