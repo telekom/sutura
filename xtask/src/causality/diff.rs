@@ -5,6 +5,7 @@
 
 use std::process::Command;
 
+use super::provenance::Commit;
 use super::regions::AddedLine;
 
 /// A changed file and the lines the diff added to it, each with its post-image line number.
@@ -21,9 +22,13 @@ pub(crate) struct ChangedFile {
 }
 
 /// Added lines per changed file, from `git diff`, each carrying its post-image line number.
-pub(crate) fn changed_with_additions(base: &str) -> Option<Vec<ChangedFile>> {
+///
+/// A [`Commit`] and not a ref, for the reason `super::provenance` states: a ref that has moved
+/// puts commits this branch never made into the diff, and every consumer downstream then treats
+/// them as the change under test.
+pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> {
     let out = Command::new("git")
-        .args(["diff", "--unified=0", "--no-color", base, "--"])
+        .args(["diff", "--unified=0", "--no-color", base.as_str(), "--"])
         .output()
         .ok()?;
     if !out.status.success() {
