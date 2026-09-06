@@ -221,8 +221,25 @@ pub fn a_leg_is_refused<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    let live = corpus::cases();
-    let Some(case) = live.first() else {
+    a_leg_is_refused_over(warehouse, &corpus::cases())
+}
+
+/// The same behaviour, over cases a caller supplies.
+///
+/// **A seam, and a narrow one, for the branch above it cannot otherwise reach.**
+/// [`crate::Fault::EmptyCorpus`] is what stops this behaviour being green over nothing - the guard
+/// [`crate::census`] provides for every other behaviour and the one place it is a `Fault` instead -
+/// and with the corpus reached through [`corpus::cases`] alone no fake could empty it, so the
+/// variant was unprovokable and the claim *every fault is provoked* was seven of eight.
+///
+/// It is the beginning of what a file-backed corpus needs anyway: a corpus the pack is handed
+/// rather than one it calls. Every other behaviour still reads [`corpus::cases`] directly, so this
+/// is one seam and not a parameter threaded through the pack.
+pub fn a_leg_is_refused_over<W>(warehouse: &W, cases: &[Case]) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
+    let Some(case) = cases.first() else {
         return Err(Fault::EmptyCorpus);
     };
     drop(answer(warehouse, case)?);

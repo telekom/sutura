@@ -39,21 +39,27 @@ mod conformance {
    test name per adapter, so a failure would say *the duckdb pack failed* and not which
    behaviour. `execute_packs` exists only to give each behaviour a name the runner reports and
    a filter selects.
-3. **A behaviour an adapter cannot satisfy is never a silent pass.** Two mechanisms, because the
-   two cases are different - see below.
+3. **A behaviour an adapter cannot satisfy, or that stopped existing, is never a silent pass.**
+   Four mechanisms, because the cases are different and they are not equally strong - see below.
 
 # How an unsupported capability is kept out of the green count
 
 | Case | Mechanism |
 | --- | --- |
 | A capability with a **typed declaration** on the port (`EXECUTES_LEGS`) | The binding names the declaration, a `const` assertion tears a binding that disagrees with it, and the two directions get DIFFERENT test names - so which one ran is in the report rather than in a skip nobody reads |
-| A capability with **no constant to declare** (a pre-flight) | The pack returns `Outcome::Declined` carrying a typed `Declination`, which `hold` prints as `DECLINED`. Stated limit: this is observed at run time, so it is weaker than the row above and would become that row the day the port carries the constant |
-| The corpus being empty, which would make every behaviour vacuously green | `census` fails on a corpus with no cases, and prints the case count beside the behaviour count so a run's ratio is read rather than assumed |
+| A capability with **no constant to declare** (`Warehouse::dry_run`) | The pack returns `Outcome::Declined` carrying a typed `Declination`, which `hold` prints as `DECLINED` and `.config/nextest.toml`'s second override keeps on a green run. Stated limit: it is observed at RUN TIME, so it is weaker than the row above and would become that row the day the port carries the constant |
+| A behaviour that loses its test | The `#[test]`s and the list `census` compares are ONE repetition inside `execute_packs`, so a test cannot be deleted without deleting its census element, and the element is compared against `Behaviour::EVERY`. **This is the corrected version:** it was two hand-written lists 370 lines apart in this file, and a review deleted the content behaviour's test while leaving the variant in both - every census passed |
+| The corpus being empty, which would make every behaviour vacuously green | `census` fails on a corpus with no cases, and prints the case count beside the behaviour count. Reachable as a `Fault::EmptyCorpus` too, through `execute::a_leg_is_refused_over` |
 
 # What a green conformance run does NOT establish
 
 - **Ordering within a leg, and impersonation in any form.** `execute`'s header says which and
   why; `docs/adr/0012` decides the impersonation one.
+- **Most of the port.** The packs call `execute` and `dry_run`. `verify_anchor`,
+  `working_set_exhausted`, `result_did_not_fit`, `preflight` and `preflight_was_refused` are
+  never called, so *held to the same test bodies* is a statement about two methods and not about
+  `Warehouse`. Three of those five carry guarantees of their own in
+  `.agents/skills/sutura/invariants`, held by other mechanisms.
 - **That the corpus is hard.** It is two questions over one table - `corpus` lists by name the
   cases `docs/adr/0012` says nothing else finds, none of which is here yet.
 - **That every adapter is held.** A pack is bound where an adapter's own crate binds it, so which
@@ -180,18 +186,22 @@ pub fn census<W>(adapter: &str, bound: &[Behaviour])
 
 What a binding actually covered, asserted and printed.
 
-Three things, and the third is why this exists rather than a comment:
+Three things, and the first is the one a review had to correct:
 
-1. the universal behaviours the binding emitted tests for are the ones `execute` defines, so a
-   behaviour that lost its test reddens here;
+1. **the behaviours the binding actually emitted tests for are `Behaviour::EVERY`**. `bound`
+   is not a second hand-written list: `execute_packs` generates it from the same repetition
+   that generates the `#[test]`s, one element per emitted test, so a deleted test is a deleted
+   element and this comparison reddens. The version this replaced compared two lists nobody had
+   tied together, and deleting the content behaviour's test left every census green;
 2. the corpus is not empty, which is the state that would make every behaviour above vacuously
    green;
-3. the counts are PRINTED - behaviours, cases, and which direction the leg declaration selected -
-   because a suite that reports a ratio it has not earned is the failure this repository has
-   already met twice.
+3. the counts are PRINTED - behaviours, cases, and which direction the leg declaration selected.
+   A suite that reports a ratio it has not earned is the failure this repository has already met
+   twice, and `.config/nextest.toml`'s second override is what makes this line survive a green
+   run instead of being captured and discarded.
 
-What it cannot do: know that a behaviour's body asserts anything. That is what a red-against-base
-run is for.
+What it cannot do: know that a behaviour's BODY asserts anything. A pack that returned `Ok`
+unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for.
 
 ## `use None`
 
@@ -287,8 +297,11 @@ them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` 
   keys. Each needs a second table and a federated plan; none is here.
 - **A null in a group key.** Null placement in `ORDER BY` differs per data system and is not
   stated by the plan, so a null key would make `crate::Behaviour::Order` a claim about the
-  source's collation. `docs/adr/0012` decides that the packs re-sort rather than assert that;
-  this corpus avoids the question instead, which is weaker and is why it is written here.
+  source's collation. `docs/adr/0012` designed a re-sort for that and the re-sort was superseded
+  by the two-function comparison - so the packs DO assert order, and that record now says so and
+  carries the decision this corpus is deferring: a case whose order a source could legitimately
+  answer differently must be able to opt out of the order behaviour, and there is no field for
+  that yet. Avoiding the question is weaker than deciding it, which is why it is written here.
 - **A wide integer or a decimal.** The type-mapping disagreements
   `sutura_domain::warehouse::agreement`'s header lists are all reachable only past an `i64`,
   and nothing here goes near one.
@@ -578,3 +591,21 @@ would be green for an adapter that failed for any reason at all, including one t
 its data system. Answering a whole plan immediately before is what makes the refusal evidence
 about the leg. The residual limit: the refusal is still only *an* error, so an adapter that
 refused a leg for the wrong reason passes.
+
+### `fn a_leg_is_refused_over`
+
+```rust
+pub fn a_leg_is_refused_over<W>(warehouse: &W, cases: &[crate::corpus::Case]) -> crate::Conformed<<W as >::Error>
+```
+
+The same behaviour, over cases a caller supplies.
+
+**A seam, and a narrow one, for the branch above it cannot otherwise reach.**
+`crate::Fault::EmptyCorpus` is what stops this behaviour being green over nothing - the guard
+`crate::census` provides for every other behaviour and the one place it is a `Fault` instead -
+and with the corpus reached through `corpus::cases` alone no fake could empty it, so the
+variant was unprovokable and the claim *every fault is provoked* was seven of eight.
+
+It is the beginning of what a file-backed corpus needs anyway: a corpus the pack is handed
+rather than one it calls. Every other behaviour still reads `corpus::cases` directly, so this
+is one seam and not a parameter threaded through the pack.

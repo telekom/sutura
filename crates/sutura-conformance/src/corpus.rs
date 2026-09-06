@@ -21,8 +21,11 @@
 //!   keys. Each needs a second table and a federated plan; none is here.
 //! - **A null in a group key.** Null placement in `ORDER BY` differs per data system and is not
 //!   stated by the plan, so a null key would make [`crate::Behaviour::Order`] a claim about the
-//!   source's collation. `docs/adr/0012` decides that the packs re-sort rather than assert that;
-//!   this corpus avoids the question instead, which is weaker and is why it is written here.
+//!   source's collation. `docs/adr/0012` designed a re-sort for that and the re-sort was superseded
+//!   by the two-function comparison - so the packs DO assert order, and that record now says so and
+//!   carries the decision this corpus is deferring: a case whose order a source could legitimately
+//!   answer differently must be able to opt out of the order behaviour, and there is no field for
+//!   that yet. Avoiding the question is weaker than deciding it, which is why it is written here.
 //! - **A wide integer or a decimal.** The type-mapping disagreements
 //!   [`sutura_domain::warehouse::agreement`]'s header lists are all reachable only past an `i64`,
 //!   and nothing here goes near one.

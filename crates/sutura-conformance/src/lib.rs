@@ -30,21 +30,27 @@
 //!    test name per adapter, so a failure would say *the duckdb pack failed* and not which
 //!    behaviour. [`execute_packs`] exists only to give each behaviour a name the runner reports and
 //!    a filter selects.
-//! 3. **A behaviour an adapter cannot satisfy is never a silent pass.** Two mechanisms, because the
-//!    two cases are different - see below.
+//! 3. **A behaviour an adapter cannot satisfy, or that stopped existing, is never a silent pass.**
+//!    Four mechanisms, because the cases are different and they are not equally strong - see below.
 //!
 //! # How an unsupported capability is kept out of the green count
 //!
 //! | Case | Mechanism |
 //! | --- | --- |
 //! | A capability with a **typed declaration** on the port (`EXECUTES_LEGS`) | The binding names the declaration, a `const` assertion tears a binding that disagrees with it, and the two directions get DIFFERENT test names - so which one ran is in the report rather than in a skip nobody reads |
-//! | A capability with **no constant to declare** (a pre-flight) | The pack returns [`Outcome::Declined`] carrying a typed [`Declination`], which [`hold`] prints as `DECLINED`. Stated limit: this is observed at run time, so it is weaker than the row above and would become that row the day the port carries the constant |
-//! | The corpus being empty, which would make every behaviour vacuously green | [`census`] fails on a corpus with no cases, and prints the case count beside the behaviour count so a run's ratio is read rather than assumed |
+//! | A capability with **no constant to declare** (`Warehouse::dry_run`) | The pack returns [`Outcome::Declined`] carrying a typed [`Declination`], which [`hold`] prints as `DECLINED` and `.config/nextest.toml`'s second override keeps on a green run. Stated limit: it is observed at RUN TIME, so it is weaker than the row above and would become that row the day the port carries the constant |
+//! | A behaviour that loses its test | The `#[test]`s and the list [`census`] compares are ONE repetition inside [`execute_packs`], so a test cannot be deleted without deleting its census element, and the element is compared against [`Behaviour::EVERY`]. **This is the corrected version:** it was two hand-written lists 370 lines apart in this file, and a review deleted the content behaviour's test while leaving the variant in both - every census passed |
+//! | The corpus being empty, which would make every behaviour vacuously green | [`census`] fails on a corpus with no cases, and prints the case count beside the behaviour count. Reachable as a [`Fault::EmptyCorpus`] too, through [`execute::a_leg_is_refused_over`] |
 //!
 //! # What a green conformance run does NOT establish
 //!
 //! - **Ordering within a leg, and impersonation in any form.** [`execute`]'s header says which and
 //!   why; `docs/adr/0012` decides the impersonation one.
+//! - **Most of the port.** The packs call `execute` and `dry_run`. `verify_anchor`,
+//!   `working_set_exhausted`, `result_did_not_fit`, `preflight` and `preflight_was_refused` are
+//!   never called, so *held to the same test bodies* is a statement about two methods and not about
+//!   `Warehouse`. Three of those five carry guarantees of their own in
+//!   `.agents/skills/sutura/invariants`, held by other mechanisms.
 //! - **That the corpus is hard.** It is two questions over one table - [`corpus`] lists by name the
 //!   cases `docs/adr/0012` says nothing else finds, none of which is here yet.
 //! - **That every adapter is held.** A pack is bound where an adapter's own crate binds it, so which
@@ -90,12 +96,30 @@ pub enum Behaviour {
 }
 
 impl Behaviour {
-    /// The behaviours every adapter is held to, whatever it declares.
+    /// Every behaviour a binding emits a test for, in the order it emits them.
     ///
-    /// **The list [`census`] compares a binding against.** A behaviour added to [`execute`] and not
-    /// to [`execute_packs`] reddens the census rather than quietly reducing what a green run
-    /// covered - which is the failure mode a suite reporting a ratio it had not earned is made of.
-    pub const UNIVERSAL: &'static [Self] = &[Self::Labels, Self::Content, Self::Order, Self::Determinism, Self::PreFlight];
+    /// **The list [`census`] compares a binding against, and the pack's half of a pair that cannot
+    /// be edited apart.** The other half is the one repetition inside [`execute_packs`] that emits
+    /// the `#[test]`s: each entry there produces a test AND its census element, so a test cannot be
+    /// deleted without deleting the element, and the element is compared against this list.
+    ///
+    /// **That pairing is the correction, and it was earned.** This started as two hand-written
+    /// lists 370 lines apart in this file, and a review deleted the `#[test]` for [`Self::Content`],
+    /// which [`execute`] calls *the* conformance claim, from the emitting arm while leaving the
+    /// variant in both lists. Every census passed, in all four bindings, and the only signal was 38
+    /// tests becoming 34. A list compared against a list says nothing about what ran.
+    ///
+    /// [`Self::Leg`] is in here, at the end, because exactly one of its two directions is emitted
+    /// per adapter and both are emitted through the same repetition - so the count is derived
+    /// rather than an increment somebody wrote next to it.
+    pub const EVERY: &'static [Self] = &[
+        Self::Labels,
+        Self::Content,
+        Self::Order,
+        Self::Determinism,
+        Self::PreFlight,
+        Self::Leg,
+    ];
 
     /// The name a report carries.
     #[inline]
@@ -237,28 +261,32 @@ where
 
 /// What a binding actually covered, asserted and printed.
 ///
-/// Three things, and the third is why this exists rather than a comment:
+/// Three things, and the first is the one a review had to correct:
 ///
-/// 1. the universal behaviours the binding emitted tests for are the ones [`execute`] defines, so a
-///    behaviour that lost its test reddens here;
+/// 1. **the behaviours the binding actually emitted tests for are [`Behaviour::EVERY`]**. `bound`
+///    is not a second hand-written list: [`execute_packs`] generates it from the same repetition
+///    that generates the `#[test]`s, one element per emitted test, so a deleted test is a deleted
+///    element and this comparison reddens. The version this replaced compared two lists nobody had
+///    tied together, and deleting the content behaviour's test left every census green;
 /// 2. the corpus is not empty, which is the state that would make every behaviour above vacuously
 ///    green;
-/// 3. the counts are PRINTED - behaviours, cases, and which direction the leg declaration selected -
-///    because a suite that reports a ratio it has not earned is the failure this repository has
-///    already met twice.
+/// 3. the counts are PRINTED - behaviours, cases, and which direction the leg declaration selected.
+///    A suite that reports a ratio it has not earned is the failure this repository has already met
+///    twice, and `.config/nextest.toml`'s second override is what makes this line survive a green
+///    run instead of being captured and discarded.
 ///
-/// What it cannot do: know that a behaviour's body asserts anything. That is what a red-against-base
-/// run is for.
+/// What it cannot do: know that a behaviour's BODY asserts anything. A pack that returned `Ok`
+/// unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for.
 pub fn census<W>(adapter: &str, bound: &[Behaviour])
 where
     W: Warehouse,
 {
     assert_eq!(
         bound,
-        Behaviour::UNIVERSAL,
-        "conformance {adapter}: the binding emits tests for {bound:?} and the pack defines {:?} - a \
-         behaviour without a test is coverage this run did not earn",
-        Behaviour::UNIVERSAL
+        Behaviour::EVERY,
+        "conformance {adapter}: the binding emitted tests for {bound:?} and the pack defines {:?} - \
+         a behaviour without a test is coverage this run did not earn",
+        Behaviour::EVERY
     );
     let cases = corpus::cases().len();
     assert!(
@@ -272,8 +300,7 @@ where
         "REFUSED (the adapter declares it does not)"
     };
     println!(
-        "conformance {adapter}: {} behaviour(s) over {cases} case(s) - {} universal, and a leg {direction}",
-        bound.len().saturating_add(1),
+        "conformance {adapter}: {} behaviour(s) over {cases} case(s), and the leg one {direction}",
         bound.len(),
     );
 }
@@ -364,16 +391,10 @@ macro_rules! execute_packs {
                 "an adapter bound with `executes_legs` must declare `EXECUTES_LEGS`"
             );
 
-            $crate::execute_packs!(@universal $warehouse, $open);
-
-            #[test]
-            fn a_leg_is_executed_because_the_adapter_declares_it_executes_legs() {
-                $crate::hold(
-                    ADAPTER,
-                    $crate::Behaviour::Leg,
-                    $crate::execute::a_leg_is_executed(&$open()),
-                );
-            }
+            $crate::execute_packs!(
+                @bind $warehouse, $open,
+                Leg => a_leg_is_executed_because_the_adapter_declares_it_executes_legs => a_leg_is_executed
+            );
         }
     };
 
@@ -383,10 +404,7 @@ macro_rules! execute_packs {
         open: $open:path,
         refuses_legs $(,)?
     ) => {
-        // `#[cfg(test)]` on the generated module, and it is a lint that decides that rather
-        // than taste: `clippy::tests_outside_test_module` refuses a `#[test]` that is not in
-        // one, and a binding should not have to know. In an integration test target the
-        // predicate is always on, so this changes nothing about what runs.
+        // `#[cfg(test)]`, for the reason the arm above gives.
         #[cfg(test)]
         mod $name {
             const ADAPTER: &str = stringify!($name);
@@ -396,80 +414,60 @@ macro_rules! execute_packs {
                 "an adapter bound with `refuses_legs` must not declare `EXECUTES_LEGS`"
             );
 
-            $crate::execute_packs!(@universal $warehouse, $open);
-
-            #[test]
-            fn a_leg_is_refused_because_the_adapter_declares_it_does_not_execute_legs() {
-                $crate::hold(
-                    ADAPTER,
-                    $crate::Behaviour::Leg,
-                    $crate::execute::a_leg_is_refused(&$open()),
-                );
-            }
+            $crate::execute_packs!(
+                @bind $warehouse, $open,
+                Leg => a_leg_is_refused_because_the_adapter_declares_it_does_not_execute_legs => a_leg_is_refused
+            );
         }
     };
 
-    // The behaviours every adapter is held to, and the census over them. Internal: the list below
-    // is the one `Behaviour::UNIVERSAL` is compared against, so it lives next to the tests it
-    // enumerates rather than in either public arm.
-    (@universal $warehouse:ty, $open:path) => {
-        #[test]
-        fn the_answer_is_labelled_as_the_plan_projects_it() {
-            $crate::hold(
-                ADAPTER,
-                $crate::Behaviour::Labels,
-                $crate::execute::labels_are_the_plans_own(&$open()),
-            );
-        }
+    // Every behaviour a binding is held to: the five that hold whatever an adapter declares, plus
+    // the ONE leg direction its declaration selected, arriving as three tokens from the arm above.
+    //
+    // Internal, and one list rather than two. The leg cell is inside it rather than beside it,
+    // which is what makes the census count derived: deleting the leg triple from either public arm
+    // stops that arm matching this one, so it is a compile error rather than a smaller green run.
+    (
+        @bind $warehouse:ty, $open:path,
+        $leg_variant:ident => $leg_name:ident => $leg_pack:ident
+    ) => {
+        $crate::execute_packs!(@behaviours $warehouse, $open, [
+            Labels => the_answer_is_labelled_as_the_plan_projects_it => labels_are_the_plans_own,
+            Content => the_rows_are_the_reference_rows => content_agrees_with_the_reference,
+            Order => the_rows_are_in_the_order_the_plan_claims => order_agrees_with_the_reference,
+            Determinism => one_plan_asked_twice_is_answered_the_same_way => one_plan_asked_twice_answers_the_same_way,
+            PreFlight => a_pre_flight_that_accepts_is_followed_by_an_answer
+                => a_preflight_that_accepts_is_followed_by_an_answer,
+            $leg_variant => $leg_name => $leg_pack,
+        ]);
+    };
 
-        #[test]
-        fn the_rows_are_the_reference_rows() {
-            $crate::hold(
-                ADAPTER,
-                $crate::Behaviour::Content,
-                $crate::execute::content_agrees_with_the_reference(&$open()),
-            );
-        }
-
-        #[test]
-        fn the_rows_are_in_the_order_the_plan_claims() {
-            $crate::hold(
-                ADAPTER,
-                $crate::Behaviour::Order,
-                $crate::execute::order_agrees_with_the_reference(&$open()),
-            );
-        }
-
-        #[test]
-        fn one_plan_asked_twice_is_answered_the_same_way() {
-            $crate::hold(
-                ADAPTER,
-                $crate::Behaviour::Determinism,
-                $crate::execute::one_plan_asked_twice_answers_the_same_way(&$open()),
-            );
-        }
-
-        #[test]
-        fn a_pre_flight_that_accepts_is_followed_by_an_answer() {
-            $crate::hold(
-                ADAPTER,
-                $crate::Behaviour::PreFlight,
-                $crate::execute::a_preflight_that_accepts_is_followed_by_an_answer(&$open()),
-            );
-        }
+    // ONE repetition, expanded twice: once into the `#[test]`s and once into the array
+    // [`census`](crate::census) compares against [`Behaviour::EVERY`](crate::Behaviour::EVERY).
+    //
+    // **That is the whole of the correction a review forced.** The two used to be hand-written
+    // lists 370 lines apart, and deleting the content behaviour's `#[test]` while leaving the
+    // variant in both left every census green - so the strongest claim this harness made was false.
+    // With one repetition a test cannot be removed without removing its census element, and the
+    // element is what the pack's own list is compared to.
+    (
+        @behaviours $warehouse:ty, $open:path,
+        [$($variant:ident => $test_name:ident => $pack:ident),* $(,)?]
+    ) => {
+        $(
+            #[test]
+            fn $test_name() {
+                $crate::hold(
+                    ADAPTER,
+                    $crate::Behaviour::$variant,
+                    $crate::execute::$pack(&$open()),
+                );
+            }
+        )*
 
         #[test]
         fn every_behaviour_this_declaration_selects_has_a_test_here() {
-            $crate::census::<$warehouse>(
-                ADAPTER,
-                &[
-                    $crate::Behaviour::Labels,
-                    $crate::Behaviour::Content,
-                    $crate::Behaviour::Order,
-                    $crate::Behaviour::Determinism,
-                    $crate::Behaviour::PreFlight,
-                ],
-            );
+            $crate::census::<$warehouse>(ADAPTER, &[$($crate::Behaviour::$variant),*]);
         }
     };
 }

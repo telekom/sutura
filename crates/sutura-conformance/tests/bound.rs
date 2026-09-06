@@ -8,11 +8,12 @@
 //! 1. **The binding.** `mod conformance` invokes the macro twice, once per leg declaration, so a
 //!    behaviour that lost its test or a declaration that disagrees with the adapter's own constant
 //!    fails the build or the census rather than reducing the count quietly.
-//! 2. **The faults.** Every `Fault` variant is provoked by a fake distorted in exactly one way and
-//!    the pack is called DIRECTLY, because through the macro a fault is a panic - so a variant that
-//!    stopped being reachable would leave a pack that reports nothing. This is the half that would
-//!    be missing if the bindings alone were green: a pack that returned `Ok` unconditionally passes
-//!    every binding in this file.
+//! 2. **The faults.** All eight `Fault` variants are provoked - seven by a fake distorted in
+//!    exactly one way, and `EmptyCorpus` through `execute::a_leg_is_refused_over`, the seam that
+//!    variant needed to be reachable at all. The pack is called DIRECTLY, because through the macro
+//!    a fault is a panic - so a variant that stopped being reachable would leave a pack that
+//!    reports nothing. This is the half that would be missing if the bindings alone were green: a
+//!    pack that returned `Ok` unconditionally passes every binding in this file.
 
 use sutura_conformance::corpus;
 use sutura_domain::identity::Presented;
@@ -339,11 +340,27 @@ mod faults {
         assert!(matches!(fault, Fault::NotAnswered { .. }), "{fault:?}");
     }
 
-    /// The census's own failure: a binding that emits fewer behaviours than the pack defines.
+    /// **The eighth fault**, and the reason `execute::a_leg_is_refused_over` exists.
     ///
-    /// Called with a short list rather than through the macro, because the macro cannot emit a wrong
-    /// one - which is the point of the assertion: the two lists are compared, so a behaviour added to
-    /// the pack and not to the macro is a red census rather than a smaller green run.
+    /// `Fault::EmptyCorpus` is what stops the refusing pack being green over nothing - it is the
+    /// non-empty-corpus guard `census` gives every other behaviour, in the one place it is a
+    /// `Fault` instead. Handed no cases, the pack refuses to read a refusal as evidence rather
+    /// than reading it as one.
+    #[test]
+    fn a_leg_refusal_over_an_empty_corpus_is_a_fault() {
+        let fake = Fake::<false>::faithful();
+        let fault = execute::a_leg_is_refused_over(&fake, &[]).expect_err("no cases is a fault");
+        assert!(matches!(fault, Fault::EmptyCorpus), "{fault:?}");
+    }
+
+    /// The census's own failure, called directly with a short list.
+    ///
+    /// Directly, because the macro can no longer EMIT a wrong one: since a review disproved the
+    /// two-hand-written-lists version, the `#[test]`s and the array this compares are one
+    /// repetition, so a behaviour without a test is a behaviour without a census element. What is
+    /// asserted here is the comparison itself - that a list shorter than `Behaviour::EVERY` is a
+    /// failure rather than a smaller green run. The mutation that proves the pairing is deleting an
+    /// entry from the macro's list, which reddens this cell in every binding.
     #[test]
     #[should_panic(expected = "a behaviour without a test is coverage this run did not earn")]
     fn a_binding_that_skips_a_behaviour_fails_the_census() {
