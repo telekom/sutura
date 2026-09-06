@@ -173,17 +173,23 @@ land there too, so it is not a defect in your change - but nothing about causali
 either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
 Read the verdict line, never a step's colour.
 
-**The gate measures the MERGE BASE, and it says which commit that was.** It resolves
-`git merge-base <ref> HEAD` itself, so a base branch that has moved on cannot put other people's
-commits into the diff - but on the second branch of a stack that merge base is the fork point of the
-whole stack, so the diff still carries the parent branch's implementation. `SHIP_CHECK_BASE_REF`, or
-a commit as the recipe's argument, is the lever. A changed page, recipe or nix file IS an
-implementation to the gate and gets reverted like any other; **a manifest or a lockfile is not** -
-it is held at HEAD and named as `not reverted:` on whichever arm you land on, because reverting one
-changes what cargo RESOLVES rather than what the tests measure. So a change whose only
-implementation is a manifest reads as *tests changed but no implementation did*, at exit 0, with the
-manifest named beside it: that is the gate saying it could not see your change, not that there was
-nothing to see.
+**The gate measures the MERGE BASE, it says which commit that was, and on a stack it derives it.**
+It resolves `git merge-base <ref> HEAD` itself, so a base branch that has moved on cannot put other
+people's commits into the diff - and on a stacked branch it takes the fork point from the parent
+branch `st` recorded instead, because the trunk's merge base there is the fork point of the whole
+stack. The printed line names the commit, the parent branch and the commit it replaced; a stale or
+retargeted parent falls back to the ref you named rather than moving the base off your history.
+`SHIP_CHECK_BASE_REF`, or a commit as the recipe's argument, still overrides both.
+
+A changed page, recipe or nix file IS an implementation to the gate and gets reverted like any
+other; **a manifest or a lockfile is not** - it is held at HEAD and named as `not reverted:` on
+whichever arm you land on, because reverting one changes what cargo RESOLVES rather than what the
+tests measure. So a change whose only implementation is a manifest reads as *tests changed but no
+implementation did*, at exit 0, with the manifest named beside it: that is the gate saying it could
+not see your change, not that there was nothing to see. **One manifest change does fail, though:**
+declaring a feature name the base did not, where a `#[cfg(feature = ..)] mod ..;` this diff does not
+otherwise touch gates a module that holds tests. That compiles a whole module of pre-existing tests
+with no added `.rs` line, and neither run can measure them - so state the evidence instead.
 
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.

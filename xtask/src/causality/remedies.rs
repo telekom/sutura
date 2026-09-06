@@ -42,9 +42,10 @@
 use crate::Verdict;
 use crate::causality::base::{names_no_tests, tail};
 use crate::causality::coverage::{Attributed, Coverage};
+use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::names::Ident;
 use crate::causality::provenance::Moved;
-use crate::causality::scoped::{Enabled, Silent};
+use crate::causality::scoped::Silent;
 
 /// Explain the inseparable case. Loud, and deliberately not a failure: the change may be
 /// entirely legitimate, but the gate has not verified it and must not read as green.
@@ -404,17 +405,59 @@ pub(super) fn report_unreadable(files: &[String]) -> Verdict {
 pub(super) fn report_enabled_tests(enabled: &[Enabled]) -> Verdict {
     eprintln!("xtask test-causality: FAILED - a declaration puts tests this diff does not contain into the build");
     for one in enabled {
-        eprintln!(
-            "  {} declares a test module whose own file {} is not in this diff",
-            one.path, one.module
-        );
+        // ONE CAUSE PER FINDING, taken from the value rather than from this function's guess -
+        // the same rule `report_unnamed_tests` has been rewritten twice for. The two causes ask
+        // for the same evidence and name different things, and the match is exhaustive so a third
+        // is `error[E0004]` here rather than a finding printed under somebody else's sentence.
+        match one.because {
+            Because::Declared => eprintln!(
+                "  {} declares a test module whose own file {} is not in this diff",
+                one.path, one.module
+            ),
+            Because::Feature { ref manifest, ref name } => eprintln!(
+                "  {manifest} declares the feature `{name}`, which the base does not, and {} gates {} on it",
+                one.path, one.module
+            ),
+        }
     }
     eprintln!();
     eprintln!("A module that was never compiled is now compiled, which ENABLES tests rather than");
     eprintln!("adding them: no added line names any of them, so neither run measures any of them -");
     eprintln!("and the declaring file is kept at HEAD, so they are in the base tree too and cannot");
-    eprintln!("be red against it. Nothing here is an extractor fault. State the evidence in the");
-    eprintln!("handoff: the task that runs those tests, and what their result was before and after.");
+    eprintln!("be red against it. A manifest is not reverted either, for the reason");
+    eprintln!("`causality::provenance::Reach::BuildInput` states, so a newly declared feature is on");
+    eprintln!("in both trees. Nothing here is an extractor fault. State the evidence in the handoff:");
+    eprintln!("the task that runs those tests, and what their result was before and after.");
+    Verdict::Fail
+}
+
+/// A changed manifest whose own inputs the feature scan could not read.
+///
+/// FAILS, and it is the arm that stops *nothing was enabled* from being said over a table or a
+/// source listing that never came back - the same fail-closed direction `report_unreadable` holds
+/// for a post-image, one level up. Each cause prints what it could not read, because the remedy
+/// differs: a missing base blob is a fetch or a shallow clone, and an empty source listing is a
+/// path this gate resolved wrongly.
+pub(super) fn report_unread_manifests(unread: &[Unread]) -> Verdict {
+    eprintln!("xtask test-causality: FAILED - a changed manifest this gate could not read");
+    for one in unread {
+        match *one {
+            Unread::Manifest(ref path) => eprintln!("  {path} changed and its content could not be read"),
+            Unread::AtBase(ref path) => {
+                eprintln!("  {path} exists at the base commit and its content there could not be read");
+            }
+            Unread::Sources { ref manifest, ref dir } => {
+                eprintln!("  {manifest} declares a new feature and no source file was listed under {dir}");
+            }
+        }
+    }
+    eprintln!();
+    eprintln!("A manifest diff can put a whole module of pre-existing tests into the build by");
+    eprintln!("declaring the feature a `#[cfg(feature = ..)] mod ..;` is gated on, and answering");
+    eprintln!("that it did not needs the feature table on BOTH sides plus the sources that could");
+    eprintln!("carry such a declaration. One of those did not come back, so this gate has no answer");
+    eprintln!("rather than a reassuring one. Check that the base commit is present locally - a");
+    eprintln!("shallow clone is the usual cause - and rerun `just causality`.");
     Verdict::Fail
 }
 
@@ -479,9 +522,9 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
 #[cfg(test)]
 mod tests {
     use super::{
-        Coverage, Enabled, Ident, Moved, Verdict, moved_lines, no_base_behaviour, nothing_to_revert, report_enabled_tests,
-        report_head_failure, report_no_base_behaviour, report_not_separable, report_nothing_to_revert, report_only_ignored,
-        report_unnamed_tests, report_unreadable, scope_lines,
+        Because, Coverage, Enabled, Ident, Moved, Unread, Verdict, moved_lines, no_base_behaviour, nothing_to_revert,
+        report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable, report_nothing_to_revert,
+        report_only_ignored, report_unnamed_tests, report_unread_manifests, report_unreadable, scope_lines,
     };
 
     /// A coverage value with nothing measured out of `total`.
@@ -529,11 +572,36 @@ mod tests {
         // nothing looked at, or comparing against a HEAD run that was not green.
         assert_eq!(report_unnamed_tests(&inseparable), Verdict::Fail);
         assert_eq!(report_unreadable(&inseparable), Verdict::Fail);
-        let enabled = [Enabled {
-            path: String::from("crates/x/src/lib.rs"),
-            module: String::from("crates/x/src/legacy.rs"),
-        }];
+        // BOTH CAUSES, because they are one verdict and a cause with no printed sentence of its
+        // own would inherit the other one's. The exhaustive match in `report_enabled_tests` is
+        // what makes a third cause a compile error rather than a mislabelled line.
+        let enabled = [
+            Enabled {
+                path: String::from("crates/x/src/lib.rs"),
+                module: String::from("crates/x/src/legacy.rs"),
+                because: Because::Declared,
+            },
+            Enabled {
+                path: String::from("crates/x/src/lib.rs"),
+                module: String::from("crates/x/src/legacy.rs"),
+                because: Because::Feature {
+                    manifest: String::from("crates/x/Cargo.toml"),
+                    name: String::from("legacy"),
+                },
+            },
+        ];
         assert_eq!(report_enabled_tests(&enabled), Verdict::Fail);
+        // And the manifest this gate could not read on one side, which may not answer *nothing was
+        // enabled* - all three causes, each with its own sentence.
+        let unread = [
+            Unread::Manifest(String::from("crates/x/Cargo.toml")),
+            Unread::AtBase(String::from("crates/x/Cargo.toml")),
+            Unread::Sources {
+                manifest: String::from("crates/x/Cargo.toml"),
+                dir: String::from("crates/x"),
+            },
+        ];
+        assert_eq!(report_unread_manifests(&unread), Verdict::Fail);
         assert_eq!(report_head_failure("error: no tests to run", "test(/x/)"), Verdict::Fail);
         assert_eq!(report_head_failure("assertion failed", "test(/x/)"), Verdict::Fail);
     }

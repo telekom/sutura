@@ -79,6 +79,7 @@ mod attributes;
 mod base;
 mod coverage;
 mod diff;
+mod features;
 #[cfg(test)]
 mod fixtures;
 mod isolation;
@@ -93,21 +94,24 @@ pub(crate) mod regions;
 mod remedies;
 mod runner;
 mod scoped;
+mod stack;
 mod worktree;
 
 use base::{BaseOutcome, classify_base, report_base, tail};
 use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
+use features::{Activation, BaseText, Trees};
 use place::AddedTest;
 use plan::{Plan, Separable, plan};
 use provenance::{Commit, Moved, Reach};
 use remedies::{
     report_enabled_tests, report_head_failure, report_moved, report_no_base_behaviour, report_not_separable,
-    report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unreadable,
-    report_unreverted,
+    report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unread_manifests,
+    report_unreadable, report_unreverted,
 };
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
+use stack::{Base, Parent};
 use worktree::{BaseState, add_worktree, apply, base_state, remove_worktree};
 
 /// Is this a Rust source path THIS workspace compiles?
@@ -301,6 +305,71 @@ const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bo
     matches!(outcome, BaseOutcome::DidNotCompile) && !held.is_empty()
 }
 
+/// The branch below this one in the stack, resolved against the commit the caller's ref named.
+///
+/// GLUE AND NO DECISION, which is the split `branches::git` established for the same reason: every
+/// line here is a git read, [`stack::Base::of`] makes the choice, and every way this can answer
+/// nothing - a detached HEAD, an untracked branch, a metadata blob that is not JSON, a ref git
+/// cannot resolve - falls back to the ref the caller named, which is the behaviour that shipped
+/// before the derivation existed.
+///
+/// A branch recorded as its OWN parent is dropped here rather than in the pure choice: its merge
+/// base with HEAD is HEAD, which would silently reduce the diff to the uncommitted working tree.
+/// The branch tool does not write that, and a hand-edited ref should not be able to.
+fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
+    let branch = worktree::head_branch(root)?;
+    let parent = stack::recorded_parent(&worktree::branch_metadata(root, &branch))?;
+    if parent == branch {
+        return None;
+    }
+    let forked = Commit::parse(&worktree::merge_base(root, parent.as_str(), "HEAD"))?;
+    let common = Commit::parse(&worktree::merge_base(root, asked_for.as_str(), forked.as_str()));
+    Some(Parent {
+        branch: parent,
+        forked,
+        common,
+    })
+}
+
+/// What the diff's manifest changes put into the build, asked of the two trees.
+///
+/// The three readers [`features::Trees`] wants, and the pairing that matters is the first: a path
+/// the base does not HAVE is a new package whose base feature table is legitimately empty, while a
+/// path the base has and whose content did not come back is a refusal. `cat-file -e` and `show` are
+/// separate calls so those two are separate answers.
+///
+/// The source listing is behind a `OnceCell` because most runs never need it: it is consulted only
+/// for a manifest that declares a feature name the base did not, which is rare, and
+/// `repo::all_files` shells out to git twice.
+fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], read: &regions::PostImage<'_>) -> Activation {
+    let base = |path: &str| {
+        if worktree::base_has(root, at, path) {
+            worktree::at_base(root, at, path).map_or(BaseText::Unreadable, BaseText::Text)
+        } else {
+            BaseText::Absent
+        }
+    };
+    let listing: std::cell::OnceCell<Vec<String>> = std::cell::OnceCell::new();
+    let sources = |dir: &str| {
+        listing
+            .get_or_init(|| repo::all_files().map(|found| found.files).unwrap_or_default())
+            .iter()
+            // `is_compiled_rust` rather than an extension test, so the one rule that decides
+            // what this workspace compiles decides here too - a vendored path is excluded by it.
+            .filter(|path| is_compiled_rust(path) && (dir.is_empty() || path.starts_with(&format!("{dir}/"))))
+            .cloned()
+            .collect()
+    };
+    Activation::of(
+        files,
+        &Trees {
+            head: read,
+            base: &base,
+            sources: &sources,
+        },
+    )
+}
+
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
 pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(base) = base_ref(args) else {
@@ -319,11 +388,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // other venues resolved a merge base before calling; this recipe passed the ref through, so
     // the one venue a person runs by hand was the one that could measure the wrong commits.
     // Idempotent for a commit already behind HEAD, which is how scoping the gate per commit works.
-    let Some(at) = Commit::parse(&worktree::merge_base(&root, &base)) else {
+    let Some(asked_for) = Commit::parse(&worktree::merge_base(&root, &base, "HEAD")) else {
         eprintln!("xtask test-causality: could not resolve a merge base between `{base}` and HEAD");
         eprintln!("  Fetch that ref, or name a commit this branch descends from.");
         return Verdict::Fail;
     };
+    let parent = stack_parent(&root, &asked_for);
+    let measured = Base::of(asked_for, parent);
+    let at = measured.at().clone();
 
     let Some(files) = changed_with_additions(&at) else {
         // Same rule as classify: an unusable base ref is not evidence of nothing to do.
@@ -331,21 +403,27 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // NAMED BEFORE ANY BRANCH RUNS, so every verdict below is qualified by it - both the ref asked
-    // for and the commit it resolved to, because they are different facts and only the second one
-    // is what was measured. One way this can still be wrong is not visible in the output: on the
-    // second branch of a stack the merge base with `origin/main` is the fork point of the WHOLE
-    // stack, so the diff carries the parent branch's implementation, and the gate pairs this
-    // branch's tests with it. `SHIP_CHECK_BASE_REF` or a commit argument is the lever.
-    println!(
-        "xtask test-causality: measuring the diff against `{base}` (merge base {})",
-        at.short()
-    );
+    // NAMED BEFORE ANY BRANCH RUNS, so every verdict below is qualified by it - the ref asked for,
+    // the commit it resolved to, and which of those two the derivation chose. `stack` owns why the
+    // ref's own merge base is the WRONG default on the second branch of a stack, and the sentence
+    // comes out of the same value the commit does, so it cannot claim a narrowing that did not
+    // happen.
+    println!("{}", measured.measured(&base));
 
     // The POST-IMAGE of a changed file is what says which of its lines are test code, and
     // `git diff <base> --` compares base against the WORKING TREE - so the working tree is the
     // post-image, and reading it needs no second git call.
     let working_tree = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+
+    // WHAT A MANIFEST DIFF PUT INTO THE BUILD, asked before the plan because the plan cannot see
+    // it: a `Cargo.toml`-only diff has no changed test file, so `Plan::NotRequired` used to pass
+    // with *nothing to prove* over a feature declaration that compiled a whole module of
+    // pre-existing tests. `features` reads the tables on both sides rather than the diff's lines.
+    match feature_activation(&root, &at, &files, &working_tree) {
+        Activation::Nothing => {}
+        Activation::Enables(refused) => return report_enabled_tests(&refused),
+        Activation::Unread(unread) => return report_unread_manifests(&unread),
+    }
 
     match plan(&files, &working_tree) {
         Plan::NotRequired => {
