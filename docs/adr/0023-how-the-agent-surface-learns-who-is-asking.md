@@ -31,7 +31,7 @@ command is written here because a bare figure in prose is one nobody can re-chec
 | `crates/sutura-mcp/src/lib.rs:162` | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through** |
 | what that function opens | `rmcp::transport::stdio()` - the process's own pipes |
 | `crates/sutura-mcp/Cargo.toml` first-party dependencies | `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`. **No adapter and no broker** |
-| the chain the agent surface establishes | `crates/sutura-mcp/src/principal.rs`: `pub(crate) const fn established() -> RequestContext` returning `PrincipalChain::of(Subject::TheDeploymentItself)` - **a `const fn` with no inputs**, which is the honest shape for a transport that authenticates nobody |
+| the chain the agent surface establishes | `crates/sutura-mcp/src/principal.rs`: `pub(crate) const fn established() -> RequestContext` returning `RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))` - **a `const fn` with no inputs**, which is the honest shape for a transport that authenticates nobody |
 | what capabilities that surface grants | `crates/sutura-cli/src/mcp.rs:133` and `:233` pass `Permitted::every_capability()`, fixed at construction |
 | the same question on the HTTP surface | `crates/sutura-http/src/capability.rs:138` `pub fn permitted_for(request: &Request) -> Permitted`, **per request**, from the verified caller's scopes |
 
@@ -57,6 +57,22 @@ record - what this record does is carry the argument and the evidence. Shape 2 i
 answer for the served deployment. It is *kept* as the answer for the command-line tool, and that
 retention is a decision rather than an absence: the two roots are separate binaries, and the tool's
 pipe surface stays single-user on purpose.
+
+### The strongest argument against shape 1, recorded where the decision is taken
+
+Every limit below has its own bullet in *What this decision does NOT cover*, and stating them one
+at a time understates them, so the composite goes here: **shape 1 produces a surface that reads as
+multi-player before it is one.** A deployment on it verifies a caller, names that caller in every
+audit record, records which posture each leg ran under - and, because leg 2 has never run against a
+real token service, may still read every row as one identity. That is `.agents/skills/sutura/identity/SKILL.md`'s
+own framing, and it is a sharper risk on the agent surface than on HTTP, because the reader is a
+model summarising an answer rather than an operator reading a status line.
+
+It is not a reason to choose shape 2, which cannot be multi-player at all. It is the reason
+`telekom/sutura#376` sits at step two of the ordering below rather than after the wiring, and the
+reason the acceptance bar refuses rather than serves. **The mitigation is the ordering and the
+refusal; there is no mechanism that stops a deployment being stood up in between**, and that is a
+limit of this decision rather than an argument against it.
 
 ## The load-bearing question, and its answer
 
@@ -164,7 +180,8 @@ macro and no SDK feature beyond the transport itself.
 
 ### It composes with the router this repository already builds
 
-`crates/sutura-http/src/router.rs:180` returns an `axum::Router`. The SDK's service is a
+`crates/sutura-http/src/router.rs:180` returns a `Result<Router, RouterNotBuilt>` over `axum`'s own
+`Router`. The SDK's service is a
 `tower_service::Service`:
 
 ```rust
@@ -175,45 +192,101 @@ impl<RequestBody, S, M> tower_service::Service<Request<RequestBody>> for Streama
 ```
 
 (`BoxResponse` from `src/transport/common/server_side_http.rs:22`), with a hand-written
-unconditional `Clone`. `axum` 0.8.9's `Router::nest_service` asks for
-`T: Service<Request, Error = Infallible> + Clone + Send + Sync + 'static` with
-`T::Response: IntoResponse`, and `axum-core` 0.5.6 supplies
-`impl<B> IntoResponse for Response<B> where B: http_body::Body<Data = Bytes> + Send + 'static, B::Error: Into<BoxError>`.
-`BoxBody<Bytes, Infallible>` satisfies that. `Cargo.lock` holds one `http` (1.5.0), one
-`http-body` (1.1.0) and one `tower-service` (0.3.3), all already shared with `axum` - so this is a
-composition, not a type boundary in the sense `.agents/skills/sutura/dependencies/SKILL.md`
-separates from a duplicate.
+unconditional `Clone`. `axum` 0.8.9's `Router::nest_service`
+(`axum-0.8.9/src/routing/mod.rs:235-240`) asks for three bounds, and all three are named here
+because omitting one is how a composition claim goes wrong:
+`T: Service<Request, Error = Infallible> + Clone + Send + Sync + 'static`,
+`T::Response: IntoResponse`, and `T::Future: Send + 'static`. The response bound is met by
+`axum-core` 0.5.6's
+`impl<B> IntoResponse for Response<B> where B: http_body::Body<Data = Bytes> + Send + 'static, B::Error: Into<BoxError>`,
+which `BoxBody<Bytes, Infallible>` satisfies; the future is already `BoxFuture<'static, _>`. **`Sync`
+is the bound nothing in the SDK states**, and it holds by construction rather than by assertion:
+`StreamableHttpService`'s fields (`tower.rs:999-1014`) are the `Clone`-derived
+`StreamableHttpServerConfig` plus four `Arc`s, so the type is `Sync` whenever its `S` and `M` are.
+`Cargo.lock` holds one `http` (1.5.0), one `http-body` (1.1.0) and one `tower-service` (0.3.3), all
+already shared with `axum` - so this is a composition, not a type boundary in the sense
+`.agents/skills/sutura/dependencies/SKILL.md` separates from a duplicate.
+
+**The limit on this whole subsection, stated beside the claim rather than left to the pull request
+that carried it:** every line above is a **source read of the pinned artefact, not a build.**
+Nothing in this tree has been compiled against `transport-streamable-http-server`, so *it composes*
+is a type-level argument from the two crates' own signatures and not a green `just validate`. The
+first wiring change is where that becomes a measurement, and it may find something these signatures
+do not show.
 
 ### What turning the feature on costs
 
-`transport-streamable-http-server` pulls `transport-streamable-http-server-session` and
-`server-side-http`, which between them name `uuid`, `rand`, `tokio-stream`, `http`, `http-body`,
-`http-body-util`, `bytes`, `sse-stream`, `base64`, `tower` and `async-trait`. Counted against
-`Cargo.lock` at `5ae3bde` with `grep -c '^name = "<crate>"$'`: **ten of the eleven already
-resolve; `sse-stream` does not.** Its own transitive tree is unmeasured here, because measuring it
-needs a resolve.
+`transport-streamable-http-server` pulls **three** features, not two -
+`transport-streamable-http-server-session`, `server-side-http` and `transport-worker` - which
+between them name `uuid`, `rand`, `tokio-stream`, `http`, `http-body`, `http-body-util`, `bytes`,
+`sse-stream`, `base64`, `tower` and `async-trait`. (`transport-worker` names only `tokio-stream`,
+already in that list, so the closure is wider than it first reads and the package set is not.
+`tower` in that list is the SDK's own FEATURE name, which enables `dep:tower-service` - it is not
+the `tower` package.) Counted against `Cargo.lock` at `5ae3bde` with
+`grep -c '^name = "<crate>"$'`: **ten of the eleven already resolve; `sse-stream` does not**, and
+its own transitive tree is unmeasured here because measuring it needs a resolve. So the honest
+statement of the cost is *at least one new package, and an unknown tail below it*.
 
-It pulls **no HTTP client** - `server-side-http` does not name `reqwest` - so
-`cargo xtask check-shared-client`'s rule that the client stays shared is not put at risk by this
-transport. Whether adding `sse-stream` is acceptable is a dependency decision under
-`.agents/skills/sutura/dependencies/SKILL.md` and is taken with the resolve in hand, not here.
+It pulls **no HTTP client**: `server-side-http` names neither `reqwest` nor `oauth2`, and neither
+resolves in `Cargo.lock` today. **No gate holds that**, and saying otherwise would be the defect
+`.agents/skills/sutura/invariants/SKILL.md` warns about. `cargo xtask check-shared-client` is not
+it: it reads exactly two facts, both about `ureq` - that `Cargo.lock` holds one version of it, and
+that `libduckdb-sys` still depends on that version - because it exists to protect
+[0018](0018-what-the-bigquery-wire-is-built-from.md)'s *plus zero packages* measurement. **A
+`reqwest` arriving here would not trip it.** The no-client property above is a measurement of this
+transport's feature closure on 2026-09-06 and is held by review. Whether adding `sse-stream` is
+acceptable at all is a dependency decision under `.agents/skills/sutura/dependencies/SKILL.md`,
+taken with the resolve in hand, not here.
 
 ### What the SDK does not give, and this deployment must
 
-Every `WWW-Authenticate` and protected-resource-metadata facility in `rmcp` 3.1.4 is in
-`src/transport/auth.rs`, which is the **client** side, behind an `auth` feature that pulls an
-OAuth client and an HTTP client. **The server side of the SDK issues no challenge and serves no
-metadata document.** It hands over the header and stops. So the 401, the challenge and any
-discovery document are this repository's own work, on the surface that already verifies a token -
-which is the right side of the line anyway, because the gate that decides them is
-[0014](0014-how-a-caller-proves-who-it-is.md)'s and not a transport's.
+`rmcp` 3.1.4 does know about `WWW-Authenticate` - in **seven** files, `src/transport/auth.rs`
+among them - and **every one of them is client-side**: `service/client.rs`,
+`transport/auth.rs`, `transport/common/auth/streamable_http_client.rs`,
+`transport/common/http_header.rs`, `transport/common/reqwest/streamable_http_client.rs`,
+`transport/common/unix_socket.rs`, `transport/streamable_http_client.rs`. Protected-resource
+metadata is in `transport/auth.rs` alone, behind an `auth` feature pulling an OAuth client and an
+HTTP client.
 
-**A second thing the SDK does not do, and it is the sharper one.** The Streamable HTTP session id
-is established at the handshake and travels on later requests; nothing in the SDK binds a session
-to the identity that opened it. A later request on an established session may carry a different
-bearer, or none. So the identity must be decided **per request from the parts**, never cached on
-the session, and a request whose parts carry no verified caller must be refused rather than
-inheriting the one that opened the session.
+**The sharper evidence is what the server transport can answer at all.** Its complete status-code
+set, read off `src/transport/streamable_http_server/` and `src/transport/common/server_side_http.rs`
+with `grep -oh 'StatusCode::[A-Z_]*' | sort -u`, is: `ACCEPTED`, `BAD_REQUEST`, `FORBIDDEN`,
+`INTERNAL_SERVER_ERROR`, `METHOD_NOT_ALLOWED`, `NOT_ACCEPTABLE`, `NOT_FOUND`, `OK`,
+`PAYLOAD_TOO_LARGE`, `UNPROCESSABLE_ENTITY`, `UNSUPPORTED_MEDIA_TYPE`. **`UNAUTHORIZED` is not in
+it.** A transport that cannot spell 401 cannot issue the challenge that goes with it, so the 401,
+the challenge and any discovery document are this repository's own work - which is the right side
+of the line anyway, because what decides them is
+[0014](0014-how-a-caller-proves-who-it-is.md)'s gate and not a transport's.
+
+**A second thing the SDK does not do, and it is the sharper one: it cannot record who opened a
+session, structurally.** `SessionManager::create_session(&self)`
+(`src/transport/streamable_http_server/session.rs:96-98`) **takes no arguments at all**, so there
+is no parameter an identity could arrive through; every later lookup is
+`has_session(&self, id: &SessionId)` (`:108`), an existence test on the header and nothing more.
+Grepping the whole server transport for `bearer|authorization|principal|auth_` returns **zero**
+hits, and for `identity` exactly two, both the type name `TransportAdapterIdentity`. So a later
+request on an established `Mcp-Session-Id` may carry a different bearer, or none, and the SDK will
+not notice.
+
+**The trap that follows, named because it is the one a later implementer falls into.** In session
+mode the handler is built **once per session** - `service_factory` (`tower.rs:999-1014`) called
+through `get_service` (`tower.rs:1107-1109`) - so an identity stored as a *field on the handler* is
+per-session by construction and will look correct in every single-caller test. The identity must
+therefore be read **per request from the parts**, and a request whose parts carry no verified
+caller must be refused rather than inheriting whoever opened the session.
+
+**`never cached` above is about the IDENTITY, and it decides nothing about the CREDENTIAL.** The
+two are different questions and conflating them would foreclose one of them by accident. Who is
+asking is re-established from the request every time, because the transport gives no other honest
+answer. What was *minted* for that subject is a separate decision, and it is open:
+`telekom/sutura#381` records that `CredentialBroker::mint` runs once per accepted question with no
+cache, no pool and no per-subject reuse, which a chain multiplies to N sources by M hops on the
+synchronous path of every answer. That issue's own invariant is the one to carry here: **a cache
+keyed on anything less than the whole verified input is a cross-subject leak** - subject, audience,
+scope and, for a chain, the entire ordered hop sequence, and never the session, the connection or
+the process, which is exactly what the SDK's session blindness above makes unsafe. And the line
+that does not move: **the source is the backstop for a credential, and there is none for data**, so
+caching rows is not on the table at any point, and a cross-user leak never is.
 
 ## What this decision does NOT cover
 
@@ -231,6 +304,9 @@ this decision to have settled.
   This record changes none of that.
 - **It does not decide the exchange chain.** See the next section: one hop is built, and the chain
   the requirement asks for is a separate design with its own failure modes.
+- **It does not decide whether an exchanged credential may be reused.** Re-establishing the
+  identity from each request is settled here; caching what was *minted* for that subject is
+  `telekom/sutura#381` and is untouched by this record.
 - **It does not decide the dependency question.** Enabling the transport feature adds at least one
   package to the lock. That is taken under the dependencies skill, with a resolve.
 - **It does not touch the catalog.** `telekom/sutura#148` - every token holder sees the whole
@@ -330,6 +406,13 @@ Concretely, three cases and one answer each:
 3. **An issuer-parameterised harness for an enterprise provider** (`telekom/sutura#105`), which is
    where a chain's first hop gets a real issuer to verify against.
 4. **The chain**, with the four changes above designed rather than grown.
+
+**Beside step 4 rather than after it: `telekom/sutura#381`, the credential cache.** A chain turns
+one exchange per question into N sources by M hops on the synchronous path of every answer, so the
+cache stops being an optimisation and becomes part of the chain's design - which is why it is not a
+fifth step. Nothing in this record asserts a per-request cost, so #381 contradicts none of it; what
+this record owes it is the boundary drawn above, that re-establishing the *identity* per request
+decides nothing about reusing a *credential*.
 
 `telekom/sutura#148` sits outside that order entirely and is the cheapest real multi-player step
 available, because it needs none of the four.
