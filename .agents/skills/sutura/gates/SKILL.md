@@ -402,6 +402,29 @@ therefore does not see.
   permitted a verdict over zero steps. What the widening cannot reach is a read laundered into a
   helper that inherits the variable from the step `env:`, which at least moves the code somewhere
   `just lint-workflows` looks.
+- **A PREDICATE'S `false` BRANCH IS A BUCKET, and this one dropped its input on the floor.** The
+  same gate's literal rule asked *is this a literal set* and skipped everything that said no - so a
+  value it could not compare was neither compared nor reported, and the only thing that could move
+  was the printed count. **Four shapes, each mutated one at a time into a clean tree and measured
+  against the gate as it stood** (2026-09-06, #329), and the interesting part is that the count
+  said something different about each: a null `default:` under an action's `binaries:` input and a
+  literal replaced by `${{ env.SHIPPED }}` each printed **`ok - 3 literal(s)` at exit 0** where 4
+  is right; a `with:` passing the key with nothing under it printed **`ok - 4` at exit 0**, the
+  declaration invisible rather than subtracted, so even the count did not move; and a null
+  `BINARIES:` in a workflow `env` was **red at exit 1 - from the sibling LOOP rule**, while the
+  literal rule went on dropping it in silence behind that verdict. **So a moving count is the
+  LOUDEST of the four failure modes, not the quiet one.** The expression shape is the one no
+  empty-set rule could ever have caught, being empty nowhere. The answer is a classification
+  rather than a predicate: a set (compared, and **ZERO NAMES IS A SET**, so a null disagrees with
+  `nix/shipped.nix` through the comparison that was already there), a reference naming this same
+  set (named in the verdict), or a refusal. **Two transferable halves.** *For every predicate a
+  scan filters on, ask what happens to the inputs it rejects* - if the answer is nothing, then a
+  count is the only witness there is, and a shape that was never counted does not even move that.
+  And **a refusing arm has to be preceded by a lexer**: the refusal fails the gate, and
+  `BINARIES: "sutura sutura-serve"` and a trailing `# comment` are legal YAML for this set, so a
+  quote and a comment come off before the classification - or the gate reddens a correct tree and
+  gets disabled. What it still does not reach: whether a reference RESOLVES to the literal it
+  names.
 - **A single unreadable input dropped in silence, twice more, and the floor did not save it.** Two
   new gates read every workflow with `.ok()` / `else continue` and failed closed only when EVERY
   file was unreadable - so one dropped file was a gating job classified by nothing, or a
