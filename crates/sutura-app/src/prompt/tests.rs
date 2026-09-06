@@ -526,10 +526,21 @@ fn the_bounds_are_read_from_the_domain_rather_than_typed() {
     // The bug this prevents: a cap raised in `sutura-domain` and a prompt that keeps quoting the
     // old number, which is worse than quoting none - an agent would split a period it did not need
     // to, or fail to split one it did.
+    //
+    // THE BULLET, not the bare number. This prompt carries a 64-character hex definitions digest,
+    // so `contains("4")` - `MAX_DIMENSIONS` is literally 4 - was satisfied by the digest whatever
+    // the bullets said: measured by rendering the bound as a word instead of a number, where the
+    // bare-number form stayed green and this one goes red. Same shape as the JWK-set assertion in
+    // `sutura-http`, one direction over: a needle that can land in generated material makes a
+    // NEGATIVE assertion flake red and a POSITIVE one pass for the wrong reason, which is worse
+    // because nothing ever reports it.
     let text = rendered(Tool::ALL, CatalogProse::Quoted, None);
-    assert!(text.contains(&MAX_DIMENSIONS.to_string()));
-    assert!(text.contains(&MAX_RANGE_DAYS.to_string()));
-    assert!(text.contains(&sutura_domain::plan::MAX_ROWS.to_string()));
+    assert!(text.contains(&format!("At most {MAX_DIMENSIONS} dimensions")), "{text}");
+    assert!(text.contains(&format!("at most {MAX_RANGE_DAYS} days")), "{text}");
+    assert!(
+        text.contains(&format!("At most {} rows", sutura_domain::plan::MAX_ROWS)),
+        "{text}"
+    );
 }
 
 #[test]

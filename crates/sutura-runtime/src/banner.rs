@@ -342,16 +342,20 @@ mod tests {
             "a deployment with a file is not running on defaults only:\n{recorded}"
         );
         // Paths, and never a value: the port came out of that file and has no business on this
-        // line. Searched in the FIELD and not in the rendered line, and that is a fix rather than a
-        // narrowing: the line also carries the subscriber's own metadata, and a nanosecond timestamp
-        // is nine arbitrary digits. This assertion failed once in CI on
-        // `"time":"2026-09-03T19:26:32.069101003Z"` with the field itself clean - a flake, not a
-        // regression, and one no amount of re-running would have explained. What this function
-        // controls is the field, so the field is the haystack; the assertion above is what holds the
-        // field to what reached the log.
-        assert!(
-            !layers.contains(PORT),
-            "a value from a file reached the provenance line:\n{layers}"
+        // line. **The list read as a VALUE, not searched as text**, and that is the fix the previous
+        // round stopped one step short of. `!layers.contains(PORT)` searched the FIELD rather than
+        // the rendered line, because the line also carries a nanosecond timestamp - nine arbitrary
+        // digits - and that wider form failed once in CI on
+        // `"time":"2026-09-03T19:26:32.069101003Z"`. But the field still carries generated digits of
+        // its own: the scratch directory spells `std::process::id()`, so a four-digit needle over it
+        // is the same coin flip one size smaller, at roughly one run in a few thousand.
+        // `Display for ConfigLayers` renders exactly `files()`, so an equality here says the field
+        // holds that one path and nothing else - strictly more than "the port is not in it", and it
+        // cannot flake.
+        assert_eq!(
+            settings.layers().files(),
+            [dir.join("base.yaml")],
+            "the provenance line names the files that were read, and nothing out of them"
         );
     }
 
