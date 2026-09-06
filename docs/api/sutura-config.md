@@ -3170,7 +3170,7 @@ issue that wired the adapter that presents one.
 
 The two newtypes are declared here, in the settings tree that owns the value, and the broker that
 performs the exchange holds its own copies in the adapter that links it - the same reason
-`super::placement::BillingProject` is checked both here and in the transport that interpolates
+`BillingProject` is checked both here and in the transport that interpolates
 it: an adapter may not depend on the settings tree, so the format is checked where it is declared
 AND where it is sent.
 

@@ -512,6 +512,32 @@ unreachable_pub = "deny"
 # exactly the size of diff that decision deserves.
 unsafe_code = "forbid"
 
+# Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
+# `just lint`. So the venues are the ones that document: `just api`, `checks.api-docs` and the
+# doctest lane. `cargo xtask check-api-docs` asserts this entry exists and that every workspace
+# member inherits it, because a lint nothing arms is a lint that reports nothing.
+[workspace.lints.rustdoc]
+# `deny`, so an unresolvable `[`Foo`]` is an error where the pages are produced rather than one of
+# 87 warnings behind exit 0 - `github.com/telekom/sutura#360`, which counted 15 of them.
+#
+# IT REACHES ONE CLASS MORE THAN ITS NAME SUGGESTS, measured rather than assumed: the two
+# `X is both a function and a module` warnings are this lint too, and denying it turned both into
+# errors. The fix is a disambiguator, and it has to be the `crate::`-qualified INLINE form -
+# `[`x`](fn@crate::x)` - because the generator drops a destination carrying `::` and keeps the code
+# span, while a bare `fn@x` has no `::`, survives into the page as a relative link and aborts
+# `mkdocs build --strict`. Both halves measured against the tool, not reasoned about.
+#
+# WHAT IT DOES NOT HOLD:
+#
+#   * whether a RESOLVED link reaches a reader. rustdoc was clean under both spellings of the
+#     destination that aborted the site build on `#352`; `cargo xtask check-api-links` and
+#     `mkdocs build --strict` own that class, and neither can see an unresolved one.
+#   * `private_intra_doc_links`, 67 of them here and several deliberate - a public item pointing at
+#     the private thing that implements it. Denying this one without answering that one is fine;
+#     conflating them is not.
+#   * `redundant_explicit_links`, 3 of them, which is a separate lint and a separate judgement.
+broken_intra_doc_links = "deny"
+
 [workspace.lints.clippy]
 all         = { level = "deny", priority = -3 }
 nursery     = { level = "deny", priority = -3 }

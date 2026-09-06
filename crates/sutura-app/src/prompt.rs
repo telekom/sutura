@@ -35,12 +35,12 @@
 //! which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
 //! one short section saying the field does not exist and that there is no way to widen it.
 //!
-//! **No column, no table, no model and no measure expression.** This is the same content
-//! `GET /v1/catalog` already returns and deliberately not one field more: a metric's name, its
-//! prose, its grains, its dimensions and their permitted values. A caller needs those to ask a valid
+//! **No column, no table, no model and no measure expression.** This is the same content `GET
+//! /v1/catalog` already returns and deliberately not one field more: a metric's name, its prose,
+//! its grains, its dimensions and their permitted values. A caller needs those to ask a valid
 //! question; it needs no column name to do it, and a column name in an agent's context is a name it
-//! will eventually try to use. [`tests`] asserts that no model name, table name or column name from
-//! the bundle appears in the output.
+//! will eventually try to use. The `tests` module below asserts that no model name, table name or
+//! column name from the bundle appears in the output.
 //!
 //! **Nothing about identity.** There is none - the deployment token authenticates the deployment and
 //! not the caller - and a prompt that mentioned per-caller scoping would describe a control that does

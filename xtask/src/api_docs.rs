@@ -18,6 +18,13 @@
 //!     surface, and therefore cannot get that model wrong. Resist adding one: a heuristic that
 //!     decides a change "cannot affect the docs" is a heuristic that will one day be wrong
 //!     silently, which is the exact failure this gate exists to remove.
+//!   * IT NOW ALSO JUDGES THE DOC LINKS, and not by looking at them. `broken_intra_doc_links` is
+//!     denied in the workspace lint table, so the `cargo rustdoc` line below fails on a link
+//!     rustdoc cannot resolve - 15 of those were warnings behind exit 0 until
+//!     `github.com/telekom/sutura#360`. A lint cannot say whether it was ARMED, though, so the
+//!     `lints` submodule asserts the table exists and that every workspace member inherits it,
+//!     before a single crate is documented. That is a precondition rather than a finding: an
+//!     unarmed run compares pages nobody judged.
 //!   * IT IS THE SAME CODE PATH. The `cargo rustdoc` line and the generator script are the ones
 //!     the `api` recipe in the justfile runs. A gate that reimplemented the rendering could
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
@@ -44,6 +51,9 @@ use std::path::{Path, PathBuf};
 
 use crate::Verdict;
 use crate::repo;
+
+/// Whether the rustdoc run below is armed to judge doc links at all.
+mod lints;
 
 /// Where the committed pages live, relative to the repo root.
 ///
@@ -113,15 +123,31 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             eprintln!("xtask check-api-docs: {error}");
             Verdict::Fail
         }
-        Ok(problems) if problems.is_empty() => {
+        Ok(outcome) if outcome.problems.is_empty() => {
             println!("xtask check-api-docs: ok - the committed pages match a fresh generation");
+            println!(
+                "  doc links: `broken_intra_doc_links` = {}, inherited by {} of {} workspace members",
+                outcome.arming.level, outcome.arming.inheriting, outcome.arming.members
+            );
             Verdict::Pass
         }
-        Ok(problems) => {
-            report(&problems);
+        Ok(outcome) => {
+            report(&outcome.problems);
             Verdict::Fail
         }
     }
+}
+
+/// What one run of this gate found, and what it was armed with while finding it.
+///
+/// The arming travels back with the problems rather than being printed where it is read: a
+/// verdict that says the pages match without saying the rustdoc run behind them judged its links
+/// is the shape this pair exists to make impossible.
+struct Outcome {
+    /// Pages that disagree with a fresh generation, or that nothing accounts for.
+    problems: Vec<String>,
+    /// The doc-link lint's level, and the two counts that say it reached every member.
+    arming: lints::Arming,
 }
 
 /// Regenerate every library crate's page and collect what disagrees.
@@ -130,8 +156,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 /// that refused to run. That is deliberately NOT reported as a clean repo: a gate that cannot
 /// run has found nothing, and reporting nothing as `ok` is how a pipeline goes green over an
 /// unchecked tree.
-fn check(root: &Path) -> Result<Vec<String>, String> {
+fn check(root: &Path) -> Result<Outcome, String> {
     let metadata = crate::cargo_metadata(&["--no-deps"])?;
+    // FIRST, and it is an `Err` rather than a problem: an unarmed rustdoc run cannot tell a
+    // resolvable doc link from an unresolvable one, so regenerating pages from it and reporting
+    // that they match would be a green verdict over a question nobody asked. See `lints`.
+    let arming = lints::check(root, &metadata)?;
     let packages = library_packages(&metadata)?;
     let target_dir = target_directory(root, &metadata);
 
@@ -170,7 +200,7 @@ fn check(root: &Path) -> Result<Vec<String>, String> {
 
     // Best-effort: a scratch directory left behind is untidy, not a verdict.
     drop(std::fs::remove_dir_all(&scratch));
-    Ok(problems)
+    Ok(Outcome { problems, arming })
 }
 
 /// Every workspace package with a library target.
@@ -281,11 +311,15 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "`cargo rustdoc -p {package} ... --output-format json` failed.\n  \
-         That option is unstable, so this gate needs the NIGHTLY toolchain \
-         (devco/rust-toolchain-nightly.toml).\n  \
-         Every other gate sources nix/stable-env.sh; this one must not, because stable \
-         rejects `-Z` outright."
+        "`cargo rustdoc -p {package} ... --output-format json` failed, and rustdoc's own output \
+         above says which of two things happened.\n  \
+         A DOC LINK it could not resolve: `broken_intra_doc_links` is denied in the workspace lint \
+         table, so that is an error here rather than a warning behind exit 0. Fix the link - the \
+         `crate::`-qualified inline form `[`x`](crate::path::x)` resolves without an import and \
+         the page keeps the code span.\n  \
+         Or the TOOLCHAIN: `--output-format json` is unstable, so this gate needs the nightly pin \
+         (devco/rust-toolchain-nightly.toml). Every other gate sources nix/stable-env.sh; this one \
+         must not, because stable rejects `-Z` outright."
     ))
 }
 
