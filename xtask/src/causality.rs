@@ -35,6 +35,18 @@
 //! reported as "changes behaviour and adds tests in one file", which is a different message asking
 //! for a different thing.
 //!
+//! AND A GREEN BASE RUN IS A FACT ABOUT THE PARTITION until something says otherwise, which is
+//! [`reverted`]. *These tests pass with the implementation reverted* reads as a statement about the
+//! tests and is first a statement about which files were put back: a revert that restores no line
+//! a measured test can execute proves nothing either way, which is `provenance::Reach::BuildInput`'s
+//! argument reaching a file that IS reverted. That module carries the two excuses, the one case it
+//! deliberately leaves in reach - test code in the package a measured test is in - and the
+//! falsifier [`base`] prints when a run contradicts it.
+//!
+//! **This paragraph belongs in `.agents/skills/sutura/gates/SKILL.md`'s causality section**, whose
+//! whole subject is how this gate can lie; it is here because that page was held by another change
+//! when this landed.
+//!
 //! AND WHAT A DIFF CANNOT SAY IS ITS OWN MODULE. [`provenance`] holds the three facts that are
 //! true of a diff and are not in it: the COMMIT it is measured against rather than a ref that
 //! moves, what the reconstruction may do with a changed path that is not Rust, and whether a test
@@ -96,6 +108,9 @@ mod provenance;
 // it would be a second thing to keep in step. Nothing else about the module moved.
 pub(crate) mod regions;
 mod remedies;
+// `reverted` sits after `remedies` alphabetically and after `regions` conceptually: it reads the
+// same post-image regions, and it is the last question asked before a green run becomes a verdict.
+mod reverted;
 mod runner;
 mod scoped;
 mod stack;
@@ -113,6 +128,7 @@ use remedies::{
     report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unread_manifests,
     report_unreadable, report_unreverted,
 };
+use reverted::Attempts;
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
 use stack::{Base, Parent};
@@ -143,7 +159,14 @@ fn base_ref(args: &[String]) -> Option<String> {
 }
 
 /// Reconstruct the baseline in a worktree and require the changed tests to fail there.
-fn prove(root: &Path, base: &Commit, separable: &Separable, scoped: &Scoped, coverage: &Coverage) -> Verdict {
+fn prove(
+    root: &Path,
+    base: &Commit,
+    separable: &Separable,
+    scoped: &Scoped,
+    coverage: &Coverage,
+    reverted: &Attempts,
+) -> Verdict {
     let first = base_state(root, base, &separable.revert);
     let holding = separable.held();
     let held = base_state(root, base, &holding);
@@ -219,6 +242,7 @@ fn prove(root: &Path, base: &Commit, separable: &Separable, scoped: &Scoped, cov
             only: &only,
             coverage,
             moved: &moved,
+            reverted,
         },
     );
     remove_worktree(root, &wt);
@@ -271,7 +295,7 @@ fn reconstruct_and_run(
     }
 
     let (base_ok, base_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
-    let outcome = classify_base(&base_out, base_ok, scoped.tests(), scope.moved);
+    let outcome = classify_base(&base_out, base_ok, scoped.tests(), scope.moved, scope.reverted.attempt(false));
 
     if retry_with_held_back(&outcome, held) {
         println!("  base: did not compile with the held-back file(s) still at HEAD");
@@ -289,15 +313,29 @@ fn reconstruct_and_run(
         }
         let (retry_ok, retry_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
         return report_base(
-            &classify_base(&retry_out, retry_ok, scoped.tests(), scope.moved),
+            &classify_base(
+                &retry_out,
+                retry_ok,
+                scoped.tests(),
+                scope.moved,
+                scope.reverted.attempt(true),
+            ),
             &retry_out,
             true,
             scope.coverage,
             scope.moved,
+            scope.reverted.attempt(true),
         );
     }
 
-    report_base(&outcome, &base_out, false, scope.coverage, scope.moved)
+    report_base(
+        &outcome,
+        &base_out,
+        false,
+        scope.coverage,
+        scope.moved,
+        scope.reverted.attempt(false),
+    )
 }
 
 /// Should the proof ask a second time, with the held-back files at base too?
@@ -456,7 +494,18 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             match Scan::of(&files, &separable.test_files, &working_tree) {
                 Scan::Runnable(scoped) => {
                     let coverage = Coverage::of(scoped.tests(), &files, &working_tree);
-                    prove(&root, &at, &separable, &scoped, &coverage)
+                    // WHAT A GREEN BASE RUN WOULD MEAN, decided from the partition before either
+                    // run rather than read off the run. `reverted` owns the argument; the point of
+                    // asking here is that `separable` is the last place both halves of it exist -
+                    // what is being put back, and which files' tests are being measured.
+                    let reach = Attempts::of(
+                        &separable.revert,
+                        &separable.held(),
+                        &separable.test_files,
+                        &files,
+                        &working_tree,
+                    );
+                    prove(&root, &at, &separable, &scoped, &coverage, &reach)
                 }
                 Scan::Unreadable(files) => report_unreadable(&files),
                 Scan::Enabled(refused) => report_enabled_tests(&refused),

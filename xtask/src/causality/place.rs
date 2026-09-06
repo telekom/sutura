@@ -400,6 +400,16 @@ fn owning_package<'p>(path: &'p str, read: &PostImage<'_>) -> Option<(CargoName,
     }
 }
 
+/// The cargo package that compiles `path`, if one does.
+///
+/// The same walk [`place`] already does, exposed on its own for [`super::reverted`]: whether a
+/// reverted file can reach a test in scope is first a question about which package compiles each
+/// of them, and deriving that a second way would be a second thing to keep in step with this
+/// workspace's directory-name-is-not-the-package-name shape (`dev/` is `sutura-dev`).
+pub(super) fn package(path: &str, read: &PostImage<'_>) -> Option<CargoName> {
+    owning_package(path, read).map(|(name, _)| name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AddedTest, declared_module_files, place};

@@ -19,6 +19,37 @@ pub(crate) struct ChangedFile {
     pub(crate) path: String,
     /// The lines this diff added, in file order.
     pub(crate) added: Vec<AddedLine>,
+    /// The lines this diff REMOVED, in file order.
+    ///
+    /// **Additions alone cannot say what a REVERT restores**, which is why this exists at all:
+    /// `super::reverted` asks whether putting a file back at base could change anything the
+    /// measured tests execute, and a change that only DELETES lines - a wrong early return taken
+    /// out of a production function - adds nothing at all. Reading additions only would have read
+    /// that as *this file changed no program*, which is the one direction that arm may not be
+    /// wrong in.
+    pub(crate) removed: Vec<RemovedLine>,
+}
+
+/// One removed line: the text the diff took out, and the POST-image line it used to sit at.
+///
+/// **The anchor is a GAP, not a line, and there is no exact alternative.** A removed line has a
+/// PRE-image number while every region this gate computes is read off the POST-image, so the two
+/// are not comparable; what IS comparable is where the removal landed in the file as it stands -
+/// the counter [`parse_diff`] advances over context and additions, which is the position the next
+/// surviving line now occupies. That is exact for a hunk inside a region that survived and wrong
+/// for a hunk that deleted a whole region, and wrong in the safe direction: a position outside
+/// every region reads as production code.
+///
+/// **Not the hunk's start**, which the first version used and which is the same number only under
+/// `-U0`. A wider context walks the counter forward before the removal, and anchoring the whole
+/// hunk at its header would put a removal from the end of it several lines earlier than it was.
+#[derive(Debug)]
+pub(crate) struct RemovedLine {
+    /// The 1-based POST-image line the removal sits at. Zero when the hunk emptied the file's
+    /// first lines, which no region contains.
+    pub(crate) anchor: usize,
+    /// The removed text, without the diff's leading `-`.
+    pub(crate) text: String,
 }
 
 /// Added lines per changed file, from `git diff`, each carrying its post-image line number.
@@ -66,6 +97,7 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
             current = Some(ChangedFile {
                 path: String::from(rest),
                 added: Vec::new(),
+                removed: Vec::new(),
             });
             continue;
         }
@@ -86,10 +118,17 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
             next_line += 1;
             continue;
         }
-        if !line.starts_with('-') {
-            // Context, blank or not, occupies a line of the new image too.
-            next_line += 1;
+        if let Some(removed) = line.strip_prefix('-') {
+            // The counter does NOT advance: a removed line occupies no line of the new image, so
+            // every removal in one run sits at the same gap.
+            file.removed.push(RemovedLine {
+                anchor: next_line,
+                text: String::from(removed),
+            });
+            continue;
         }
+        // Context, blank or not, occupies a line of the new image too.
+        next_line += 1;
     }
     if let Some(done) = current.take() {
         files.push(done);
@@ -162,6 +201,48 @@ mod tests {
             .unwrap_or_default();
         // Line 8 is context, so the replacement lands on 9 - not on 8, and not on 10.
         assert_eq!(numbers, vec![9]);
+    }
+
+    #[test]
+    fn a_removed_line_is_anchored_where_it_sat_and_not_at_its_hunk_s_header() {
+        // WHY THE REMOVALS ARE READ AT ALL: `super::super::reverted` asks whether a revert can
+        // reach the tests in scope, and reading only the additions would see NOTHING in the first
+        // hunk - so a wrong line taken out of a production function would read as a file that
+        // changed no program.
+        //
+        // The second hunk carries CONTEXT, which is where the anchor choice becomes visible: the
+        // counter has walked past the header by the time the removal arrives. Anchoring the whole
+        // hunk at its header would put that removal three lines earlier than it sat, which is a
+        // different answer to *is this line inside a test region*.
+        let diff = concat!(
+            "diff --git a/crates/x/src/a.rs b/crates/x/src/a.rs\n",
+            "--- a/crates/x/src/a.rs\n",
+            "+++ b/crates/x/src/a.rs\n",
+            "@@ -12 +11,0 @@ fn guard() {\n",
+            "-    if wrong { return Err(e); }\n",
+            "@@ -40,5 +39,5 @@ mod tests {\n",
+            " let kept = 1;\n",
+            " let also_kept = 2;\n",
+            " let still_kept = 3;\n",
+            "-    assert!(old);\n",
+            "-    assert!(also_old);\n",
+            "+    assert_eq!(fresh, 1);\n",
+            "+    assert_eq!(fresh, 2);\n",
+        );
+        let files = parse_diff(diff);
+        let file = files.first().expect("one changed file");
+        let anchors: Vec<usize> = file.removed.iter().map(|line| line.anchor).collect();
+        // 11 for the first: the gap the deleted line left, not its pre-image number 12. Then 42
+        // for both of the second hunk's - the header says 39 and three context lines walked the
+        // counter to 42, which is where those two lines sat.
+        assert_eq!(anchors, vec![11, 42, 42]);
+        assert_eq!(
+            file.removed.first().map(|line| line.text.trim()),
+            Some("if wrong { return Err(e); }")
+        );
+        // The additions still carry their own post-image numbers, unmoved by the removals.
+        let numbers: Vec<usize> = file.added.iter().map(|line| line.number).collect();
+        assert_eq!(numbers, vec![42, 43]);
     }
 
     #[test]

@@ -29,14 +29,19 @@
 //! can name: it used to be folded into `DidNotCompile` and printed *the base tree does not build*
 //! about a tree that built fine, which is how a missing status word turned into a wrong sentence.
 //!
-//! AND A GREEN RUN IS TWO ANSWERS, which is the one this classifier could not reach on its own.
+//! AND A GREEN RUN IS THREE ANSWERS, none of which this classifier could reach on its own.
 //! *These tests pass without the change* is the defect the gate exists for **only if the diff added
 //! them**, and a diff cannot tell an added test from a MOVED one - so moving a test into a new file,
 //! which is what this repository's own guidance asks for when a file hits the line cap, produced
 //! *FAILED - green against base behaviour* about a change with no defect in it.
-//! [`BaseOutcome::GreenAfterAMove`] is the other answer and it is INCONCLUSIVE;
+//! [`BaseOutcome::GreenAfterAMove`] is the second answer and it is INCONCLUSIVE;
 //! `super::provenance::Moved` is the input, because the base TREE is the only place that fact
 //! lives. A mix still fails: the tests that were new passed both ways.
+//!
+//! THE THIRD IS ABOUT THE OTHER HALF OF THAT PREMISE - what was REVERTED rather than what was
+//! measured. [`BaseOutcome::GreenOverAnUnreachableRevert`] is also INCONCLUSIVE and
+//! `super::reverted` is both the input and the sentence; that module carries the argument, the
+//! case it deliberately leaves in reach, and why the defect this gate exists for still FAILS.
 //!
 //! AND NEITHER INCONCLUSIVE ANSWER IS A PASS ANY MORE, which is `github.com/telekom/sutura#307`.
 //! Both returned [`Verdict::Pass`] - exit 0 - so a required CI step whose whole input is the exit
@@ -58,6 +63,7 @@ use crate::Verdict;
 use crate::causality::coverage::{Attributed, Coverage};
 use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
+use crate::causality::reverted::{self, Excused, Reverted};
 
 /// Evidence that a base run REPORTED PER-TEST RESULTS, and therefore that the filterset's names
 /// are also what was measured.
@@ -67,8 +73,8 @@ use crate::causality::provenance::Moved;
 /// under test - and none of that reached `super::prove`, which prints before either run and had
 /// `Coverage::ratio` in reach, so an inconclusive run carried `N of N added tests measured` twenty
 /// lines above its own `0 of N`. A non-zero measured numerator now requires one of these, this
-/// module is the only place that mints one, and it mints one from two of six [`BaseOutcome`]
-/// variants - both of which exist only after a base run has been classified. **So the overstating
+/// module is the only place that mints one, and it mints one from the [`BaseOutcome`] variants that
+/// reported per-test results - every one of which exists only after a base run has been classified. **So the overstating
 /// direction does not compile**; the understating one - printing the zero numerator before the runs
 /// - is held by `super::remedies`' `the_line_printed_before_either_run_claims_no_measurement`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +91,11 @@ pub(crate) enum BaseOutcome {
     /// fails in; this variant is why *green against base behaviour* no longer blames the refactor
     /// this repository's own guidance asks for when a file hits the line cap.
     GreenAfterAMove { moved: Vec<String> },
+    /// They passed, and NOTHING THAT WAS REVERTED could have made them fail. Not a defect either:
+    /// a green run over a partition that restores no line the tests in scope can execute is a
+    /// fact about the partition. `super::reverted::Reverted` is the classification and its header
+    /// carries the two arguments and what neither reaches.
+    GreenOverAnUnreachableRevert { excused: Vec<Excused> },
     /// A test the diff added failed an assertion. The evidence the gate exists to collect, and
     /// it carries the names so the printed verdict says what it measured.
     RedByAssertion { failed: Vec<String> },
@@ -106,16 +117,29 @@ pub(crate) enum BaseOutcome {
 /// first false green. And a run that matched no test prints no failure at all, so it is settled
 /// before the failure list is consulted rather than falling through as "unknown".
 ///
-/// A GREEN RUN IS TWO ANSWERS, and telling them apart takes an input the run does not carry. The
-/// premise is *a test the diff ADDED must be red against the base behaviour*, so a green run is
-/// only that defect if the tests in scope were added here - and `moved` is what says whether they
-/// were. Everything else `moved` says is left to the report: with SOME of them moved the failure
-/// still stands, because the rest passed both ways.
-pub(crate) fn classify_base(text: &str, succeeded: bool, scoped: &[AddedTest], moved: &Moved) -> BaseOutcome {
+/// A GREEN RUN IS THREE ANSWERS, and telling them apart takes two inputs the run does not carry.
+/// The premise - *a test the diff ADDED must be red against the base behaviour* - has a subject
+/// and an object. `moved` settles the subject: were these tests added here. `reverted` settles the
+/// object: is what was put back something they could have executed. Everything else `moved` says
+/// is left to the report - with SOME of them moved the failure stands, the rest passed both ways.
+///
+/// **THE ORDER IS A MESSAGE AND NOT A VERDICT.** Both non-defect answers are
+/// [`Verdict::Inconclusive`], so a diff that is both exits 3 either way; `moved` goes first
+/// because *these tests were not added here* asks for less.
+pub(crate) fn classify_base(
+    text: &str,
+    succeeded: bool,
+    scoped: &[AddedTest],
+    moved: &Moved,
+    reverted: &Reverted,
+) -> BaseOutcome {
     if succeeded {
-        return match *moved {
-            Moved::Wholly(ref names) => BaseOutcome::GreenAfterAMove { moved: names.clone() },
-            Moved::Nothing | Moved::Partly(_) => BaseOutcome::Green,
+        return match (moved, reverted) {
+            (Moved::Wholly(names), _) => BaseOutcome::GreenAfterAMove { moved: names.clone() },
+            (_, Reverted::Nothing(excused)) => BaseOutcome::GreenOverAnUnreachableRevert {
+                excused: excused.clone(),
+            },
+            (Moved::Nothing | Moved::Partly(_), Reverted::Behaviour) => BaseOutcome::Green,
         };
     }
     if did_not_compile(text) {
@@ -269,11 +293,12 @@ fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 /// half of #307, and it was one `.ratio()` at the call site: pure and in one place here, so a test
 /// can read the CHOICE rather than a synthetic [`Coverage`].
 ///
-/// Four of the seven print it: [`BaseOutcome::RedByAssertion`] in its verdict line, both
-/// inconclusive arms in theirs, and [`BaseOutcome::GreenAfterAMove`], whose tests DID run in both
-/// trees - the measurement is real there and what it is not is evidence about the change. The other
-/// three are asserted anyway, because the mapping is what a mutation moves and an arm that starts
-/// printing must not have to re-derive it.
+/// Five of the eight print it: [`BaseOutcome::RedByAssertion`] in its verdict line, both
+/// inconclusive arms in theirs, and the two green arms that are not the defect
+/// ([`BaseOutcome::GreenAfterAMove`], [`BaseOutcome::GreenOverAnUnreachableRevert`]) - whose tests
+/// DID run in both trees, so the measurement is real there and what it is not is evidence about
+/// the change. The other three are asserted anyway, because the mapping is what a mutation moves
+/// and an arm that starts printing must not have to re-derive it.
 ///
 /// **AND IT IS NOW THE ONLY PLACE THAT CAN MINT [`PerTestResults`]**, which is the half review found
 /// missing: being pure and in one place did not stop a caller with no outcome at all printing the
@@ -283,9 +308,10 @@ fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
     coverage.measured(match *outcome {
         // Both runs happened and reported per-test results, so the filterset's names are also
         // what was measured. `PerTestResults(())` is spellable here and nowhere else.
-        BaseOutcome::Green | BaseOutcome::GreenAfterAMove { .. } | BaseOutcome::RedByAssertion { .. } => {
-            Attributed::PerTest(PerTestResults(()))
-        }
+        BaseOutcome::Green
+        | BaseOutcome::GreenAfterAMove { .. }
+        | BaseOutcome::GreenOverAnUnreachableRevert { .. }
+        | BaseOutcome::RedByAssertion { .. } => Attributed::PerTest(PerTestResults(())),
         // Nothing this diff added was measured on base: the tree did not build, the filter matched
         // none of them, no failure was attributable, or the run stopped on something else.
         BaseOutcome::RedOutsideTheDiff { .. } | BaseOutcome::NotRun | BaseOutcome::Unattributed | BaseOutcome::DidNotCompile => {
@@ -310,7 +336,14 @@ fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
 /// the branch added. [`earned`] decides which wording each outcome may print; `prove`'s own arms
 /// print theirs before either run, where they are asking for something rather than reporting
 /// coverage.
-pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage, moved: &Moved) -> Verdict {
+pub(crate) fn report_base(
+    outcome: &BaseOutcome,
+    output: &str,
+    retried: bool,
+    coverage: &Coverage,
+    moved: &Moved,
+    reverted: &Reverted,
+) -> Verdict {
     let measured = earned(outcome, coverage);
     match *outcome {
         BaseOutcome::Green => {
@@ -345,10 +378,19 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, co
             println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
             Verdict::Inconclusive
         }
+        // The SENTENCE is `super::reverted`'s, beside the rule that decides it: an excuse and the
+        // words that explain it are one thing to keep true rather than two.
+        BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => reverted::explain(excused, &measured),
         BaseOutcome::RedByAssertion { ref failed } => {
             println!("  base: red by assertion, as required");
             for one in failed {
                 println!("    red on base: {one}");
+            }
+            // THE FALSIFIER FOR THE ARM ABOVE, and the wording is `super::reverted`'s because the
+            // claim being contradicted is. Printed rather than acted on: this run produced the
+            // evidence the gate exists for, and reddening it would be the wrong trade.
+            for one in reverted::contradiction(reverted) {
+                println!("{one}");
             }
             println!("{}", tail(output, 12));
             println!("xtask test-causality: ok - red on base, green on head ({measured})");
@@ -461,57 +503,26 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        BaseOutcome, Coverage, Moved, Verdict, classify_base, earned, missing_module_file, names_no_tests, report_base, tail,
+        BaseOutcome, Coverage, Moved, Reverted, Verdict, classify_base, earned, missing_module_file, names_no_tests, report_base,
+        tail,
     };
-    use crate::causality::fixtures::{changed, manifest, tree};
+    use crate::causality::fixtures::{named, scoped};
     use crate::causality::place::AddedTest;
-    use crate::causality::scoped::Scan;
 
-    /// A filterset that NAMED `named` tests, out of `named` - the shape an inconclusive run has.
-    fn named(count: usize) -> Coverage {
-        Coverage::Measured {
-            measured: count,
-            unmeasured: Vec::new(),
-            not_runnable: Vec::new(),
-        }
-    }
-
-    /// The classifier over a scope whose every test is NEW here.
+    /// The classifier over a scope whose every test is NEW here and a revert that reaches them.
     ///
-    /// A wrapper, because the provenance changes what exactly one answer means - a GREEN base run -
-    /// and every assertion below is about the other five. Its own arm is
-    /// `a_scope_the_base_tree_already_had_is_not_a_defect`, which calls the real function.
+    /// A wrapper, because two inputs change what exactly one answer means - a GREEN base run - and
+    /// every assertion below is about the other six. Their own arms are
+    /// `a_scope_the_base_tree_already_had_is_not_a_defect` and
+    /// `a_green_run_over_a_revert_nothing_in_scope_could_read_is_not_that_defect`, both of which
+    /// call the real function.
     fn classified(text: &str, succeeded: bool, scoped: &[AddedTest]) -> BaseOutcome {
-        classify_base(text, succeeded, scoped, &Moved::Nothing)
+        classify_base(text, succeeded, scoped, &Moved::Nothing, &Reverted::Behaviour)
     }
 
     /// The report for a scope whose every test is new here, for the same reason.
     fn reported(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage) -> Verdict {
-        report_base(outcome, output, retried, coverage, &Moved::Nothing)
-    }
-
-    /// The tests under test, as if one file in `package` had added each of `names`.
-    ///
-    /// Through `Scan::of` rather than a hand-built key, so what these assertions measure is the
-    /// key the gate actually builds from a diff - a fixture that constructed one directly would
-    /// pass while the extractor produced something else.
-    fn scoped(package: &str, file: &str, names: &[&str]) -> Vec<AddedTest> {
-        let lines: Vec<String> = names
-            .iter()
-            .flat_map(|name| [String::from("#[test]"), format!("fn {name}() {{}}")])
-            .collect();
-        let text = format!("{}\n", lines.join("\n"));
-        let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
-        let dir = file
-            .split_once("/src/")
-            .or_else(|| file.split_once("/tests/"))
-            .expect("a package directory")
-            .0;
-        let read = tree(&[(file, &text), (&format!("{dir}/Cargo.toml"), &manifest(package))]);
-        match Scan::of(&[changed(file, 1, &borrowed)], &[String::from(file)], &read) {
-            Scan::Runnable(found) => found.tests().to_vec(),
-            other => panic!("expected runnable tests, got {other:?}"),
-        }
+        report_base(outcome, output, retried, coverage, &Moved::Nothing, &Reverted::Behaviour)
     }
 
     /// The audit record from #276, as the branch that first exposed the wide run declared it.
@@ -793,7 +804,7 @@ mod tests {
         let green = "test result: ok. 12 passed; 0 failed";
         let all = Moved::Wholly(vec![String::from("a_moved_assertion")]);
         assert_eq!(
-            classify_base(green, true, &under_test, &all),
+            classify_base(green, true, &under_test, &all, &Reverted::Behaviour),
             BaseOutcome::GreenAfterAMove {
                 moved: vec![String::from("a_moved_assertion")]
             }
@@ -808,7 +819,8 @@ mod tests {
                 green,
                 false,
                 &named(1),
-                &all
+                &all,
+                &Reverted::Behaviour
             ),
             Verdict::Inconclusive
         );
@@ -817,9 +829,12 @@ mod tests {
         // and the new one passed both ways - which is exactly the defect this gate exists for.
         let mixed = Moved::Partly(vec![String::from("a_moved_assertion")]);
         let two = scoped("pa", "pa/src/lib.rs", &["a_moved_assertion", "genuinely_new"]);
-        assert_eq!(classify_base(green, true, &two, &mixed), BaseOutcome::Green);
         assert_eq!(
-            report_base(&BaseOutcome::Green, green, false, &named(2), &mixed),
+            classify_base(green, true, &two, &mixed, &Reverted::Behaviour),
+            BaseOutcome::Green
+        );
+        assert_eq!(
+            report_base(&BaseOutcome::Green, green, false, &named(2), &mixed, &Reverted::Behaviour),
             Verdict::Fail
         );
     }
@@ -837,6 +852,12 @@ mod tests {
                 },
                 &named(6)
             ),
+            "6 of 6 added tests measured"
+        );
+        // The same call for the same reason, on the arm `super::reverted` introduced: those tests
+        // ran in both trees too, and what the run is not is evidence about the CHANGE.
+        assert_eq!(
+            earned(&BaseOutcome::GreenOverAnUnreachableRevert { excused: Vec::new() }, &named(6)),
             "6 of 6 added tests measured"
         );
     }
