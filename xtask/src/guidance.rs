@@ -10,7 +10,7 @@
 //! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
 //! than read.
 //!
-//! Ten checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Eleven checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
@@ -20,10 +20,12 @@
 //! * `remedies` - the correction a failure prints, held to the standard of the prose it corrects
 //! * `advice` - a task a failure prints must exist, over every `.rs` file this repository publishes
 //! * `constants` - a doc comment naming a variant of a constant it links must name the one it holds
+//! * `absences` - a sentence saying the tree holds no such thing, held against the code that would
+//!   refute it
 //! * `hosts` - the file a sentence names as holding a mechanism must be the file that holds it
 //! * `pages` - a page's amendment ordinals and its table headers, held against the page's own shape
 //!
-//! `remedies`, `advice` and `constants` are the three that read Rust rather than prose;
+//! `remedies`, `advice`, `constants` and `absences` are the four that read Rust rather than prose;
 //! `hosts` reads prose and derives its answer from anywhere. `remedies` is here because of
 //! `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface was absent for as
 //! long as it took a person to read it, because the prose scope below never reached this binary's
@@ -67,6 +69,13 @@ mod advice;
 // which none of the tables above can express - a forbidden wording is a ratchet on a sentence
 // somebody has already got wrong, and that one was true when it was written.
 mod constants;
+// `github.com/telekom/sutura#370`, and `constants`' shape one subject over: that one resolves a
+// CONSTANT the sentence links, this one resolves an ABSENCE the sentence asserts. Its own module
+// for `constants`' reason, and the only check here that matches an authored WORDING inside a `.rs`
+// doc comment - which the scope filter below refuses for everything that judges a sentence, so the
+// narrowing that makes it safe (only `///` and `//!` are read) lives beside the check rather than
+// as an exception here.
+mod absences;
 // `github.com/telekom/sutura#297`. Prose again, so it could have been lines here - it is a module
 // because it grows by ENTRY like the tables above and this file is what has to have room for those.
 mod hosts;
@@ -75,6 +84,7 @@ mod hosts;
 // assertions are in `tests` below rather than beside it, for the reason `mod claims` gives.
 mod pages;
 
+use absences::absence_problems;
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 use constants::constant_problems;
 use hosts::{HOSTED, host_mismatches};
@@ -527,6 +537,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // this check on the derived copy rather than on the source of the claim.
     let (contradicted_constants, confirmed) = constant_problems(&root, &files);
     problems.extend(contradicted_constants);
+    // `.rs` a fourth time, and the one that reads a doc comment as PROSE rather than resolving a
+    // citation in it. `files` for both halves: the sentence may be in a doc comment or on a page,
+    // and what refutes it is code.
+    let (refuted, read) = absence_problems(&root, &files);
+    problems.extend(refuted);
     // FAIL CLOSED. A citation walk that reads nothing passes everything, which is the failure mode
     // `check-scope` and the remedy scan each guard separately. This tree prints dozens, so zero
     // means the span reader stopped reading rather than the advice being clean.
@@ -542,13 +557,18 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // nobody checks, and `{read} of {offered}` is what makes a narrowed walk visible in a
         // green run rather than only in a red one.
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} of {} page(s) lexed, {} amendment heading(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) scanned, {} of {} page(s) lexed, {} amendment heading(s)",
             text_files.len(),
             FORBIDDEN.len(),
             PINS.len(),
             CONTRADICTED.len(),
             COUNTS.len(),
             HOSTED.len(),
+            // BOTH numbers, and printed rather than merely held: an absence with no statement and
+            // an absence whose scan opened nothing are the two ways this reports `ok` over
+            // nothing, and each is a failure only because the pair is what the check reads.
+            read.stated,
+            read.scanned,
             pages.read,
             pages.offered,
             pages.headings

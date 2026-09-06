@@ -101,8 +101,10 @@ correctness question rather than a style one.**
 - **`Arc` is for state genuinely shared across tasks and immutable once built** - the pinned bundle,
   the certified key the TLS resolver hands out. `Arc<Mutex<_>>` around per-request state is the shape
   to stop and rethink.
-- **The scoped view BORROWS the pinned definitions.** Not an optimisation: it is what keeps `load()`
-  off the request path and makes visibility filtering incapable of acquiring I/O.
+- **The request path BORROWS the pinned bundle.** Not an optimisation: `load()` runs once at boot and
+  `crates/sutura-http/src/state.rs` hands a handler `&PinnedDefinitions`, so nothing on that path can
+  acquire I/O to widen what it reads. There is no per-request view between the two - the wording that
+  said there was described a type this tree has never declared, and `check-guidance` registers it.
 - **Know which clones are cheap.** Arrow buffers are reference-counted by construction, so cloning a
   batch moves no data; treating it as a copy produces worse code, not safer code. The opposite
   mistake is cloning a `String` per row because a signature asked for one.
