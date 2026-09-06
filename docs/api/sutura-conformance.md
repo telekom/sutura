@@ -473,7 +473,7 @@ per adapter; nothing here panics, so a pack can also be called directly.
 
 # What this pack does not reach
 
-- **Ordering inside a leg.** A [`LegPlan`](sutura_domain::plan::LegPlan) carries no row limit and
+- **Ordering inside a leg.** A `sutura_domain::plan::LegPlan` carries no row limit and
   no statement that an order was promised, so `a_leg_is_executed` asserts content only -
   `sutura_domain::warehouse::agreement`'s own header says a leg comparing against a plan that
   claimed no order should not call the order assertion.
