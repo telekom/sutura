@@ -62,9 +62,17 @@ mod conformance {
   `.agents/skills/sutura/invariants`, held by other mechanisms.
 - **That the corpus is hard.** It is two questions over one table - `corpus` lists by name the
   cases `docs/adr/0012` says nothing else finds, none of which is here yet.
-- **That every adapter is held.** A pack is bound where an adapter's own crate binds it, so which
-  adapters conform is a question about which crates carry a `tests/conformance.rs`, and the
-  answer is in those crates rather than here.
+- **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
+  where an adapter's own crate binds it, so which adapters conform used to be a reading of which
+  crates carry a `tests/conformance.rs` - deleting one left `just validate` green.
+  `cargo xtask check-conformance-bindings` compares the golden matrix's `data_systems` registry
+  against the crates holding a binding, with one declared exemption. **Its limit is the one this
+  crate cannot help with:** it holds that a registered data system HAS a binding, never that a
+  pack's body asserts anything - the four mechanisms above are what cover that, and a pack
+  returning `Ok` unconditionally passes all of them and the gate.
+- **A COST, rather than a budget.** `Spent` reports what every cell and every fixture took,
+  and `census` prints the per-adapter floor; nothing thresholds either, and nothing joins two
+  adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
 
 ## `enum Behaviour`
 
@@ -138,6 +146,77 @@ behaviour that can be declined.
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+## `struct Spent`
+
+```rust
+pub struct Spent
+```
+
+What one cell of the matrix cost, measured rather than stated.
+
+**`docs/adr/0012` said per-pack timings were reported *from the start* and nothing measured
+one** (`telekom/sutura#353`). The record's own argument for having them is the one that governs
+every number in this repository: a conformance matrix grows multiplicatively - adapters times
+behaviours times cases - so *the tier that is supposed to be fast stops being fast quietly*, and
+the fast tier is defended with a measurement or it is defended with a feeling.
+
+# Two numbers, and the seam between them is where the multiplication is
+
+`execute_packs` calls the binding's `open` once per BEHAVIOUR, so the fixture - opening the
+adapter and attaching the corpus - is paid once per emitted test rather than once per binding.
+That is deliberate, because no state may cross between tests, and it is also the term that
+grows fastest - so one total would hide the thing a reader needs: whether a slow cell is a slow
+behaviour or a slow fixture paid six times.
+
+# It cannot be fabricated, which is why it is a type
+
+The fields are private and both constructors MEASURE. A `Duration` parameter would have let a
+caller report a number nobody took, which is the shape this repository has already paid for: a
+count in a message is not a witness.
+
+# What it does not reach, next to the claim
+
+**Nothing joins two adapters' numbers.** A pack is a behaviour name shared across adapters, and
+each binding is its own test binary in its own crate - under nextest each test is its own
+PROCESS - so no value here can see another binding's. Aggregating per pack ACROSS adapters
+needs a reader of a run's machine-readable output, which is a gate rather than a measurement;
+`docs/adr/0012` carries that split. **And nothing thresholds any of this**: a budget with no
+run beside it cannot be re-taken, so the report is the deliverable and a budget comes second
+with its own measurement.
+
+### Methods
+
+```rust
+pub fn building<W>(open: impl FnOnce() -> W) -> Self
+```
+
+The fixture alone: what `census` measures, because it runs no behaviour.
+
+```rust
+pub const fn fixture(self) -> core::time::Duration
+```
+
+What the fixture cost.
+
+```rust
+pub fn measuring<W, T>(open: impl FnOnce() -> W, run: impl FnOnce(&W) -> T) -> (T, Self)
+```
+
+Builds the fixture, runs the behaviour against it, and reports what each cost.
+
+Both halves are measured here rather than by the caller, so a cell's numbers and the work
+they are about cannot be paired wrongly and the split is the same split in every binding.
+
+```rust
+pub const fn pack(self) -> core::time::Duration
+```
+
+What the behaviour cost, once the fixture was standing.
+
+### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
 ## `enum Fault`
 
 ```rust
@@ -168,25 +247,29 @@ a corpus of many says which one.
 ## `fn hold`
 
 ```rust
-pub fn hold<E>(adapter: &str, behaviour: Behaviour, conformed: Conformed<E>)
+pub fn hold<E>(adapter: &str, behaviour: Behaviour, conformed: Conformed<E>, spent: Spent)
 ```
 
-Reports one behaviour, and fails the test if it did not hold.
+Reports one behaviour with what it cost, and fails the test if it did not hold.
 
 The only place in this crate that ends a test, so what a failure prints is decided once: the
-adapter, the behaviour, and the whole cause chain. `Display` on a `thiserror` enum prints the
-outermost message and stops, and the outermost message here is the pack's - what tells a rejected
-statement from an outage is one and two levels down.
+adapter, the behaviour, the cost, and the whole cause chain. `Display` on a `thiserror` enum
+prints the outermost message and stops, and the outermost message here is the pack's - what
+tells a rejected statement from an outage is one and two levels down.
+
+**The cost is on the failing line too**, and that is not symmetry for its own sake: a cell that
+failed in two milliseconds and one that failed after thirty seconds are different diagnoses, and
+the second is the one `docs/adr/0012` says goes quiet.
 
 ## `fn census`
 
 ```rust
-pub fn census<W>(adapter: &str, bound: &[Behaviour])
+pub fn census<W>(adapter: &str, bound: &[Behaviour], fixture: Spent)
 ```
 
-What a binding actually covered, asserted and printed.
+What a binding actually covered, asserted and printed - with the cost of covering it.
 
-Three things, and the first is the one a review had to correct:
+Four things, and the first is the one a review had to correct:
 
 1. **the behaviours the binding actually emitted tests for are `Behaviour::EVERY`**. `bound`
    is not a second hand-written list: `execute_packs` generates it from the same repetition
@@ -198,10 +281,19 @@ Three things, and the first is the one a review had to correct:
 3. the counts are PRINTED - behaviours, cases, and which direction the leg declaration selected.
    A suite that reports a ratio it has not earned is the failure this repository has already met
    twice, and `.config/nextest.toml`'s second override is what makes this line survive a green
-   run instead of being captured and discarded.
+   run instead of being captured and discarded;
+4. **the per-adapter FLOOR is printed, from a measurement.** `docs/adr/0012` asks for timings
+   aggregated per pack and per adapter (`telekom/sutura#353`); this is the per-adapter half that
+   a test process can actually take. `execute_packs` rebuilds the fixture once per behaviour,
+   so `behaviours x fixture` is the cost this binding pays before a single assertion runs - the
+   multiplicative term the record's *stops being fast quietly* is about. It is derived from the
+   same `bound` slice the comparison above uses, so the multiplier is the number of tests that
+   were actually emitted rather than a constant beside it.
 
 What it cannot do: know that a behaviour's BODY asserts anything. A pack that returned `Ok`
-unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for.
+unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for. And
+the floor is a FLOOR: it is not the tier's cost, it says nothing about another adapter's cells,
+and no gate reads it - see `Spent` for why each of those is deliberate.
 
 ## `use None`
 
