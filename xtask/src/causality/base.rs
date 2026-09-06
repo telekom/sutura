@@ -386,9 +386,8 @@ pub(crate) fn report_base(
             for one in failed {
                 println!("    red on base: {one}");
             }
-            // THE FALSIFIER FOR THE ARM ABOVE, and the wording is `super::reverted`'s because the
-            // claim being contradicted is. Printed rather than acted on: this run produced the
-            // evidence the gate exists for, and reddening it would be the wrong trade.
+            // The same falsifier, printed rather than acted on: this run produced the evidence the
+            // gate exists for, and reddening it would be the wrong trade.
             for one in reverted::contradiction(reverted) {
                 println!("{one}");
             }
@@ -400,6 +399,11 @@ pub(crate) fn report_base(
             eprintln!("xtask test-causality: FAILED - the base tree is red outside this diff");
             for one in failed {
                 eprintln!("    outside the diff: {one}");
+            }
+            // The falsifier, on BOTH red arms since review: which side of the filter the failure
+            // landed on does not change what the pairing is evidence of. `super::reverted` owns it.
+            for one in reverted::contradiction(reverted) {
+                eprintln!("{one}");
             }
             eprintln!();
             eprintln!("Not one of those is a test this diff added, so the run says nothing about");
@@ -506,7 +510,7 @@ mod tests {
         BaseOutcome, Coverage, Moved, Reverted, Verdict, classify_base, earned, missing_module_file, names_no_tests, report_base,
         tail,
     };
-    use crate::causality::fixtures::{named, scoped};
+    use crate::causality::fixtures::{UNRELATED_RED, audit_record, named, scoped};
     use crate::causality::place::AddedTest;
 
     /// The classifier over a scope whose every test is NEW here and a revert that reaches them.
@@ -524,26 +528,6 @@ mod tests {
     fn reported(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage) -> Verdict {
         report_base(outcome, output, retried, coverage, &Moved::Nothing, &Reverted::Behaviour)
     }
-
-    /// The audit record from #276, as the branch that first exposed the wide run declared it.
-    fn audit_record() -> Vec<AddedTest> {
-        scoped(
-            "sutura-cli",
-            "crates/sutura-cli/src/audit.rs",
-            &["a_refused_question_is_recorded_and_names_the_refusal"],
-        )
-    }
-
-    /// The base run that reported the false green, as nextest printed it. Two tier-backed cells
-    /// failed after 86 of 1810 tests and the branch's own test never ran.
-    const UNRELATED_RED: &str = concat!(
-        "    Starting 1810 tests across 47 binaries\n",
-        "        FAIL [   0.313s] (86/1810) sutura-app::differential tests::postgres::sums_by_month\n",
-        "        FAIL [   0.204s] (87/1810) sutura-app::differential tests::postgres::one_row_per_month\n",
-        "  Cancelling due to test failure: \n",
-        "     Summary [   4.118s] 87 tests run: 85 passed, 2 failed, 1723 skipped\n",
-        "error: test run failed\n",
-    );
 
     #[test]
     fn a_base_failure_outside_the_diff_is_not_reported_as_red_by_assertion() {

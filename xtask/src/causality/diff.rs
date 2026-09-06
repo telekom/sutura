@@ -30,23 +30,32 @@ pub(crate) struct ChangedFile {
     pub(crate) removed: Vec<RemovedLine>,
 }
 
-/// One removed line: the text the diff took out, and the POST-image line it used to sit at.
+/// One removed line: the text the diff took out, and a POST-image line NEXT TO the gap it left.
 ///
-/// **The anchor is a GAP, not a line, and there is no exact alternative.** A removed line has a
-/// PRE-image number while every region this gate computes is read off the POST-image, so the two
-/// are not comparable; what IS comparable is where the removal landed in the file as it stands -
-/// the counter [`parse_diff`] advances over context and additions, which is the position the next
-/// surviving line now occupies. That is exact for a hunk inside a region that survived and wrong
-/// for a hunk that deleted a whole region, and wrong in the safe direction: a position outside
-/// every region reads as production code.
+/// **THE ANCHOR IS NOT A POSITION, IT IS ONE SIDE OF A GAP, and which side depends on the hunk.**
+/// A removed line has a PRE-image number while every region this gate computes is read off the
+/// POST-image, so the two are not comparable; what is comparable is where the removal landed in
+/// the file as it stands. Measured against git rather than assumed, on `-U0`:
 ///
-/// **Not the hunk's start**, which the first version used and which is the same number only under
-/// `-U0`. A wider context walks the counter forward before the removal, and anchoring the whole
-/// hunk at its header would put a removal from the end of it several lines earlier than it was.
+/// | the hunk | its header | what the anchor is |
+/// | --- | --- | --- |
+/// | delete lines 3-4 of five | `@@ -3,2 +2,0 @@` | **2** - the last surviving line BEFORE the gap |
+/// | replace lines 3-4 | `@@ -3,2 +3,2 @@` | **3** - the FIRST replacement line, one past the gap |
+///
+/// So a consumer may not read it as *the removal was here*. `super::reverted` asks the whole
+/// neighbourhood instead, and its own header says why one side was not enough.
+///
+/// **The first version of this doc claimed the wrong direction**, and review falsified it
+/// end-to-end: it said a hunk that deleted a whole region is *wrong towards `Behaviour`*, the safe
+/// side. It is wrong towards the EXCUSE. `regions::cfg_test_regions` builds a range that includes
+/// the region's own last line, so a deletion whose preceding surviving line is a closing brace
+/// anchored INSIDE the region it sits after - and a pure deletion of production code read as test
+/// code. That was reachable at a shape this tree writes in several places: a
+/// `#[cfg(test)] mod x;` followed immediately by a production item.
 #[derive(Debug)]
 pub(crate) struct RemovedLine {
-    /// The 1-based POST-image line the removal sits at. Zero when the hunk emptied the file's
-    /// first lines, which no region contains.
+    /// A 1-based POST-image line beside the gap - see the table above for which side. Zero when
+    /// the hunk emptied the file's first lines, which no region contains.
     pub(crate) anchor: usize,
     /// The removed text, without the diff's leading `-`.
     pub(crate) text: String,
@@ -82,15 +91,24 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
     let mut files: Vec<ChangedFile> = Vec::new();
     let mut current: Option<ChangedFile> = None;
     let mut next_line = 0_usize;
+    // INSIDE A HUNK, `---` IS CONTENT AND NOT A HEADER, and reading it as one silently DROPPED a
+    // removed line - a `--` SQL comment at column 0 of a raw string is the shape, in a repository
+    // whose subject is generated SQL. A file whose only change vanished that way parsed to an
+    // EMPTY change set, which `super::reverted` read as *nothing changed*. Headers occur only
+    // before a file's first `@@`, so that is where they are read.
+    let mut in_hunk = false;
 
     for line in text.lines() {
         if line.starts_with("diff --git ") {
             if let Some(done) = current.take() {
                 files.push(done);
             }
+            in_hunk = false;
             continue;
         }
-        if let Some(rest) = line.strip_prefix("+++ b/") {
+        // Guarded by `in_hunk` for the same reason: an ADDED line spelling `++ b/x` arrives here
+        // as `+++ b/x` and would otherwise open a file entry of its own.
+        if let Some(rest) = (!in_hunk).then(|| line.strip_prefix("+++ b/")).flatten() {
             if let Some(done) = current.take() {
                 files.push(done);
             }
@@ -103,14 +121,16 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
         }
         if let Some(start) = hunk_start(line) {
             next_line = start;
+            in_hunk = true;
             continue;
         }
         let Some(file) = current.as_mut() else {
             continue;
         };
-        // `---`/`+++` are headers, `\ No newline at end of file` is a note; neither is a line of
-        // either image.
-        if line.starts_with("---") || line.starts_with("+++") || line.starts_with('\\') {
+        // `---`/`+++` are headers only OUTSIDE a hunk; inside one they are ordinary content that
+        // happens to begin with the marker. `\ No newline at end of file` is a note either way,
+        // and no image line can be taken for it, because an image line begins with its own marker.
+        if (!in_hunk && (line.starts_with("---") || line.starts_with("+++"))) || line.starts_with('\\') {
             continue;
         }
         if let Some(added) = line.strip_prefix('+') {
@@ -243,6 +263,32 @@ mod tests {
         // The additions still carry their own post-image numbers, unmoved by the removals.
         let numbers: Vec<usize> = file.added.iter().map(|line| line.number).collect();
         assert_eq!(numbers, vec![42, 43]);
+    }
+
+    #[test]
+    fn a_removed_line_that_begins_like_a_header_is_content_and_not_dropped() {
+        // THE SILENT DROP. `---` opens a file header OUTSIDE a hunk and is ordinary content inside
+        // one, and reading it as a header everywhere deleted the line from the parsed change set.
+        // A `--` SQL comment at column 0 of a raw string is that shape, in a repository whose
+        // subject is generated SQL - and a file whose WHOLE change was such a line then arrived at
+        // `super::super::reverted` with an empty change set, which read as *nothing changed*.
+        let diff = concat!(
+            "diff --git a/crates/x/src/render.rs b/crates/x/src/render.rs\n",
+            "--- a/crates/x/src/render.rs\n",
+            "+++ b/crates/x/src/render.rs\n",
+            "@@ -12 +11,0 @@ fn statement() {\n",
+            "--- restricted to the caller's own rows\n",
+        );
+        let files = parse_diff(diff);
+        assert_eq!(files.len(), 1, "{files:?}");
+        let file = files.first().expect("one changed file");
+        assert_eq!(
+            file.removed.iter().map(|line| line.text.as_str()).collect::<Vec<&str>>(),
+            vec!["-- restricted to the caller's own rows"],
+            "the removal is content, not a second `---` header"
+        );
+        // And the real headers are still headers: one file entry, not three.
+        assert_eq!(file.path, "crates/x/src/render.rs");
     }
 
     #[test]

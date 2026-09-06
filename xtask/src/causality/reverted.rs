@@ -46,35 +46,65 @@
 //!   class whose whole point is that reverting it reddens a documentation-driven suite is left
 //!   alone. A branch whose only implementation change is such a file still gets the verdict it
 //!   gets today.
-//! * **A comment inside a string literal.** *Blank or `//`* is a lexical test on one line, so a
-//!   line of a raw string that begins `//` reads as a comment. It fails towards the excuse, and
-//!   what it costs is a failure that becomes an exit 3 for a diff whose only implementation change
-//!   is text that looks like commentary. A block comment fails the other way - a `*` continuation
-//!   line is not excused - which is the safe direction and is why no `/*` form is matched.
+//! * **A comment inside a string literal.** *Blank or a plain `//`* is a lexical test on one line,
+//!   so a line of a raw string that begins `//` reads as a comment. It fails towards the excuse,
+//!   and what it costs is a failure that becomes an exit 3 for a diff whose only implementation
+//!   change is text that looks like commentary. A block comment fails the other way - a `*`
+//!   continuation line is not excused - which is why no `/*` form is matched.
 //! * **A `.rs` FILE IS ALSO DATA, and *the same program* is a claim about the compiled program
 //!   only.** This workspace's own gates read repository source as TEXT, and their `#[test]`s do
 //!   too - `check-max-lines` counts a file's lines, `check-guidance` reads its spans - so a
 //!   comment-only change is not a no-op for one of those. No count is written here: the argument
-//!   holds at any number above zero. **The direction it fails in is bounded twice.** A revert that
-//!   really does redden such a test produces a RED base run, which this arm never sees - the
-//!   verdict is `ok - red on base, green on head` - and the run prints the contradiction beside
-//!   it. What is left is a proof turned into an exit 3, never a failure turned into a pass.
+//!   holds at any number above zero. **Doc comments are NOT in this class** and were, until review:
+//!   `///` and `//!` reach a tool schema's `description` through `schemars`, so they are program
+//!   text and [`inert`] refuses them.
+//! * **`super::regions` FINDS `#[cfg(test)]` BY TEXT, and this module promoted that scanner from
+//!   deciding separability to deciding whether a FAILED is suppressed.** Its `item_end` counts
+//!   braces without knowing it began inside a string, so a fixture string holding an unbalanced
+//!   `#[cfg(test)] mod demo {` would make the rest of that file read as one region - towards the
+//!   EXCUSE. **What keeps it harmless today is an ORDERING ACCIDENT, not a mechanism, and the
+//!   ingredient is already here.** Measured over `crates/`, `xtask/` and `dev/` on 2026-09-06:
+//!   FOUR `#[cfg(test)]` line-starts sit inside string literals - all four in `xtask` fixtures of
+//!   Rust source, which is the crate that writes such fixtures - and ZERO of them are reached
+//!   first, because `cfg_test_regions` resumes after each region it opens and every one of the
+//!   four already sits inside its own file's real test module. Move such a fixture ABOVE the
+//!   file's `#[cfg(test)] mod tests` and it fires. It is stated rather than closed because the
+//!   fix is `regions`' own lexer and this module cannot answer it locally.
+//!   **Both halves of that were measured against a first attempt that was wrong in each
+//!   direction**: a scan claiming eighteen, whose lexer had no case for the char literal `'"'`
+//!   and swallowed whole files, and a report that every occurrence was outside a string.
 //! * **Cross-package reachability itself.** Nothing here asks whether the scoped tests' package
 //!   even depends on the reverted one, which is the `cargo metadata` question
 //!   `github.com/telekom/sutura#358` left open. A production change in an unrelated package is
 //!   still `Behaviour`, so this closes none of that - it is strictly the *no line any test could
 //!   execute* half.
-//! * **A removed line's position.** `super::diff::RemovedLine` anchors a removal at the GAP it
-//!   left in the post-image, which is exact for a hunk inside a region that survived and wrong for
-//!   one that deleted a whole region - wrong towards `Behaviour`, because a position no region
-//!   contains reads as production code.
+//! * **A removed line's position.** `super::diff::RemovedLine` anchors a removal beside the gap it
+//!   left, on a side that depends on the hunk shape, so [`neighbourhood`] asks about all three
+//!   lines. The first version asked about one and claimed the error direction was `Behaviour`;
+//!   review falsified both, end to end, and that paragraph now sits on the type.
 //!
-//! **AND IT HAS A FALSIFIER RATHER THAN ONLY AN ARGUMENT.** *Out of reach* and *red by assertion*
-//! are contradictory answers about one run: this module says the revert restores nothing a scoped
-//! test can execute, and the run says a scoped test failed once it was restored. `super::base`
-//! prints that pairing where it happens rather than resolving it, because the two come from
-//! different places - one from the diff, one from nextest - and a rule with a hole in it is what
-//! the pairing would be evidence of.
+//! **AND IT HAS A FALSIFIER RATHER THAN ONLY AN ARGUMENT.** *Out of reach* and *a red base run*
+//! are contradictory answers about one run: this module says the revert restores nothing a test can
+//! execute, and the run says something failed once it was restored. `super::base` prints that
+//! pairing on BOTH red arms - `RedByAssertion` and `RedOutsideTheDiff`, which is equally
+//! contradictory and printed nothing until review said so - rather than resolving it, because the
+//! two answers come from different places, one from the diff and one from nextest, and a rule with
+//! a hole in it is what the pairing would be evidence of.
+//!
+//! **WHAT THE FALSIFIER DOES NOT SEE, because it is scoped exactly as the runs are.** It fires on a
+//! failure the run REPORTED, and the base run is filtered to the tests this diff added. A revert
+//! that reddens a PRE-EXISTING test - one of this repository's own gate cells that `include_str!`s
+//! its source, say - is outside that filter, so the contradiction is never printed and the excuse
+//! stands unchallenged. Widening it would mean an unfiltered base run, which is the wide-run defect
+//! `super::base`'s header records; the honest statement is that this catches the contradiction it
+//! can see.
+//!
+//! **AND THE BOUND THIS ARM MAY CLAIM, restated because the first wording was too generous.** It is
+//! reached only under a base run that SUCCEEDED, so it cannot turn a failure into
+//! `ok - red on base, green on head` - the verdict that claims a proof. It is NOT "never a failure
+//! turned into a pass": exit 3 is a green step at both venues, carrying a warning that
+//! `.agents/skills/sutura/gates/SKILL.md` records as never reaching the pull-request conversation.
+//! A verdict this arm gets wrong is therefore a check somebody may read as clean.
 
 use std::collections::BTreeSet;
 
@@ -295,6 +325,14 @@ fn excuse(file: &ChangedFile, measured: &BTreeSet<String>, read: &PostImage<'_>)
     if Reach::of(&file.path) != Reach::Compiled {
         return None;
     }
+    // **AN EMPTY CHANGE SET IS NOT AN UNCHANGED FILE**, and `all` over an empty iterator is `true`,
+    // so this arm used to excuse a file the PARSER could not read. Reachable: `super::diff` dropped
+    // any removed line spelling `--- ..`, which a `--` SQL comment at column 0 of a raw string is
+    // one fixture away from in a repository whose subject is generated SQL - and a file whose whole
+    // change was such a line arrived here with nothing in it. That parser no longer drops the line;
+    // this refuses the shape anyway, because *the parser saw nothing* and *nothing changed* are two
+    // statements and only one of them is an excuse.
+    changed_lines(file).next()?;
     if changed_lines(file).all(inert) {
         return Some(Excused {
             path: file.path.clone(),
@@ -320,26 +358,67 @@ fn changed_lines(file: &ChangedFile) -> impl Iterator<Item = (usize, &str)> {
     added.chain(removed)
 }
 
-/// Blank, or a comment.
+/// Blank, or a comment that is not COMPILED.
 ///
-/// **Narrower than `super::regions`' own exemption on purpose.** That one also lets an ATTRIBUTE
-/// through, because it is answering *did the author put an implementation change outside the test
-/// module* and an attribute is usually punctuation there. Here the answer decides whether
-/// reverting a file can change what runs, and a `#[derive(..)]` or a `#[serde(..)]` added to a
-/// production type changes exactly that. So this one may not inherit the looser rule.
+/// **Narrower than `super::regions`' own exemption twice over, and each narrowing is a defect that
+/// was reachable without it.** That one lets an ATTRIBUTE through, because it is answering *did the
+/// author put an implementation change outside the test module* and an attribute is usually
+/// punctuation there; here the answer decides whether reverting a file can change what RUNS, and a
+/// `#[derive(..)]` or a `#[serde(..)]` on a production type changes exactly that.
+///
+/// **AND `///` / `//!` ARE NOT COMMENTS FOR THIS QUESTION - THEY ARE PROGRAM TEXT.** A doc comment
+/// is an attribute in disguise, and this workspace reads it at runtime rather than only in
+/// documentation: `schemars` puts a root doc comment into a tool schema's `description`, which is
+/// text a model reads before it calls the tool, and `utoipa::ToSchema` does the same for the HTTP
+/// surface. Review reproduced it in the real tree - changing exactly ONE `///` line in
+/// `crates/sutura-mcp/src/wire.rs` reddens a committed-snapshot test - so *the same program* would
+/// have been false about a change that alters what a caller is told. Only a plain `//` is inert.
+///
+/// `////` and longer runs are ordinary comments in Rust and are refused here anyway: the prefix
+/// test cannot separate them, and refusing is the direction that keeps a failure a failure.
 fn inert(line: (usize, &str)) -> bool {
     let (_, text) = line;
     let trimmed = text.trim();
-    trimmed.is_empty() || trimmed.starts_with("//")
+    let plain_comment = trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("//!");
+    trimmed.is_empty() || plain_comment
 }
 
 /// Does every line this file changed sit inside its own test regions, or change no program at all?
 ///
 /// The two are OR-ed per line rather than checked as two whole-file questions, because the common
-/// shape is both at once: a doc comment corrected at the top of a file and an assertion rewritten
-/// in its `mod tests`. Neither line can reach another package's build, for its own reason.
+/// shape is both at once: a comment corrected at the top of a file and an assertion rewritten in
+/// its `mod tests`. Neither line can reach another package's build, for its own reason.
+///
+/// **AN ADDED LINE HAS A POSITION; A REMOVED ONE HAS A GAP, and asking about one side of it was a
+/// door.** `super::diff::RemovedLine`'s anchor is the last surviving line before the gap for a pure
+/// deletion and the first replacement line for a replacement, and `regions`' ranges INCLUDE the
+/// region's own closing line - so a production deletion immediately after a
+/// `#[cfg(test)] mod x;` anchored on that declaration and read as test code. Review drove it end to
+/// end against a two-package workspace: `INCONCLUSIVE`, exit 3, over a diff whose head compiles
+/// differently and whose added test pins the old behaviour. [`neighbourhood`] is the fix, and it is
+/// deliberately blunt.
 fn only_its_own_tests(file: &ChangedFile, within: &TestScope) -> bool {
-    changed_lines(file).all(|line| inert(line) || within.covers(line.0))
+    let added = file
+        .added
+        .iter()
+        .all(|line| inert((line.number, &line.text)) || within.covers(line.number));
+    let removed = file
+        .removed
+        .iter()
+        .all(|line| inert((line.anchor, &line.text)) || neighbourhood(within, line.anchor));
+    added && removed
+}
+
+/// Is the whole neighbourhood of a gap at `anchor` test code?
+///
+/// **All three lines, because the anchor names one side of the gap and WHICH side depends on the
+/// hunk.** Deriving the exact side would mean reading the new-side COUNT out of every hunk header
+/// and threading two numbers where one is; asking for `anchor - 1`, `anchor` and `anchor + 1`
+/// costs a line and is correct for both shapes plus any context width. What it costs is precision
+/// at a region's first line, where a removal is refused an excuse it might have earned - and that
+/// direction is a failure that stays a failure, which is this gate's default and not a new one.
+fn neighbourhood(within: &TestScope, anchor: usize) -> bool {
+    within.covers(anchor.saturating_sub(1)) && within.covers(anchor) && within.covers(anchor + 1)
 }
 
 #[cfg(test)]
@@ -701,6 +780,103 @@ mod tests {
         let lines = super::contradiction(&out_of_reach());
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(lines.iter().all(|line| line.contains("CONTRADICTED")), "{lines:?}");
+    }
+
+    #[test]
+    fn a_production_deletion_after_a_test_module_declaration_is_in_reach() {
+        // THE DOOR REVIEW DROVE A NON-CAUSAL DIFF THROUGH, end to end, to `INCONCLUSIVE` exit 3.
+        // `#[cfg(test)] mod probe;` is a one-line region, `regions` includes its own last line, and
+        // a pure deletion of the production line under it anchors ON that declaration. Asking
+        // about the anchor alone called a deleted `use` statement test code; asking about the whole
+        // neighbourhood does not, because the line after the gap is production.
+        let files = vec![
+            changed_removing("crates/pkg-a/src/lib.rs", 2, &[], &["use strict::accepts;"]),
+            changed("crates/pkg-b/tests/pinned.rs", 2, &["#[test]", "fn a_pinned_cell() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/pkg-a/Cargo.toml", &manifest("pkg-a")),
+            ("crates/pkg-b/Cargo.toml", &manifest("pkg-b")),
+            // Line 1 is the attribute, line 2 the declaration - so the region is 1..=2 and the
+            // deleted line's anchor, 2, is inside it. Line 3 is production.
+            (
+                "crates/pkg-a/src/lib.rs",
+                "#[cfg(test)]\nmod probe;\nuse loose::*;\npub fn accepts() {}\n",
+            ),
+            ("crates/pkg-b/tests/pinned.rs", "#[test]\nfn a_pinned_cell() {}\n"),
+        ]);
+        let revert = vec![String::from("crates/pkg-a/src/lib.rs")];
+        let measured = vec![String::from("crates/pkg-b/tests/pinned.rs")];
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
+        // The neighbourhood is what decides it: inside the region on every side, it is test code.
+        let within = crate::causality::regions::scope("crates/pkg-a/src/lib.rs", &read);
+        assert!(!super::neighbourhood(&within, 2), "the line after the gap is production");
+        let whole = crate::causality::regions::scope("crates/pkg-b/tests/pinned.rs", &read);
+        assert!(
+            super::neighbourhood(&whole, 2),
+            "a dedicated test target is test code on every side of any gap"
+        );
+    }
+
+    #[test]
+    fn a_change_set_the_parser_could_not_read_earns_no_excuse() {
+        // `all` OVER AN EMPTY ITERATOR IS TRUE, so a file whose parsed change set is empty was
+        // vacuously *blank lines and comments only*. `super::super::diff` no longer drops the line
+        // that produced it, and this refuses the shape regardless: *the parser saw nothing* and
+        // *nothing changed* are two statements and only one of them is an excuse.
+        let files = vec![
+            changed("crates/x/src/render.rs", 1, &[]),
+            changed("crates/y/src/pinned/tests.rs", 2, &["#[test]", "fn a_pinned_cell() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/y/Cargo.toml", &manifest("y")),
+            ("crates/x/src/render.rs", "fn statement() {}\n"),
+            ("crates/y/src/pinned/tests.rs", "#[test]\nfn a_pinned_cell() {}\n"),
+        ]);
+        let revert = vec![String::from("crates/x/src/render.rs")];
+        let measured = vec![String::from("crates/y/src/pinned/tests.rs")];
+        assert_eq!(Reverted::of(&revert, &measured, &files, &read), Reverted::Behaviour);
+    }
+
+    #[test]
+    fn a_doc_comment_is_program_text_and_a_plain_comment_is_not() {
+        // `///` REACHES A CALLER. `schemars` puts a root doc comment into a tool schema's
+        // `description`, and `utoipa::ToSchema` does the same for the HTTP surface, so a
+        // `///`-only change alters what a model is told before it calls the tool - reproduced in
+        // this tree against a committed snapshot. A plain `//` still changes nothing compiled,
+        // which is the excuse #397 relies on.
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/x/src/wire.rs", "pub struct Tool;\n".repeat(20).as_str()),
+            ("crates/y/Cargo.toml", &manifest("y")),
+            ("crates/y/src/pinned/tests.rs", "#[test]\nfn a_pinned_cell() {}\n"),
+        ]);
+        let revert = vec![String::from("crates/x/src/wire.rs")];
+        let measured = vec![String::from("crates/y/src/pinned/tests.rs")];
+        let pinned = changed("crates/y/src/pinned/tests.rs", 2, &["#[test]", "fn a_pinned_cell() {}"]);
+        for doc in [
+            "/// what the model reads before it calls this",
+            "//! the crate's own description",
+        ] {
+            let files = vec![
+                changed("crates/x/src/wire.rs", 4, &[doc]),
+                changed("crates/y/src/pinned/tests.rs", 2, &["#[test]", "fn a_pinned_cell() {}"]),
+            ];
+            assert_eq!(
+                Reverted::of(&revert, &measured, &files, &read),
+                Reverted::Behaviour,
+                "a doc comment is compiled into the program: {doc}"
+            );
+        }
+        // The plain form is still inert, and this is the arm #397 lands on.
+        let plain = vec![
+            changed("crates/x/src/wire.rs", 4, &["// a note to whoever edits this"]),
+            pinned,
+        ];
+        assert!(
+            !Reverted::of(&revert, &measured, &plain, &read).out_of_reach().is_empty(),
+            "a plain comment changes no program"
+        );
     }
 
     #[test]

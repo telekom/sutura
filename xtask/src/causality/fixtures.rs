@@ -100,3 +100,23 @@ pub(crate) fn scoped(package: &str, file: &str, names: &[&str]) -> Vec<AddedTest
         other => panic!("expected runnable tests, got {other:?}"),
     }
 }
+
+/// The audit record from #276, as the branch that first exposed the wide run declared it.
+pub(crate) fn audit_record() -> Vec<AddedTest> {
+    scoped(
+        "sutura-cli",
+        "crates/sutura-cli/src/audit.rs",
+        &["a_refused_question_is_recorded_and_names_the_refusal"],
+    )
+}
+
+/// The base run that reported the false green, as nextest printed it. Two tier-backed cells failed
+/// after 86 of 1810 tests and the branch's own test never ran.
+pub(crate) const UNRELATED_RED: &str = concat!(
+    "    Starting 1810 tests across 47 binaries\n",
+    "        FAIL [   0.313s] (86/1810) sutura-app::differential tests::postgres::sums_by_month\n",
+    "        FAIL [   0.204s] (87/1810) sutura-app::differential tests::postgres::one_row_per_month\n",
+    "  Cancelling due to test failure: \n",
+    "     Summary [   4.118s] 87 tests run: 85 passed, 2 failed, 1723 skipped\n",
+    "error: test run failed\n",
+);
