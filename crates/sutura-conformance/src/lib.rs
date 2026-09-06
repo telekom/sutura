@@ -66,14 +66,22 @@
 //!   nothing.** [`Fixture`] is a type a binding fills in and this crate cannot see a socket:
 //!   `xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone, and that gate's own
 //!   remedy assigns *reaching a provisioned tier* to the adapter's fixture. **In a venue that
-//!   provisioned one this is closed** - [`not_here`] refuses a declared tier absence wherever
-//!   [`REQUIRE_TIER`] is set, which is every venue that runs the suite through
-//!   `nix/with-tier.sh` (`just test`, `just gates`, `just causality`, `nix/run-gate.sh tests`) plus
-//!   `checks.nextest`. Measured before that arm existed: a fixture answering [`Fixture::Absent`]
+//!   provisioned one this is closed** - [`not_here`] and [`census`] both fail a declared absence
+//!   wherever [`REQUIRE_TIER`] is set, and `nix/with-tier.sh`'s `sutura_tier_up` STARTS a tier and
+//!   then exports it, so that is `just test`, `just gates`, `just causality`'s head run and
+//!   `nix/run-gate.sh tests` on a machine with the tier binary, plus `checks.nextest` in the
+//!   sandbox. Measured before that arm existed: a fixture answering [`Fixture::Absent`]
 //!   unconditionally, with the tier UP and the variable set, was 21 passed and the only tell was
-//!   seven printed `NOT RUN` lines. What remains is a developer machine that provisioned nothing,
-//!   where a declared absence and a discovered one are indistinguishable and the diff is where that
-//!   one line is read.
+//!   seven printed `NOT RUN` lines; with it, 7 of 7 fail.
+//!
+//!   **The residual is two venues rather than *a developer machine*, and both are checkable** -
+//!   *a developer machine* was the sentence that stood here and it points at the case where the
+//!   refusal DOES fire. (1) A host with no `sutura-postgres-tier` on `PATH`: `sutura_tier_up`'s
+//!   `command -v` arm returns before the export, which is that file's *a hook that cannot run must
+//!   not be a wall* posture. (2) `just causality`'s BASE run, where `xtask::causality` removes the
+//!   variable on purpose, because an export follows a process tree and the endpoint file the base
+//!   worktree would need does not. In those two a declared absence and a discovered one are the
+//!   same value.
 //! - **A COST, rather than a budget.** [`Spent`] reports what every cell and every fixture took,
 //!   and [`census`] prints the per-adapter floor; nothing thresholds either, and nothing joins two
 //!   adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
@@ -142,6 +150,40 @@ impl Behaviour {
         Self::Leg,
     ];
 
+    /// This behaviour's position in [`Self::EVERY`].
+    ///
+    /// **The half that made [`Self::EVERY`] stop being a hand-written list, and it was earned
+    /// twice.** The `#[test]`s and the census elements are one macro repetition, so a test cannot
+    /// lose its element - that was the first correction. `EVERY` was still a THIRD list tied to
+    /// neither, and a review measured what that costs: delete `Self::Content` from it AND its entry
+    /// from [`execute_packs`]'s `@behaviours` list, and all three bindings print
+    /// *5 behaviour(s) over 2 case(s)*, `21 tests run` becomes `18 tests run: 18 passed`, and
+    /// `-D warnings` says nothing - `execute::content_agrees_with_the_reference` stays alive because
+    /// `tests/bound.rs`'s fault half calls it. What `execute`'s own header calls *the* conformance
+    /// claim left the pack on a green run, in every binding.
+    ///
+    /// This is an **exhaustive** match, so both directions are now the compiler's:
+    ///
+    /// * a NEW variant does not compile until it is given a position here, which is the direction
+    ///   `matches!` and a wildcard would have handed a default to;
+    /// * a variant DELETED from `EVERY` shifts every later one, and the assertion below walks
+    ///   `EVERY` requiring `EVERY[i].index() == i` - so the review's mutation is a compile error
+    ///   rather than a smaller green run.
+    ///
+    /// Deleting the arm as well does not escape it: the variant still exists, so this match is
+    /// non-exhaustive. Deleting the VARIANT then breaks [`Self::as_str`] and the macro's own entry
+    /// for it. Every step of that path is a compile error, which is what *held by a type* means.
+    const fn index(self) -> usize {
+        match self {
+            Self::Labels => 0,
+            Self::Content => 1,
+            Self::Order => 2,
+            Self::Determinism => 3,
+            Self::PreFlight => 4,
+            Self::Leg => 5,
+        }
+    }
+
     /// The name a report carries.
     #[inline]
     #[must_use]
@@ -156,6 +198,28 @@ impl Behaviour {
         }
     }
 }
+
+// **[`Behaviour::EVERY`] and [`Behaviour::index`] are torn apart here unless they agree**, at
+// compile time, in a `const` block - so a behaviour cannot leave the pack the way a review measured
+// it leaving: `18 tests run: 18 passed` with every census green at five.
+//
+// The indexing is deliberate and is not the lint's usual hazard: in a `const` block an
+// out-of-range index is a BUILD failure, not a panic somebody meets at run time.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a const block, where an out-of-range index fails the build rather than a run - which \
+              is the whole point of asserting the pairing here rather than in a test"
+)]
+const _: () = {
+    let mut position = 0;
+    while position < Behaviour::EVERY.len() {
+        assert!(
+            Behaviour::EVERY[position].index() == position,
+            "Behaviour::EVERY and Behaviour::index disagree - a behaviour deleted from EVERY shifts every later one, and a behaviour without a test is coverage no run earns"
+        );
+        position += 1;
+    }
+};
 
 /// What running one behaviour against one adapter established.
 ///
@@ -193,8 +257,15 @@ pub enum Declination {
 /// may not be reachable here had exactly one option - panic in its fixture - and therefore could
 /// not be bound at all: `sutura-exec-postgres` was registered in the golden matrix and carried the
 /// one declared exemption in `cargo xtask check-conformance-bindings` for precisely that reason
-/// (`telekom/sutura#348`). A RETURN TYPE asks the question, so a binding cannot omit it and a
-/// reviewer reads which answer it gave.
+/// (`telekom/sutura#348`).
+///
+/// **What the return type buys, stated exactly, because the sentence that stood here read wider
+/// than the mechanism.** It forces a VALUE, not a question: `Fixture::standing(connect().unwrap())`
+/// asks nothing and PANICS, which is loud and fail-closed; `Fixture::Absent(Missing::tier(s, &".."))`
+/// asks nothing and is silent in the two venues named in this module's header. So what a binding
+/// cannot do is leave the two cases unconsidered - a fixture returning `W` does not compile - and
+/// what it can still do is answer either one dishonestly. That is one line, in a file whose whole
+/// content is a fixture and a declaration, and the diff is where it is read.
 ///
 /// # Why this is not an [`Outcome`], which is the distinction the design turns on
 ///
@@ -531,12 +602,25 @@ pub fn a_tier_is_required(forced: Option<&str>) -> bool {
 /// [`declared_here`], which is what lets `tests/bound.rs` provoke the refusal end to end, message
 /// included, in both endings and in either direction.
 ///
-/// True only for [`Missing::Tier`]: [`REQUIRE_TIER`] is a statement about tiers, so the variant
-/// that arrives for cloud state a run cannot create decides its own direction rather than
-/// inheriting one from a flag that was never about it.
+/// **An exhaustive `match` and not a `matches!`, and the difference is the whole of this claim.**
+/// [`REQUIRE_TIER`] is a statement about TIERS, so the variant that arrives for cloud state a run
+/// cannot create has to decide its own direction - and a `matches!` gave it one by omission:
+/// `false`, silently, with `cargo check --all-features` exit 0. That is this branch's own hole
+/// reopened one adapter later and inside the venue this crate says is closed - a fixture answering
+/// `Absent(Cloud)` without asking anything, in `checks.nextest`, which sets the variable. Measured
+/// with the refusal absent: `21 tests run: 21 passed`, the only tell printed lines nobody diffs.
+///
+/// With the `match` a new variant does not compile until somebody writes its arm, so the fail-open
+/// direction cannot be chosen by not looking. **No test asserts that and none can** - a compile
+/// error is not an outcome libtest has - so the evidence is the mutation, re-taken on 2026-09-06:
+/// adding a `Missing::Cloud` variant made `just lint` fail with
+/// `E0004` - a pattern for the new variant not covered - at this arm, where the same mutation
+/// against the `matches!` version was exit 0.
 #[must_use]
 pub fn absence_is_impossible(missing: &Missing, forced: Option<&str>) -> bool {
-    matches!(*missing, Missing::Tier { .. }) && a_tier_is_required(forced)
+    match *missing {
+        Missing::Tier { .. } => a_tier_is_required(forced),
+    }
 }
 
 /// The refusal both absent endings share: a DECLARED absence where a venue provisioned a tier.
