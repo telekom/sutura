@@ -867,13 +867,15 @@ a catalog naming a source nobody declared is a startup refusal that names the so
 **From a published release**, with no Rust toolchain. Take the tarball for your triple - the musl
 ones are statically linked and need no libc at all - and verify it before you run it;
 [verifying a release](verifying-a-release.md) is that page. The `cd` below is into the corpus, and
-**no release asset carries it**: [the corpus](getting-started.md#the-corpus) is the two commands
-that put it beside you, and the reason it is not an asset.
+**no release asset carries it**: [the corpus](getting-started.md#the-corpus) is the commands that
+put it beside you, and the reason it is not an asset. This fence assumes you ran those, so the
+corpus is at `sutura-corpus/` in the directory you are standing in; a clone puts it at
+`examples/single-player` instead, and the `cd` is the only line that differs.
 
 ```bash
 tar -xzf sutura-serve-x86_64-unknown-linux-musl.tar.gz
 BINARY="$PWD/sutura-serve"
-cd examples/single-player
+cd sutura-corpus/examples/single-player
 SUTURA__SECURITY__IDENTITY=single-user \
 SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
 SUTURA__SOURCES__LOCAL__KIND=files \

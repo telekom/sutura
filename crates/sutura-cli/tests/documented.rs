@@ -18,9 +18,9 @@
 //! * every invocation of this binary either page prints is RUN from a clone's working directory and
 //!   exits `0` - or its subcommand is in `SKIPPED`, which names the venue that covers it. A line
 //!   that reads as an invocation and is neither is a FAILURE rather than a skip;
-//! * every refusal block a page prints - the whole contiguous run from its `refused:` line to the
-//!   end of its fence - and every `-- definitions ` provenance line is held against the output of
-//!   the command in the fence ABOVE it;
+//! * every refusal block and every answer a page prints - in both cases the whole contiguous run
+//!   from its `refused:` or `-- definitions ` line to the end of its fence - is held against the
+//!   output of the command in the fence ABOVE it;
 //! * every definitions digest written in prose is the digest the catalog reports.
 //!
 //! **Two of those three are shaped the way they are because the first version of this file was
@@ -35,9 +35,17 @@
 //! **What is deliberately not asserted.** Not the whole of a captured block. The pages ELIDE on
 //! purpose - `docs/getting-started.md` says so where it prints five metrics of eleven, and it wraps
 //! a statement that the binary emits on one line - so asserting a block verbatim would fail correct
-//! prose. The rows themselves are pinned by `tests/example.rs`'s snapshots, which is the right
-//! place for them. What that leaves unheld is any printed line that is neither a refusal block nor
-//! a provenance stamp: a listing's rows, a compiled statement, a rendered prompt.
+//! prose. What that leaves unheld is a printed line that is none of the three shapes: a listing
+//! this binary pads with SPACES, a compiled statement, a rendered prompt. `tests/example.rs`'s
+//! snapshots pin the numbers, which is the right place for them.
+//!
+//! **A `query`'s ROWS were in that unheld list and are not any more, at a measured cost.** A
+//! `query` prints its header and every cell joined with `\t`; a change to `docs/getting-started.md`
+//! rewrote seven of those rows to space padding while this suite stayed 66/66, and
+//! `examples/single-player/README.md` had been carrying the same space padding for longer than
+//! that. So the `-- definitions ` stamp is now the head of a block rather than a line, exactly as
+//! `refused:` is - see [`claims`], including why a tab-carrying LINE was tried first and does not
+//! hold.
 //!
 //! **The other limits, next to the claim.** `SKIPPED` is `sutura mcp`, which speaks a protocol on
 //! its own pipes and would block on this harness's stdin; a `sutura-serve` invocation and a `curl`
@@ -81,8 +89,51 @@ mod tests {
     /// The workflow that publishes the release, whose `TARGETS` is the set of triples it produces.
     const RELEASE: &str = ".github/workflows/release.yml";
 
-    /// The route to a tree that [`GUIDED`] may not print anywhere: it is a download, not a clone.
-    const CLONE: &str = "git clone";
+    /// The routes to a tree that [`GUIDED`] may not print anywhere: it is a download, not a clone.
+    ///
+    /// **Two needles and matched with `contains`, both because review defeated one of each.**
+    /// `cd /tmp && git clone …` on one line got past a `starts_with` on the trimmed line, and
+    /// `gh repo clone telekom/sutura` is the same act spelled without the word `git` at all.
+    const CLONE: &[&str] = &["git clone", "repo clone"];
+
+    /// The heading over the fence that puts a verified binary on a reader's `PATH`.
+    const INSTALL: &str = "## Install it";
+
+    /// The shipped binary this page installs and then runs, as a release asset names it.
+    ///
+    /// Named because a release publishes `sutura-serve` at the same four triples, so the triple
+    /// alone does not say which binary a reader downloaded.
+    const CLI: &str = "sutura";
+
+    /// Every step the install fence has to carry, and what its absence would cost a reader.
+    ///
+    /// **A list because deleting the whole fence was green.** Asserting that some fence parses
+    /// under the heading proves nothing about what is in it - the mutation review ran removed the
+    /// download, both checks, the extraction and the `PATH` install in one edit, and the suite
+    /// stayed 66/66 over a page whose prose still explained what the two verifications establish.
+    ///
+    /// Each entry is matched as a substring of one logical line, so a flag added to a step does not
+    /// break it while a step going missing does. What this cannot say is that a step WORKS - each
+    /// one was executed against the live release by hand, and no test can fetch an artefact.
+    const STEPS: &[(&str, &str)] = &[
+        (
+            "gh release download",
+            "there is nothing for the rest of the fence to check or unpack",
+        ),
+        (
+            "sha256sum -c",
+            "a truncated or corrupted download is unpacked and run without a word",
+        ),
+        (
+            "gh attestation verify",
+            "a substituted file is unpacked and run, and the page's `download, verify, run` is two thirds true",
+        ),
+        ("tar -xzf", "the archive is never opened, so no binary exists to install"),
+        (
+            "install -m755",
+            "nothing reaches a `PATH`, and every bare `sutura` command below fails",
+        ),
+    ];
 
     /// The repository root, which is the working directory every documented command assumes: the
     /// paths in them are repo-relative, exactly as a reader at a clone types them.
@@ -380,31 +431,62 @@ mod tests {
     /// the variant, then the meaning, each field and the remedy, each indented two spaces under it.
     /// So the run reaches the end of the fence - which is what the binary emits as one block, and
     /// what both pages had wrong in a way a `refused: ` prefix could not see.
+    ///
+    /// **A `-- definitions ` STAMP IS NOW A BLOCK TOO, for the same reason and after two attempts.**
+    /// `query` prints the stamp and then the answer, joined with `\t`, and holding the stamp alone
+    /// left every row prose: the change that added this file's guided path rewrote seven real tabs
+    /// to space padding and stayed 66/66, and `examples/single-player/README.md` had been carrying
+    /// the same space padding since before it.
+    ///
+    /// **A tab-carrying line was tried first as its own shape and it does not work.** A page's
+    /// claim would then be opt-in from the page: de-tabbing a row removes the tab, so it removes
+    /// the claim, and the mutation stays green - measured. Structure is what closes it. Everything
+    /// after the stamp in a `query`'s fence IS its answer, so the run reaches the end of the fence
+    /// and a row cannot leave the claim by being edited.
+    ///
+    /// **The trade, stated: a page may no longer ELIDE a `query`'s rows.** That is the right
+    /// direction here and not a general rule - the six rows on both pages sum to the figure the
+    /// prose then reasons about, so a hidden row is a wrong total rather than a shortened example.
+    /// A listing this binary pads with SPACES is still prose: `catalog`'s metric block is elided
+    /// on purpose, and `compile`'s statement is re-wrapped to fit the page.
     fn claims(fence: &Fence<'_>) -> Vec<Claim> {
         let mut out = Vec::new();
         for (offset, line) in fence.lines.iter().enumerate() {
             let claim = line.trim();
             let at = fence.opened_at + offset + 1;
             if claim.starts_with("refused: ") {
-                let mut lines: Vec<String> = fence
-                    .lines
-                    .iter()
-                    .skip(offset)
-                    .map(|held| String::from(held.trim()))
-                    .collect();
-                let keep = lines.iter().rposition(|held| !held.is_empty()).map_or(0, |last| last + 1);
-                lines.truncate(keep);
-                out.push(Claim { at, lines });
+                out.push(Claim {
+                    at,
+                    lines: block(fence, offset),
+                });
                 break;
             }
             if claim.starts_with("-- definitions ") {
                 out.push(Claim {
                     at,
-                    lines: vec![String::from(claim)],
+                    lines: block(fence, offset),
                 });
+                break;
             }
         }
         out
+    }
+
+    /// One fence's lines from `offset` to its last non-empty one, trimmed.
+    ///
+    /// The two block shapes share it because they are the same fact: what the binary emitted as one
+    /// run, held as one run. [`printed`] then requires the lines CONTIGUOUS and IN ORDER, which a
+    /// per-line claim does not.
+    fn block(fence: &Fence<'_>, offset: usize) -> Vec<String> {
+        let mut lines: Vec<String> = fence
+            .lines
+            .iter()
+            .skip(offset)
+            .map(|held| String::from(held.trim()))
+            .collect();
+        let keep = lines.iter().rposition(|held| !held.is_empty()).map_or(0, |last| last + 1);
+        lines.truncate(keep);
+        lines
     }
 
     /// Whether one command's output carries a claim's lines as a contiguous run.
@@ -651,24 +733,54 @@ mod tests {
             .collect()
     }
 
-    /// Every binary tarball a page names, as the triple in its name.
+    /// Every binary tarball a page names, as the BINARY and the triple in its name.
     ///
-    /// A `.sha256` or `.sigstore.json` sidecar is the same asset, and `sutura-serve-` is the other
-    /// shipped binary at the same triples - so all three shapes reduce to the triple, and anything
-    /// else that happens to end `.tar.gz` reduces to a string no release publishes, which is a
-    /// failure. The split is on the characters a file name cannot hold, so a name inside a table
-    /// cell, a backtick span or a shell quote is read the same way.
-    fn named_assets(text: &str) -> Vec<String> {
+    /// A `.sha256` or `.sigstore.json` sidecar is the same asset, so all three shapes reduce to
+    /// one pair, and anything else ending `.tar.gz` reduces to a name no release publishes.
+    ///
+    /// **Both halves, and the binary is why.** This returned the triple alone first, folding
+    /// `sutura-serve-<triple>` in with `sutura-<triple>` - and review defeated it in one edit:
+    /// swap every asset name on the page to `sutura-serve-*` and the suite stayed green over a
+    /// page that installs the HTTP SERVER and then runs `sutura catalog` on it. A release
+    /// publishes both binaries at all four triples, so the triple was never the half that says
+    /// which one a reader downloads.
+    ///
+    /// The split is on the characters a file name cannot hold, so a name inside a table cell, a
+    /// backtick span or a shell quote is read the same way.
+    fn named_assets(text: &str) -> Vec<(String, String)> {
         text.split(|c: char| c.is_whitespace() || "`|()'\",".contains(c))
             .filter_map(|word| {
                 let asset = word
                     .strip_suffix(".sha256")
                     .or_else(|| word.strip_suffix(".sigstore.json"))
                     .unwrap_or(word);
-                let triple = asset.strip_prefix("sutura-")?.strip_suffix(".tar.gz")?;
-                Some(String::from(triple.strip_prefix("serve-").unwrap_or(triple)))
+                let name = asset.strip_prefix("sutura")?.strip_suffix(".tar.gz")?;
+                let (binary, triple) = match name.strip_prefix("-serve-") {
+                    Some(triple) => ("sutura-serve", triple),
+                    None => ("sutura", name.strip_prefix('-')?),
+                };
+                Some((String::from(binary), String::from(triple)))
             })
             .collect()
+    }
+
+    /// The logical lines of the first fence a heading opens, or a panic naming which half is gone.
+    ///
+    /// **Both absences are failures and they read differently on purpose.** A heading nobody wrote
+    /// and a heading with no fence under it are two different edits, and a helper that answered
+    /// "nothing" for either would turn its caller's every step assertion vacuous - which is exactly
+    /// the state deleting the install fence used to leave this suite in.
+    fn fence_under(text: &str, heading: &str) -> Vec<String> {
+        let at = text
+            .lines()
+            .position(|line| line.trim_end() == heading)
+            .unwrap_or_else(|| panic!("{GUIDED} carries no `{heading}` heading"))
+            + 1;
+        let block = fences(GUIDED, text)
+            .into_iter()
+            .find(|fence| fence.opened_at > at)
+            .unwrap_or_else(|| panic!("{GUIDED} opens no fence under `{heading}`"));
+        logical_lines(&block.lines)
     }
 
     /// Every fenced line on a page, with the line its fence opened at.
@@ -694,34 +806,62 @@ mod tests {
     /// carries.
     ///
     /// **What is held here, and what is held elsewhere.** This asserts the SHAPE of the page: the
-    /// guided half names assets a release actually publishes, spells the commands the way somebody
+    /// guided half names assets a release actually publishes **of the binary it goes on to run**,
+    /// carries an install fence whose steps are each named, spells the commands the way somebody
     /// holding one of them types them, mentions no `cargo` at all, and reaches the corpus without a
     /// clone. That the commands then WORK is
     /// [`every_command_the_pages_print_runs_and_every_line_of_output_is_one_it_printed`], which
     /// runs each one - though over a locally built binary rather than the downloaded one, because a
     /// test cannot fetch a release. The artefact itself is `just shipped` and the release
     /// workflow's own smoke tests.
+    ///
+    /// **Three mutations left the first version of this green, and each one is now a named
+    /// assertion rather than a consequence of one.** The whole `## Install it` fence deleted -
+    /// download, both verifications, the extraction, the `PATH` install - and the suite stayed
+    /// 66/66, because nothing asked what was in a fence. Every asset name swapped to
+    /// `sutura-serve-*`, green, because the parse folded the server in with the tool. And
+    /// `cd /tmp && git clone …` on one line, green, because the clone check read a prefix. See
+    /// [`STEPS`], [`named_assets`] and [`CLONE`].
+    ///
+    /// **The fourth mutation was not one this test can hold**, and it is why [`claims`] grew a
+    /// third shape instead: this change rewrote seven real tabs under a `query` to space padding,
+    /// and the suite stayed 66/66 because a listing's rows were outside every claim. A tab-carrying
+    /// line is held now. A listing the binary pads with SPACES still is not.
     #[test]
     fn the_guided_path_installs_a_published_binary_rather_than_a_toolchain() {
         let text = page(GUIDED);
 
-        // The page names an artefact. FIRST, because it is the whole defect: without one, the only
-        // way to run anything the page prints is to build the tree.
+        // The page names an artefact OF THE BINARY IT GOES ON TO RUN. First, because it is the
+        // whole defect: without one, the only way to run anything the page prints is to build the
+        // tree. Scoped to `sutura` because a release publishes `sutura-serve` at the same four
+        // triples, and a page that downloads the server and then runs `sutura catalog` on it is
+        // the mutation review defeated the first version of this test with.
         let named = named_assets(&text);
+        let ours: Vec<String> = named
+            .iter()
+            .filter(|(binary, _)| binary == CLI)
+            .map(|(_, triple)| triple.clone())
+            .collect();
         assert!(
-            !named.is_empty(),
-            "{GUIDED} names no release asset, so nothing on it can be run without building the \
-             tree - which is a Rust toolchain a reader was never told they needed"
+            !ours.is_empty(),
+            "{GUIDED} names no `{CLI}-<triple>.tar.gz` release asset - it names {named:?}, so \
+             nothing on it can be run without building the tree, which is a Rust toolchain a \
+             reader was never told they needed"
         );
 
         // And the assets it names are the ones a release produces - every one of them, in both
         // directions, so the platform table cannot be a subset a reader takes for the whole.
         let published = published_triples();
-        assert_eq!(
-            published.len(),
-            4,
-            "{RELEASE}'s TARGETS parsed as {published:?}, which is not the published set - its \
-             shape changed and this parse did not"
+        // FAIL CLOSED on the parse, and NON-EMPTY rather than a count: a triple added to or
+        // dropped from a release is a legitimate change, and gating on today's number would report
+        // a correct tree under a diagnosis about this parser - whose cheapest fix is editing the
+        // expectation. The guard survives without the number because `ours` is non-empty by here,
+        // so a parse that yielded nothing fails the second containment loop below instead. What a
+        // NEW triple has to do is reach the page, which is the first one.
+        assert!(
+            !published.is_empty(),
+            "{RELEASE} declares a TARGETS this parse read as no triples at all - its shape changed \
+             and this parse did not"
         );
         for triple in &published {
             // The platform claim, measured rather than written on the page: every published
@@ -732,17 +872,40 @@ mod tests {
                 "{RELEASE} publishes `{triple}`, so {GUIDED} may no longer say every asset is Linux"
             );
             assert!(
-                named.contains(triple),
-                "{RELEASE} publishes `{triple}` and {GUIDED} names {named:?} - a reader on that \
-                 platform is left to find out by failing"
+                ours.contains(triple),
+                "{RELEASE} publishes `{CLI}-{triple}.tar.gz` and {GUIDED} names {ours:?} - a \
+                 reader on that platform is left to find out by failing"
             );
         }
-        for triple in &named {
+        for (binary, triple) in &named {
             assert!(
                 published.contains(triple),
-                "{GUIDED} names `sutura-{triple}.tar.gz`, which no release publishes: {published:?}"
+                "{GUIDED} names `{binary}-{triple}.tar.gz`, which no release publishes: {published:?}"
             );
         }
+
+        // The install fence, and the steps a reader copies out of it. **Deleting the whole fence
+        // left the first version of this test green** - download, checksum, attestation, extract
+        // and install all gone, and the page's honesty about verification held by nothing. Which is
+        // the shape of a gate that reports `ok` over a subject that emitted nothing, so the fence
+        // is located by its heading and its steps are named one at a time.
+        let install = fence_under(&text, INSTALL);
+        for &(step, why) in STEPS {
+            assert!(
+                install.iter().any(|line| line.contains(step)),
+                "{GUIDED}'s `{INSTALL}` fence has no `{step}` step, so {why}. It prints {install:?}"
+            );
+        }
+        let asset = |line: &String| {
+            published
+                .iter()
+                .any(|triple| line.contains(&format!("{CLI}-{triple}.tar.gz")))
+        };
+        assert!(
+            install.iter().any(asset),
+            "{GUIDED}'s `{INSTALL}` fence names no published `{CLI}` asset, so its steps run on \
+             nothing: {install:?}"
+        );
 
         // Where the guided path ends. Exactly one heading, so the walk below cannot be vacuous.
         let heading: Vec<usize> = text
@@ -763,11 +926,13 @@ mod tests {
         let mut guided = 0_usize;
         let mut source = 0_usize;
         for (at, line) in fenced(GUIDED, &text) {
-            assert!(
-                !line.trim().starts_with(CLONE),
-                "{GUIDED}:{at} reaches something with `{CLONE}`, and the corpus is taken as a \
-                 tarball at the tag so that the guided path needs no git and no toolchain"
-            );
+            for needle in CLONE {
+                assert!(
+                    !line.contains(needle),
+                    "{GUIDED}:{at} prints `{line}`, which carries `{needle}` - the corpus is taken \
+                     as a tarball so that the guided path needs no git and no toolchain"
+                );
+            }
             if at < opens_at {
                 assert!(
                     !line.contains("cargo"),

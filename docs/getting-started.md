@@ -10,9 +10,21 @@ clone**, and nothing to provision on the data side either: the engine is compile
 and reads CSV and Parquet files where they lie.
 
 **What you need** is a Linux host on x86_64 or aarch64, and `gh` authenticated against this
-repository. `gh` is the shortest route to a release asset rather than a requirement - every asset
-has a plain HTTPS URL on the release page, and the `.sha256` sidecar beside it is checkable with
-nothing but the two files.
+repository.
+
+!!! note "This page is published; everything it points at needs access to the repository"
+
+    The repository is private today, so nothing below reaches an artefact without it. Measured
+    unauthenticated: this page answers 200, while the release page, the asset URLs and the source
+    tarball all answer 404 and the `ghcr.io` tags refuse an anonymous pull - which closes the image
+    route offered for macOS and Windows as well. So an account that can read the repository is a
+    **prerequisite rather than a convenience**: `gh auth login` under one, or a token on the HTTPS
+    URL, and there is no third way.
+
+    **Delete this note when the repository is public.** Nothing else on the page changes: the
+    commands are the same, and `gh` becomes the shortest route to an asset rather than a
+    requirement, because every asset has a plain HTTPS URL on the release page and the `.sha256`
+    sidecar beside it is checkable with nothing but the two files.
 
 ## What a release publishes, and for which platforms
 
@@ -80,8 +92,7 @@ shipped build rather than only under test.
 ## The corpus
 
 There is a catalogue, the data behind it and a directory of questions in this repository already:
-`examples/single-player`, the one corpus both test suites run on. Take it as a tarball at the tag
-the binary came from.
+`examples/single-player`, the one corpus both test suites run on. Take it as a tarball.
 
 ```bash
 TAG=$(gh release view --repo telekom/sutura --json tagName --jq .tagName)
@@ -89,6 +100,12 @@ mkdir -p sutura-corpus
 gh api "/repos/telekom/sutura/tarball/$TAG" | tar -xz -C sutura-corpus --strip-components=1
 cd sutura-corpus
 ```
+
+**`gh release view` takes no tag, so `TAG` is the LATEST release** - the same one `gh release
+download` with no tag gave you. If you pinned a tag above, set `TAG` to that tag instead. A corpus
+and a binary from two different releases is not an error and nothing refuses it: the definitions
+digest under [`query`](#asking) is where the difference surfaces, as a different number rather than
+as a complaint.
 
 **The corpus is deliberately not a release asset.** A published asset is signed, attested,
 inventoried by an SBOM and named in the release notes, once per binary per triple; `nix/shipped.nix`
@@ -236,13 +253,13 @@ sutura query examples/single-player/catalog \
 
 ```text
 -- definitions local-working-tree 8042ba92eaddce5e96e055cc43a635a64161d54ec21bd4f3367e7a1f58f5b4c5
-region  period  recurring_revenue
-central 2026-06-01  51739
-east    2026-06-01  32598
-north   2026-06-01  42157
-south   2026-06-01  21203
-west    2026-06-01  49425
-null    2026-06-01  4999
+region	period	recurring_revenue
+central	2026-06-01	51739
+east	2026-06-01	32598
+north	2026-06-01	42157
+south	2026-06-01	21203
+west	2026-06-01	49425
+null	2026-06-01	4999
 ```
 
 That last row is the `LEFT JOIN` above, visible. One subscription in the data names a customer the
