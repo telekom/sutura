@@ -33,6 +33,8 @@ use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
+use crate::state::ServiceState;
+
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: &str = "197122";
 
@@ -774,11 +776,26 @@ where
 {
     let service = crate::surface::LocalService::start(&catalog_of(pinned), warehouses, sink(), broker, 1 << 30)
         .expect("the test bundle validates");
-    let mut state = crate::state::ServiceState::new(Arc::new(service), Arc::new(settings));
+    let mut state = state_over(Arc::new(service), settings);
     if let Some(gate) = gate {
         state = state.with_inbound_identity(Arc::new(gate));
     }
     crate::router(&state).expect("the test router assembles")
+}
+
+/// A request state over these settings, with the execution bound those settings describe.
+///
+/// **The test side of `telekom/sutura#340`.** `ServiceState::new` takes an `Admission` since that
+/// issue, because deriving one inside the state made a second state a second permit set. A test is
+/// another composition root, so it does what a root does - reads the bound off the settings it is
+/// serving under - and does it in ONE place, because four modules had already grown four copies of
+/// the two statements this replaces.
+///
+/// It takes the settings by value and hands back the state so the bound and the settings the router
+/// is assembled from cannot come from two different documents.
+pub(crate) fn state_over(surface: Arc<dyn crate::surface::Surface>, settings: sutura_config::Settings) -> ServiceState {
+    let admission = sutura_runtime::Admission::from_settings(settings.runtime());
+    ServiceState::new(surface, Arc::new(settings), admission)
 }
 
 /// The settings a test deployment loads, over one overlay.

@@ -108,6 +108,42 @@ impl Contradicted {
 
 pub(super) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
+        // Issue 312, and the reason it is an entry rather than a rewrite alone: the wording was a
+        // page's YAML `description`, which mkdocs-material renders into `<meta name="description">`
+        // - so a reader who never opens the record is told a DataHub deployment carries no metric
+        // layer at all. It was true when the spike was written and the record's own amendment
+        // spent it, which is the shape a ratchet is for: the sentence is corrected in place, and
+        // this is what stops the pre-amendment summary being reinstated by whoever reads the body
+        // above the amendment.
+        name: "DataHub can carry no part of a metric",
+        // ONE wording, and the whole absence list rather than a phrase out of it: every clause is
+        // false for the same reason, and half of it is not a sentence anybody wrote.
+        //
+        // NOT registered, and worth naming rather than leaving to a reader: the adapter's own
+        // crate header states the same list with its hedge attached to the measure clause and
+        // the may-provide explanation further down, so it is ambiguous rather than false and a
+        // literal against it would fail this gate over prose that carries its own correction.
+        wordings: &[
+            "carries no measure this repository will execute, no reliable cardinality, no definitional \
+             filter, no grain, no value allowlist and no anchor",
+        ],
+        // The adapter's declaration, not the record's prose. `DefinitionKind::Anchors` appears once
+        // in that file and inside `and_may_provide`, so its presence refutes the last clause; if it
+        // ever moved to the unconditional list the clause would be more false rather than less,
+        // which is why one token is enough evidence here.
+        evidence: &[Evidence {
+            path: "crates/sutura-catalog-datahub/src/lib.rs",
+            holds: "DefinitionKind::Anchors",
+        }],
+        instead: "the record's own `Amendment, 2026-09-02` moves every one of those to a \
+                  declared-and-empty may-provide kind, so a DataHub deployment that defines the \
+                  structured property carries the metric whole and one that does not still loads. \
+                  `crates/sutura-catalog-datahub/src/lib.rs` declares which kinds those are, and a \
+                  page restating them is a second copy of that declaration",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
         // The wording is the one that was actually WRITTEN, in two documents, and not a paraphrase
         // of the claim: the first draft of this entry registered `nothing runs it in CI yet`, which
         // lives in a `.rs` file this check's scope never reaches, and a sentence nobody wrote. That

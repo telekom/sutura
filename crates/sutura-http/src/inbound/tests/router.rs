@@ -207,7 +207,7 @@ fn a_declared_inbound_identity_with_no_gate_attached_assembles_no_router() {
         1 << 30,
     )
     .expect("the test bundle validates");
-    let state = crate::state::ServiceState::new(std::sync::Arc::new(service), std::sync::Arc::new(settings));
+    let state = crate::testing::state_over(std::sync::Arc::new(service), settings);
     let refused = crate::router(&state).expect_err("a declaration with no gate assembles no router");
     assert!(
         matches!(refused, crate::RouterNotBuilt::InboundIdentityNotAttached { mode: "direct" }),

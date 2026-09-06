@@ -52,7 +52,9 @@ banner::announce(&settings);
 let shutdown = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
 tokio::spawn(sutura_runtime::shutdown::listen(shutdown.clone()));
 // 7. The bound on how many questions execute at once, shared with every transport. One per
-//    process: two independently sized ones would each report a limit the other can exceed.
+//    process: two independently sized ones would each report a limit the other can exceed. No
+//    transport can build one - `Admission::new` is private to this crate - and
+//    `cargo xtask check-one-bound` fails a root that calls this twice.
 let admission = Admission::from_settings(settings.runtime());
 # Ok(())
 # }
@@ -125,6 +127,27 @@ The resource it bounds is the *process*: a blocking-pool thread holding a data s
 transport - an MCP surface, say - would need the same bound over the same pool, and two
 independently sized semaphores would be two controls each reporting a limit that the other can
 exceed. So the composition root builds one, exactly as it builds one `crate::Shutdown`.
+
+# What holds the "one", and what it does not reach
+
+That paragraph used to end there, and `telekom/sutura#340` is what it cost: **nothing held the
+word *one*.** Two things hold it now, and neither of them is the sentence above.
+
+* **A transport cannot build one.** `Admission::new` is `pub(crate)`, so the only public door
+  is `Admission::from_settings` - the group the two keys live in - and both transports'
+  constructors *take* the value. `sutura_http`'s request state DERIVED its own until #340, which
+  made a second `ServiceState` a second permit set; that edge is gone, so every permit set in a
+  process is built by a composition root and handed down.
+* **A composition root builds at most one, and a serving root builds exactly one.**
+  `cargo xtask check-one-bound`, in `just hygiene`, counts the construction sites: at most one
+  per crate, only in a crate that has a `src/main.rs`, and one in every such crate that composes
+  a transport. Its own header states the ways it fails closed and what a text scan cannot see.
+
+**The limit, stated with the claim: the gate counts SITES, and a site is not a permit set.** A
+root calling the door once inside a loop builds one bound per iteration and reads as one site,
+and no text scan can see a bound obtained through a function pointer or a re-export. What
+nothing here reaches at all is two *processes*: this bound is per process by construction, so
+two replicas admit twice the number - which is what a replica is for.
 
 ### `struct AtCapacity`
 
@@ -199,15 +222,12 @@ false by the time it is acted on, which is what `Self::admit` exists to avoid.
 pub fn from_settings(runtime: RuntimeSettings) -> Self
 ```
 
-The same, from the group the two keys live in.
+The bound this process's settings describe.
 
-What a composition root calls, so the two values cannot be taken from different places.
-
-```rust
-pub fn new(concurrency: QueryConcurrency, timeout: AdmissionTimeout) -> Self
-```
-
-Builds the bound from two values that have each already been parsed.
+**The only public door**, so the two values cannot be taken from different places and cannot
+be numbers a caller chose. What a composition root calls, and `cargo xtask check-one-bound`
+is what holds *once per root* - a transport that called this would be a second permit set,
+which is the shape the module documentation calls not-a-bound.
 
 ```rust
 pub const fn wait(&self) -> Duration

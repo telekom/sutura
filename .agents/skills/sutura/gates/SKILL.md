@@ -263,7 +263,9 @@ therefore does not see.
   either.
 - **`check-guidance` reads prose and cannot catch a paraphrase.** It holds forbidden phrases, a
   version pin that must agree wherever it is written, claims known false in each recorded wording,
-  and the gated counts - `cargo xtask --help` and the tables themselves are the authority for how
+  the gated counts, and a page's own SHAPE - an amendment sequence that must run consecutively and a
+  table header that must have a blank line above it, neither of which `mkdocs --strict` can see -
+  `cargo xtask --help` and the tables themselves are the authority for how
   many, and a number here would be a second thing to keep true. It fails a cited `just` task that
   does not exist and a cited `cargo` line missing `--all-features`. Its own stated blind spot: a
   comment marker is not stripped, so a claim wrapping inside a `#` block is not found.
