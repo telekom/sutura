@@ -961,6 +961,7 @@ economise.
    | `check-newtype-leaks` | the Rust under `crates/` |
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
+   | `check-conformance-bindings` | the Rust and the manifests under `crates/` - the golden matrix's `data_systems` registry against the crates holding a conformance binding |
    | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
    | `check-expect-thresholds` | every tracked `*.rs` |
    | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |
