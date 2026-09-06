@@ -234,25 +234,17 @@ therefore does not see.
   job. `check-docs` holds that one now, with a fail-closed count of the links it read, so the rule
   here is the general one: a new mkdocs behaviour is unproven until you have read the log AND the
   exit status, because half of what it notices it notices at a level `--strict` ignores.
-- **A gate that names ONE input reports over the set that input used to be, and a line cap is what
-  splits it.** `check-workflows` refused a literal release build by reading
-  `.github/workflows/ci.yml` by name; the unexemptable 1000-line cap then moved a job into
-  `cross-link.yml`, and the refusal covered one file of the four ordinary CI runs. The SAME blind
-  spot ran through the other half of that gate: it classified the jobs of workflows whose own `on:`
-  block gates a merge, and a called workflow's `on:` is `workflow_call`, so four legs were
-  classified by nothing while the verdict read *every gating job classified*. **The fix is a walk,
-  not a second name** - `xtask/src/workflows/reach.rs` follows the local `uses:` graph and fails
-  closed on a call it cannot open. Two things it deliberately does not reach, both stated at the
-  code: a step that moved into `nix/*.sh` (a shared script is reached by a `just` task and by the
-  release path too, so *ordinary CI* is not its venue), and a `uses:` behind a YAML anchor.
-- **Two readers over one text - and the classes they must NOT share are the whole design.** The
-  floor against a key reader going blind is a second, position-blind predicate over the same lines:
-  it is what catches a key matched at the head of a trimmed line missing `- uses:` in a sequence or
-  a `{ uses: ... }` flow mapping. But run both over the same EXAMINED lines and the block-scalar
-  boundary becomes a shape one mistake blinds both to - a `uses:` inside a `run: |` body must be a
-  floor for neither, or a correct workflow is refused. So that one class needs a fixture instead,
-  and naming which class is held by the arm and which by the fixture is the transferable part: a
-  second reader is a floor only where the two can disagree.
+- **A gate that names ONE input reports over the set that input used to be, and a line cap splits
+  it.** `check-workflows` refused a literal release build by reading `.github/workflows/ci.yml` by
+  name; the cap then moved a job into `cross-link.yml`, and the refusal covered one file of the four
+  ordinary CI runs. Same blind spot in the half beside it: it classified the jobs of workflows whose
+  own `on:` gates, and a called workflow's `on:` is `workflow_call`, so four legs were classified by
+  nothing under the verdict *every gating job classified*. **The fix is a walk, not a second name**
+  (`xtask/src/workflows/reach.rs`, which states what it still does not reach). And the floor against
+  its key reader going blind is a SECOND, position-blind predicate over the same lines - but only
+  over the lines the pass EXAMINED, so the block-scalar boundary is a class one mistake blinds both
+  to and a fixture holds instead. **A second reader is a floor only where the two can disagree**,
+  and saying which class is which is the transferable part.
 - **The file a gate reads is not always the file that ships, and that defeated the rule the gate
   was added for.** `docs/contributing.md` and `docs/changelog.md` are `pymdownx.snippets` stubs -
   their published body is `CONTRIBUTING.md` / `CHANGELOG.md` at the repo root - so `check-docs`
