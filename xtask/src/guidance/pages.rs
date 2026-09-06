@@ -174,12 +174,25 @@ pub(super) fn table_problems(rel: &str, lines: &[String]) -> Vec<String> {
 /// Both rules, over every Markdown page in scope.
 ///
 /// FAIL CLOSED on a page that cannot be lexed, for [`crate::api_links`]'s reason: an unclosed fence
-/// makes every line below it ambiguous, and a scan that reads nothing reports nothing wrong. The
-/// same arm covers reading no page at all.
+/// makes every line below it ambiguous, and a scan that reads nothing reports nothing wrong.
+///
+/// **Two floors, taken from different places on purpose**, because a file-level count staying right
+/// while the inner walk reads nothing is the failure this module would otherwise report as green:
+///
+/// * `read` against `offered` - the pages the caller handed over against the pages this lexed. It
+///   is not enough that each drop also pushes a problem; the equality is what makes a silent one
+///   impossible, and it is `check-api-links`' `scanned == pages.len()` rule applied here.
+/// * `headings` - what the SEQUENCE rule actually found, which the file walk cannot produce. A
+///   lexer returning blanks, a `"## "` prefix that stopped matching, or an ordinal list read the
+///   wrong way round all leave `read == offered` intact and this at zero. This tree writes
+///   amendment headings, so zero means the rule stopped reading rather than that they went.
 pub(super) fn page_problems(root: &Path, files: &[String]) -> Vec<String> {
+    let pages: Vec<&String> = files.iter().filter(|f| super::has_ext(f, &["md"])).collect();
+    let offered = pages.len();
     let mut problems = Vec::new();
     let mut read = 0_usize;
-    for rel in files.iter().filter(|f| super::has_ext(f, &["md"])) {
+    let mut headings = 0_usize;
+    for rel in pages {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
             problems.push(format!("{rel}: could not be read, so nothing on it was judged"));
             continue;
@@ -192,12 +205,20 @@ pub(super) fn page_problems(root: &Path, files: &[String]) -> Vec<String> {
             }
         };
         read = read.saturating_add(1);
+        headings = headings.saturating_add(lines.iter().filter(|line| amendment(line).is_some()).count());
         problems.extend(sequence_problems(rel, &lines));
         problems.extend(table_problems(rel, &lines));
     }
-    if read == 0 {
-        problems.push(String::from(
-            "read no Markdown page at all - the page scan is broken, not the tree",
+    if read != offered {
+        problems.push(format!(
+            "read {read} of {offered} Markdown page(s) - the rest were skipped, so this verdict covers \
+             less than it appears to"
+        ));
+    }
+    if headings == 0 {
+        problems.push(format!(
+            "found no amendment heading on any of {read} page(s) - this tree writes them, so the \
+             sequence rule read nothing rather than finding nothing"
         ));
     }
     problems
