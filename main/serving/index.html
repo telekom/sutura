@@ -4112,10 +4112,14 @@ system the catalog's models read, where its files are and which identity a query
 a catalog naming a source nobody declared is a startup refusal that names the source.</p>
 <p><strong>From a published release</strong>, with no Rust toolchain. Take the tarball for your triple - the musl
 ones are statically linked and need no libc at all - and verify it before you run it;
-<a href="../verifying-a-release/">verifying a release</a> is that page.</p>
+<a href="../verifying-a-release/">verifying a release</a> is that page. The <code>cd</code> below is into the corpus, and
+<strong>no release asset carries it</strong>: <a href="../getting-started/#the-corpus">the corpus</a> is the commands that
+put it beside you, and the reason it is not an asset. This fence assumes you ran those, so the
+corpus is at <code>sutura-corpus/</code> in the directory you are standing in; a clone puts it at
+<code>examples/single-player</code> instead, and the <code>cd</code> is the only line that differs.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>sutura-serve-x86_64-unknown-linux-musl.tar.gz
 </span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nv">BINARY</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/sutura-serve"</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nb">cd</span><span class="w"> </span>examples/single-player
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nb">cd</span><span class="w"> </span>sutura-corpus/examples/single-player
 </span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
