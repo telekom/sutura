@@ -1,8 +1,12 @@
-//! The architecture-boundary gate. SIX halves - three about which way dependencies point, two
+//! The architecture-boundary gate. SEVEN halves - four about which way dependencies point, two
 //! about the driving port, and one about what the crossing looks like:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
+//! * the conformance harness reaches no adapter ([`harness_reaches_no_adapter`], and `harness`) -
+//!   an allowlist in [`ALLOWED_IN_DOMAIN`]'s shape, added after the rule was DISPROVED: an adapter
+//!   under the harness's `[dependencies]`, used in its public API, left every other half of this
+//!   gate green
 //! * no adapter reaches an adapter of its own kind ([`adapter_classes`], and `adapters` for the
 //!   definition, which is the whole of the work in that rule)
 //! * a driving port is not declared by one of its callers ([`declared_ports`], and `ports`) - the
@@ -38,6 +42,7 @@
 mod adapters;
 mod answer_path;
 mod api_shape;
+mod harness;
 mod ports;
 
 use std::collections::BTreeSet;
@@ -316,11 +321,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // that stops early makes the second violation look like it appeared after the first fix.
     let direction = dependency_direction();
     let edges = forbidden_edges();
+    let packs = harness_reaches_no_adapter();
     let classes = adapter_classes();
     let declared = declared_ports();
     let through = answer_through_the_port();
     let surface = typed_surface();
-    let halves = [direction, edges, classes, declared, through, surface];
+    let halves = [direction, edges, packs, classes, declared, through, surface];
     if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass
     } else {
@@ -572,6 +578,48 @@ fn dependency_direction() -> Verdict {
     eprintln!("to ALLOWED_IN_DOMAIN with the reason: that is an architecture decision and");
     eprintln!("should be a visible diff.");
     Verdict::Fail
+}
+
+/// The conformance harness reaches no adapter, so a pack body cannot be written against one.
+///
+/// `harness` carries the argument, the disproof that produced this half, and what the walk does
+/// NOT reach.
+fn harness_reaches_no_adapter() -> Verdict {
+    // `--all-features`, for [`dependency_direction`]'s reason and one of its own: a pack family
+    // behind a feature is still a pack family, and an edge moved behind one would be trivial to
+    // hide from a default-feature walk.
+    let meta = match crate::cargo_metadata(&["--all-features"]) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            return Verdict::Fail;
+        }
+    };
+    match harness::check(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - the conformance harness reaches {} first-party crate(s) \
+                 ({}) in a normal closure of {}",
+                report.first_party.len(),
+                report.first_party.join(", "),
+                report.closure
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - the conformance harness reaches an adapter:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            harness::explain();
+            Verdict::Fail
+        }
+    }
 }
 
 /// What the crossing looks like: a library's types and errors are a typed contract.
