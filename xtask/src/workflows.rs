@@ -445,6 +445,18 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
     lines
 }
 
+/// The code half of a Nix file, one `String` per line, comments and string interiors blanked.
+///
+/// `pub(crate)` for the reason [`block_attributes`] gives one screen down: `crate::warm_start`
+/// asks a different question of the same files - which of them bind `cargoArtifacts`, and which
+/// bind `preBuild` - and a second Nix reader for it would be a second reader to get wrong, three
+/// times over, since this one's own doc comment lists the three shapes that fooled the brace
+/// count it replaced. The `lets` depth stays private: it answers *is this line an attribute of
+/// the enclosing set*, which nothing outside this module asks.
+pub(crate) fn nix_code_lines(text: &str) -> Vec<String> {
+    code_lines(text).into_iter().map(|line| line.code).collect()
+}
+
 /// Every attribute at the top level of an output block.
 ///
 /// Depth-tracked rather than stopping at the first `};`. The first version broke out there and

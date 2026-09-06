@@ -35,15 +35,26 @@
 # `utoipa-swagger-ui`, found in 1.8 s. The cost per consumer is that one build script rerun plus
 # one crate; nothing downstream of it is a dependency, so nothing else recompiles.
 #
-# WHAT IT DOES NOT COVER. A generated file naming some OTHER absolute directory - the source root,
-# a sibling crate's `OUT_DIR` - is invisible here, and so is a path written into a compiled artifact
-# rather than into the bytes of the output directory. Both would fail the same loud way this did.
+# WHAT IT DOES NOT COVER, and the third of these is narrower than this paragraph used to admit.
+# A generated file naming some OTHER absolute directory - the source root, a sibling crate's
+# `OUT_DIR` - is invisible here, and so is a path written into a compiled artifact rather than into
+# the bytes of the output directory. And the search is `$unitDir/out` alone, so `$unitDir/output` -
+# cargo's record of the `cargo::` directives the build script PRINTED, a sibling of `out/` rather
+# than a file in it - is not read at all: an absolute `$OUT_DIR` in a `rustc-link-search` or a
+# `rustc-env` there survives the unpack unregenerated. Widening to it is not free and the cost is
+# UNMEASURED: a build script that publishes its own output directory as a link path names it in
+# `output` as a matter of course, so purging on that record reaches every such crate, and HOW MANY
+# of the closure's 138 that is has not been counted. Stated rather than taken, because an
+# unmeasured widening of a purge is the more expensive of the two mistakes - and the limit is
+# ASSERTED rather than merely written down: this script's test builds four synthetic unit
+# directories, one per branch of the decision below, and the `output`-only one is the case it
+# proves SURVIVES. All three shapes fail the same loud way this did.
 #
 # NO TOP-LEVEL `set`: this text is INLINED, into every artifact-inheriting derivation's `preBuild`
-# and into `apps.causality`, so a `set -e` here would change the shell that runs the rest of the
-# build. The work is a subshell function - `()` and not `{}` - so its strictness stops at its own
-# closing paren. Portable flags only, for the same reason: in a check this runs under the sandbox's
-# GNU tools and in the app under whatever the host ships.
+# and into `cargoWarmStart`, which every warm-start app expands, so a `set -e` here would change
+# the shell that runs the rest of the build. The work is a subshell function - `()` and not `{}` -
+# so its strictness stops at its own closing paren. Portable flags only, for the same reason: in a
+# check this runs under the sandbox's GNU tools and in the app under whatever the host ships.
 
 suturaPurgeBakedOutDirs() (
   set -euo pipefail
