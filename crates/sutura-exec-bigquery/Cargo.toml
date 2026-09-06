@@ -116,9 +116,11 @@ required-features = ["wire"]
 # one fixed statement about the caller.
 #
 # It is NOT picked up by `nix run .#bigquery-acceptance`, which filters both this binary and
-# `two_principals` out. That filter is a two-name list now where the eighth amendment's shape had
-# one, and the property it was defending survives: what is filtered is a BINARY, so a test added to
-# any of the four targets is reached without a count anywhere being edited.
+# `two_principals` out. That filter is a two-name list now where `docs/adr/0017`'s amendment *the
+# two-principal cell exists, and what it is not* had one - cited by TITLE, because that record has
+# been the seventh, eighth and tenth amendment in three days. The property it was defending
+# survives: what is filtered is a BINARY, so a test added to any of the four targets is reached
+# without a count anywhere being edited.
 [[test]]
 name = "exchanged_identity"
 path = "tests/exchanged_identity.rs"

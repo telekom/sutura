@@ -77,10 +77,21 @@
 //! # Why nothing here prints an identity
 //!
 //! This cell's venue is a CI job whose log is public on a public repository, and the one thing
-//! `SESSION_USER()` returns is a cloud account identifier. So no assertion in this file interpolates
-//! what came back: every leg is judged by [`who_answered`], which reduces an answer to one of four
-//! verdicts carrying no text, and a test below holds that property against the verdicts themselves.
-//! `BigQueryError::NoIdentityInTheAnswer` is the same decision one layer down.
+//! `SESSION_USER()` returns is a cloud account identifier. So no assertion in this file
+//! interpolates what came back: every leg is judged by [`who_answered`], which reduces an answer to
+//! one of four verdicts carrying no text, and a test below holds that property against the verdicts
+//! themselves. `BigQueryError::NoIdentityInTheAnswer` is the same decision one layer down.
+//!
+//! **That sentence used to stop at the assertions, and the FAILURE path is where the leak was.**
+//! Review measured it: `session_user(..).expect("the endpoint answered the identity read")` renders
+//! the whole error chain, and `WireError::Refused` carries the endpoint's own free-text message in
+//! `detail` - which quotes the principal it refused. Worse, by this file's own second finding a
+//! federated pool subject holds no `BigQuery` grant, so **the first real run reaches a `403` before
+//! [`who_answered`] ever executes**: the leak was on the only path a real run takes, and nowhere
+//! else. Every read goes through [`identity_or_die`] now, which names the refusal's STATUS and
+//! REASON CODE - `BigQuery`'s own closed vocabulary - and never its message. `#287`'s masking step
+//! does not cover this either: it masks the dataset, the table and the key's project, not the two
+//! principal accounts.
 //!
 //! # How to run it
 //!
@@ -125,10 +136,17 @@ mod tests {
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
-    use sutura_exec_bigquery::wire::{StsOverHttp, WireAgent};
+    use sutura_exec_bigquery::BigQueryError;
+    use sutura_exec_bigquery::wire::{StsOverHttp, WireAgent, WireError};
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
     use crate::support::{Connection, bounds, named, opened, opened_as, presented};
+
+    /// What an identity read answers, or why it could not.
+    ///
+    /// Named because `Result<String, BigQueryError<WireError<C>>>` is over the `type_complexity`
+    /// threshold this workspace tightened - the same reason `crate::tests::fakes::Case` is named.
+    type IdentityRead<C> = Result<String, BigQueryError<WireError<C>>>;
 
     /// The scope the exchanged credential is minted for.
     ///
@@ -195,6 +213,90 @@ mod tests {
             return WhoAnswered::AFederatedPoolSubject;
         }
         WhoAnswered::NeitherPrincipal
+    }
+
+    /// The identity read's answer, or a panic naming WHAT went wrong and never what came back.
+    ///
+    /// **The failure path of this cell is a public log**, and an `.expect()` here renders the whole
+    /// error chain - including `WireError::Refused`'s `detail`, which is the endpoint's own message
+    /// and quotes the principal it refused. So this is the same shape `wire::tables::was_refused`
+    /// uses and for the same reason: an exhaustive match, so a variant added later is a compile
+    /// error at this line rather than a new way to print one, and a fixed sentence per arm.
+    ///
+    /// `status` and `named` ARE printed, and that is the judgement in this function: they are
+    /// `BigQuery`'s own published status and reason vocabulary - `accessDenied`, `notFound` - so
+    /// they name a class of failure and never an identity. `detail` is the free text and is the one
+    /// field that can carry an account, so nothing here reads it. `two_principals.rs`'s control leg
+    /// prints exactly the same pair.
+    fn identity_or_die<C>(read: IdentityRead<C>, leg: &str) -> String
+    where
+        C: core::error::Error + Send + Sync + 'static,
+    {
+        match read {
+            Ok(who) => who,
+            Err(refused) => panic!("{}", refusal_shape(refused, leg)),
+        }
+    }
+
+    /// The sentence [`identity_or_die`] dies with, as a value.
+    ///
+    /// **Split from the panic so the property can be TESTED rather than described.** What has to
+    /// hold is about the message - it names the class and never the endpoint's own text - and a
+    /// message only exists when a panic happens. `catch_unwind` is not the way to reach it either:
+    /// the transport's error is not `UnwindSafe`, so the assertion would be about the harness.
+    fn refusal_shape<C>(refused: BigQueryError<WireError<C>>, leg: &str) -> String
+    where
+        C: core::error::Error + Send + Sync + 'static,
+    {
+        let what = match refused {
+            BigQueryError::Endpoint { cause } => match cause {
+                WireError::Refused { status, named, .. } => {
+                    format!("the endpoint refused it - {status}: {named}")
+                }
+                WireError::Credential { .. } => String::from("this leg's own credential could not be read"),
+                WireError::Expired { .. } => String::from("the credential presented was already past its expiry"),
+                WireError::NoClock { .. } => String::from("this process could not read the time"),
+                WireError::DeadlineSpent { .. } => String::from("the call's budget was gone before it was sent"),
+                WireError::RequestNotSerializable { .. } => String::from("the request would not serialize"),
+                WireError::Unreachable { .. } => String::from("the endpoint was not reached"),
+                WireError::Unreadable { .. } => String::from("the endpoint's answer could not be read"),
+                WireError::NotADocument { .. } => String::from("the answer was not the document this adapter reads"),
+                WireError::NotComplete { .. } => String::from("the job did not finish inside its deadline"),
+                WireError::MoreThanOnePage => String::from("the answer arrived in more than one page"),
+                WireError::NoTotal { .. } | WireError::NotATotal { .. } => String::from("the answer carried no readable total"),
+                WireError::NoSchema { .. } => String::from("the answer carried no schema"),
+                WireError::NotAScalar { .. } => String::from("a cell was not a scalar"),
+                WireError::NotAListing { .. } => String::from("the answer was not a listing"),
+                WireError::UnusablePageToken { .. } => String::from("the answer's page token was unusable"),
+                WireError::ListingDidNotFinish { .. } => String::from("the listing did not finish"),
+            },
+            BigQueryError::NoIdentityInTheAnswer { rows, columns } => {
+                format!("the answer was {rows} row(s) of {columns} column(s), which is not one identity")
+            }
+            BigQueryError::Incomplete { delivered, total } => {
+                format!("the endpoint delivered {delivered} row(s) and reported {total}")
+            }
+            BigQueryError::PresentedDisagreesWithPosture { .. } => {
+                String::from("the credential this leg presented disagrees with how the source was declared")
+            }
+            BigQueryError::NoPrincipalSwitch { .. } => String::from("a principal switch has no mechanism here"),
+            BigQueryError::Render { .. } | BigQueryError::LegWithoutCombiner { .. } => {
+                String::from("a defect in this test file rather than an answer")
+            }
+            BigQueryError::UnmappedType { .. }
+            | BigQueryError::NotAnInteger { .. }
+            | BigQueryError::NotADouble { .. }
+            | BigQueryError::NotABool { .. }
+            | BigQueryError::NotFinite { .. }
+            | BigQueryError::NotADate { .. }
+            | BigQueryError::RowWidth { .. }
+            | BigQueryError::Shape { .. } => String::from("the answer came back in a shape this adapter could not map"),
+        };
+        format!(
+            "{leg}: the identity read did not answer - {what}. The refusal's own message is \
+             deliberately NOT printed here: it quotes the principal the endpoint refused, and this \
+             leg's log is public"
+        )
     }
 
     /// Did the two legs come back as one identity?
@@ -297,6 +399,38 @@ mod tests {
             ),
             WhoAnswered::NeitherPrincipal
         );
+    }
+
+    #[test]
+    fn a_refusal_this_leg_dies_on_names_the_reason_and_never_the_message() {
+        // **The leak review measured, held rather than remembered.** `WireError::Refused` carries
+        // the endpoint's own free text in `detail`, and that text quotes the principal it refused -
+        // so `.expect()` on the read put an account identifier into a public log. It is the only
+        // path a real run takes today: by this file's second finding a federated pool subject holds
+        // no grant, so the first run reaches a `403` before `who_answered` ever executes.
+        //
+        // The MESSAGE is what is under test, so it is built as a value rather than caught out of a
+        // panic - the transport's error is not `UnwindSafe`, and a `catch_unwind` here would be an
+        // assertion about the harness.
+        let refused: BigQueryError<WireError<std::io::Error>> = BigQueryError::Endpoint {
+            cause: WireError::Refused {
+                status: 403,
+                named: String::from("accessDenied"),
+                detail: String::from(
+                    "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
+                ),
+            },
+        };
+        let said = refusal_shape(refused, "principal A");
+        assert!(
+            !said.contains("principal-a@example.com"),
+            "the panic a public log will carry may not quote the endpoint's message: {said}"
+        );
+        assert!(!said.contains("bigquery.jobs.create"), "{said}");
+        // And it still says enough to act on: the class of failure, in BigQuery's own vocabulary.
+        assert!(said.contains("403"), "{said}");
+        assert!(said.contains("accessDenied"), "{said}");
+        assert!(said.contains("principal A"), "{said}");
     }
 
     #[test]
@@ -414,9 +548,7 @@ mod tests {
                 panic!("an impersonating source with an assertion is granted");
             };
             let presented = credentials.presented_for(&source()).expect("a leg");
-            warehouse
-                .session_user(presented)
-                .expect("the endpoint answered the identity read")
+            identity_or_die(warehouse.session_user(presented), subject)
         };
 
         let from_a = asked_as(&assertion_a, "principal-a@example.com");
@@ -459,9 +591,7 @@ mod tests {
         let expected_a = named("SUTURA_BQ_PRINCIPAL_A_EMAIL", "the account principal A must resolve to");
         let expected_b = named("SUTURA_BQ_PRINCIPAL_B_EMAIL", "the account principal B must resolve to");
         let warehouse = opened(source(), Connection::required(), bounds());
-        let observed = warehouse
-            .session_user(&presented())
-            .expect("the endpoint answered the identity read under the deployment's own credential");
+        let observed = identity_or_die(warehouse.session_user(&presented()), "the deployment's own identity");
         assert_eq!(
             who_answered(&observed, &expected_a, &expected_b),
             WhoAnswered::NeitherPrincipal,

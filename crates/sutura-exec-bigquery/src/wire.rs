@@ -344,9 +344,17 @@ where
     },
     /// The endpoint refused.
     ///
-    /// The status and the endpoint's own `reason`, and deliberately not its message - see the module
-    /// header. An absent or unparseable error document leaves `named` empty, which is honest: the
-    /// status is what is guaranteed.
+    /// The status, the endpoint's own `reason` in `named`, and its MESSAGE in `detail`. An absent or
+    /// unparseable error document leaves `named` empty, which is honest: the status is what is
+    /// guaranteed.
+    ///
+    /// **This used to say the message was deliberately not carried, and the field beside it was
+    /// built from `error.message`.** The wrong half mattered: `detail` is free text the endpoint
+    /// writes, it quotes the resource and the principal it refused, and `Display` interpolates it -
+    /// so anything that renders this variant into a public log leaks both. `ci.yml`'s masking step
+    /// exists because of exactly that, and `tests/exchanged_identity.rs` prints `status` and `named`
+    /// and never `detail` for the same reason. A caller that logs this variant has to decide which
+    /// of the three fields it is allowed to render.
     #[error("the endpoint refused the job with {status}: {named}: {detail}")]
     Refused { status: u16, named: String, detail: String },
     /// The answer was not the document a query response is.
