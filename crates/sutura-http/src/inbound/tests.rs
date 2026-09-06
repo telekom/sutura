@@ -504,6 +504,24 @@ fn a_symmetric_key_in_a_key_set_is_refused_at_load() {
     assert!(rendered.contains("mint a token"), "{rendered}");
 }
 
+/// Does any key in this document carry a `kid`?
+///
+/// **Read off the parsed members, never off the serialized text.** A JWK's EC coordinates are
+/// random base64url and `kid` is three characters of that 64-character alphabet, so
+/// `document.contains("kid")` over a 43-character coordinate is a coin flip with roughly forty
+/// positions to land in - which is how the assertion below failed once, on a real key set naming no
+/// key at all. `a_coordinate_spelling_the_member_name_still_names_no_key` pins that document, so
+/// rewriting this back into a substring test is red rather than intermittent.
+fn any_key_carries_an_id(document: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(document)
+        .expect("a key set fixture is JSON")
+        .get("keys")
+        .and_then(serde_json::Value::as_array)
+        .expect("a key set holds an array of keys")
+        .iter()
+        .any(|key| key.get("kid").is_some())
+}
+
 #[test]
 fn a_key_set_this_deployment_could_not_look_up_is_refused_rather_than_partly_read() {
     // A key with no `kid` cannot be selected by the id a token names, so a deployment reading one would
@@ -513,7 +531,10 @@ fn a_key_set_this_deployment_could_not_look_up_is_refused_rather_than_partly_rea
     // The same document `jwks` builds, with the `kid` left out - so what differs from the accepted
     // fixture is exactly the one key this test is about.
     let anonymous = jwks(KID, &pair).replace(&format!(r#""kid":"{KID}","#), "");
-    assert!(!anonymous.contains("kid"), "the fixture still names a key: {anonymous}");
+    assert!(
+        !any_key_carries_an_id(&anonymous),
+        "the fixture still names a key: {anonymous}"
+    );
     assert!(matches!(
         KeySet::parse(&anonymous).expect_err("a key nothing can name is not usable"),
         InvalidKeySet::KeyWithoutAnId
@@ -525,6 +546,36 @@ fn a_key_set_this_deployment_could_not_look_up_is_refused_rather_than_partly_rea
     assert!(matches!(
         KeySet::parse("not json").expect_err("prose is not a key set"),
         InvalidKeySet::NotAJwkSet { .. }
+    ));
+}
+
+#[test]
+fn a_coordinate_spelling_the_member_name_still_names_no_key() {
+    // The document the test above failed on once, pinned rather than described. Its `y` is the real
+    // coordinate `rcgen` generated that day - `...Ukidb3c...` holds `kid` - and the key set names no
+    // key whatever, which is exactly what the refusal is about. `x` is a stand-in of the right shape:
+    // `KeySet::parse` reaches `KeyWithoutAnId` before any coordinate is decoded, so the key material
+    // is not what this cell is measuring.
+    //
+    // **This is the evidence a flake cannot supply by re-running.** `contains("kid")` is TRUE here
+    // and `any_key_carries_an_id` is FALSE, so the two assertions disagree on one real document, and
+    // the substring one is the one that is wrong.
+    let anonymous = concat!(
+        r#"{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","#,
+        r#""x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPTZmuNc","#,
+        r#""y":"PCXPBkEsLNR4HTALsbXbUkidb3cPF5OhuzBlPnHRrTs"}]}"#,
+    );
+    assert!(
+        anonymous.contains("kid"),
+        "the coordinate that made the old assertion red: {anonymous}"
+    );
+    assert!(
+        !any_key_carries_an_id(anonymous),
+        "no key in this document carries a `kid`: {anonymous}"
+    );
+    assert!(matches!(
+        KeySet::parse(anonymous).expect_err("a key nothing can name is not usable"),
+        InvalidKeySet::KeyWithoutAnId
     ));
 }
 
