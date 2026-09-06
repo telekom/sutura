@@ -537,6 +537,16 @@ mod tests {
                 "nothing reached a socket: this is a defect in this file - the plan, the posture or the \
                  credential shape - and not an answer about the row grant: {refused}"
             ),
+            // **The compile error this match exists to be**, arriving for the first time. This
+            // variant belongs to `BigQueryWarehouse::session_user` - the identity read the
+            // exchanged-identity cell uses - and no query leg can produce it. Its own arm rather
+            // than folded into either group above, because both of their messages would be wrong:
+            // it is neither *rows came back* nor *nothing reached a socket*. Reaching it means the
+            // adapter changed under this cell.
+            BigQueryError::NoIdentityInTheAnswer { .. } => panic!(
+                "an identity read's refusal arrived from a query leg, which this adapter cannot produce - \
+                 the control is judging an answer it was not written for: {refused}"
+            ),
         }
     }
 

@@ -114,6 +114,152 @@ fn two_subjects_each_run_their_statement_under_the_bearer_minted_for_them() {
     assert_ne!(seen[0].subject, seen[1].subject);
 }
 
+/// The answer an identity read is supposed to get: one `session_user` column, one row, one cell.
+///
+/// Here rather than in `fakes`, and it is the one fixture in this file that is: `fakes` is the
+/// half a reverted implementation takes with it, so a fixture that lives there is one the causality
+/// gate cannot see these assertions using. It is also three lines, and `one_cell`'s column is named
+/// `value` - which in an identity read would read as the value-mapping table's fixture pointed at
+/// the wrong test.
+fn one_identity(cell: Cell) -> JobRows {
+    JobRows::of(
+        vec![Field::of(String::from("session_user"), FieldType::String)],
+        vec![vec![cell]],
+        1,
+    )
+}
+
+/// The same, spelled from an identifier, for the two tests that assert on the value.
+fn answered_as(who: &str) -> JobRows {
+    one_identity(Cell::Text(String::from(who)))
+}
+
+#[test]
+fn the_identity_read_goes_out_under_the_subjects_own_bearer_and_carries_no_values() {
+    // **The half of the exchanged-identity venue a fake CAN answer**, and it is the half that
+    // decides whether that venue means anything: an identity read submitted under the credential
+    // the TRANSPORT already holds would answer *the transport* every time and pass, whatever the
+    // exchange did. So what is asserted is the bearer, not the answer.
+    //
+    // The statement is asserted too, because the answer is only an identity if the question was:
+    // one fixed statement this crate renders, with no parameters, so there is no position a value
+    // from a question could occupy - the *no arbitrary SQL entry point* property `load_fixture`
+    // holds by taking a table name and a path.
+    let warehouse = open(
+        Recording::answering(answered_as("principal-a@example.com")),
+        impersonating_posture(),
+    );
+    let token = "exchanged-for-principal-a";
+    let who = warehouse
+        .session_user(&a_subject_token(token))
+        .expect("the fake answers one identity");
+    assert_eq!(who, "principal-a@example.com");
+    let seen = warehouse.transport.seen.borrow();
+    let asked = seen.first().expect("the transport was asked once");
+    assert_eq!(asked.subject.as_deref(), Some(token));
+    assert!(asked.statement.contains("SESSION_USER()"), "{}", asked.statement);
+    assert!(asked.params.is_empty(), "{:?}", asked.params);
+    assert_eq!(asked.statement.matches('?').count(), 0, "{}", asked.statement);
+}
+
+#[test]
+fn the_identity_read_under_a_shared_source_sends_no_bearer_of_its_own() {
+    // The other posture, asserted rather than assumed because the exchanged-identity venue runs a
+    // CONTROL leg under the deployment's own credential - and that leg is a control only if it
+    // really goes out as the deployment. `subject_bearer` answers `None` for a shared leg, so the
+    // transport's own identity is what the endpoint resolves, which is what makes *the deployment
+    // is neither principal* a thing that venue can find out rather than assume.
+    let warehouse = open(Recording::answering(answered_as("ci@example.com")), shared_posture());
+    let who = warehouse
+        .session_user(&leg_of(&shared_posture()))
+        .expect("the fake answers one identity");
+    assert_eq!(who, "ci@example.com");
+    let seen = warehouse.transport.seen.borrow();
+    assert_eq!(seen.first().and_then(|asked| asked.subject.clone()), None);
+}
+
+#[test]
+fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_nothing() {
+    // Three shapes that are not an identity, and one property that matters more than any of them:
+    // **the refusal carries the SHAPE and never the value.** The venue that runs this read writes
+    // to a public workflow log, and the one thing this answer can contain is an account
+    // identifier - so a refusal quoting what came back would be the disclosure the read exists to
+    // check for.
+    let two_rows = JobRows::of(
+        vec![Field::of(String::from("session_user"), FieldType::String)],
+        vec![
+            vec![Cell::Text(String::from("principal-a@example.com"))],
+            vec![Cell::Text(String::from("principal-b@example.com"))],
+        ],
+        2,
+    );
+    let two_columns = JobRows::of(
+        vec![
+            Field::of(String::from("session_user"), FieldType::String),
+            Field::of(String::from("extra"), FieldType::String),
+        ],
+        vec![vec![
+            Cell::Text(String::from("principal-a@example.com")),
+            Cell::Text(String::from("principal-b@example.com")),
+        ]],
+        1,
+    );
+    for answer in [two_rows, one_identity(Cell::Null), two_columns] {
+        let warehouse = open(Recording::answering(answer), impersonating_posture());
+        let refused = warehouse
+            .session_user(&a_subject_token("exchanged-for-principal-a"))
+            .expect_err("an answer that is not one identity is a refusal");
+        assert!(matches!(refused, BigQueryError::NoIdentityInTheAnswer { .. }), "{refused:?}");
+        let said = refused.to_string();
+        for identifier in ["principal-a@example.com", "principal-b@example.com"] {
+            assert!(
+                !said.contains(identifier),
+                "a refusal a public log will carry may not quote what came back: {said}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_identity_read_whose_page_is_short_of_its_own_total_is_the_documented_refusal() {
+    // One comparison, in one place. `Incomplete` is this crate's documented reading of *the
+    // endpoint delivered fewer rows than it reported*, and an identity read writing a second
+    // comparison of its own beside it is the two-deadlines defect `sts::clears_floor` records -
+    // two answers to one question, free to disagree.
+    let short = JobRows::of(
+        vec![Field::of(String::from("session_user"), FieldType::String)],
+        vec![vec![Cell::Text(String::from("principal-a@example.com"))]],
+        2,
+    );
+    let warehouse = open(Recording::answering(short), impersonating_posture());
+    let refused = warehouse
+        .session_user(&a_subject_token("exchanged-for-principal-a"))
+        .expect_err("a page short of its own total is refused");
+    assert!(
+        matches!(refused, BigQueryError::Incomplete { delivered: 1, total: 2 }),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn an_identity_read_whose_credential_disagrees_with_the_posture_reaches_no_endpoint() {
+    // `deliverable` is shared by every credential-taking method, and this is the one added last -
+    // so it is the one where forgetting it would be least visible. A shared source handed a
+    // subject's token is refused here exactly as `execute` refuses it, and nothing is sent.
+    let warehouse = open(Recording::empty(), shared_posture());
+    let refused = warehouse
+        .session_user(&a_subject_token("exchanged-for-principal-a"))
+        .expect_err("a subject's token at a shared source disagrees with the posture");
+    assert!(
+        matches!(refused, BigQueryError::PresentedDisagreesWithPosture { .. }),
+        "{refused:?}"
+    );
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "a leg this adapter cannot deliver may not reach the endpoint under any identity"
+    );
+}
+
 #[test]
 fn a_principal_to_switch_to_is_refused_rather_than_run_under_this_deployments_own_identity() {
     // **The shape this adapter declares it can carry a subject and still cannot deliver.** A

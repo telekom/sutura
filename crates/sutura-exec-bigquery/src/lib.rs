@@ -126,6 +126,25 @@ use crate::transport::{Cell, DatasetAddress, DatasetId, Field, FieldType, JobReq
 /// transport failed.
 type Mapped<V, E> = Result<V, BigQueryError<E>>;
 
+/// The one statement this adapter issues that asks the endpoint about the CALLER rather than about
+/// data: who does this data system believe is executing this job?
+///
+/// **A constant and not a parameter, which is what keeps *no arbitrary SQL entry point* true of this
+/// crate.** `crate::transport`'s header states that rule and [`BigQueryWarehouse::load_fixture`]
+/// keeps it by taking a table name and a path; this keeps it by taking nothing at all. There is
+/// exactly one thing [`BigQueryWarehouse::session_user`] can ask, and it is written here.
+///
+/// `SESSION_USER()` is `GoogleSQL`'s own reading of the authenticated identity, so it reads the
+/// identity WITHOUT changing it - which is the property that makes it usable as the observable for
+/// *this source executed as that principal*. `docs/adr/0008` already reasons about it as the
+/// identity-reading primitive.
+///
+/// **What it cannot do, said where the constant is:** it reports the identity the ENDPOINT resolved
+/// the job's bearer to. It says nothing about how that bearer was obtained, so a bearer minted from
+/// a key on disk and one exchanged for a caller are indistinguishable here. That distinction is the
+/// composition's, and `docs/where-identity-is-proven.md` is where it is kept.
+const SESSION_USER: &str = "SELECT SESSION_USER() AS session_user";
+
 /// The bundle's tables, grouped by the dataset each resolves in.
 ///
 /// Named for the reason [`Mapped`] is: the map is over the `type_complexity` threshold this
@@ -252,6 +271,18 @@ where
     /// reported total is refused here, at the seam, rather than certified.
     #[error("the endpoint delivered {delivered} rows and reported {total} total")]
     Incomplete { delivered: usize, total: usize },
+    /// The identity read came back as something other than one row of one text cell.
+    ///
+    /// Its own variant rather than [`Self::RowWidth`] or [`Self::Shape`], because what a caller does
+    /// about it is different: those two are a result set this adapter could not map, and this is
+    /// *the endpoint did not tell us who ran the job* - which for the one caller that asks
+    /// ([`BigQueryWarehouse::session_user`]) is the whole answer rather than a cell of it.
+    ///
+    /// **It carries the SHAPE and never the value**, deliberately. The one thing this answer can
+    /// contain is an account identifier, and the venue that reads it writes to a public log - so a
+    /// refusal that quoted what came back would be the disclosure the read exists to check for.
+    #[error("the identity read answered {rows} row(s) of {columns} column(s), which is not one identity")]
+    NoIdentityInTheAnswer { rows: usize, columns: usize },
     /// The result set could not be built.
     #[error("the rows did not form a result set")]
     Shape {
@@ -454,6 +485,71 @@ where
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })
+    }
+
+    /// Who this data system says the leg presenting `presented` is executing AS.
+    ///
+    /// **The observable for the claim this adapter's `IMPERSONATION` constant makes.** A
+    /// [`Presented::SubjectToken`] rides as this job's own bearer, so what the endpoint resolves
+    /// that bearer to IS the identity the source executed under - and asking the source rather than
+    /// asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+    /// `SESSION_USER()` as the primitive; [`SESSION_USER`] is the only statement this can issue.
+    ///
+    /// It goes through [`Self::deliverable`] like every other credential-taking method, so a leg
+    /// whose credential disagrees with the source's posture is refused here too rather than being
+    /// answered by a read that looks harmless.
+    ///
+    /// **Not part of the [`Warehouse`] port, and that is a decision rather than an omission.** No
+    /// other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
+    /// process under one identity, so a defaulted method would answer *the process* and read as
+    /// though it had asked. An inherent method is reachable by the one venue that needs it and by
+    /// nothing that federates.
+    ///
+    /// # Errors
+    ///
+    /// [`BigQueryError::Endpoint`] where the endpoint did not answer,
+    /// [`BigQueryError::Incomplete`] where the page and the reported total disagree, and
+    /// [`BigQueryError::NoIdentityInTheAnswer`] where the answer is not one row of one text cell.
+    /// Nothing here quotes what came back: see that variant.
+    pub fn session_user(&self, presented: &Presented) -> Mapped<String, T::Error> {
+        self.deliverable(presented)?;
+        // No parameters, for `load_fixture`'s reason inverted: there is no question to carry a
+        // value FROM. And the subject's bearer where the leg has one, which is the entire point -
+        // an identity read submitted under the transport's own credential would answer the
+        // transport, every time, and pass.
+        let request = JobRequest::new(
+            SESSION_USER,
+            &[],
+            &self.billing_project,
+            &self.default_dataset,
+            Self::subject_bearer(presented),
+        );
+        let answered = self
+            .transport
+            .run(&request)
+            .map_err(|cause| BigQueryError::Endpoint { cause })?;
+        // The SAME comparison `Self::rows` makes, asked of the same type rather than written a
+        // second time: a delivered count that is not the reported total is a partial answer, and a
+        // partial answer to *who am I* is a wrong identity.
+        if answered.rows().len() != answered.total_rows() {
+            return Err(BigQueryError::Incomplete {
+                delivered: answered.rows().len(),
+                total: answered.total_rows(),
+            });
+        }
+        let shape = || BigQueryError::NoIdentityInTheAnswer {
+            rows: answered.rows().len(),
+            columns: answered.fields().len(),
+        };
+        // Slice patterns rather than indexing, because `clippy::indexing_slicing` is denied here and
+        // is right to be: a shape this adapter did not expect must be a refusal and never a panic.
+        let ([row], [_]) = (answered.rows(), answered.fields()) else {
+            return Err(shape());
+        };
+        let [Cell::Text(who)] = row.as_slice() else {
+            return Err(shape());
+        };
+        Ok(who.clone())
     }
 
     /// One cell, as the domain names it.
@@ -751,7 +847,8 @@ where
     fn preflight_was_refused(&self, error: &Self::Error) -> bool {
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.listing_was_refused(cause),
-            BigQueryError::Render { .. }
+            BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -802,7 +899,13 @@ where
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),
             BigQueryError::Incomplete { delivered, total } => delivered < total,
-            BigQueryError::Render { .. }
+            // `NoIdentityInTheAnswer` joins the `false` group rather than getting an arm of its
+            // own: the identity read projects ONE cell, so there is no narrower page to ask for and
+            // a retry returns the same shape. `clippy::match_same_arms` is denied here and is right
+            // to be - an arm whose body is identical to the group's is a distinction a reader is
+            // invited to look for and will not find.
+            BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }

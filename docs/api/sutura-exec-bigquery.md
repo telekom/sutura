@@ -125,6 +125,7 @@ an owned `#[source]`.
 - `NotADate` - A cell declared as a date did not parse as one.
 - `RowWidth` - A row had more or fewer cells than the schema had columns.
 - `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
+- `NoIdentityInTheAnswer` - The identity read came back as something other than one row of one text cell.
 - `Shape` - The result set could not be built.
 
 ### Implements
@@ -200,6 +201,35 @@ as that nobody made, and a defaulted billing project would be a project somebody
 for. The billing project is the caller's to supply because there is nothing to infer it from -
 it is a path segment of the request that submits a job, and a federated identity has no project
 of its own.
+
+```rust
+pub fn session_user(&self, presented: &Presented) -> Result<String, BigQueryError<<T as >::Error>>
+```
+
+Who this data system says the leg presenting `presented` is executing AS.
+
+**The observable for the claim this adapter's `IMPERSONATION` constant makes.** A
+`Presented::SubjectToken` rides as this job's own bearer, so what the endpoint resolves
+that bearer to IS the identity the source executed under - and asking the source rather than
+asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+`SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
+
+It goes through `Self::deliverable` like every other credential-taking method, so a leg
+whose credential disagrees with the source's posture is refused here too rather than being
+answered by a read that looks harmless.
+
+**Not part of the `Warehouse` port, and that is a decision rather than an omission.** No
+other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
+process under one identity, so a defaulted method would answer *the process* and read as
+though it had asked. An inherent method is reachable by the one venue that needs it and by
+nothing that federates.
+
+# Errors
+
+`BigQueryError::Endpoint` where the endpoint did not answer,
+`BigQueryError::Incomplete` where the page and the reported total disagree, and
+`BigQueryError::NoIdentityInTheAnswer` where the answer is not one row of one text cell.
+Nothing here quotes what came back: see that variant.
 
 ### Implements
 
