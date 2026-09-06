@@ -69,6 +69,13 @@
 //!   `github.com/telekom/sutura#308` names still counts. What it removes is the FABRICATED path
 //!   at that anchor - `tmp.join("examples/multi-player/corpus-with-two-metrics.json")` - and the
 //!   stale one. The residue is held by review.
+//! * **`#[cfg_attr(.., ignore)]` is invisible, and it fails OPEN.** The two levels above read the
+//!   `#[ignore` spelling only. Measured: `#[cfg_attr(all(), ignore)]` on both cells of the one
+//!   file reaching a variant leaves the verdict byte-identical to the healthy one, exit 0 - the
+//!   same silent pass this gate exists to remove, one spelling over. `super::causality` tolerates
+//!   the same gap for a reason that does NOT hold here: there a missed `#[ignore]` is a loud
+//!   `no tests to run`, and here it is a green verdict. Held by review and by the fact that
+//!   `git grep -n "cfg_attr" -- "*.rs"` finds the spelling nowhere in this tree.
 //! * **A reach in a helper is reached through its own file only.** The two `#[ignore]` levels
 //!   answer *does anything in THIS file run*; a helper here that only an `#[ignore]`d test in
 //!   ANOTHER file calls is still evidence, because a call graph is not a line scan. The narrower
@@ -110,9 +117,12 @@ const EXAMPLES: &str = "examples/";
 /// Not tidiness - it is the difference between a gate and a mirror, and the mirror was live one
 /// file over. This module's own fixtures hold paths under `examples/`, and `changes.rs` holds
 /// `examples/single-player/...` as a classification fixture; both are test code by every rule this
-/// gate uses. Measured: repointing all 23 `crates/**/*.rs` mentions of `examples/single-player`
-/// left the verdict green on those two fixtures alone. No gate's test runs a deployment example,
-/// so the crate is the honest scope rather than one file.
+/// gate uses. Measured: repointing EVERY `crates/**/*.rs` mention of `examples/single-player`
+/// left the verdict green on those two fixtures alone. No figure is written here - the count
+/// moved from 23 to 40 between that measurement and this sentence, which is the rot `report`'s
+/// own doc two functions down is about; `git grep -c "examples/single-player" -- "crates/**/*.rs"`
+/// answers it. No gate's test runs a deployment example, so the crate is the honest scope rather
+/// than one file.
 ///
 /// DERIVED rather than written down, because a path constant is held by recall and fails OPEN when
 /// it stops matching: `mv xtask/src/examples.rs xtask/src/examples/mod.rs` still compiles, and it

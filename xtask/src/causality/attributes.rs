@@ -272,8 +272,16 @@ impl Cells {
 /// comment into a blank line, which ENDS an attribute block and would lose the `#[ignore]` of any
 /// test with a doc comment under its attributes.
 ///
-/// `#[cfg_attr(.., ignore)]` is not recognised, for the reason `super::scoped::is_ignored` gives:
-/// no such spelling exists in this tree, and it is the one form whose miss fails open.
+/// `#[cfg_attr(.., ignore)]` IS NOT RECOGNISED, and the argument `super::scoped::is_ignored`
+/// gives for tolerating that does NOT transfer here - importing it would be the overstated
+/// control `AGENTS.md` calls a defect in itself. There, missing an `#[ignore]` puts an ignored
+/// test into a filterset and nextest exits 4 with *no tests to run*: loud. Here, missing one
+/// leaves a cell counted as running, and the caller's verdict is a silent exit 0. Measured:
+/// `#[cfg_attr(all(), ignore)]` on both cells of the one file reaching a variant leaves the
+/// verdict byte-identical to the healthy one. So the honest statement is that this form is a
+/// live hole in the direction that fails OPEN, held by review and by nothing else, and the only
+/// thing keeping it narrow is that no such spelling exists in this tree - which
+/// `git grep -n "cfg_attr" -- "*.rs"` answers and this file does not.
 pub(crate) fn cells(text: &str, code: &str) -> Cells {
     let lines: Vec<&str> = text.lines().collect();
     let blanked: Vec<&str> = code.lines().collect();
@@ -284,8 +292,18 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
         if !declares_a_test(written) || !declares_a_test(visible) {
             continue;
         }
-        // `index` is 0-based, so the search for the item starts one line down.
-        let Some((at, _)) = item_below(&lines, index.saturating_add(1)) else {
+        // FROM THE ATTRIBUTE'S OWN LINE, not one below it, and the difference is a defect this
+        // gate would have shipped. `item_below`'s `#[` arm skips an attribute AS A WHOLE through
+        // `attribute_end`, which is the reason that function exists; starting one line down hands
+        // it a WRAPPED attribute's continuation line - `flavor = "multi_thread"` - as the item,
+        // and `attached` then reads the block above THAT line and never sees the `#[ignore]`
+        // below it. Measured on this tree: one cell written as a wrapped `#[tokio::test(..)]`
+        // plus `#[ignore]` and the other as an ordinary `#[test]` plus `#[ignore]` left the
+        // verdict at `0 file(s) dropped` and exit 0 - every cell ignored, both of this gate's
+        // levels defeated at once, which is the exact state it exists to redden. Latent rather
+        // than live only because no wrapped test-declaring attribute is written in this tree
+        // today, and "no such spelling exists yet" is not a mechanism.
+        let Some((at, _)) = item_below(&lines, index) else {
             // FAIL CLOSED at the caller: an attribute that declares a test and whose item this
             // cannot reach says nothing about whether the test runs, and a silent zero there is
             // the whole failure mode this resolution exists to remove.
@@ -366,6 +384,31 @@ mod tests {
             assert_eq!(found.unresolved(), 0, "{source}");
         }
         let runs = of_file("#[test]\nfn t() {\n    let p = 1;\n}\n");
+        assert!(!runs.nothing_runs());
+        assert_eq!(runs.runs(), 1);
+    }
+
+    #[test]
+    fn a_wrapped_test_declaring_attribute_still_finds_its_item_and_its_ignore() {
+        // THE SHAPE THAT DEFEATED BOTH LEVELS AT ONCE. Resolving the item from one line BELOW the
+        // attribute hands a wrapped one its own continuation line as the item, and the block
+        // `attached` then reads is the one above THAT line - so the `#[ignore]` underneath is
+        // invisible and the cell counts as running. Measured through the gate before the fix:
+        // one cell wrapped and both `#[ignore]`d left `0 file(s) dropped` and exit 0.
+        for source in [
+            "#[tokio::test(\n    flavor = \"multi_thread\"\n)]\n#[ignore = \"needs a broker\"]\nfn t() {\n    let p = 1;\n}\n",
+            "#[test_case(\n    1,\n    2\n)]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n",
+            "#[rstest(\n    case(1)\n)]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n",
+        ] {
+            let found = of_file(source);
+            assert!(found.nothing_runs(), "{source}");
+            assert_eq!(found.runs(), 0, "{source}");
+            assert_eq!(found.unresolved(), 0, "{source}");
+            assert!(found.ignores(5), "a line inside the wrapped, ignored cell: {source}");
+        }
+        // The wrapped attribute over a cell that RUNS is still named, so the fix is the item
+        // resolution rather than a rule that wrapped attributes are ignored.
+        let runs = of_file("#[tokio::test(\n    flavor = \"multi_thread\"\n)]\nfn t() {\n    let p = 1;\n}\n");
         assert!(!runs.nothing_runs());
         assert_eq!(runs.runs(), 1);
     }
