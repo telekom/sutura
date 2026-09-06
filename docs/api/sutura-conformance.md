@@ -838,7 +838,7 @@ pub enum Fixture<W>
 An adapter's fixture, or the reason this venue could not stand one up.
 
 **The type every binding's `open` path returns, and it is the mechanism rather than a
-convention.** `execute_packs` used to call `open` for a `W`, so an adapter whose data system
+convention.** `crate::execute_packs` used to call `open` for a `W`, so an adapter whose data system
 may not be reachable here had exactly one option - panic in its fixture - and therefore could
 not be bound at all: `sutura-exec-postgres` was registered in the golden matrix and carried the
 one declared exemption in `cargo xtask check-conformance-bindings` for precisely that reason
@@ -852,13 +852,13 @@ cannot do is leave the two cases unconsidered - a fixture returning `W` does not
 what it can still do is answer either one dishonestly. That is one line, in a file whose whole
 content is a fixture and a declaration, and the diff is where it is read.
 
-# Why this is not an `Outcome`, which is the distinction the design turns on
+# Why this is not an `crate::Outcome`, which is the distinction the design turns on
 
-`Outcome::Declined` is a statement about the ADAPTER - *this adapter cannot do that*, carrying
-a typed `Declination`. An absent tier is a statement about the ENVIRONMENT. Collapsing the two
+`crate::Outcome::Declined` is a statement about the ADAPTER - *this adapter cannot do that*, carrying
+a typed `crate::Declination`. An absent tier is a statement about the ENVIRONMENT. Collapsing the two
 would make a green run over an absent Postgres indistinguishable from a green run against one,
 which is the failure mode the packs were built against. So the two are reported under different
-words (`hold` prints `DECLINED`, `not_here` prints `NOT RUN`) and decided at different
+words (`crate::hold` prints `DECLINED`, `crate::not_here` prints `NOT RUN`) and decided at different
 levels: a declination comes out of a pack that RAN, and an absence stops the pack running.
 
 # What it does NOT establish
@@ -901,7 +901,7 @@ matched on the text would be depending on the text. One variant today - a second
 the first adapter whose absence is not a tier, and cloud state a run cannot create is the shape
 that asks for it. It arrives WITH that adapter rather than ahead of it, because a variant
 nothing constructs is a claim nothing provokes, and this crate has paid for one of those already
-(`Fault::EmptyCorpus`, which needed a seam before it was reachable at all).
+(`crate::Fault::EmptyCorpus`, which needed a seam before it was reachable at all).
 
 #### Variants
 
