@@ -597,6 +597,21 @@ anything with no `#[test]` - and keep every assertion where it is. Orphaning now
 *the tests this diff added did not run on base* - rather than passing as green, because nextest
 fails a filter that matches nothing.
 
+**AND THAT SAME RULE DECIDES WHETHER THE RUN EXITS 1 OR 3, WHICH DECIDES WHETHER A PULL REQUEST CAN
+MERGE.** `plan` only reaches *NOT MECHANICALLY SEPARABLE* - a **pass** - when NO changed test file
+is separable; one pure-test file in the diff is enough to make it *Separable*, revert the
+implementation, and try to measure. So a **new file whose only `#[test]` characterizes behaviour the
+diff does not change** is the worst thing to put in a diff: it cannot be red against base whatever
+happens, and it converts an honest exit 3 into `FAILED - the tests this diff added did not run on
+base` at exit 1. CI turns exit 3 into a warning and returns exit 1 as red, so that shape blocks the
+merge queue over a test that was never measurable. Measured on the branch that added
+`check-warm-start`'s pairing reader, where the retry's own hint blamed orphaning and the real cause
+was different: the modules held at HEAD called a `pub(crate)` lexer the same diff added, so the base
+tree did not compile at all, and the retry then dropped those modules and orphaned the file it was
+trying to measure. **The fix is the rule above, read the right way round: the characterization
+`#[test]` belongs in a file that changes behaviour and adds tests together, and the new file keeps
+only the harness.**
+
 **AND THE SECOND HALF OF THAT RULE DECIDES WHICH FILE IS MEASURED: a comment-only change holds
 nothing back.** `has_non_test_additions` treats a blank line, a comment and an attribute as carrying
 no behaviour, so a file whose added test sits beside nothing but a **doc comment** is not

@@ -55,11 +55,16 @@ use crate::repo;
 /// makes them usable. What they share is the seam, which is why they share a gate.
 mod pairing;
 
-/// What the sweep actually REMOVES, asserted over a filesystem rather than read off its source.
+/// The HARNESS for asserting what the sweep REMOVES, over a filesystem rather than off its source.
 ///
 /// Test-only: nothing in production calls it, and nothing else in this repository runs the script
 /// for an answer. Beside [`pairing`] rather than inside it because it is a different claim - that
 /// module holds every taking against the sweep, this one holds the sweep against a directory.
+///
+/// **Only the harness lives there; the `#[test]` is in [`tests`] below.** That file's header
+/// carries the measurement, and it is the recorded trap read the right way round: a new file whose
+/// one `#[test]` cannot be red against base makes `test-causality` treat the whole diff as
+/// separable and end at exit 1 rather than at the honest `NOT MECHANICALLY SEPARABLE`.
 #[cfg(test)]
 mod sweep;
 
@@ -759,5 +764,93 @@ mod tests {
                 .map(|consumers| consumers.count()),
             Ok(1)
         );
+    }
+
+    #[test]
+    fn the_sweep_removes_what_baked_a_directory_it_no_longer_sits_in() {
+        // THE SCRIPT'S OWN BEHAVIOUR, over a real directory, because nothing else in this
+        // repository runs it for an answer: `just lint-workflows` shellchecks it and every venue
+        // that executes it does so for its side effect inside a build. Four units, one per branch
+        // of its decision, and each assertion is a `try_exists` on the unit AND its fingerprint
+        // rather than a line of its output - *an `Ok` from a subprocess is not evidence that the
+        // side effect happened.*
+        //
+        // HERE RATHER THAN IN `super::sweep`, WHICH KEEPS ONLY THE HARNESS, and that file's header
+        // has the measurement: as the one `#[test]` in a new file it made this diff look separable
+        // to `test-causality`, which then ended `FAILED ... 0 tests run` at exit 1. It cannot be
+        // red against base either way - the script's behaviour is unchanged by this branch, only
+        // its stated limits are - so it is a characterization test and belongs in a file the gate
+        // already holds.
+        //
+        // IT IS ALSO THE ONLY MECHANISM OVER *THE SWEEP HAPPENS AT ALL*: comment out the script's
+        // trailing `suturaPurgeBakedOutDirs` invocation and the script still exits 0,
+        // `just lint-workflows` shellchecks it clean and `just hygiene` - `pairing` included -
+        // reports `ok - 31 gate(s)` over a tree where nothing is purged. This reddens on it,
+        // `left: (true, true)`, because the unit and its fingerprint are still there.
+        use super::sweep::{present, sweep, unit};
+
+        let target = std::env::temp_dir().join(format!("sutura-sweep-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&target));
+        let profile = target.join("ci");
+        let elsewhere = "/nix/var/nix/builds/nix-74462-1743377963/source/target/ci/build/moved-aaaa/out";
+
+        // 1. MOVED, and what it generated names the directory it ran in. The one purge.
+        unit(
+            &profile,
+            "moved",
+            "aaaa",
+            elsewhere,
+            &format!("#[folder = \"{elsewhere}\"]"),
+            "",
+        );
+        // 2. MOVED, and nothing it generated names that directory. Relocation alone is true of
+        //    every build script in an unpacked closure; purging on it would cost the closure.
+        unit(&profile, "relocated", "bbbb", elsewhere, "pub const N: u8 = 1;", "");
+        // 3. RAN WHERE IT SITS, which is every build script in an ordinary target directory.
+        let own = profile.join("build/local-cccc/out");
+        unit(
+            &profile,
+            "local",
+            "cccc",
+            &own.to_string_lossy(),
+            &format!("#[folder = \"{}\"]", own.display()),
+            "",
+        );
+        // 4. THE STATED LIMIT: the baked path is in `output` - cargo's record of the `cargo::`
+        //    directives - which is a SIBLING of `out/` and not inside it, so the search never
+        //    reads it. This asserts the limit rather than trusting the paragraph that states it.
+        unit(
+            &profile,
+            "directives",
+            "dddd",
+            elsewhere,
+            "pub const N: u8 = 2;",
+            &format!("cargo:rustc-link-search=native={elsewhere}"),
+        );
+
+        let said = sweep(&target);
+
+        assert_eq!(
+            present(&profile, "moved", "aaaa"),
+            (false, false),
+            "the baked unit and its fingerprint both go: {said}"
+        );
+        assert_eq!(
+            present(&profile, "relocated", "bbbb"),
+            (true, true),
+            "relocation alone is not a reason: {said}"
+        );
+        assert_eq!(
+            present(&profile, "local", "cccc"),
+            (true, true),
+            "a script that ran here baked nothing stale: {said}"
+        );
+        assert_eq!(
+            present(&profile, "directives", "dddd"),
+            (true, true),
+            "the `output` file is the STATED LIMIT: {said}"
+        );
+        assert!(said.contains("1 inherited build script output(s) regenerated here"), "{said}");
+        drop(std::fs::remove_dir_all(&target));
     }
 }

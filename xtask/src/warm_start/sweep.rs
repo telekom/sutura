@@ -1,20 +1,25 @@
-//! The sweep's own behaviour, over a real directory, because nothing else in this tree runs it.
+//! The HARNESS for running the real sweep over a real directory - and only the harness.
 //!
 //! `nix/purge-baked-out-dirs.sh` is executed for its SIDE EFFECT inside a build, and `just
-//! lint-workflows` shellchecks it. Neither asks what it removes. So this runs the real script over
-//! a synthetic target directory - one unit directory per branch of its decision - and every
-//! assertion is a `try_exists` on the unit AND its fingerprint rather than a line of its output,
-//! because **an `Ok` from a subprocess is not evidence that the side effect happened.**
+//! lint-workflows` shellchecks it. Neither asks what it removes. So [`unit`] builds a synthetic
+//! target directory - one unit directory per branch of the script's decision - and [`sweep`] runs
+//! the real script over it, because **an `Ok` from a subprocess is not evidence that the side
+//! effect happened** and neither is a text scan.
 //!
-//! Test-only, and its own file for the 1000-line cap. It sits under [`super`] rather than beside
-//! [`super::pairing`] because it is not about the pairing: that module holds every taking against
-//! the sweep, and this one holds the sweep against a filesystem.
+//! THE ASSERTIONS ARE NOT HERE, AND THAT IS THE WHOLE POINT OF THIS FILE. They sit in
+//! [`super::tests`], beside the rest of this gate's tests, and the reason is a MEASURED trap in
+//! `test-causality`: a NEW file whose only `#[test]` is a characterization of behaviour this diff
+//! does not change can never be red against base, and offering it as the one measurable test file
+//! makes the whole diff look *separable*. The gate then reverts the implementation, cannot compile
+//! the modules it kept at HEAD, retries with them at base - which deletes the `mod` declaration
+//! this file is reached through - and ends `FAILED - the tests this diff added did not run on
+//! base`, exit 1, over `0 tests run`. CI treats exit 3 as a warning and exit 1 as red, so that
+//! shape blocks a merge.
 //!
-//! IT IS THE ONLY MECHANISM OVER *THE SWEEP HAPPENS AT ALL*, and that is measured rather than
-//! argued: comment out the script's trailing `suturaPurgeBakedOutDirs` invocation and the script
-//! exits 0, `just lint-workflows` shellchecks it clean, and `just hygiene` - [`super::pairing`]
-//! included - reports `ok - 31 gate(s)` over a tree where nothing is purged. This test fails on
-//! it, `left: (true, true)`, because the unit and its fingerprint are still there.
+//! **Move the harness, not the assertions.** With the `#[test]` in [`super`] - a file that changes
+//! behaviour and adds tests together - no changed file is separable, the verdict is the honest
+//! `NOT MECHANICALLY SEPARABLE`, and the substitute evidence is the mutation run in the pull
+//! request. Test-only, and its own file for the 1000-line cap.
 
 use std::path::Path;
 
@@ -23,7 +28,7 @@ use std::path::Path;
 /// `ran_in` is what went into `root-output` - the absolute `$OUT_DIR` the script ran with -
 /// and `baked` is written into `out/` and into `output` separately, because whether the sweep
 /// reads the second one is a STATED LIMIT and a stated limit wants a test.
-fn unit(profile: &Path, crate_name: &str, hash: &str, ran_in: &str, baked_in_out: &str, baked_in_output: &str) {
+pub(super) fn unit(profile: &Path, crate_name: &str, hash: &str, ran_in: &str, baked_in_out: &str, baked_in_output: &str) {
     let dir = profile.join("build").join(format!("{crate_name}-{hash}"));
     std::fs::create_dir_all(dir.join("out")).expect("the unit directory");
     std::fs::write(dir.join("root-output"), ran_in).expect("the record");
@@ -36,8 +41,8 @@ fn unit(profile: &Path, crate_name: &str, hash: &str, ran_in: &str, baked_in_out
 /// Run the real script over `target`, and hand back its output.
 ///
 /// An `Ok` from a subprocess is not evidence that a side effect happened, so every assertion
-/// below is over the FILESYSTEM and this only supplies the sentence beside it.
-fn sweep(target: &Path) -> String {
+/// beside this is over the FILESYSTEM and this only supplies the sentence printed with it.
+pub(super) fn sweep(target: &Path) -> String {
     let root = crate::repo::root().expect("the repo root");
     let out = std::process::Command::new("bash")
         .arg(root.join(super::pairing::SWEEP))
@@ -49,81 +54,16 @@ fn sweep(target: &Path) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-#[test]
-fn the_sweep_removes_what_baked_a_directory_it_no_longer_sits_in() {
-    // THE SCRIPT'S OWN BEHAVIOUR, over a real directory, because nothing else in this
-    // repository runs it: `just lint-workflows` shellchecks it and every venue that executes
-    // it does so for its side effect inside a build. Four units, one per branch of its
-    // decision, and each assertion is a `try_exists` rather than a line of its output.
-    let target = std::env::temp_dir().join(format!("sutura-sweep-{}", std::process::id()));
-    drop(std::fs::remove_dir_all(&target));
-    let profile = target.join("ci");
-    let elsewhere = "/nix/var/nix/builds/nix-74462-1743377963/source/target/ci/build/moved-aaaa/out";
-
-    // 1. MOVED, and what it generated names the directory it ran in. The one purge.
-    unit(
-        &profile,
-        "moved",
-        "aaaa",
-        elsewhere,
-        &format!("#[folder = \"{elsewhere}\"]"),
-        "",
-    );
-    // 2. MOVED, and nothing it generated names that directory. Relocation alone is true of
-    //    every build script in an unpacked closure; purging on it would cost the closure.
-    unit(&profile, "relocated", "bbbb", elsewhere, "pub const N: u8 = 1;", "");
-    // 3. RAN WHERE IT SITS, which is every build script in an ordinary target directory.
-    let own = profile.join("build/local-cccc/out");
-    unit(
-        &profile,
-        "local",
-        "cccc",
-        &own.to_string_lossy(),
-        &format!("#[folder = \"{}\"]", own.display()),
-        "",
-    );
-    // 4. THE STATED LIMIT: the baked path is in `output` - cargo's record of the `cargo::`
-    //    directives - which is a SIBLING of `out/` and not inside it, so the search never
-    //    reads it. This asserts the limit rather than trusting the paragraph that states it.
-    unit(
-        &profile,
-        "directives",
-        "dddd",
-        elsewhere,
-        "pub const N: u8 = 2;",
-        &format!("cargo:rustc-link-search=native={elsewhere}"),
-    );
-
-    let said = sweep(&target);
-
-    let gone = |crate_name: &str, hash: &str| {
-        let unit = profile.join("build").join(format!("{crate_name}-{hash}"));
-        let print = profile.join(".fingerprint").join(format!("{crate_name}-{hash}"));
-        (
-            unit.try_exists().expect("the unit directory is readable"),
-            print.try_exists().expect("the fingerprint is readable"),
-        )
-    };
-    assert_eq!(
-        gone("moved", "aaaa"),
-        (false, false),
-        "the baked unit and its fingerprint both go: {said}"
-    );
-    assert_eq!(
-        gone("relocated", "bbbb"),
-        (true, true),
-        "relocation alone is not a reason: {said}"
-    );
-    assert_eq!(
-        gone("local", "cccc"),
-        (true, true),
-        "a script that ran here baked nothing stale: {said}"
-    );
-    assert_eq!(
-        gone("directives", "dddd"),
-        (true, true),
-        "the `output` file is the STATED LIMIT: {said}"
-    );
-    assert!(said.contains("1 inherited build script output(s) regenerated here"), "{said}");
-    drop(std::fs::remove_dir_all(&target));
+/// Does this unit directory still exist, and does its fingerprint?
+///
+/// Two `try_exists` calls rather than one, because the purge has to take BOTH: the build script
+/// must rerun (that is what rewrites the path) and the library must be recompiled against what it
+/// wrote, and a purge that took only the unit would leave cargo believing the crate was fresh.
+pub(super) fn present(profile: &Path, crate_name: &str, hash: &str) -> (bool, bool) {
+    let unit = profile.join("build").join(format!("{crate_name}-{hash}"));
+    let print = profile.join(".fingerprint").join(format!("{crate_name}-{hash}"));
+    (
+        unit.try_exists().expect("the unit directory is readable"),
+        print.try_exists().expect("the fingerprint is readable"),
+    )
 }
