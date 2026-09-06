@@ -148,15 +148,23 @@ therefore does not see.
 
 ## Checks that pass while the thing they describe is broken
 
-- **`just validate` renders the site now, and the reason it did not for so long was wrong.** No nix
-  check builds a page and none can - the docs toolchain is Python, pixi is the one resolver for it,
-  and a nix sandbox has no network to materialise a pixi environment. So the site build is a
-  `validate` step rather than a check, invoking the ISOLATED docs env. The argument for leaving it
-  out was that the recipe would fail on a clone whose docs env is not installed, and that argument
-  was spent: `pixi run --frozen -e docs` materialises the env from the lock, the same shape as every
-  venue provisioning the postgres tier instead of asking a developer to have started one. **Measured
-  on a worktree with no `.pixi/` at all: 23s wall, of which the build is 4s** - the cheapest step in
-  `validate`, which is why it runs first.
+- **`just validate` renders the site now, and the reason a pixi step is allowed in it is not the
+  obvious one.** No nix check builds a page and none can - the docs toolchain is Python, pixi is the
+  one resolver for it, and a nix sandbox has no network to materialise a pixi environment. So the
+  site build is a `validate` step rather than a check, invoking the ISOLATED docs env. **It CAN
+  still fail for an environment reason**, which is the lesson two bullets down: measured with
+  `.pixi/` absent, an empty package cache and no network, `failed to fetch ncurses-…conda …
+  Connection refused`, exit 1. What makes that acceptable is not that the objection is spent but
+  that **`nix run .#deny` in the same recipe already fails offline** - reproduced with every proxy
+  pointed at a closed port: *"failed to fetch advisory database `https://github.com/RustSec/advisory-db`
+  … Failed to connect to `github.com:443`"*, exit 1. **So the step adds no network requirement
+  `validate` did not already have**, and that is the whole argument. Two consequences worth having:
+  an offline developer whose env is already materialised CAN run it (measured, exit 0, 2.03s), and
+  the recipe splits *materialise* from *render* so a cold environment prints one SKIPPED line, lets
+  the nix checks report, and fails at the end - a page that cannot render still aborts at once.
+  **Cost as a range, because one machine's number was 2x off on the next:** ~2s wall once the env
+  exists (4.0s and 2.0s measured, mkdocs ~2.7s of it), tens of seconds to materialise it (23s and
+  51s, both with a warm package cache; a cold cache downloads the env and needs a network).
 - **A page can be CORRECTLY GENERATED and still not render, and that is what the byte-compare cannot
   see.** `check-api-docs` compares the committed pages against a fresh generation, so a generator
   emitting an unrenderable link *consistently* passes it - `just api` produced no diff on #352 while
@@ -170,8 +178,29 @@ therefore does not see.
   tolerated spelling is a rename away from the fatal one - every crate here is `sutura-…`, i.e.
   `sutura_…` as a path. The generator drops such a destination and keeps the text now, and
   `check-api-links` is the rule over the output; the 78 dead hrefs #321 counted are gone with it.
-  **What neither holds:** a SINGLE-segment destination (`](Foo)`), which is indistinguishable from a
-  relative link, and rustdoc's own unresolved links - 15 of them, #321's first class, still open.
+- **Ask the RENDERER's question, not a well-formedness question that resembles it.** The first
+  version of `check-api-links` decided by validating every segment of a destination as a Rust
+  identifier, which is not what mkdocs asks - and review measured **five shapes that published a
+  dead href at exit 0 with the gate green**: `](crate::plan::run())`, plus an `#anchor`, a `?query`,
+  a `/path` and a non-ASCII segment. The verdict even counted them (`18 link destination(s), no Rust
+  path among them`, `18 = 13 + 5`), which is the *"at least one row"* shape one bullet up wearing a
+  different hat: **a count is not a witness that the thing counted was judged correctly.** Both
+  halves key on `urlsplit` now - a scheme mkdocs does not recognise is a finding whatever follows
+  it, against an ALLOWLIST of real schemes (`http`, `https`) that fails closed, and the generator
+  calls `urlsplit` itself rather than reimplementing it. One list in two languages, so the gate
+  compares them and fails if they disagree.
+  **What neither holds:** a scheme-LESS destination is the site build's class, not the gate's -
+  the gate claims only the `::` spelling there, so a single-segment `](Foo)` is caught by `--strict`
+  aborting and by nothing else. A destination whose scheme is real is not judged further (an
+  `https://` that 404s is nobody's rule). And rustdoc's own unresolved links - 15 of them, #321's
+  first class - are #360, still open.
+- **A DESTINATION total could not be this gate's floor, and finding out why is the transferable
+  part.** 11 of the 13 destinations under `docs/api/` are on the one hand-written page; the 16
+  generated pages contribute 2 between them, and the point of the rewrite is to drive that to zero.
+  So `continue`-ing after the marker count left **16 of 17 pages unscanned with the verdict green**
+  and the total moving by 2 - `.take(1)` again. A per-page destination floor is impossible (a clean
+  generated page has none), so the floor is the pages themselves: `scanned == pages.len()`, and the
+  verdict prints both numbers. **When a count is the witness, check what dominates it.**
 - **`--strict` escalates WARNINGs and not INFO, and that is the boundary to know.** An unrecognized
   relative link is a warning, so `--strict` fails on it. A link into a page `exclude_docs` keeps out
   of the build is **INFO**: measured as *"contains a link to 'implementation-plan.md' which is

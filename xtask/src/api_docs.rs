@@ -55,7 +55,10 @@ pub(crate) const PAGES_DIR: &str = "docs/api";
 ///
 /// Run as a script rather than reimplemented, so this gate and `just api` cannot disagree
 /// about what a page should contain.
-const GENERATOR: &str = "docs/.tools/rustdoc_to_markdown.py";
+///
+/// Shared with `check-api-links`, which reads the same file for a different reason: the two hold
+/// one list of real URL schemes between them, in two languages, and that gate compares them.
+pub(crate) const GENERATOR: &str = "docs/.tools/rustdoc_to_markdown.py";
 
 /// The first line of the header every generated page carries.
 ///

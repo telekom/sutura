@@ -295,5 +295,7 @@ pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relat
 here resolves against that page's URL rather than the repository root, and the gate reads this file
 to judge it. `just validate` renders the site as its first step, so a page that cannot render fails
 before the nix closure rather than after a merge; `just docs` is the same build, reached on its own.
+If the docs environment cannot be materialised at all - a cold package cache with no network - that
+step says SKIPPED in one line and the recipe fails at the end instead of losing every other check.
 [Publishing the docs](https://github.com/telekom/sutura/blob/main/docs/publishing.md) covers the
 versioning and the one repository setting it needs.

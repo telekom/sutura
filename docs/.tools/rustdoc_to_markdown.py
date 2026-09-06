@@ -36,6 +36,7 @@ import json
 import pathlib
 import re
 import sys
+from urllib.parse import urlsplit
 
 # rustdoc JSON is explicitly unstable and this field moves between nightlies. Reading it and
 # refusing to guess is the difference between a tool and a trap: an unchecked generator either
@@ -240,37 +241,77 @@ def render_function(name: str, inner: dict) -> str:
 # code span and loses nothing: the target is on the same page or one click away in the nav.
 INTRA_DOC_LINK = re.compile(r"\[(`[^`\n]+`)\](?!\()")
 
-# A Rust path, in every shape rustdoc accepts as an intra-doc link DESTINATION: an optional
-# disambiguator (`fn@`, `struct@`, `method@`), two or more `::`-separated segments, and an
-# optional `()` or `!` marking a function or a macro.
-RUST_PATH = r"(?:[a-z]+@)?[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+(?:\(\)|!)?"
+# The schemes a real link may carry. **Mirrors `REAL_SCHEMES` in `xtask/src/api_links.rs`**, which
+# is the gate over this file's output - and `cargo xtask check-api-links` fails if the two lists
+# disagree, because a scheme this dropped and the gate allowed would silently delete a working
+# link from a page.
+REAL_SCHEMES = ("http", "https")
 
-# `[`Foo`](crate::path::Foo)` is the same intra-doc link written INLINE, and the destination is a
-# Rust path that no web renderer can resolve. It is dropped for the reason the bracket form above
-# is dropped, and the reason is measured rather than tidiness:
-#
-#   * mkdocs runs `urlsplit` over the destination. A URL scheme is `[a-zA-Z][a-zA-Z0-9+.-]*`, so
-#     `crate::...` parses as a URL with the scheme `crate` and is published verbatim - a dead href
-#     on every page, and `github.com/telekom/sutura#321` counted 78 of them.
-#   * `sutura_domain::...` is NOT a legal scheme, because of the underscore. It falls through to
-#     relative-path handling and `mkdocs build --strict` ABORTS on it - measured on #352, where
-#     one such line in one crate failed the site build with every local gate green. Every crate
-#     here is `sutura-x`, i.e. `sutura_x` as a path, so the two cases are one defect and the
-#     dead-href one is a rename away from the aborting one.
-#
-# rustdoc keeps the link for a reader of `cargo doc`; the page keeps the text. `cargo xtask
-# check-api-links` is the gate over the output, so this rewrite going missing is not silent.
-#
-# THE LIMIT: a SINGLE-segment destination - `[`Foo`](Foo)` - is left alone, because it is
-# indistinguishable from a relative link to a page. mkdocs aborts on it, and `just docs` in
-# `just validate` is the venue that says so.
-INLINE_INTRA_DOC_LINK = re.compile(r"\[([^\]\n]+)\]\(" + RUST_PATH + r"\)")
+# One inline link. The destination group tolerates ONE level of nested parentheses so the call
+# form `](crate::plan::run())` is matched whole - matching to the first `)` rewrote the text and
+# left the second `)` behind.
+INLINE_LINK = re.compile(r"\[([^\]\n]+)\]\(((?:[^()\n]|\([^()\n]*\))*)\)")
+
+
+def link_destination(written: str) -> str:
+    """The destination as mkdocs reads it: no angle brackets, no title.
+
+    Both are ordinary CommonMark around the same destination, so stripping them here is what
+    keeps `](<crate::x>)` and `](crate::x 'why')` from being two shapes this cannot rewrite -
+    and both were, until review measured them.
+    """
+    first = written.split()[0] if written.split() else ""
+    if first.startswith("<") and first.endswith(">"):
+        first = first[1:-1]
+    return first
+
+
+def unfollowable(written: str) -> bool:
+    """Would mkdocs fail to follow this destination?
+
+    IT ASKS MKDOCS' OWN QUESTION, with mkdocs' own function - `urlsplit` from the standard
+    library, not a Rust grammar. That is the whole design, and the reason is measured: a version
+    of the gate over this file's output validated every segment of the destination as a Rust
+    identifier, and five shapes with a non-identifier tail (`()`, `#anchor`, `?query`, `/path`, a
+    non-ASCII segment) published a dead href at exit 0 with every mechanism green.
+
+    Two answers matter, and they are the two `urlsplit` gives:
+
+      * A SCHEME mkdocs does not recognise. `crate::path::Foo` parses as a URL whose scheme is
+        `crate`, so mkdocs leaves it alone and publishes it verbatim - a dead href, silently, at
+        exit 0. `github.com/telekom/sutura#321` counted 78 of them.
+      * NO scheme. `sutura_domain::plan::Foo` has none, because `_` is not a scheme character, so
+        mkdocs resolves it against the pages on disk and `--strict` ABORTS - measured on #352,
+        where one such line failed the site build with every local gate green. Every crate here is
+        `sutura-x`, i.e. `sutura_x` as a path, so the two are one defect and the silent one is a
+        rename away from the loud one.
+
+    rustdoc keeps the link for a reader of `cargo doc`; the page keeps the text.
+
+    THE LIMIT: with no scheme, only a `::` spelling is dropped. A single-segment `](Foo)` is
+    indistinguishable from a relative link to a page, so it is left alone and `mkdocs --strict`
+    aborts on it - `just docs` inside `just validate` is the venue that says so.
+    """
+    dest = link_destination(written)
+    try:
+        scheme = urlsplit(dest).scheme
+    except ValueError:
+        # urlsplit refuses some bracketed hosts. mkdocs runs the same function, so leaving the
+        # link alone hands the decision to the site build rather than guessing here.
+        return False
+    if scheme:
+        return scheme not in REAL_SCHEMES
+    return "::" in dest
+
+
+def drop_unfollowable(match: re.Match[str]) -> str:
+    return match.group(1) if unfollowable(match.group(2)) else match.group(0)
 
 
 def clean_docs(text: str | None) -> str:
     if not text:
         return ""
-    text = INLINE_INTRA_DOC_LINK.sub(r"\1", text)
+    text = INLINE_LINK.sub(drop_unfollowable, text)
     return INTRA_DOC_LINK.sub(r"\1", text).strip()
 
 

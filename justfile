@@ -243,9 +243,8 @@ check-changed *paths:
 validate:
     #!/usr/bin/env bash
     set -euo pipefail
-    # FIRST, and it is the cheapest thing here: measured 23s on a clone with no `.pixi/` at all,
-    # of which the build itself is 4s. It is first so the failure it catches - a page that cannot
-    # RENDER - arrives in seconds rather than after the nix closure.
+    # THE SITE BUILD, first, and in TWO steps because two different things can go wrong here and
+    # only one of them is a finding about this tree.
     #
     # It is not a nix check, and cannot be: the docs toolchain is Python, pixi is the one resolver
     # for Python here, and a nix sandbox has no network to materialise a pixi environment. Solving
@@ -253,21 +252,47 @@ validate:
     # in flake.nix - mike could not import pymdownx from the mkdocs it subprocessed, two resolvers
     # and one interpreter - so this invokes the ISOLATED docs env rather than widening the linters'.
     #
-    # It was left OUT of this recipe on the argument that it would fail on a clone whose docs env
-    # is not installed, and that argument is spent: `pixi run --frozen -e docs` MATERIALISES the
-    # environment from the lock, the same way every venue now provisions the postgres tier instead
-    # of asking a developer to have started one. What it needs is a network, which this recipe
-    # already needs for `nix run .#deny` and the substituters.
+    # WHY A PIXI STEP IS ALLOWED IN THE ONE RECIPE THAT COUNTS AS VERIFIED. Not because it cannot
+    # fail for an environment reason - it can, measured: `.pixi/` absent, an empty package cache
+    # and no network gives `failed to fetch ncurses-...conda ... Connection refused`. It is
+    # allowed because `nix run .#deny` four lines down ALREADY fails offline - measured on this
+    # branch with every proxy pointed at a closed port, `failed to fetch advisory database
+    # https://github.com/RustSec/advisory-db ... Failed to connect to github.com:443`, exit 1. So
+    # this step adds no network requirement the recipe did not already have.
+    #
+    # COST, as a range rather than one machine's number: ~2s wall once the env exists (measured
+    # 4.0s and 2.0s on two runs, of which mkdocs is ~2.7s), and tens of seconds to materialise it
+    # (23s and 51s measured, both with a warm package cache; a cold cache downloads the env and
+    # needs a network). So the steady-state tax is seconds and the first run is the expensive one.
+    #
+    # SEPARATED, because ordering it first would otherwise mean a machine that cannot materialise
+    # the env gets NO signal from this recipe at all, where before it got the nix checks - which
+    # retry `--offline` below - and the secret sweep. So: materialise, and if that fails say so in
+    # one line, run everything else, and fail at the END. A page that cannot RENDER still aborts
+    # immediately, which is the whole point of running it first.
     #
     # What it catches that nothing else here does: `mkdocs build --strict` renders every page, and
     # a page can be CORRECTLY GENERATED and still not render. `check-api-docs` byte-compares the
     # committed pages against a fresh generation, and a generator that emits an unrenderable link
     # consistently passes that byte-compare - which is how github.com/telekom/sutura#352 shipped a
     # page that aborted the site build with every local gate green.
-    just docs
+    site=ok
+    if pixi install --frozen -e docs; then
+        just docs
+    else
+        site=skipped
+        printf '\nvalidate: SKIPPED the site build - the docs env could not be materialised.\n'
+        printf '  It needs a network on a cold package cache. Run `just docs` once online.\n'
+        printf '  Continuing, and this run will NOT be green.\n\n'
+    fi
     just ci
     just secrets
     nix run .#deny
+    if [ "$site" != ok ]; then
+        printf '\nvalidate: FAILED - every nix check above passed and the site build never ran.\n'
+        printf '  Nothing here has rendered a page. See the SKIPPED line above.\n'
+        exit 1
+    fi
     printf '\nvalidate: ok - the site build, the nix checks, the secret sweep and the supply chain\n'
 
 # What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds

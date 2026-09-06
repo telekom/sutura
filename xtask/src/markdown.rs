@@ -239,14 +239,39 @@ pub(crate) struct Destination<'a> {
     pub(crate) text: &'a str,
 }
 
+/// Where the destination starting at `after` ends: the first `)` at nesting depth zero.
+///
+/// **Parentheses are BALANCED rather than stopped at.** `CommonMark` allows them inside a
+/// destination, and taking the first `)` turned `](crate::plan::run())` into the destination
+/// `crate::plan::run(` - which is how a gate over these destinations missed the call form
+/// entirely while mkdocs published the whole thing. Measured in review of
+/// `github.com/telekom/sutura#361`.
+///
+/// `None` when the run never closes on this line. That is not a link at all in `CommonMark` -
+/// an inline link needs its `)` - and inventing one that runs to end of line is what this
+/// returned before, so a malformed link became a destination nobody wrote.
+fn destination_end(after: &str) -> Option<usize> {
+    let mut depth = 0_usize;
+    for (at, c) in after.char_indices() {
+        match c {
+            '(' => depth = depth.saturating_add(1),
+            ')' if depth == 0 => return Some(at),
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Every inline link destination in `lines`, in source order.
 ///
 /// ONE owner for the `](` walk, because two gates want it: `check-docs` resolves a destination
-/// against the pages on disk, and `check-api-links` asks whether it is a Rust path. It reads the
-/// PROSE half, so a page documenting a link inside a fence is not making one.
+/// against the pages on disk, and `check-api-links` asks what mkdocs would do with it. It reads
+/// the PROSE half, so a page documenting a link inside a fence is not making one.
 ///
 /// A destination is returned as written, title and all - `](a.md 'titled')` is one destination of
 /// `a.md 'titled'`, and what to do about the title is the caller's rule rather than this one's.
+/// [`destination_end`] carries the one place this is not literal.
 pub(crate) fn destinations(lines: &[String]) -> Vec<Destination<'_>> {
     let mut found = Vec::new();
     for (index, line) in lines.iter().enumerate() {
@@ -254,7 +279,9 @@ pub(crate) fn destinations(lines: &[String]) -> Vec<Destination<'_>> {
         let mut rest = line.as_str();
         while let Some(at) = rest.find("](") {
             let after = rest.get(at.saturating_add(2)..).unwrap_or("");
-            let end = after.find(')').unwrap_or(after.len());
+            let Some(end) = destination_end(after) else {
+                break;
+            };
             if let Some(text) = after.get(..end) {
                 found.push(Destination {
                     line: number,
@@ -335,7 +362,42 @@ fn lex(text: &str, half: Half) -> Result<Vec<String>, Unlexable> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Unlexable, code, prose};
+    use super::{Unlexable, code, destinations, prose};
+
+    fn dests(text: &str) -> Vec<String> {
+        let lines = prose(text).unwrap_or_else(|e| panic!("{e}"));
+        destinations(&lines)
+            .into_iter()
+            .map(|d| format!("{}:{}", d.line, d.text))
+            .collect()
+    }
+
+    #[test]
+    fn a_destination_is_read_whole_including_its_parentheses() {
+        // THE REVIEWED DEFECT: stopping at the first `)` yielded `a::b(`, and a gate keyed on
+        // the whole destination then judged a shape mkdocs publishes in full.
+        assert_eq!(dests("see [x](a::b())\n"), ["1:a::b()"]);
+        assert_eq!(dests("see [x](a.md)\n"), ["1:a.md"]);
+        assert_eq!(dests("see [x](a_(b).md)\n"), ["1:a_(b).md"]);
+        // Two links on one line, each ending at its own closer.
+        assert_eq!(dests("[a](one.md) and [b](two.md)\n"), ["1:one.md", "1:two.md"]);
+        // A title travels with the destination - the caller's rule, not this one's.
+        assert_eq!(dests("[a](b.md 'why')\n"), ["1:b.md 'why'"]);
+    }
+
+    #[test]
+    fn an_unclosed_destination_is_not_a_link_rather_than_a_destination_to_end_of_line() {
+        assert!(dests("see [x](a.md\n").is_empty());
+        assert!(dests("see [x](a(b.md\n").is_empty());
+        // And the line after it is still read.
+        assert_eq!(dests("see [x](a.md\n[b](c.md)\n"), ["2:c.md"]);
+    }
+
+    #[test]
+    fn a_destination_inside_a_fence_is_not_a_link() {
+        assert!(dests("```\n[shown](a.md)\n```\n").is_empty());
+        assert_eq!(dests("```\n[shown](a.md)\n```\n[real](b.md)\n"), ["4:b.md"]);
+    }
 
     fn lines(text: &str) -> Vec<String> {
         prose(text).unwrap_or_else(|e| panic!("{e}"))
