@@ -112,8 +112,22 @@ pub(crate) fn profile_for(target_dir: Option<&Path>) -> Option<&'static str> {
 /// The apps that consume the warmed artifacts.
 const APPS: &str = "flake.nix";
 
-/// What [`WARMER`] must export, up to the value.
+/// What [`WARMER`] must export, up to the value - the opening quote included, because
+/// [`exported_value`] reads a double-quoted value and needs it.
 const EXPORT: &str = "export CARGO_TARGET_DIR=\"";
+
+/// The same export up to the `=`, which is the ASSIGNMENT rather than one way of writing it.
+///
+/// DERIVED, and the reason is a review finding: [`inspect_consumer`]'s refusal matched [`EXPORT`],
+/// so `export CARGO_TARGET_DIR=$PWD/target/somewhere-else` in an app - no quotes, or single ones -
+/// walked past it and the gate printed `ok - 5 app(s) .. each in the directory nix/cargo-env.nix
+/// warmed` while that consumer compiled cold with no stamp and no sweep. Nothing else catches it:
+/// these bodies are `writeShellScript` strings, not among the `.sh` files `just lint-workflows`
+/// shellchecks. **A guard that compares a spelling enumerates one spelling of one input** - so
+/// match the hazard, which is that cargo is pointed somewhere else at all.
+fn export_assignment() -> &'static str {
+    EXPORT.trim_end_matches('"')
+}
 
 /// The binding in [`CONSUMER`] whose `join` chain is the path. Its value is handed to every
 /// `cargo_test` call as `CARGO_TARGET_DIR`, which is what makes it the other half of this pair.
@@ -467,7 +481,11 @@ fn inspect_consumer(lines: &[&str], index: usize) -> Result<(), String> {
     // that points `CARGO_TARGET_DIR` somewhere else afterwards keeps all three and uses none of
     // them: cold build, no stamp, and a sweep that reported about a directory this run does not
     // compile into. Nothing fails from it, which is why it is a gate and not a comment.
-    if let Some(own) = body.iter().find(|line| line.starts_with(EXPORT)) {
+    //
+    // MATCHED ON THE ASSIGNMENT, not on `EXPORT`'s opening quote - see `export_assignment` for the
+    // measurement, and #384's rule for why: a guard that compares a spelling enumerates one
+    // spelling of one input, and `=$PWD/..`, `='..'` and `="..'` all point cargo elsewhere.
+    if let Some(own) = body.iter().find(|line| line.starts_with(export_assignment())) {
         return Err(format!(
             "{APPS}:{at} expands `{WARM_EXPANSION}` and then exports its own target directory: {own}\n  \
              The unpacked closure, the {STAMP} stamp and the baked-OUT_DIR sweep all belong to the directory \
@@ -705,6 +723,18 @@ mod tests {
         );
         let error = super::profiled_consumers(apps).expect_err("a re-export abandons the warmed directory");
         assert!(error.contains("exports its own target directory"), "{error}");
+        // AND EVERY OTHER WAY OF WRITING THE SAME ASSIGNMENT, because the rule used to match
+        // `EXPORT`'s opening quote and these three walked past it at exit 0 while one consumer
+        // compiled cold. A guard that compares a spelling enumerates one spelling of one input.
+        for quoting in [
+            "export CARGO_TARGET_DIR=$PWD/target/somewhere-else",
+            "export CARGO_TARGET_DIR='$PWD/target/somewhere-else'",
+            "export CARGO_TARGET_DIR=\t\"$PWD/x\"",
+        ] {
+            let evasion = apps.replace("export CARGO_TARGET_DIR=\"$PWD/target/somewhere-else\"", quoting);
+            let error = super::profiled_consumers(&evasion).expect_err(quoting);
+            assert!(error.contains("exports its own target directory"), "{quoting}: {error}");
+        }
         // COMMENTED OUT is not exported, which is the rule `live_lines` states one screen up and
         // the shape a raw scan gets wrong in the other direction.
         assert_eq!(
@@ -785,7 +815,7 @@ mod tests {
         // IT IS ALSO THE ONLY MECHANISM OVER *THE SWEEP HAPPENS AT ALL*: comment out the script's
         // trailing `suturaPurgeBakedOutDirs` invocation and the script still exits 0,
         // `just lint-workflows` shellchecks it clean and `just hygiene` - `pairing` included -
-        // reports `ok - 31 gate(s)` over a tree where nothing is purged. This reddens on it,
+        // reports `ok - 32 gate(s)` over a tree where nothing is purged. This reddens on it,
         // `left: (true, true)`, because the unit and its fingerprint are still there.
         use super::sweep::{present, sweep, unit};
 

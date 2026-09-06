@@ -46,14 +46,22 @@
 //! IT ANSWERS *WHERE THE SWEEP'S TEXT IS INLINED*, NEVER *THAT THE TEXT RUNS*, and the two come
 //! apart. Measured: comment out the script's own trailing `suturaPurgeBakedOutDirs` invocation and
 //! the script still exits 0, `just lint-workflows` shellchecks 14 scripts clean, and the whole of
-//! `just hygiene` reports `ok - 31 gate(s)` - over a tree that purges nothing. That half belongs to
+//! `just hygiene` reports `ok - 32 gate(s)` - over a tree that purges nothing. That half belongs to
 //! [`super::sweep`], which runs the real script over a real directory and asserts `try_exists` on
 //! the unit and its fingerprint, and it reddens on exactly that mutation (`left: (true, true)`).
 //! *An `Ok` from a subprocess is not evidence the side effect happened*, and neither is a text
 //! scan; the pairing is text and the effect is a filesystem, so the two are held in two venues.
+//! Both sit inside `just validate`, and there is no diff for which one runs without the other:
+//! `.github/workflows/ci.yml` classifies `nix/purge-baked-out-dirs.sh` and [`super::WARMER`] under
+//! no area, which fails open to `run_all`, and `flake.nix`'s area lists a `rust` consumer - so the
+//! sufficiency is CI's classifier, not a coincidence. The limit is second-order: putting `nix/**`
+//! into `DOCS_ONLY`, or into an area with no `rust` consumer, would let this route go green.
+//!
 //! **Reachability of the inline SITE is held by neither**: the sweep placed after an `exit`, or
-//! inside a shell conditional, in [`super::WARMER`]'s string satisfies this gate's line rules and
-//! [`super::sweep`]'s standalone run alike.
+//! inside a shell conditional, in [`super::WARMER`]'s exported string satisfies this gate's line
+//! rules and [`super::sweep`]'s standalone run alike. What IS held is that the inline sits in the
+//! string a `${..}` expands rather than anywhere in the file - [`module_sweeps`] carries the
+//! measurement, because file-wide was a printed pass over a tree where nothing swept.
 
 use std::path::{Path, PathBuf};
 
@@ -417,30 +425,60 @@ fn adjudicate(root: &Path, files: &[NixFile], taking: &Taking, owner: &Pairing) 
 ///
 /// The last two apply to a shell warmer and are skipped for a module that exports no target
 /// directory, which is [`super::exported_value`]'s answer rather than a list of module names.
+///
+/// AND FOR A SHELL WARMER THE SCOPE IS THE STRING, NOT THE FILE, which is the review finding this
+/// paragraph exists for. The search used to be file-wide: move the inline out of the binding its
+/// consumers expand into a `let` nothing expands, still below the export, and the gate printed
+/// `inlines the sweep at nix/cargo-env.nix:129, after the CARGO_TARGET_DIR export it resolves` over
+/// a tree where **none of the five consumers swept** - #346's defect restored and reported as a
+/// pass, with the sweep's filesystem test green beside it because the script itself was untouched.
+/// The bound is [`enclosing_indented_string`] around the export line, so the text this rule reads
+/// is the text a `${..}` expansion actually inserts.
 fn module_sweeps(root: &Path, received: &NixFile) -> Result<String, String> {
     let NixFile {
         rel: module, raw: text, ..
     } = received;
-    let at = super::live_indexed(text)
-        .find(|(_, line)| inlines_sweep(root, module, line))
-        .map(|(index, _)| index)
-        .ok_or_else(|| {
+    let inline_at = |range: std::ops::RangeInclusive<usize>| {
+        super::live_indexed(text)
+            .find(|(index, line)| range.contains(index) && inlines_sweep(root, module, line))
+            .map(|(index, _)| index)
+    };
+
+    // A module that exports no target directory is not a shell warmer, so the rules below - all
+    // three about one shell's own text and ordering - have nothing to be about, and the inline may
+    // be anywhere in the file. That is `exported_value`'s answer rather than a list of module
+    // names this gate would have to keep current.
+    if super::exported_value(text).is_none() {
+        let at = inline_at(0..=usize::MAX).ok_or_else(|| {
             format!(
                 "{module} receives the artifacts and inlines no `{INLINE} <{SWEEP}>`, so whatever it hands them to \
                  builds against a build root that names nothing. Every consumer of that module inherits the gap"
             )
         })?;
-
-    // A module that exports no target directory is not a shell warmer, so the two rules below -
-    // both about a shell's own ordering - have nothing to be about. That is `exported_value`'s
-    // answer rather than a list of module names this gate would have to keep current.
-    if super::exported_value(text).is_none() {
         return Ok(format!("inlines the sweep at {module}:{}", at.saturating_add(1)));
     }
     let export = super::live_indexed(text)
-        .find(|(_, line)| line.trim_start().starts_with(super::EXPORT))
+        .find(|(_, line)| line.starts_with(super::export_assignment()))
         .map(|(index, _)| index)
         .ok_or_else(|| format!("{module} exports a target directory this gate then could not find the line of"))?;
+    let (open, close) = enclosing_indented_string(text, export).ok_or_else(|| {
+        format!(
+            "{module} exports {} at line {} and this gate cannot find the `''..''` string that line sits in, so it \
+             cannot tell whether the sweep is in the text a consumer expands",
+            target_var(),
+            export.saturating_add(1)
+        )
+    })?;
+    let at = inline_at(open..=close).ok_or_else(|| {
+        format!(
+            "{module} receives the artifacts and inlines no `{INLINE} <{SWEEP}>` INSIDE the `''..''` string it \
+             exports {} in (lines {}-{}), so whatever expands that string builds against a build root that names \
+             nothing. An inline elsewhere in the file is text no `${{..}}` inserts. Every consumer inherits the gap",
+            target_var(),
+            open.saturating_add(1),
+            close.saturating_add(1)
+        )
+    })?;
     if at < export {
         return Err(format!(
             "{module} inlines the sweep at line {} and exports the target directory at line {}. The sweep resolves \
@@ -475,9 +513,44 @@ fn module_sweeps(root: &Path, received: &NixFile) -> Result<String, String> {
     ))
 }
 
-/// The variable [`super::EXPORT`] exports, derived from that one literal rather than spelled again.
+/// The variable the warmer exports, derived from [`super::export_assignment`] rather than spelled
+/// again - so the quote `super::EXPORT` carries for [`super::exported_value`]'s sake cannot leak
+/// into a name.
 fn target_var() -> &'static str {
-    super::EXPORT.trim_start_matches("export ").trim_end_matches(['=', '"'])
+    super::export_assignment().trim_start_matches("export ").trim_end_matches('=')
+}
+
+/// Does this line carry an indented-string delimiter, rather than only nix's escapes for one?
+///
+/// Inside a `''..''` string `''$` writes a literal `${`, `'''` writes `''` and `''\` starts an
+/// escape - none of the three ends the string. `nix/cargo-env.nix` writes `''${LD_LIBRARY_PATH:+..}`
+/// in the binding above the warm start, so a `contains("''")` would read that as a delimiter and
+/// bound [`module_sweeps`]' search to the wrong text.
+fn delimits(line: &str) -> bool {
+    let mut from = 0_usize;
+    while let Some(found) = line.get(from..).and_then(|rest| rest.find("''")) {
+        let start = from.saturating_add(found);
+        let end = start.saturating_add(2);
+        from = end;
+        if !line.as_bytes().get(end).is_some_and(|c| matches!(*c, b'$' | b'\'' | b'\\')) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The `(open, close)` line indices of the indented string the line at `at` sits inside.
+///
+/// Line-based, and that is the limit: it finds the nearest delimiter each way rather than tracking
+/// nesting, so a `''..''` opened and closed on one line between the export and its own delimiter
+/// would mislead it. Nothing in this tree writes that, and the direction it fails in is a range
+/// that is too SMALL - which refuses rather than passes.
+fn enclosing_indented_string(text: &str, at: usize) -> Option<(usize, usize)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let open = lines.get(..at)?.iter().rposition(|line| delimits(line))?;
+    let after = at.saturating_add(1);
+    let close = after.saturating_add(lines.get(after..)?.iter().position(|line| delimits(line))?);
+    Some((open, close))
 }
 
 /// The first `${NAME...}` or `$NAME` a shell value names.
@@ -714,6 +787,43 @@ mod tests {
         );
         let why = over(&root).expect_err("a path that resolves to no file is not the sweep");
         assert!(why.contains("inlines no"), "{why}");
+    }
+
+    #[test]
+    fn a_sweep_outside_the_string_the_consumers_expand_is_not_the_warmers_sweep() {
+        // THE BLOCKING FINDING. The inline moves out of the binding `${cargoWarmStart}` expands
+        // into one nothing expands - still in the same file, still below the export - and the
+        // file-wide search called that paired: `inlines the sweep at .. after the CARGO_TARGET_DIR
+        // export it resolves`, over a tree where no consumer sweeps. #346's defect restored and
+        // printed as a pass, and the sweep's filesystem test green beside it because the script is
+        // untouched. The scope is the string now, so this is red.
+        let root = tree("outside-the-string");
+        rewrite(
+            &root,
+            "nix/cargo-env.nix",
+            concat!(
+                "    export CARGO_TARGET_DIR=\"$warmTarget\"\n",
+                "    ${builtins.readFile ./purge-baked-out-dirs.sh}\n",
+                "  '';\n",
+            ),
+            concat!(
+                "    export CARGO_TARGET_DIR=\"$warmTarget\"\n",
+                "  '';\n",
+                "  unexpanded = ''\n",
+                "    ${builtins.readFile ./purge-baked-out-dirs.sh}\n",
+                "  '';\n",
+            ),
+        );
+        let why = over(&root).expect_err("an inline nothing expands is not the warmer's sweep");
+        assert!(why.contains("INSIDE the `''..''` string"), "{why}");
+        assert!(why.contains("no `${..}` inserts"), "{why}");
+        // And nix's own escapes for a delimiter are not delimiters: `''${..}` above the export is
+        // what `nix/cargo-env.nix` writes one binding up, and reading it as one would bound the
+        // search to the wrong text and redden the true tree.
+        assert!(!super::delimits("    export LD_LIBRARY_PATH=\"$x''${LD_LIBRARY_PATH:+:$y}\""));
+        assert!(!super::delimits("    printf '''"));
+        assert!(super::delimits("  cargoWarmStart = ''"));
+        assert!(super::delimits("  '';"));
     }
 
     #[test]
