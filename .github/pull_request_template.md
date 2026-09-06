@@ -41,9 +41,13 @@ Generated or mechanical, skip:
 ## Test causality
 
 <!-- A changed test must be red against base behaviour and green with the change. A test that
-passes both ways proves nothing. `cargo xtask test-causality --since <base>` checks it; where
-impl and test share a file it cannot, and then the evidence goes here: the command, the failure
-before the fix, the pass after. Delete this section only if no test changed. -->
+passes both ways proves nothing. `just causality` checks it; where impl and test share a file it
+cannot, and then the evidence goes here: the command, the failure before the fix, the pass after.
+EXIT 3 IS "I MEASURED NOTHING" and is neither a pass nor a violation - the base tree did not
+build, or the base run named no failure, which a harness move and a changed public signature a
+kept-at-HEAD test file calls both reach legitimately. A green CI step over exit 3 is not
+evidence: say which substitute you used - a mutation run, or the gate scoped per commit - and
+paste the verdict line, never the step's colour. Delete this section only if no test changed. -->
 
 -
 

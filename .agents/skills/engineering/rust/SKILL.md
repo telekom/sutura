@@ -176,16 +176,16 @@ cargo line without it, and `just gates` adds a DEFAULT-feature lane besides - be
 `#[cfg(feature = ..)]` compiled only with the feature on is exactly the shipped set's blind spot.
 See `sutura/crate-map` for why an adapter is behind a default-off feature at all.
 
-**Two limits on that lane, because a green run invites the wider reading.** Its package list is
+**The limit that survives, because a green run invites the wider reading.** Its package list is
 DERIVED from `nix/shipped.nix`'s `binaries`, so it reaches the binaries a release publishes and
 nothing else - a feature on a crate that does not ship is compiled by the `--all-features` gates
-only, and by nothing at the default set. And the lane's CI half is PARTIAL, which is the row to read
-before believing a green pull request: the required `ci` job runs `nix run .#default-feature-tests`,
-so the shipped set's TESTS are gated on every change the classification marks as Rust, while the
-COMPILE and LINT halves reach `just gates` alone - what CI has for those is the four `cross` link
-builds and, for the lint half, **nothing at all**. `xtask/src/default_features.rs` and
-`xtask/src/default_feature_tests.rs` each state their own. So run `just gates` when you touch a
-`#[cfg(feature = ..)]`: a green pull request is cover for the half it runs and for no other.
+only, and by nothing at the default set. The lane's CI half is no longer partial: the required `ci`
+job runs `nix run .#default-features` for the compile and lint halves and
+`nix run .#default-feature-tests` for the tests, both gated on the Rust classification.
+`xtask/src/default_features.rs` and `xtask/src/default_feature_tests.rs` each state their own limit,
+and the shared one is that neither LINKS - both stop where `cargo check` and a host-triple test
+binary stop, so the four `cross` builds remain the authority on a musl link. Still run `just gates`
+when you touch a `#[cfg(feature = ..)]`: it is the same two gates, minutes earlier.
 
 The inner loop is deliberately narrow:
 

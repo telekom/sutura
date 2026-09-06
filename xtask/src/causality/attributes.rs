@@ -68,9 +68,16 @@
 //! `NotRun` rather than a pass. The direction is right; the cause a reader would have to find is
 //! this paragraph rather than their own change.
 //!
-//! The ITEM under an attribute is still read as ONE line, so a `fn` signature the formatter had
-//! to wrap names nothing. The ATTRIBUTE is not - [`item_below`] balances its brackets, because
-//! reading one as a single line was a defect and that module's own doc carries the measurement.
+//! The ITEM under an attribute is still read as ONE line, and what that costs is NARROWER than
+//! this said - `github.com/telekom/sutura#319` measured the overstatement. It claimed a `fn`
+//! signature the formatter had to wrap names nothing; it does not, because a name is read off the
+//! FIRST signature line and rustfmt breaks a long signature after the `(`, never before the name.
+//! Driven over a `tests/`-target file whose only added content is `#[test]` plus a wrapped
+//! `async fn a_very_long_...(`, the scan returns `Runnable` and NAMES it. What names nothing is a
+//! **body-only or def-interior edit**: added lines inside an existing test, or inside a signature
+//! whose first line this diff did not touch. The ATTRIBUTE is not read as one line -
+//! [`item_below`] balances its brackets, because reading one as a single line was a defect and
+//! that module's own doc carries the measurement.
 //! And nothing here is keyed on a file's extension - `super::plan` decides that, and a test whose
 //! subject is not Rust at all is outside this module and outside the gate.
 

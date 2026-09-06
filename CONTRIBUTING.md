@@ -165,6 +165,12 @@ file, a rename with no behavioural difference, or every added test `#[ignore]`d 
 reaches one - the gate says so and asks for evidence instead: the command you ran, the failure
 before the fix, the pass after. That goes in the pull request. **Do not skip it silently.**
 
+**Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
+did not build, or the base run named no failure. A harness move and a changed public signature that
+a test file kept at HEAD calls both land there, so it is not a defect in your change - but nothing
+about causality was proven either. Substitute a mutation run, or scope the gate per commit, and say
+which in the pull request. Read the verdict line, never a step's colour.
+
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.
 

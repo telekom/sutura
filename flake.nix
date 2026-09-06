@@ -767,6 +767,43 @@
           '');
         };
 
+        # `nix run .#default-features` - the shipped feature set COMPILES and LINTS.
+        #
+        # The other half of the app below, and they are two apps because they are two verdicts:
+        # `cargo check` plus `cargo clippy` at the default set here, `cargo nextest` at it there. A
+        # single app would collapse a compile failure and a test failure into one exit code on the
+        # one lane no other gate in this repository sees at all.
+        #
+        # An app for `apps.causality`'s reason (it shells out to cargo, which needs a registry and a
+        # writable target directory), with the pinned toolchain for `apps.deny`'s - and here that
+        # second reason is load-bearing rather than tidy: clippy's lint set depends on its channel,
+        # so a host cargo would report a set nothing else here agrees with, on the half of this lane
+        # that exists BECAUSE `cargo check` cannot see a lint.
+        #
+        # NO profile argument, for the reason the app below gives: the gate derives cargo's profile
+        # from the stamp `cargoWarmStart` leaves behind, so there is no flag to put on the wrong side
+        # of a `--`. The `--profile ci` on this line is cargo's own, building the xtask binary into
+        # the warmed directory, and `check-warm-start` is what reads it.
+        #
+        # The purge for `apps.causality`'s reason, and it is not precautionary here. This gate asks
+        # for one shipped package with NO feature flags, which the v2 resolver gives a narrower
+        # feature set and therefore a different `-C metadata` than the workspace-wide union the
+        # closure was built at - so `utoipa-swagger-ui` is recompiled rather than reused, against the
+        # `OUT_DIR` its build script baked in another derivation. Correct on its own and not by
+        # position: the two apps below and the one above it inherit a purge from whichever warm
+        # consumer ran first, which is an ordering rather than a mechanism.
+        apps.default-features = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-default-features" ''
+            export PATH="${rustToolchain}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            ${builtins.readFile ./nix/purge-baked-out-dirs.sh}
+            exec cargo run -q --profile ci -p xtask -- check-default-features "$@"
+          '');
+        };
+
         # `nix run .#default-feature-tests` - the shipped feature set's tests actually RUN.
         #
         # An app for `apps.causality`'s reason (it shells out to cargo, which needs a registry and
