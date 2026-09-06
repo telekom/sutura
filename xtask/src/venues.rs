@@ -245,7 +245,6 @@ fn transition_problems(
         }
     }
     for venue in listed.iter().filter(|venue| unrun.contains(venue.name.as_str())) {
-
         // **A venue CI INVOKES may not say `unrun`**, which is the half the page-shaped rules do
         // not hold. They read a spelling; none of them reads whether a run has happened, so a leg
         // wired into a job could go green on every push while this page went on saying nothing had
@@ -850,7 +849,10 @@ Not built.
         assert_eq!(verdict("**yes**, that *we refuse one*"), Some("yes"));
         assert_eq!(verdict("**can** - the builder takes several audiences"), Some("can"));
         assert_eq!(verdict("**unrun** - the only venue that could"), Some("unrun"));
-        assert_eq!(verdict("**wired** - a job reaches it and no run has been seen"), Some("wired"));
+        assert_eq!(
+            verdict("**wired** - a job reaches it and no run has been seen"),
+            Some("wired")
+        );
         assert_eq!(verdict("no - one key is one identity"), Some("no"));
         assert_eq!(verdict("**only here**"), Some("only here"));
         assert_eq!(verdict("-"), Some("-"));
