@@ -52,7 +52,9 @@ banner::announce(&settings);
 let shutdown = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
 tokio::spawn(sutura_runtime::shutdown::listen(shutdown.clone()));
 // 7. The bound on how many questions execute at once, shared with every transport. One per
-//    process: two independently sized ones would each report a limit the other can exceed.
+//    process: two independently sized ones would each report a limit the other can exceed. No
+//    transport can build one - `Admission::new` is private to this crate - and
+//    `cargo xtask check-one-bound` fails a root that calls this twice.
 let admission = Admission::from_settings(settings.runtime());
 # Ok(())
 # }
