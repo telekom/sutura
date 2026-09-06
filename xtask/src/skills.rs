@@ -402,12 +402,19 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     let router_path = root.join(ROUTER);
     if !router_path.is_file() {
-        // Not an error: a repo need not have a skills tree. But a tree without a router is.
-        if discovered(&root).is_empty() {
-            println!("xtask check-skills: ok - no skills tree");
-            return Verdict::Pass;
+        // FAIL CLOSED, BOTH WAYS. This arm used to answer `ok - no skills tree` on the argument
+        // that a repo need not have one - but this gate is registered in THIS repository's
+        // sweep, where `AGENTS.md` routes every session through that tree and declares a skill
+        // absent from the router non-discoverable by policy. So the tree going missing is the
+        // loudest thing this gate can be asked about, and it announced success instead:
+        // `github.com/telekom/sutura#371`'s class, a gate answering `ok` before reading its
+        // subject.
+        eprintln!("xtask check-skills: FAILED - {ROUTER} does not exist");
+        if !discovered(&root).is_empty() {
+            eprintln!("  and SKILL.md files do - an unrouted skill is non-discoverable by policy.");
         }
-        eprintln!("xtask check-skills: FAILED - skills exist but {ROUTER} does not");
+        eprintln!("  The skills tree is how AGENTS.md routes a session; without the router there is");
+        eprintln!("  nothing to hold it against, so this is a refusal rather than a clean bill.");
         return Verdict::Fail;
     }
 

@@ -44,15 +44,29 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         if std::path::Path::new(&rel).extension().and_then(|e| e.to_str()) != Some("rs") {
             continue;
         }
-        rs_files += 1;
+        // Incremented AFTER the read, because both the floor below and the success line say
+        // "read": counting here and reading afterwards made `in {rs_files} file(s)` a count of
+        // files FOUND, and would have let a tree of unreadable sources satisfy the floor.
         let Ok(code) = std::fs::read_to_string(root.join(&rel)) else {
             continue;
         };
+        rs_files += 1;
         let mut found = Vec::new();
         scan(&code, &mut found);
         for v in found {
             violations.push((rel.clone(), v));
         }
+    }
+
+    // FAIL CLOSED ON AN EMPTY SCAN, because the count was already in the success line and
+    // nothing read it - `github.com/telekom/sutura#371`'s recurring shape. This gate is about a
+    // Rust attribute, so a run that opened no `.rs` file judged nothing and `ok ... in 0 file(s)`
+    // is a sentence about a tree it never saw.
+    if rs_files == 0 {
+        eprintln!("xtask check-expect-thresholds: FAILED - no .rs file was read");
+        eprintln!("  The rule is about an attribute in Rust source, so a scan that found none");
+        eprintln!("  attests nothing. Check that this is the workspace root.");
+        return Verdict::Fail;
     }
 
     if violations.is_empty() {
