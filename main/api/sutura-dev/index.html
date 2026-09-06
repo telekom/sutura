@@ -2900,6 +2900,16 @@ why that signal was the wrong one.</p>
 <p>The variable that overrides the machine class, in <strong>both</strong> directions.</p>
 <p>Named once, here, because a message that tells somebody to set it and a read that spells it
 differently is a fix that does not work and looks like it should.</p>
+<h3 id="constant-not_required"><code>constant NOT_REQUIRED</code><a class="headerlink" href="#constant-not_required" title="Permanent link">&para;</a></h3>
+<p>Every spelling of <code>FORCE</code> that means <em>no</em>, lowercased and trimmed.</p>
+<p><strong>Public because a second reader of this decision exists and may not depend on this crate.</strong>
+<code>sutura-conformance</code> has to judge whether an absent tier is a defect where a venue declared one,
+and <code>xtask/src/boundaries/harness.rs</code> holds that crate to <code>sutura-domain</code> through a normal
+dependency - so it spells the same predicate a second time. Two statements about one fact can
+disagree, which is the defect <code>nix/with-tier.sh</code> records at a count of one, so this list is the
+OWNER and that crate's own test iterates it as a DEV-dependency. A spelling added here fails
+that cell until the copy agrees, rather than making the two disagree silently about a variable
+people set by hand.</p>
 <h2 id="module-scope">Module <code>scope</code><a class="headerlink" href="#module-scope" title="Permanent link">&para;</a></h2>
 <p>Per-worktree isolation: the part that has to be right.</p>
 <p>Several worktrees of this repo are open at once - that is the point of stacked branches -
