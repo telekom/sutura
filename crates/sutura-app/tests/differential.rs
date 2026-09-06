@@ -23,6 +23,11 @@
 //! this against the reference" degenerates to when the entry *is* the reference. It is named as such on
 //! the assertion rather than skipped, because a skipped cell reads as coverage.
 //!
+//! **The two-source half of the same comparison is `differential/federated.rs`.** This file compares
+//! one plan across data systems; that one compares one QUESTION across topologies - answered whole by
+//! one engine, and split across two data systems and combined - which is the only place the splitter,
+//! two real executions and the combiner run as one path.
+//!
 //! What this is NOT: a reason to keep two execution paths. When federation moves the engine above the
 //! `Warehouse` port, `DataFusion` stops being a peer of a data source and this test's shape changes
 //! with it.
@@ -39,6 +44,14 @@
 
 #[cfg(test)]
 mod adapters;
+
+// `#[path]` for the reason `tests/golden.rs` gives: a bare `mod federated;` at a crate root resolves
+// to `tests/federated.rs`, which cargo would build as a test target of its own - and this module has
+// to be a submodule of THIS target rather than one of its own, because `adapters` is dead-code-clean
+// only where a target reaches all of it.
+#[cfg(test)]
+#[path = "differential/federated.rs"]
+mod federated;
 
 #[cfg(test)]
 mod tests {

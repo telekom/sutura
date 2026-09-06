@@ -78,8 +78,15 @@ they were **deleted rather than demoted**, which is the table's own rule applied
 - **Federation is wired above the port and not below it.** Splitter, leg plans, rendering, goldens
   and the orchestrating call all exist and run; what gates it is a defaulted-`false`
   `EXECUTES_LEGS`, which only the dev-only DuckDB vehicle sets true. So the shipped binary refuses a
-  two-source question rather than letting a typed leg refusal surface as a retryable `503`. A full
-  two-DuckDB differential is not written, which is exactly why this stays here.
+  two-source question rather than letting a typed leg refusal surface as a retryable `503`.
+  **The composed path IS measured now** - `crates/sutura-app/tests/differential/federated.rs` derives
+  a second catalog over the example corpus, puts the dimension model on a second `DuckDB`, and
+  compares the real splitter plus two real executions plus the combiner against the same questions
+  answered whole by one `DataFusion`: typed content and ordered equality, over null and orphan join
+  keys, remote filters, the whole reduction table above the legs, a zero denominator in one subgroup,
+  and the `MeasureDoesNotFederate` refusal. What keeps this row here is therefore the DEFAULT, not
+  the absence of evidence: no shipped adapter sets `EXECUTES_LEGS`, so nothing published answers a
+  two-source question, and both legs in that file run under one operating-system identity.
 - **The DataHub catalog adapter decides a whole metric, and nothing reads or serves it.**
   `sutura-catalog-datahub` provides `Structure`, `Descriptions` and `Relationships` unconditionally
   and declares the metric kinds as **declared-and-empty may-provide** kinds
