@@ -56,13 +56,13 @@
 //!
 //! Everything the *is this a literal* predicate said no to was SKIPPED - not compared, not
 //! reported - so the most a reader ever got was a count that moved. Three silent-green routes
-//! measured on this tree, with the outputs and the argument that closes them in [`declaration`]:
-//! two printed `ok - 3 literal(s)` where 4 is right, and the third printed `ok - 4` because the
-//! declaration was never counted at all - which is why the count could not have been the control.
-//! Every in-scope value is now a set (compared, and ZERO NAMES IS A SET), a reference naming this
-//! same set (named in the verdict), or a refusal, and the verdict prints the ROWS behind the
-//! count. **What it still does not reach:** whether a reference resolves to the literal it names,
-//! and a set spelled where neither key reaches.
+//! measured on this tree, with the outputs and the argument in [`declaration`]: two printed
+//! `ok - 3 literal(s)` where 4 is right, and the third printed `ok - 4`, never counted at all -
+//! which is why the count could not have been the control. Every in-scope value is now a set
+//! (compared, and ZERO NAMES IS A SET), a reference naming this same set (named in the verdict),
+//! or a refusal, and the verdict prints the ROWS behind the count. **What it still does not
+//! reach:** whether a reference resolves to the literal it names, and a set spelled where neither
+//! key reaches.
 //!
 //! # The second rule: a documented feature build is a probe, or it is unproven
 //!
@@ -83,15 +83,12 @@ use std::collections::BTreeMap;
 
 // All split off under the unexemptable 1000-line cap, and each takes its own NEW tests with it -
 // `.agents/skills/sutura/gates/SKILL.md`'s orphan rule is about moving tests OUT of a file, and
-// every assertion that was here is still here. `documented` is the page reader, `refusal` the
-// workflow locator, `declaration` the value classifier `spelled` below feeds; none of them shares
-// anything with the nix parse above.
+// every assertion that was here is still here. `documented` reads pages, `refusal` locates a
+// workflow, `declaration` reads and classifies the YAML; none touches the nix parse below.
 mod declaration;
 mod documented;
 mod loops;
 mod refusal;
-
-use declaration::{Carried, spelled};
 
 use crate::Verdict;
 use crate::repo;
@@ -384,60 +381,16 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     let files = yaml_files(&root);
-    let mut mismatches = Vec::new();
-    // ROWS RATHER THAN A COUNT: the count was the only thing #329's shapes could move, and one of
-    // them did not move it either. Every declaration lands in exactly one of the three.
-    let mut literals: Vec<String> = Vec::new();
-    let mut references: Vec<String> = Vec::new();
-    let mut opaque: Vec<String> = Vec::new();
-    for (name, text) in &files {
-        for set in spelled(text) {
-            let at = format!("{name}:{}", set.line);
-            match set.carries {
-                Carried::Set(names) => {
-                    if names != expected {
-                        mismatches.push((at.clone(), names));
-                    }
-                    literals.push(at);
-                }
-                Carried::Reference(expression) => references.push(format!("{at} -> {expression}")),
-                Carried::Opaque(value) => opaque.push(format!("{at} carries `{value}`")),
-            }
-        }
-    }
+    let Some(read) = declaration::read(&files, &expected) else {
+        return Verdict::Fail;
+    };
+    let declaration::Read {
+        literals,
+        references,
+        mismatches,
+        inspected,
+    } = read;
     let checked = literals.len();
-
-    if !opaque.is_empty() {
-        eprintln!(
-            "xtask check-shipped-binaries: FAILED - {} declaration(s) this gate can neither compare nor attribute",
-            opaque.len()
-        );
-        for row in &opaque {
-            eprintln!("  {row}");
-        }
-        eprintln!();
-        eprintln!("  Neither a literal set nor one expression naming this same set, which used to be");
-        eprintln!("  SKIPPED: the printed count moved and no line said which comparison had stopped -");
-        eprintln!("  `github.com/telekom/sutura#329`. Spell the set out, or reference it under a name");
-        eprintln!("  whose last segment is `{}`.", KEYS[1]);
-        return Verdict::Fail;
-    }
-
-    if checked == 0 {
-        eprintln!("xtask check-shipped-binaries: FAILED - no shipped-binary literal in any workflow or action");
-        eprintln!(
-            "  Every path that builds the shipped set spells it again: `{}` in a workflow",
-            KEYS[0]
-        );
-        eprintln!(
-            "  `env`, `{}` as a build action's input default. Finding none across the {}",
-            KEYS[1],
-            files.len()
-        );
-        eprintln!("  file(s) under `.github/workflows` and `.github/actions` means this gate is");
-        eprintln!("  reading nothing rather than that the literals agree.");
-        return Verdict::Fail;
-    }
 
     // A LOOP OVER THE SET REFUSES AN EMPTY ONE, and no file spells the set empty. Separate from
     // the literal rule above because the value reaches a composite action as
@@ -493,10 +446,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             mismatches.len()
         );
         eprintln!("  {SOURCE} ships: {}", expected.join(" "));
-        for (at, names) in &mismatches {
-            let spells = names.join(" ");
+        for row in &mismatches {
+            let spells = row.spells.join(" ");
             let spells = if spells.is_empty() { "<nothing at all>" } else { &spells };
-            eprintln!("  {at} spells: {spells}");
+            eprintln!("  {} spells: {spells}", row.at);
         }
         eprintln!();
         eprintln!("  These are compared IN ORDER, because the order is read: `sutura` is what an");
@@ -540,8 +493,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     println!(
-        "xtask check-shipped-binaries: ok - {} literal(s) agree with {SOURCE} ({})",
+        "xtask check-shipped-binaries: ok - {} literal(s) across {} file(s) agree with {SOURCE} ({})",
         checked,
+        inspected,
         expected.join(" ")
     );
     // NAMED rather than counted, for `unprobed`'s reason one function up: a count is not a witness
@@ -561,7 +515,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{Carried, declared, spelled};
+    use super::declaration::{Carried, spelled};
+    use super::declared;
 
     #[test]
     fn a_record_carries_its_package_and_its_probe_features() {
@@ -894,21 +849,24 @@ mod tests {
         };
         let expected = declared(&nix);
         assert!(!expected.is_empty(), "nix/shipped.nix declares no binaries");
+        let files = super::yaml_files(&root);
+        let walk = super::declaration::declarations(&files);
+        // The production pair, over the real tree: the walk's own list against the finder's.
+        let names: Vec<&str> = files.keys().map(String::as_str).collect();
+        assert_eq!(walk.inspected, names, "the walk did not read every file `.github` holds");
         let mut literals = 0_usize;
         let mut references = 0_usize;
-        for (name, text) in super::yaml_files(&root) {
-            for found in spelled(&text) {
-                let at = format!("{name}:{}", found.line);
-                match found.carries {
-                    Carried::Set(names) => {
-                        literals = literals.saturating_add(1);
-                        assert_eq!(names, expected, "{at} disagrees");
-                    }
-                    Carried::Reference(_) => references = references.saturating_add(1),
-                    // #329: this used to be the silent bucket, and it was `spelled` returning
-                    // nothing rather than a bucket at all.
-                    Carried::Opaque(value) => panic!("{at} carries `{value}`, which nothing compares"),
+        for (name, found) in walk.rows {
+            let at = format!("{name}:{}", found.line);
+            match found.carries {
+                Carried::Set(names) => {
+                    literals = literals.saturating_add(1);
+                    assert_eq!(names, expected, "{at} disagrees");
                 }
+                Carried::Reference(_) => references = references.saturating_add(1),
+                // #329: this used to be the silent bucket, and it was `spelled` returning
+                // nothing rather than a bucket at all.
+                Carried::Opaque(value) => panic!("{at} carries `{value}`, which nothing compares"),
             }
         }
         assert!(literals >= 2, "found {literals} literal(s); the release path declares more");

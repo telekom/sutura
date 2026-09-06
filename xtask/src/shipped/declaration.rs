@@ -1,4 +1,8 @@
-//! What a shipped-set declaration CARRIES, once the key is known to be in scope.
+//! Every shipped-set declaration under `.github`, and what each one CARRIES.
+//!
+//! [`read`] is the whole literal rule up to the comparison: the walk, the classification, and the
+//! refusals that stop a verdict being about them. The parent keeps the comparison and the report,
+//! the way [`super::loops`] and [`super::refusal`] keep theirs.
 //!
 //! **Its own file for [`super::loops`]' reason: the parent is against the unexemptable 1000-line
 //! cap.** Its fixtures are NEW tests and come with it, so nothing here can be orphaned by
@@ -27,7 +31,8 @@
 //! argument was never a declaration to this scan, so it was invisible rather than subtracted, and
 //! reading the count is no defence against it. A null `BINARIES:` in a workflow `env` is the
 //! fourth and is red at exit 1 since #322 - from that sibling rule, while this one went on
-//! dropping it behind the verdict.
+//! dropping it behind the verdict. The verdict carries a second number now, for a reason that is
+//! about none of these four - see [`declarations`].
 //!
 //! # The answer is a classification, not a predicate
 //!
@@ -60,6 +65,8 @@
 //! * **Whether the RUNNER renders a null as an empty string.** Unmeasured - no runner to ask - so
 //!   this rests on the declaration, as [`super::loops`] does: a key declared with no value is not
 //!   a shipped set whatever it resolves to.
+
+use std::collections::BTreeMap;
 
 /// What one in-scope declaration of the shipped set carries.
 #[derive(Debug, PartialEq, Eq)]
@@ -220,6 +227,39 @@ pub(super) fn spelled(text: &str) -> Vec<Spelled> {
     found
 }
 
+/// Every declaration across a set of files, as `(file, what it carries)`, and the files the walk
+/// actually INSPECTED.
+///
+/// **The second return is half of a pair taken from two DIFFERENT places** - the file finder
+/// produces `files`, the walk produces this - because a verdict over a scan that stopped early
+/// reads exactly like one over the whole tree, and a row total cannot tell them apart: a file that
+/// declares nothing contributes no row either way. `check-api-links`' `scanned == pages.len()` is
+/// the same rule, and `.agents/skills/sutura/gates/SKILL.md` records what one total cost there.
+///
+/// NAMES rather than a count, so the caller can say WHICH file went unread and so the witness
+/// cannot be satisfied by assigning the finder's own number to a variable.
+pub(super) fn declarations(files: &BTreeMap<String, String>) -> Walk<'_> {
+    let mut walk = Walk {
+        rows: Vec::new(),
+        inspected: Vec::new(),
+    };
+    for (name, text) in files {
+        walk.inspected.push(name.as_str());
+        walk.rows
+            .extend(spelled(text).into_iter().map(|found| (name.as_str(), found)));
+    }
+    walk
+}
+
+/// What one walk over the `.github` files produced. A named struct rather than a tuple, for
+/// [`Block`]'s reason: `clippy::type_complexity` refuses the tuple and is right to.
+pub(super) struct Walk<'a> {
+    /// Every declaration, as `(file, what it carries)`.
+    pub(super) rows: Vec<(&'a str, Spelled)>,
+    /// The files this walk actually read, in walk order.
+    pub(super) inspected: Vec<&'a str>,
+}
+
 /// An open `binaries:` block: where it started, and whether anything is nested under it.
 ///
 /// A named struct rather than a tuple, for [`super::Reconciliation`]'s reason one file over:
@@ -243,6 +283,121 @@ impl Block {
             carries: Carried::Set(Vec::new()),
         })
     }
+}
+
+/// One literal set that disagrees with `nix/shipped.nix`. A named struct rather than a tuple,
+/// for [`super::Reconciliation`]'s reason: `clippy::type_complexity` refuses the tuple.
+pub(super) struct Mismatch {
+    /// `file:line`, so the row a reader acts on names where it was spelled.
+    pub(super) at: String,
+    /// What it spells. EMPTY IS A VALUE here - see [`Carried::Set`].
+    pub(super) spells: Vec<String>,
+}
+
+/// Every declaration in `.github`, sorted into the buckets the verdict is built from.
+pub(super) struct Read {
+    /// One row per literal set, compared. Its length is the printed count.
+    pub(super) literals: Vec<String>,
+    /// One row per reference to this same set. Compared to nothing by design, and NAMED so the
+    /// count is not the only thing that moves when a declaration stops being compared.
+    pub(super) references: Vec<String>,
+    /// The literal sets that disagree with `nix/shipped.nix`.
+    pub(super) mismatches: Vec<Mismatch>,
+    /// How many files the walk read - the second half of the pair, see
+    /// [`declarations`].
+    pub(super) inspected: usize,
+}
+
+/// Read and classify every declaration, or print the refusal that stops the verdict being about
+/// them and answer `None`.
+///
+/// Its own function because `run` is against `clippy::too_many_lines`, and this is the half of it
+/// `github.com/telekom/sutura#329` rewrote.
+pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Option<Read> {
+    // TWO NUMBERS FROM TWO PLACES: the walk reports which files it read and the file finder which
+    // it found, so a scan that stopped early is a verdict rather than a smaller count. A row total
+    // cannot stand in for it - a file declaring nothing contributes no row whether it was read or
+    // not - which is `check-api-links`' `scanned == pages.len()` one gate over.
+    let walk = declarations(files);
+    let unread: Vec<&str> = files
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !walk.inspected.contains(name))
+        .collect();
+    if !unread.is_empty() {
+        eprintln!(
+            "xtask check-shipped-binaries: FAILED - the walk read {} of the {} file(s) under `.github`",
+            walk.inspected.len(),
+            files.len()
+        );
+        for name in &unread {
+            eprintln!("  {name} was found and not inspected");
+        }
+        eprintln!();
+        eprintln!("  A verdict over a scan that stopped early reads exactly like one over the whole");
+        eprintln!("  tree, and the rows below it would look no different: a file that declares nothing");
+        eprintln!("  contributes none either way.");
+        return None;
+    }
+
+    // ROWS RATHER THAN A COUNT: the count was the only thing #329's shapes could move, and one of
+    // them did not move it either. Every declaration lands in exactly one of the three.
+    let mut read = Read {
+        literals: Vec::new(),
+        references: Vec::new(),
+        mismatches: Vec::new(),
+        inspected: walk.inspected.len(),
+    };
+    let mut opaque: Vec<String> = Vec::new();
+    for (name, set) in walk.rows {
+        let at = format!("{name}:{}", set.line);
+        match set.carries {
+            Carried::Set(names) => {
+                if names != expected {
+                    read.mismatches.push(Mismatch {
+                        at: at.clone(),
+                        spells: names,
+                    });
+                }
+                read.literals.push(at);
+            }
+            Carried::Reference(expression) => read.references.push(format!("{at} -> {expression}")),
+            Carried::Opaque(value) => opaque.push(format!("{at} carries `{value}`")),
+        }
+    }
+
+    if !opaque.is_empty() {
+        eprintln!(
+            "xtask check-shipped-binaries: FAILED - {} declaration(s) this gate can neither compare nor attribute",
+            opaque.len()
+        );
+        for row in &opaque {
+            eprintln!("  {row}");
+        }
+        eprintln!();
+        eprintln!("  Neither a literal set nor one expression naming this same set, which used to be");
+        eprintln!("  SKIPPED: the printed count moved and no line said which comparison had stopped -");
+        eprintln!("  `github.com/telekom/sutura#329`. Spell the set out, or reference it under a name");
+        eprintln!("  whose last segment is `{}`.", super::KEYS[1]);
+        return None;
+    }
+
+    if read.literals.is_empty() {
+        eprintln!("xtask check-shipped-binaries: FAILED - no shipped-binary literal in any workflow or action");
+        eprintln!(
+            "  Every path that builds the shipped set spells it again: `{}` in a workflow",
+            super::KEYS[0]
+        );
+        eprintln!(
+            "  `env`, `{}` as a build action's input default. Finding none across the {}",
+            super::KEYS[1],
+            files.len()
+        );
+        eprintln!("  file(s) under `.github/workflows` and `.github/actions` means this gate is");
+        eprintln!("  reading nothing rather than that the literals agree.");
+        return None;
+    }
+    Some(read)
 }
 
 #[cfg(test)]
@@ -294,6 +449,25 @@ mod tests {
             Carried::Opaque(_)
         ));
         assert!(matches!(super::carried("sutura ${{ env.BINARIES }}"), Carried::Opaque(_)));
+    }
+
+    #[test]
+    fn every_file_handed_to_the_walk_is_inspected_and_a_second_list_says_so() {
+        // THE PAIR, from two different places: this list comes from the WALK and the parent
+        // compares it against the file finder's own keys. A row total cannot stand in for it - the
+        // middle file here declares nothing and contributes no row, so a walk that skipped it
+        // would produce the same two rows as one that read it.
+        let files = std::collections::BTreeMap::from([
+            (String::from("a.yml"), String::from("env:\n  BINARIES: sutura\n")),
+            (String::from("b.yml"), String::from("# this file declares nothing\n")),
+            (String::from("c.yml"), String::from("env:\n  BINARIES: sutura-serve\n")),
+        ]);
+        let walk = super::declarations(&files);
+        let names: Vec<&str> = files.keys().map(String::as_str).collect();
+        assert_eq!(walk.inspected, names, "{:?}", walk.rows);
+        assert_eq!(walk.rows.len(), 2, "{:?}", walk.rows);
+        assert_eq!(walk.rows[0].0, "a.yml");
+        assert_eq!(walk.rows[1].0, "c.yml");
     }
 
     #[test]

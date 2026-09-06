@@ -423,8 +423,13 @@ therefore does not see.
   And **a refusing arm has to be preceded by a lexer**: the refusal fails the gate, and
   `BINARIES: "sutura sutura-serve"` and a trailing `# comment` are legal YAML for this set, so a
   quote and a comment come off before the classification - or the gate reddens a correct tree and
-  gets disabled. What it still does not reach: whether a reference RESOLVES to the literal it
-  names.
+  gets disabled. **The rows are still not a floor**, which is the third thing the same review
+  asked: a walk that stopped early would print fewer of them and read exactly like a whole one, so
+  the verdict names TWO numbers from two places - the files the finder found and the files the walk
+  read - and the second is a LIST of names rather than a count, because a count can be satisfied by
+  assigning the first one to it. Measured: `.take(1)` on the walk gives
+  `FAILED - the walk read 1 of the 12 file(s) under .github`, exit 1, naming the eleven. What it
+  still does not reach: whether a reference RESOLVES to the literal it names.
 - **A single unreadable input dropped in silence, twice more, and the floor did not save it.** Two
   new gates read every workflow with `.ok()` / `else continue` and failed closed only when EVERY
   file was unreadable - so one dropped file was a gating job classified by nothing, or a
