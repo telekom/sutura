@@ -2320,15 +2320,18 @@ build, no configuration, no catalog. A test asserts the body byte for byte.</p>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>use sutura_config::{Environment, Settings, Sources};
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>use sutura_http::{ServiceState, router, serve};
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>use sutura_runtime::Shutdown;
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>use sutura_runtime::{Admission, Shutdown};
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a># async fn wire(surface: Arc&lt;dyn sutura_http::Surface&gt;) -&gt; Result&lt;(), Box&lt;dyn core::error::Error&gt;&gt; {
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>let settings = Settings::load(&amp;Sources::defaults(Environment::Development))?;
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>let address = settings.server().bind().socket();
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>let state = ServiceState::new(surface, Arc::new(settings));
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>serve(router(&amp;state)?, address, Shutdown::new()).await?;
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a># Ok(())
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a># }
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>// The execution bound, built HERE and handed down - one per process, like the shutdown below.
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>// This crate cannot build one: see `state` for what `telekom/sutura#340` cost.
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>let admission = Admission::from_settings(settings.runtime());
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>let state = ServiceState::new(surface, Arc::new(settings), admission);
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>serve(router(&amp;state)?, address, Shutdown::new()).await?;
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a># Ok(())
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a># }
 </span></code></pre></div>
 <h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
@@ -3854,13 +3857,26 @@ were built from, and the <code>Admission</code> bound the query handler takes a 
 per request. Nothing else does - the layers were all decided at startup - and that is
 deliberate: a value a handler can read is a value a handler can branch on, and the posture
 decisions in this service are supposed to be settled before the first request arrives.</p>
-<h1 id="the-admission-bound-is-built-here-from-the-settings-this-state-was-given">The admission bound is built here, from the settings this state was given<a class="headerlink" href="#the-admission-bound-is-built-here-from-the-settings-this-state-was-given" title="Permanent link">&para;</a></h1>
-<p>And that is the whole of why nothing else had to change to install it. <code>Admission</code> is a bound,
-so it has to be <em>one</em> value shared by every request - a per-request copy would read like a limit
-and bound nothing - and the only place that can be true without a second constructor argument is
-beside the settings it is derived from. <code>ServiceState::new</code> therefore takes exactly what it
-took before, and every caller of it, production and test alike, gets the configured bound rather
-than having to remember to pass one.</p>
+<h1 id="the-admission-bound-is-taken-and-it-used-to-be-built-here">The admission bound is TAKEN, and it used to be built here<a class="headerlink" href="#the-admission-bound-is-taken-and-it-used-to-be-built-here" title="Permanent link">&para;</a></h1>
+<p><strong><code>telekom/sutura#340</code>, and the sentence this section replaced is the defect.</strong> It read <em>the
+only place that can be true without a second constructor argument is beside the settings it is
+derived from</em>, and it was wrong in the way that matters: <code>Admission::from_settings</code> inside
+<code>ServiceState::new</code> made a second <code>ServiceState</code> a second permit set, and a process serving
+this transport beside another would have held two semaphores each reporting a limit the other
+can exceed. <code>sutura_runtime::admission</code>'s own module documentation calls that shape not-a-bound
+and says the composition root builds one - and nothing held it.</p>
+<p>So the bound arrives as an argument. Three consequences worth naming, because the argument for
+deriving it was that a caller can forget a bound:</p>
+<ul>
+<li><strong>It cannot be forgotten</strong>: the parameter has no default and no <code>Option</code>, so a state built
+  without one does not compile - the same shape <code>sutura_app::surface::LocalService::start</code>
+  gives its audit sink.</li>
+<li><strong>It can be SHARED</strong>: one <code>Admission</code> handed to two states is one permit set, which is what
+  makes the number a bound on the process rather than on a router.</li>
+<li><strong>A composition root builds exactly one</strong>, held by <code>cargo xtask check-one-bound</code> in
+  <code>just hygiene</code> rather than by this comment. That gate would fail this crate for building one
+  at all.</li>
+</ul>
 <p><code>Clone</code> on this type shares that bound rather than duplicating it, because the field is an
 <code>Admission</code> whose own <code>Clone</code> shares one permit set. That is the property the whole control
 rests on, and it is the one a future field here must not break.</p>
@@ -3883,14 +3899,16 @@ correct too - <code>Admission</code> shares its permit set - and a borrow says s
 <p>Read by <code>crate::router</code> to install the layer, and by nothing else - a handler must not be able
 to reach the validator, which is why the middleware takes the gate as its own state rather than
 reading it back out of this one.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-104-1"><a id="__codelineno-104-1" name="__codelineno-104-1" href="#__codelineno-104-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">surface</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">Surface</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">settings</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">Settings</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-104-1"><a id="__codelineno-104-1" name="__codelineno-104-1" href="#__codelineno-104-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">surface</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">Surface</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">settings</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">Settings</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">admission</span><span class="p">:</span><span class="w"> </span><span class="nc">Admission</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Builds the state from a started service and the settings it was started under.</p>
 <p>Takes the surface already behind an <code>Arc</code>, because the composition root owns it: the same
 service may be handed to a second transport later, and this crate must not be the one that
 decides there is only ever one.</p>
-<p>The admission bound is derived from the settings rather than passed in beside them. See the
-module documentation: a bound that a caller supplies is a bound a caller can forget.</p>
+<p><strong>The admission bound is taken and not derived, which is <code>telekom/sutura#340</code>.</strong> It is the
+same argument as the surface one line above it, one bound further: the permit set belongs to
+the process, so the only component that may decide there is one of it is the composition
+root. See the module documentation for what deriving it cost.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-105-1"><a id="__codelineno-105-1" name="__codelineno-105-1" href="#__codelineno-105-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">settings</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Settings</span>
 </span></code></pre></div>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-106-1"><a id="__codelineno-106-1" name="__codelineno-106-1" href="#__codelineno-106-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">surface</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">Surface</span><span class="o">&gt;</span>

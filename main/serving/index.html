@@ -3175,11 +3175,11 @@ tool that composes the in-process engine over a data directory rather than with 
 </span></code></pre></div>
 <p>An agent client launches that process and speaks the protocol on its pipes - the same two tools this
 page describes, from the same <code>sutura_app::Capability</code> declaration. The command prints at startup, on
-standard error, that it grants every capability to whoever can reach the process and how many
-questions it will answer at once: a pipe has no header a token could arrive in, which is the limit
-stated beside the mode rather than left as a default, and the second number is
-<a href="#capacity"><code>runtime.max_concurrent_queries</code></a>, which bounds that surface exactly as it bounds this
-one.</p>
+standard error, that it grants every capability to whoever can reach the process, how many questions
+it will answer at once, and how long a peer waits for one of them: a pipe has no header a token could
+arrive in, which is the limit stated beside the mode rather than left as a default, and the two
+numbers are <a href="#capacity"><code>runtime.max_concurrent_queries</code></a> and <code>server.request_timeout_seconds</code>, which
+bound that surface exactly as they bound this one.</p>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3460,11 +3460,23 @@ seconds for a slot is better served by a <code>503</code> they can retry than by
 later that says the same thing less clearly. Setting it <em>above</em> the request timeout is allowed and
 does nothing: the timeout layer answers first.</p>
 <p><strong>The bound is the process's and not this endpoint's</strong>, which is why the same two keys bound the agent
-surface the <code>mcp</code> command serves. What differs is how a shed question comes back: there is no status
-code on a pipe, so it is a tool result marked as an error and saying to ask again shortly, with the two
-numbers going to the log rather than into a model's context. And <code>server.request_timeout_seconds</code> has
-no counterpart there - nothing on that surface bounds the wait except the admission window - so
-everything under <em>what it does not bound</em> is true of it and there is no <code>408</code> above it.</p>
+surface the <code>mcp</code> command serves - and one <code>Admission</code> per process is what makes them the process's:
+<code>sutura_runtime::Admission</code> is built by a composition root and handed to whatever serves, and
+<code>cargo xtask check-one-bound</code> counts the constructions, failing a transport that builds one or a root
+that builds two. Its own header states what a text scan cannot see.</p>
+<p><code>server.request_timeout_seconds</code> bounds the reply on that surface too, and it bounds the same thing:
+the caller's <strong>whole</strong> wait, admission included. Here that is because the timeout is an outer layer
+and the admission wait happens inside it; there it is because one deadline wraps both waits. So the
+paragraph above holds on both surfaces - a window at or above the reply deadline is allowed and does
+nothing, because the deadline answers first.</p>
+<p>What differs is how each answer comes back: there is no status code on a pipe, so a shed question and
+a question whose deadline expired are both a tool result marked as an error - the first saying to ask
+again shortly, the second saying the question may still be running and to ask for less. Neither
+carries a number: the bound, the window and the deadline are the operator's own configuration, so
+they go to the log rather than into a model's context. Everything under <em>what it does not bound</em> is
+true of that surface as well, and one thing more: a peer that sends <code>notifications/cancelled</code> stops
+nothing and learns nothing until the deadline fires, because the pinned MCP SDK delivers that
+cancellation as a token the handler does not read.</p>
 <h3 id="what-it-does-not-bound">What it does not bound<a class="headerlink" href="#what-it-does-not-bound" title="Permanent link">&para;</a></h3>
 <p>Stated plainly, because each of these has been mistaken for the thing above.</p>
 <ul>
@@ -3563,7 +3575,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>server.request_timeout_seconds</code></td>
 <td><code>30</code></td>
-<td>At most 300</td>
+<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. It is also what a <code>bigquery</code> job's own deadline is divided out of</td>
 </tr>
 <tr>
 <td><code>server.max_body_bytes</code></td>
