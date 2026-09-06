@@ -99,7 +99,8 @@
 //! delivers that cancellation as `RequestContext::ct` and `call_tool` here does not read it, so a
 //! cancelled call goes on waiting out its deadline. Reading the token would make cancellation
 //! observable to the peer and would be the first place this crate depends on an rmcp behaviour its
-//! own documentation describes loosely - filed rather than folded in.
+//! own documentation describes loosely - `telekom/sutura#362`, filed rather than folded in. It
+//! would free an async worker and never a slot, which is why it is a separate decision.
 //!
 //! **What this transport still does not bound is the size of what it reads**, which is `#266`'s
 //! `H4`: `rmcp`'s stdio transport reads a line off the process's own input with no cap, and this
