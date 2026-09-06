@@ -2693,17 +2693,27 @@ an addition. A harness move and a changed public signature that a test file kept
 land there too, so it is not a defect in your change - but nothing about causality was proven
 either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
 Read the verdict line, never a step's colour.</p>
-<p><strong>The gate measures the MERGE BASE, and it says which commit that was.</strong> It resolves
-<code>git merge-base &lt;ref&gt; HEAD</code> itself, so a base branch that has moved on cannot put other people's
-commits into the diff - but on the second branch of a stack that merge base is the fork point of the
-whole stack, so the diff still carries the parent branch's implementation. <code>SHIP_CHECK_BASE_REF</code>, or
-a commit as the recipe's argument, is the lever. A changed page, recipe or nix file IS an
-implementation to the gate and gets reverted like any other; <strong>a manifest or a lockfile is not</strong> -
-it is held at HEAD and named as <code>not reverted:</code> on whichever arm you land on, because reverting one
-changes what cargo RESOLVES rather than what the tests measure. So a change whose only
-implementation is a manifest reads as <em>tests changed but no implementation did</em>, at exit 0, with the
-manifest named beside it: that is the gate saying it could not see your change, not that there was
-nothing to see.</p>
+<p><strong>The gate measures the MERGE BASE, it says which commit that was, and on a stack it derives it.</strong>
+It resolves <code>git merge-base &lt;ref&gt; HEAD</code> itself, so a base branch that has moved on cannot put other
+people's commits into the diff - and on a stacked branch it takes the fork point from the parent
+branch <code>st</code> recorded instead, because the trunk's merge base there is the fork point of the whole
+stack. The printed line names the commit, the parent branch and the commit it replaced; a stale or
+retargeted parent falls back to the ref you named rather than moving the base off your history.
+<code>SHIP_CHECK_BASE_REF</code>, or a commit as the recipe's argument, still overrides both.</p>
+<p><strong>One parent is refused rather than used, and it is one you can easily have:</strong> a branch that already
+CONTAINS yours - because you merged yours into it to check the merge, or because the metadata points
+at the branch above. Its fork point with your HEAD <em>is</em> your HEAD, and a base equal to HEAD would
+make the diff your uncommitted working tree alone: exit 0 over every file you changed. The line says
+so, and the gate measures the ref you named instead.</p>
+<p>A changed page, recipe or nix file IS an implementation to the gate and gets reverted like any
+other; <strong>a manifest or a lockfile is not</strong> - it is held at HEAD and named as <code>not reverted:</code> on
+whichever arm you land on, because reverting one changes what cargo RESOLVES rather than what the
+tests measure. So a change whose only implementation is a manifest reads as <em>tests changed but no
+implementation did</em>, at exit 0, with the manifest named beside it: that is the gate saying it could
+not see your change, not that there was nothing to see. <strong>One manifest change does fail, though:</strong>
+declaring a feature name the base did not, where a <code>#[cfg(feature = ..)] mod ..;</code> this diff does not
+otherwise touch gates a module that holds tests. That compiles a whole module of pre-existing tests
+with no added <code>.rs</code> line, and neither run can measure them - so state the evidence instead.</p>
 <p>Ports get <strong>fakes</strong>, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.</p>
 <p><code>just validate</code> is the only thing that counts as verified, because its nix checks build a
