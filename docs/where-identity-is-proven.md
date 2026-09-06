@@ -23,7 +23,22 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     use whichever word its cell states, **a venue whose `Reached by` task CI invokes may not say
     `unrun`**, and **a venue whose `Reached by` task CI does not invoke may not say `wired`**. The
     last two are one rule pointing both ways, so exactly one of the two tokens is available for any
-    given tree and neither can be reached by spelling.
+    given tree.
+
+    **Three more, each added because review found a rule above reachable by spelling.** A venue
+    whose own `Where it runs` cell says it runs **nowhere** may not say `yes`, `can` or `wired`:
+    the two columns of a row are read together, because a `Reached by` that merely named a task was
+    otherwise enough to earn a citation for a venue that runs nowhere - and that is the row
+    carrying leg 2. A **built** venue whose `Reached by` names no `just <task>` or
+    `nix run .#<app>` in backticks is refused, because dropping that prefix made the cell resolve
+    to nothing and its verdict permanent. And *CI invokes it* reads a **command** rather than a
+    substring, because a task named inside an `echo` was resolving as an invocation.
+
+    **And the one that is REVIEW's, named rather than left to be discovered.** Nothing checks that
+    the task a `Reached by` cell names is the task that runs *this* venue. Measured: pointing the
+    two-keys row at `` `nix run .#actionlint` `` - a real, CI-invoked, entirely unrelated lint -
+    and leaving that cell at `wired` passes at exit 0. What the gate holds is that a venue's state
+    is consistent with what CI runs; that a row describes the thing it names is read by a person.
 
     **Why there are two of them rather than one, which is a defect the fourth rule had:** the change
     that wires a leg into a job cannot also produce that leg's first green run - the run happens
@@ -305,8 +320,12 @@ rows differ only by arithmetic.
    green run: it cannot see a run's result, because the authority for that is the GitHub API and the
    sandbox the gate runs in cannot reach it. So a job that always skips reads exactly like one that
    passes, and a hand-run is invisible. Moving this cell to **`yes`** is therefore review's
-   judgement with the run named beside it; what is mechanical is that neither `unrun` nor a silent
-   `wired`-forever is available once the wiring lands.
+   judgement with the run named beside it. **`wired` does not expire, and nothing makes it:** a cell
+   can sit in it for as long as nobody looks, exactly as `can` could before `unrun` existed. What
+   IS mechanical is the pair of transitions around it - `unrun` is refused once CI reaches the
+   venue, `wired` is refused until it does, and both are refused for a venue whose own `Where it
+   runs` cell says it runs nowhere - so a cell cannot be in the wrong one of the two, only in the
+   right one for too long.
 2. **Whether a deployment can OBTAIN such a credential for the caller who asked.** Each bearer here is
    minted from a service-account key *on disk*, through the crate's own `Credential`, so what a green run
    establishes is that a source executes as the principal whose credential a leg carried. Nobody asked

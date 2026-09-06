@@ -934,9 +934,11 @@ jobs:
           set -eu
           nix run .#bigquery-acceptance -- --no-capture
 
-      # **The two-principal cell** - issue #123, and `docs/adr/0017`'s eighth amendment is the whole
-      # record: its own step, its three GRANT values guarded and deliberately NOT masked, and two
-      # principals that are service accounts whose keys this job places - leg 2's SOURCE half.
+      # **The two-principal cell** - issue #123. `docs/adr/0017`'s amendment *the two-principal cell
+      # exists, and what it is not* is the whole record: its own step, its three GRANT values
+      # guarded and deliberately NOT masked, and two principals that are service accounts whose
+      # keys this job places - leg 2's SOURCE half. Cited by TITLE: that record has been the
+      # seventh, eighth and tenth amendment in three days, so an ordinal here rots on a merge.
       - name: Two-principal leg
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
