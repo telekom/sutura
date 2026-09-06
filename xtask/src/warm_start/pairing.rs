@@ -38,11 +38,22 @@
 //! no nix - so a taking assembled by evaluation (a taking behind a `let` alias, an attrset built
 //! by a function this gate does not follow) is invisible, and so is anything that unpacks a store
 //! path without naming [`TAKING`] at all. `preBuild` is the only phase read, so a consumer that
-//! re-places artifacts in a later phase is outside it. It says nothing about whether the sweep
-//! WORKS; that is the script's own subject, and the tests below run it over a real directory
-//! rather than reading its source. And it is blind to the profile by design: the sweep derives
-//! its profile directory from cargo's own `root-output` record, so it names none and cannot clean
-//! the wrong one - which is the trap `cargo clean` fell into in [`crate::causality`].
+//! re-places artifacts in a later phase is outside it. And it is blind to the profile by design:
+//! the sweep derives its profile directory from cargo's own `root-output` record, so it names none
+//! and cannot clean the wrong one - which is the trap `cargo clean` fell into in
+//! [`crate::causality`].
+//!
+//! IT ANSWERS *WHERE THE SWEEP'S TEXT IS INLINED*, NEVER *THAT THE TEXT RUNS*, and the two come
+//! apart. Measured: comment out the script's own trailing `suturaPurgeBakedOutDirs` invocation and
+//! the script still exits 0, `just lint-workflows` shellchecks 14 scripts clean, and the whole of
+//! `just hygiene` reports `ok - 31 gate(s)` - over a tree that purges nothing. That half belongs to
+//! [`super::sweep`], which runs the real script over a real directory and asserts `try_exists` on
+//! the unit and its fingerprint, and it reddens on exactly that mutation (`left: (true, true)`).
+//! *An `Ok` from a subprocess is not evidence the side effect happened*, and neither is a text
+//! scan; the pairing is text and the effect is a filesystem, so the two are held in two venues.
+//! **Reachability of the inline SITE is held by neither**: the sweep placed after an `exit`, or
+//! inside a shell conditional, in [`super::WARMER`]'s string satisfies this gate's line rules and
+//! [`super::sweep`]'s standalone run alike.
 
 use std::path::{Path, PathBuf};
 
@@ -278,11 +289,16 @@ fn pairing(root: &Path, files: &[NixFile]) -> Result<Pairing, String> {
         .next()
         .unwrap_or_default();
     if !inlines_sweep(root, &file.rel, value) {
+        // THE PHASE'S OWN LINE AND THE RAW TEXT OF IT, because the value read above is LEXED: a
+        // `preBuild` bound to a string has its interior blanked, so printing what was compared
+        // prints `=` and names nothing an author can act on. Measured on the real tree - a
+        // refusal that cannot be acted on is half a gate.
+        let at = line_at(&file.code, attrset.0.saturating_add(*phase));
+        let wrote = file.raw.lines().nth(at.saturating_sub(1)).unwrap_or_default().trim();
         return Err(format!(
-            "{}:{line}: `{CONSTRUCTOR}` binds `{PHASE}` to something that is not {SWEEP}, so every taking it pairs \
-             now inherits a build root that names nothing: {}",
-            file.rel,
-            value.trim()
+            "{}:{at}: `{CONSTRUCTOR}` binds `{PHASE}` to something that is not {SWEEP}, so every taking it pairs \
+             now inherits a build root that names nothing: {wrote}",
+            file.rel
         ));
     }
     Ok(Pairing {
@@ -619,6 +635,23 @@ mod tests {
         );
         let why = over(&root).expect_err("a phase bound to another file is not the sweep");
         assert!(why.contains("is not nix/purge-baked-out-dirs.sh"), "{why}");
+        // And bound to a STRING that spells the path, which is the shape the refusal could not
+        // name: the lexer blanks a string's interior, so the value COMPARED is empty and a message
+        // printing it says `=`. The line is the phase's own (5) rather than the constructor's (3),
+        // and the text is the raw one, because those two together are what an author acts on.
+        let root = tree("stringly-constructor");
+        rewrite(
+            &root,
+            "flake.nix",
+            "    preBuild = builtins.readFile ./nix/purge-baked-out-dirs.sh;\n",
+            "    preBuild = \"echo ./nix/purge-baked-out-dirs.sh\";\n",
+        );
+        let why = over(&root).expect_err("a phase bound to a string reads no file");
+        assert!(why.contains("flake.nix:5:"), "the PHASE's line, not the constructor's: {why}");
+        assert!(
+            why.contains("echo ./nix/purge-baked-out-dirs.sh"),
+            "the raw line is the actionable half: {why}"
+        );
     }
 
     #[test]

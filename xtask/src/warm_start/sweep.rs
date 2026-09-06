@@ -9,6 +9,12 @@
 //! Test-only, and its own file for the 1000-line cap. It sits under [`super`] rather than beside
 //! [`super::pairing`] because it is not about the pairing: that module holds every taking against
 //! the sweep, and this one holds the sweep against a filesystem.
+//!
+//! IT IS THE ONLY MECHANISM OVER *THE SWEEP HAPPENS AT ALL*, and that is measured rather than
+//! argued: comment out the script's trailing `suturaPurgeBakedOutDirs` invocation and the script
+//! exits 0, `just lint-workflows` shellchecks it clean, and `just hygiene` - [`super::pairing`]
+//! included - reports `ok - 31 gate(s)` over a tree where nothing is purged. This test fails on
+//! it, `left: (true, true)`, because the unit and its fingerprint are still there.
 
 use std::path::Path;
 
