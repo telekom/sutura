@@ -281,7 +281,7 @@ pub const fn qualification(self) -> Qualification
 The deepest table path this data system resolves.
 
 A declaration, exhaustively matched, so a fifth dialect cannot compile without answering -
-the `DateTruncShape` and [`identifier_quote`](Dialect::identifier_quote) precedent, and for
+the `DateTruncShape` and `identifier_quote` precedent, and for
 the same reason: **the dialect layer renders `catalog.schema.name` for ANY target given three
 parts.** Its `TableRef` is a name plus two `Option`s with no per-dialect arity check, so
 without this declaration a `project.dataset.table` rendered for a target with no third
