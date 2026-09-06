@@ -774,19 +774,67 @@ than proven. Two things therefore stay unheld: that the author supplied the subs
 that anybody saw the verdict. **When citing this gate, cite the VERDICT LINE from the log, never the
 step's colour.**
 
-**THE BASE IS THE OTHER WAY IT LIES, and the failing direction is the default one.** `ship-check`
-defaults to `origin/main`, so on the second PR of a stack the diff carries the PARENT branch's
-implementation: the gate reverts that and finds this branch's tests green, then reports
-`FAILED - green against base behaviour` about two halves that do not read each other. The same
-commit is green with the stack parent as the base, and `SHIP_CHECK_BASE_REF` is the lever - so a
-verdict from this gate is a function of the base ref until you have said which one. Both halves
-follow from the same shape: the diff is one revert-set, and nothing asks whether a test's package
-could depend on what was reverted. **And the classification is over `.rs` only**, so a test whose
-subject is a markdown page has nothing the gate can revert - it reads as *tests changed but no
-implementation did*, which passes and proves nothing.
+**THE BASE IS THE OTHER WAY IT LIES, and the ref is no longer what the gate measures.** `git diff
+<ref>` compares whatever that ref points to NOW, so once `origin/main` moved the diff carried
+commits the branch never made and the gate reverted them. `just causality` passed the ref straight
+through while `ship-check` and `ci.yml` each resolved a merge base first, which put the wrong
+answer in the venue a person runs by hand. The gate resolves `git merge-base <ref> HEAD` itself now
+and PRINTS the commit beside the ref; `causality::provenance::Commit` is the type every consumer
+takes, so a moving tip does not typecheck. Idempotent for a commit already behind HEAD, so
+`just causality <a commit>` still scopes per commit. **What that does NOT fix, and it is the
+default:** on the second PR of a stack the merge base with `origin/main` is the fork point of the
+WHOLE stack, so the diff still carries the parent branch's implementation and the gate pairs this
+branch's tests with it. `SHIP_CHECK_BASE_REF` or a commit argument is the lever, and nothing asks
+whether a test's package could depend on what was reverted.
 
-**The hole that remains is the shared target directory.** Both runs use one; cargo treats the two
-trees as one unit and decides freshness by mtime, so a build in either overwrites the other's
-binaries and the next run silently executes them - reverted source and `env!("CARGO_MANIFEST_DIR")`
-included. **So a causality verdict is only about the tree whose binaries are in
-`target/causality-target`** - remove that directory before trusting a surprising answer.
+**A MOVED TEST USED TO READ AS AN ADDED ONE, which made the failing direction reachable from the
+refactor this file recommends.** Move a test into a new file and its subject is unchanged: green on
+base, and the verdict was `FAILED - green against base behaviour` about a defect that does not
+exist. The gate asks the base tree now - *did a `.rs` file this diff ALSO TOUCHED already have a
+function of that name at the base commit?* - and a green run over a scope that was ENTIRELY already
+there is `INCONCLUSIVE - these tests were not ADDED here` (exit 3). A MIX still fails, because the
+tests that were new passed both ways, and the verdict names the moved ones as tests it is not
+about. **Two limits:** the search is `fn <name>(` restricted to the diff's own paths, so a move
+whose source file is not in the diff reads as an addition (the old answer); and a genuinely new
+test whose name collides with something in the same diff turns a failure into an exit 3.
+
+**The classification is no longer over `.rs` only.** A page, a justfile recipe or a nix file is the
+IMPLEMENTATION of every test that reads it, so those are reverted like any other - which is what
+makes a documentation-driven suite provable at all; it used to read as *tests changed but no
+implementation did*, a pass that proved nothing. **A build input is the exception and is named
+rather than reverted** (`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`): reverting a
+manifest changes what cargo RESOLVES, and a test file held at HEAD needing a dependency this branch
+added would stop compiling. So a manifest-only implementation change still gets no verdict - which
+is #343's territory, now stated in the output instead of nowhere.
+
+**THE SHARED TARGET DIRECTORY WAS A HOLE, and the fix for it is worth reading for the trap rather
+than the hole.** Both runs share `CARGO_TARGET_DIR`; cargo sees ONE unit - same package names, same
+relative paths, and the metadata hash carries neither tree's path - and decides freshness by mtime.
+Measured on cargo 1.100.0-nightly over a synthetic two-crate workspace in the gate's own sequence,
+root at `f() -> 1` and worktree at `f() -> 999`: the base run printed `Finished in 0.01s`, compiled
+nothing, and answered `ok` over source that says 999; and a warning present only in the worktree was
+**re-emitted by the next run at the root**, quoting a source line the root tree does not have. Cargo
+replays a fresh unit's saved diagnostics, so a verdict could be manufactured out of the previous
+run's output - and under `-D warnings` a replayed warning IS that run's failure.
+
+**THE TRAP: `cargo clean` WITH A PACKAGE SELECTION AND NO `--profile` CLEANS `dev`, AND THIS GATE
+BUILDS `ci`.** So the first version of the removal ran, exited 0, removed nothing either run would
+reuse, and the whole sequence above reproduced straight through it - caught in review, not by any
+gate. Measured against a tree built only at `ci`: `cargo clean --workspace --dry-run` says
+`Summary 0 files`, and `--profile ci` says 57. The removal names the profile now, from
+`warm_start::WARM_PROFILE` rather than a fourth spelling of `ci`, and
+`causality::isolation::Isolated` carries the directory, the tree AND the profile it cleaned while
+`runner::nextest` reads all three out of it - so a clean of one profile cannot license a run at
+another, and a run built with no removal at all does not compile. **The transferable rule, which
+this file already states for `file`, `echo` and `grep -c`: an `Ok` from a subprocess is not evidence
+that the side effect happened.** The witness reads cargo's own `Removed <n> files` back and the gate
+prints it, so `isolated: removed 0 …` on a warm directory is visible rather than inferred.
+
+**What it costs and what it does not reach.** The removal is 0.3 s and took **442 files / 2.0 GiB**
+out of a warm `target/causality-target` on this workspace; the dependency closure is untouched
+(measured: the registry dependency was not recompiled) and the warm-start stamp survives, so
+`warm_start::profile_for` still answers `ci`. **The bill is our own crates compiled once per run** -
+which is what the sharing comment always claimed the gate paid. It is bounded to what cargo calls a
+workspace MEMBER at that one profile, so anything else in that directory can still be stale, which
+is why *remove `target/causality-target`* is still the last-resort remedy the gate prints. Two runs
+of ONE tree still share artifacts, which is cargo's ordinary path and the whole point of sharing.

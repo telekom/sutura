@@ -6,9 +6,16 @@
 //! whether the file existed at base ([`base_has`]), and every subprocess has to have the CALLER's
 //! git environment stripped or it operates on another repository - which is why [`git`] is the only
 //! way this module spawns one.
+//!
+//! THE THREE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`] and
+//! [`search`] - are here for that second reason and no other. Each returns raw output and decides
+//! nothing; `super::provenance` parses all three, so the classification they feed is testable
+//! without a repository.
 
 use std::path::Path;
 use std::process::Command;
+
+use super::provenance::Commit;
 
 /// A `git` invocation in `dir`, with the caller's git environment stripped.
 ///
@@ -24,17 +31,86 @@ fn git(dir: &Path) -> Command {
     command
 }
 
+/// The commit `named` and HEAD diverged at, as git printed it.
+///
+/// **THE REF IS NOT THE COMMIT, and passing the ref through is what made a verdict a function of
+/// the last fetch.** `git diff origin/main` compares the tree at whatever `origin/main` points to
+/// now, so once the base branch moves the diff carries commits this branch never made - the gate
+/// reverts them and measures a tree nobody proposed. `just ship-check` and `ci.yml` each resolve a
+/// merge base before invoking the gate; `just causality` handed the ref straight through, which is
+/// the venue a person runs and cites. Resolving it HERE means no invocation site can get it wrong,
+/// and it is idempotent for the base a person means: the merge base of a commit already behind HEAD
+/// is that commit, so `just causality <a commit>` still scopes the gate to it.
+///
+/// Raw text out, [`Commit`] parses it: an unrelated history, an unknown ref or an ambiguous answer
+/// all reach `super::provenance::Commit::parse` as text that is not one object name, and the gate
+/// refuses rather than splicing it into `git checkout`.
+pub(super) fn merge_base(root: &Path, named: &str) -> String {
+    git(root)
+        .args(["merge-base", named, "HEAD"])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// Every path the diff touched, one per line - **deletions included**.
+///
+/// `super::diff` builds its `ChangedFile` list from the post-image, so a file this branch DELETED
+/// has no entry there at all: its `+++` is `/dev/null`. That is the one shape a whole-file move
+/// takes, and [`search`] has to be able to look in it. `--name-only` answers with no post-image
+/// involved.
+pub(super) fn touched(root: &Path, base: &Commit) -> Vec<String> {
+    git(root)
+        .args(["diff", "--name-only", base.as_str(), "--"])
+        .output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Lines matching any of `needles` in `base`, under `paths`.
+///
+/// The pathspec is what keeps this narrow: the question is whether a test the diff NAMES was
+/// already in a file the diff also touched, because that is what a move looks like from the base
+/// side, and asking the whole tree instead would let one of this tree's duplicated test names
+/// answer yes. `-F` because a needle is a fixed string; a non-zero status is "no match" and reaches
+/// the caller as empty output, which reads as *nothing moved* - the answer the gate gave before
+/// this existed.
+pub(super) fn search(root: &Path, base: &Commit, needles: &[String], paths: &[String]) -> String {
+    if needles.is_empty() || paths.is_empty() {
+        return String::new();
+    }
+    let mut command = git(root);
+    command.args(["grep", "-F"]);
+    for needle in needles {
+        command.arg("-e").arg(needle);
+    }
+    command.arg(base.as_str()).arg("--");
+    for path in paths {
+        command.arg(path);
+    }
+    command
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default()
+}
+
 /// Does `path` exist at `base`?
 ///
 /// "Revert to base" means two different things depending on the answer. For a file that
 /// existed, it means check out the old content. For a file this branch ADDED, it means the file
 /// is not there - and `git checkout base -- <new file>` fails with "did not match any file(s)
 /// known to git", which is how this gate first broke in CI.
-pub(super) fn base_has(root: &Path, base: &str, path: &str) -> bool {
+pub(super) fn base_has(root: &Path, base: &Commit, path: &str) -> bool {
     git(root)
         .arg("cat-file")
         .arg("-e")
-        .arg(format!("{base}:{path}"))
+        .arg(format!("{}:{path}", base.as_str()))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -85,16 +161,16 @@ impl BaseState<'_> {
 ///
 /// "Revert to base" means two different things depending on the answer, and getting it wrong is
 /// how this gate first broke in CI - see [`base_has`].
-pub(super) fn base_state<'a>(root: &Path, base: &str, files: &'a [String]) -> BaseState<'a> {
+pub(super) fn base_state<'a>(root: &Path, base: &Commit, files: &'a [String]) -> BaseState<'a> {
     let (restore, remove) = files.iter().partition(|f| base_has(root, base, f));
     BaseState { restore, remove }
 }
 
 /// Check out the base version of the files that had one, and delete the ones this branch added.
-pub(super) fn apply(wt: &Path, base: &str, state: &BaseState<'_>) -> Result<(), String> {
+pub(super) fn apply(wt: &Path, base: &Commit, state: &BaseState<'_>) -> Result<(), String> {
     if !state.restore.is_empty() {
         let mut checkout = git(wt);
-        checkout.args(["checkout", base, "--"]);
+        checkout.args(["checkout", base.as_str(), "--"]);
         for f in &state.restore {
             checkout.arg(f);
         }
@@ -126,7 +202,7 @@ pub(super) fn apply(wt: &Path, base: &str, state: &BaseState<'_>) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseState, apply};
+    use super::{BaseState, Commit, apply};
 
     #[test]
     fn removing_a_file_the_worktree_never_had_is_not_a_failure() {
@@ -143,7 +219,8 @@ mod tests {
             remove: vec![&absent],
         };
 
-        let applied = apply(&wt, "HEAD", &state);
+        let at = Commit::parse("7a65f1e1a1b2").expect("an object name");
+        let applied = apply(&wt, &at, &state);
 
         let _swept = std::fs::remove_dir_all(&wt);
         assert!(applied.is_ok(), "an absent file is the state asked for, got {applied:?}");
