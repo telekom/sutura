@@ -50,7 +50,6 @@ use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
 use sutura_exec_bigquery::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
 
 use crate::inbound::gate::InboundGate;
-use crate::state::ServiceState;
 use crate::surface::LocalService;
 use crate::testing::{
     Answered, accepted_by, an_issuer, asked, bundle, catalog_of, declared_inbound, direct_overlay, serving, settings_with, sink,
@@ -252,7 +251,7 @@ fn app_over_a_refusing_broker() -> axum::Router {
         1 << 30,
     )
     .expect("the test bundle validates: the anchor path takes no credential");
-    crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles")
+    crate::router(&crate::testing::state_over(Arc::new(service), settings)).expect("the test router assembles")
 }
 
 /// A router that verifies its callers and exchanges for each of them.
@@ -278,7 +277,7 @@ fn app_that_exchanges(
         .expect("this overlay declares an inbound identity")
         .clone();
     let gate = InboundGate::from_declaration(&declaration).expect("a published key set builds a gate");
-    let state = ServiceState::new(Arc::new(service), Arc::new(settings)).with_inbound_identity(Arc::new(gate));
+    let state = crate::testing::state_over(Arc::new(service), settings).with_inbound_identity(Arc::new(gate));
     (crate::router(&state).expect("the test router assembles"), recording.handed)
 }
 

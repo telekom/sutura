@@ -39,6 +39,13 @@
 //!   `runtime.max_concurrent_queries` rather than by this crate, and the permit belongs to the
 //!   blocking work rather than to the future waiting for it. [`server`] carries both halves of that
 //!   argument and the limit on how far the second is exercised over the wire.
+//! * **A peer's wait for a reply is bounded too, and it was not** - `telekom/sutura#339`. The
+//!   admission window bounded a question that could not START; a question that got a slot waited
+//!   for as long as the data system took, because rmcp applies no per-request deadline and this
+//!   transport composed no equivalent of the HTTP surface's `tower` layer. It is
+//!   `server.request_timeout_seconds` now, applied where the port is awaited. It bounds the WAIT
+//!   and stops no work - [`server`] says which key, why that one, and what a cancelling peer still
+//!   does not get.
 //!
 //! # Why the protocol comes from a dependency
 //!
@@ -129,11 +136,20 @@ use sutura_app::surface::Surface;
 /// concurrency itself is free; what is not free is the blocking pool thread and the data system each
 /// question holds. `sutura_runtime::Admission` is the number of those that may be in flight, the
 /// composition root reads it from `runtime.max_concurrent_queries`, and one `Admission` bounds every
-/// transport a process serves because its clones share one permit set.
+/// transport a process serves because its clones share one permit set - held since
+/// `telekom/sutura#340` by `cargo xtask check-one-bound`, which counts the construction sites.
 ///
-/// **What that leaves to the engine, stated so the two are not confused:** the working-set ceiling
-/// bounds how large one answer may get, and the admission bound is how many answers may be being
-/// produced. Neither cancels a question already inside the pool - see [`server`] and #160.
+/// **`reply` is required and bounds the third thing: how long the peer waits.** It is
+/// `server.request_timeout_seconds`, the same key the HTTP surface answers `408` from, and it had no
+/// counterpart here at all - `telekom/sutura#339`. A question that got a slot waited for as long as
+/// the data system took, and a peer that cancelled or disconnected stopped nothing and learnt
+/// nothing. The composition root passes the number it read and prints it beside the posture at
+/// startup.
+///
+/// **What that leaves to the engine, stated so the three are not confused:** the working-set ceiling
+/// bounds how large one answer may get, the admission bound is how many answers may be being
+/// produced, and the reply deadline is how long one peer waits for one of them. None of the three
+/// cancels a question already inside the pool - see [`server`] and #160.
 ///
 /// Returns when the peer closes or is cancelled.
 ///
@@ -147,12 +163,13 @@ pub async fn serve_stdio<S>(
     permitted: sutura_app::Permitted,
     prose: sutura_app::prompt::CatalogProse,
     admission: sutura_runtime::Admission,
+    reply: sutura_config::RequestTimeout,
 ) -> Result<(), NotServed>
 where
     S: Surface,
 {
     let running = rmcp::serve_server(
-        AgentSurface::new(service, permitted, prose, admission),
+        AgentSurface::new(service, permitted, prose, admission, reply),
         rmcp::transport::stdio(),
     )
     .await

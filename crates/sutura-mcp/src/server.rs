@@ -10,6 +10,7 @@
 //! | The arguments were not a question | a JSON-RPC error, `-32602` | a parse failure, named, before the service is reached |
 //! | The service could not answer | a tool result with `isError: true`, and no detail | something went wrong, and the detail is a path or a table |
 //! | Every execution slot was taken for the whole admission window | a tool result with `isError: true`, and a sentence saying to ask again | the question was never judged, so it is not a refusal - and unlike the row above, waiting is the fix |
+//! | The reply outran `server.request_timeout_seconds` | a tool result with `isError: true`, and a sentence saying the question may still be running | the peer's WAIT is bounded and the question is not: see the section on the reply deadline |
 //!
 //! **A refusal is not an error and must not look like one.** `sutura_app::surface::Surface::answer`
 //! is where a transport inherits that, and its own doc comment says why: a caller must not be able to
@@ -59,6 +60,46 @@
 //! whatever the peer is told - and it keeps its slot until it does, which is exactly why the
 //! backlog is a number somebody chose rather than memory. Making running work stoppable is #160's
 //! subject, on the port rather than on either transport.
+//!
+//! # How long a peer waits for a reply, and what happens when that runs out
+//!
+//! **`telekom/sutura#339`: the admission window was the only bounded wait on this surface.** A
+//! question that could not get a slot came back inside `runtime.admission_timeout_seconds`; a
+//! question that GOT one waited as long as the data system took, with nothing in the picture to end
+//! it. rmcp 3.1.4 applies no per-request deadline of its own, so there was no other bound to
+//! inherit - measured on the pinned SDK and not read off its documentation.
+//!
+//! So [`AgentSurface::new`] takes `server.request_timeout_seconds` as well, and the one function
+//! that awaits the port waits under it. When it expires the peer is answered on the fourth
+//! channel above. **The same key the HTTP surface answers `408` from, and reusing it rather than
+//! inventing a key of this transport's own is a decision with two arguments:**
+//!
+//! * A second key would be a second number for one fact - *how long a caller waits for a reply* -
+//!   and the two transports would then be able to disagree about it while sharing one execution
+//!   bound.
+//! * The number is already load-bearing on this composition. `sutura`'s `mcp` command passes it to
+//!   `open_engine`, where `QueryDeadline::within_request_timeout` divides it into the deadline a
+//!   `bigquery` job is submitted with. So the engine on this transport already gives up against
+//!   this key; before this change the *peer* was the only party in that arithmetic with no
+//!   deadline at all.
+//!
+//! The key's name says `server` and this transport binds no listener, which is the one argument
+//! against reusing it. It is a naming cost rather than a behavioural one, and it is cheaper than
+//! two numbers for one wait.
+//!
+//! **What the deadline does NOT do, stated with it, because it is the same limit the admission
+//! bound has:** it does not stop the question. The permit is owned by the blocking closure, so a
+//! question whose reply deadline fired keeps its slot until the data system answers it - the
+//! deadline bounds the peer's wait and nothing else. That is deliberate and it is why the sentence
+//! the peer gets does not say *try again*: repeating the question would take a second slot while
+//! the first is still running. Making running work stoppable is #160's subject, on the port.
+//!
+//! **And what it still leaves unbounded, on this transport only:** a peer that sends
+//! `notifications/cancelled` stops nothing and observes nothing until the deadline fires. rmcp
+//! delivers that cancellation as `RequestContext::ct` and `call_tool` here does not read it, so a
+//! cancelled call goes on waiting out its deadline. Reading the token would make cancellation
+//! observable to the peer and would be the first place this crate depends on an rmcp behaviour its
+//! own documentation describes loosely - filed rather than folded in.
 //!
 //! **What this transport still does not bound is the size of what it reads**, which is `#266`'s
 //! `H4`: `rmcp`'s stdio transport reads a line off the process's own input with no cap, and this
@@ -114,6 +155,7 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler};
 use sutura_app::surface::{Surface, SurfaceFailure, cause_chain};
 use sutura_app::{Capability, Permitted};
+use sutura_config::RequestTimeout;
 use sutura_domain::query::Query;
 use sutura_runtime::{Admission, AtCapacity};
 
@@ -155,6 +197,12 @@ pub struct AgentSurface<S> {
     /// cheap to hold and every clone shares one permit set - see the module documentation for why
     /// that matters more than where the semaphore was built.
     admission: Admission,
+    /// How long a peer waits for a reply before this surface answers instead of waiting.
+    ///
+    /// `telekom/sutura#339`. Not an `Option` for the third time in this struct: an unbounded wait
+    /// was the state that existed, and the fix is that it is no longer representable. It bounds the
+    /// WAIT and not the question - see the module documentation.
+    reply: RequestTimeout,
 }
 
 impl<S> AgentSurface<S> {
@@ -178,20 +226,29 @@ impl<S> AgentSurface<S> {
     /// links it, and - worse - a *second* permit set in any process that also serves HTTP, where
     /// two limits each reporting a bound the other can exceed is not a bound. So the composition
     /// root reads `runtime.max_concurrent_queries` and `runtime.admission_timeout_seconds` and
-    /// hands one [`Admission`] to whatever serves. See the module documentation for where the
-    /// permit then lives.
+    /// hands one [`Admission`] to whatever serves. Since `telekom/sutura#340` that is held by
+    /// `cargo xtask check-one-bound` rather than by this paragraph.
+    ///
+    /// **`reply` is required and is the fourth, and it is the one whose absence was a missing bound
+    /// rather than a misplaced one** - `telekom/sutura#339`. It is
+    /// `server.request_timeout_seconds`, the same key the HTTP surface answers `408` from, and with
+    /// no counterpart here a peer that got an execution slot waited for as long as the data system
+    /// took. The module documentation carries why this key rather than one of this transport's own,
+    /// and what the deadline does not stop.
     #[must_use]
     pub const fn new(
         service: Arc<S>,
         permitted: Permitted,
         prose: sutura_app::prompt::CatalogProse,
         admission: Admission,
+        reply: RequestTimeout,
     ) -> Self {
         Self {
             service,
             permitted,
             prose,
             admission,
+            reply,
         }
     }
 }
@@ -260,7 +317,7 @@ where
             }
             Capability::AskMetric => {
                 let query = question(request)?;
-                answer(&self.service, &self.admission, query).await
+                answer(&self.service, &self.admission, self.reply, query).await
             }
         };
         Ok(CallToolResponse::Complete(result))
@@ -367,12 +424,17 @@ where
     result
 }
 
-/// One question through the port, on the blocking pool, under the admission bound, as a tool result.
+/// One question through the port, on the blocking pool, under both bounds, as a tool result.
 ///
 /// **The slot is acquired on this line and released on the pool thread**, and the two halves are
 /// what make the bound a bound on execution - see the module documentation. A question that cannot
 /// get one inside the admission window is shed rather than queued.
-async fn answer<S>(service: &Arc<S>, admission: &Admission, query: Query) -> CallToolResult
+///
+/// **And the wait for the answer is bounded by `reply`** - `telekom/sutura#339`. Both bounds are
+/// here rather than one being a layer, because this transport has no layers: there is no listener,
+/// no router and no `tower` stack, so the deadline a `tower` layer applies on the HTTP surface has
+/// to be applied by the one function that awaits the port.
+async fn answer<S>(service: &Arc<S>, admission: &Admission, reply: RequestTimeout, query: Query) -> CallToolResult
 where
     S: Surface,
 {
@@ -383,7 +445,7 @@ where
         Err(shed) => return at_capacity(&shed),
     };
     let service = Arc::clone(service);
-    match sutura_runtime::spawn_carrying_span(move || {
+    let working = sutura_runtime::spawn_carrying_span(move || {
         let answered = service.answer(&crate::principal::established(), &query);
         // Explicitly, and here rather than at the top of the closure: the slot is released when the
         // WORK finishes, so it is not handed back by a peer that stopped waiting - and the closure
@@ -393,20 +455,49 @@ where
         // diagnostic emitted while releasing is still attributable to this call.
         drop(slot);
         answered
-    })
-    .await
-    {
+    });
+    // **The peer's wait, bounded.** The timeout drops the JOIN HANDLE and nothing else: `tokio`
+    // documents that a started blocking task cannot be aborted, and dropping a handle detaches the
+    // task rather than ending it. So the question runs on holding the slot the closure owns, which
+    // is the same posture the HTTP surface's `408` has and is why nothing here releases a permit.
+    match tokio::time::timeout(reply.duration(), working).await {
         // A refusal and an answer take the same branch, which is the point: both are `Ok`, both are
         // a tool result, and only `outcome` inside the payload tells them apart.
-        Ok(Ok(ref outcome)) => produced(outcome),
-        Ok(Err(failure)) => could_not_answer(&failure),
+        Ok(Ok(Ok(ref outcome))) => produced(outcome),
+        Ok(Ok(Err(failure))) => could_not_answer(&failure),
         // The blocking task did not finish: it panicked, or the runtime is shutting down. Reported
         // like a failure, because from a caller's side it is the same fact.
-        Err(error) => {
+        Ok(Err(error)) => {
             tracing::error!(error = %error, "the blocking task answering a tool call did not finish");
             failed("this deployment could not answer")
         }
+        Err(_elapsed) => outran_its_deadline(reply),
     }
+}
+
+/// The peer waited out `server.request_timeout_seconds` and the question is still running.
+///
+/// **A failure and not a refusal**, for `at_capacity`'s reason one bound over: nothing was judged.
+/// The HTTP surface answers the same fact `408` with `code: timeout`, and the argument for the
+/// channel is the same - a caller must be able to tell *this went wrong* from *you may not ask
+/// that*.
+///
+/// **No digits in the sentence, and that is the same call `at_capacity` makes.** The deadline is the
+/// operator's own configuration: the answer to a bound too small for the questions a deployment
+/// gets is a settings change or a narrower catalog, and neither is something the asking model can
+/// do. So the number goes to the log, where an operator reads it.
+///
+/// **It does not say *try again*, deliberately.** The question is still executing and still holds
+/// its slot, so an immediate repeat costs a second slot for the same answer. What it says instead is
+/// the one thing the caller can act on: ask for less.
+fn outran_its_deadline(reply: RequestTimeout) -> CallToolResult {
+    tracing::warn!(
+        request_timeout_seconds = reply.seconds(),
+        "gave up waiting for a tool call's answer: the question is still running and keeps its slot"
+    );
+    failed(
+        "this deployment gave up waiting for the answer to this question. It may still be running, so asking the same question again will not be faster and will take a second execution slot; ask for a narrower time range or fewer dimensions",
+    )
 }
 
 /// Every execution slot was taken for the whole admission window, so the question was shed.

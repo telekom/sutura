@@ -59,7 +59,7 @@ use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_http::{LocalService, ServiceState};
-use sutura_runtime::{Shutdown, TracingAuditSink, banner, shutdown, telemetry};
+use sutura_runtime::{Admission, Shutdown, TracingAuditSink, banner, shutdown, telemetry};
 
 /// How a declared `catalogs:` becomes the catalog this build serves.
 mod catalog;
@@ -276,7 +276,14 @@ fn run() -> Result<(), String> {
     // no gate, so this cannot be forgotten in a later edit; the `?` here is what makes it a refusal to
     // start rather than that refusal firing at assembly.
     let inbound = inbound_gate(&settings)?;
-    let mut state = ServiceState::new(service, Arc::new(settings));
+    // **THE process's one execution bound, built here because this is the only place that can say
+    // there is one of it** - `telekom/sutura#340`. It used to be derived inside `ServiceState::new`,
+    // which made a second state a second permit set; the state takes one now, so this line is what
+    // decides the number and `cargo xtask check-one-bound` is what holds *once per root*. Read
+    // beside `grace` above it and for the same reason: both are numbers about the process rather
+    // than about a request, and this is the last place the settings are looked at before they move.
+    let admission = Admission::from_settings(settings.runtime());
+    let mut state = ServiceState::new(service, Arc::new(settings), admission);
     // Kept beside the state so the key-set watch can be armed once the runtime exists. `Arc` because
     // the state holds one and the watch needs to reach the same cache.
     let mut watching: Option<Arc<sutura_http::InboundGate>> = None;

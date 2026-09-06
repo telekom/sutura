@@ -420,8 +420,49 @@ mod tests {
         let (engine, held) = warehouse_that_can_be_held();
         let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
             .expect("the test bundle validates");
-        let router = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
+        let router = crate::router(&crate::testing::state_over(Arc::new(service), settings)).expect("the test router assembles");
         (router, held)
+    }
+
+    /// TWO routers over ONE bound, composed the way a process serving two transports would be.
+    ///
+    /// **The instrument for `telekom/sutura#340`.** `ServiceState::new` used to derive its own
+    /// `Admission` from the settings it was handed, so two states were two permit sets - two
+    /// controls each reporting a limit the other can exceed, which is the shape
+    /// `sutura_runtime::admission`'s module documentation calls not-a-bound. It takes the bound now,
+    /// and what this hands back is the pair a reviewer has to be able to break: build a second
+    /// bound instead of cloning this one and the test below goes green on the defect.
+    ///
+    /// Two states rather than an HTTP surface and an agent surface, because no crate in this
+    /// workspace links both transports - `sutura-http` and `sutura-mcp` may not reach each other,
+    /// and the two composition roots each link one. Two states are two independent TAKERS of the
+    /// bound, which is the property under test; the transport they belong to is not.
+    ///
+    /// One service behind both, for the same reason a dual-transport root would share one: the
+    /// resource the bound is about is the process's blocking pool and data system, not the router.
+    fn two_states(overlay: &str) -> (axum::Router, axum::Router, crate::testing::Held, sutura_runtime::Admission) {
+        let settings = || {
+            Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("the test settings load")
+        };
+        // ONE call, and both states get a clone of it - every clone shares one permit set.
+        let admission = sutura_runtime::Admission::from_settings(settings().runtime());
+        let (engine, held) = warehouse_that_can_be_held();
+        let service: Arc<dyn crate::surface::Surface> = Arc::new(
+            LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
+                .expect("the test bundle validates"),
+        );
+        let assemble = |state: &ServiceState| crate::router(state).expect("the test router assembles");
+        let first = assemble(&ServiceState::new(
+            Arc::clone(&service),
+            Arc::new(settings()),
+            admission.clone(),
+        ));
+        let second = assemble(&ServiceState::new(
+            Arc::clone(&service),
+            Arc::new(settings()),
+            admission.clone(),
+        ));
+        (first, second, held, admission)
     }
 
     /// One question, with the peer address `axum::serve` would have attached.
@@ -520,6 +561,53 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         let (status, body, _) = ask_once(app.clone()).await;
         assert_eq!(status, StatusCode::OK, "the slot was never handed back: {body}");
+        assert!(body.contains(r#""outcome":"answer""#), "{body}");
+    }
+
+    /// **`telekom/sutura#340`.** One bound handed to two states is ONE permit set, so a question
+    /// admitted through one of them is a slot the other no longer has.
+    ///
+    /// This is the assertion that a second permit set fails, and it fails it on the number rather
+    /// than on a name: with the bound at one, the first state's held question takes the only slot
+    /// and the second state must SHED. A `ServiceState` that derived its own bound - which is what
+    /// this crate did until #340 - answers the second question `200`, because it has a full permit
+    /// set of its own that nothing else can see.
+    ///
+    /// **Non-vacuous by construction**: the third question, after the release, has to be ANSWERED
+    /// through the same second router. Without that half a second router broken in any other way
+    /// would satisfy the `503` and read as this property holding.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn one_bound_handed_to_two_states_is_one_permit_set() {
+        let (first, second, held, admission) =
+            two_states("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n");
+        assert_eq!(admission.bound(), 1, "the overlay's bound did not reach either state");
+        held.arm();
+        // Through the FIRST state, and given the runtime a turn so the slot is actually taken.
+        let running = tokio::spawn(ask_once(first));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            admission.free(),
+            0,
+            "the question in flight took no slot from the bound this test handed BOTH states, so a state built a permit set of its own"
+        );
+
+        // Through the SECOND. One permit set means there is nothing left for it.
+        let (status, body, _) = ask_once(second.clone()).await;
+
+        held.release();
+        let (running_status, running_body, _) = running.await.expect("the held question's task ran");
+
+        assert_eq!(
+            status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the second state admitted a question while the first state's bound was full, so the two hold two permit sets: {body}"
+        );
+        assert!(body.contains(r#""code":"at_capacity""#), "{body}");
+        assert_eq!(running_status, StatusCode::OK, "{running_body}");
+        // The other direction, so the `503` above is capacity and not a second router that answers
+        // nothing: with the slot back, the SAME second router answers.
+        let (status, body, _) = ask_once(second).await;
+        assert_eq!(status, StatusCode::OK, "the second router answers nothing at all: {body}");
         assert!(body.contains(r#""outcome":"answer""#), "{body}");
     }
 

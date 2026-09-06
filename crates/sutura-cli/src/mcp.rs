@@ -20,6 +20,7 @@ use std::process::ExitCode;
 
 use sutura_app::prompt::CatalogProse;
 use sutura_catalog_local::LocalCatalog;
+use sutura_config::RequestTimeout;
 use sutura_domain::pinned::SemanticCatalog as _;
 use sutura_runtime::Admission;
 
@@ -32,11 +33,11 @@ use crate::sources::{Opened, OpenedWith, configured, open_engine};
 use crate::sources::refuse_absent_tables;
 
 /// What serving the surface amounts to: the service, how catalog descriptions are treated, and the
-/// bound on how many questions may be executing at once.
+/// two bounds - how many questions may be executing at once, and how long a peer waits for one.
 ///
 /// Named because even with [`Composed`] aliased, the tuple stays over `clippy::type_complexity`
 /// once the alias is expanded.
-type Served<W> = (Composed<W>, CatalogProse, Admission);
+type Served<W> = (Composed<W>, CatalogProse, Admission, RequestTimeout);
 
 /// `mcp <catalog-dir> [data-dir]`: serve the agent surface over standard input and output.
 ///
@@ -99,20 +100,24 @@ where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let (service, prose, admission) = mcp_service(catalog, opened, settings)?;
+    let (service, prose, admission, reply) = mcp_service(catalog, opened, settings)?;
     // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
     // class: a pipe has no header a token could arrive in, so this surface grants every
     // capability to whoever can reach the process. Stated at startup, not left as a default
     // nobody declared. Standard error, which is the log channel, so the MCP stream on stdout
     // stays a pure protocol.
     //
-    // The admission bound is printed with it, and for the same reason: it is the number an operator
-    // configured and the number a shed call is about, so it belongs where the posture is stated
-    // rather than inside a semaphore nobody can see.
+    // Both bounds are printed with it, and for the same reason: they are the numbers an operator
+    // configured, and the numbers a shed call and a given-up wait are about, so they belong where
+    // the posture is stated rather than inside a semaphore and a timeout nobody can see. The reply
+    // deadline in particular did not exist until `telekom/sutura#339`, so a deployment reading this
+    // line is reading the difference.
     eprintln!(
         "sutura: serving the agent surface over stdin/stdout - it grants every capability to \
-         whoever can launch or reach this process, and answers at most {} questions at once",
-        admission.bound()
+         whoever can launch or reach this process, answers at most {} questions at once, and gives \
+         up waiting for one after {} seconds (the question itself keeps running)",
+        admission.bound(),
+        reply.seconds()
     );
     let runtime = tokio::runtime::Runtime::new().map_err(|e| format!("no async runtime: {e}"))?;
     // The service is shared rather than moved in, and the reason is the one `serve_stdio`
@@ -127,6 +132,7 @@ where
             sutura_app::Permitted::every_capability(),
             prose,
             admission,
+            reply,
         ))
         .map_err(|e| render(&e));
     // Bound the teardown the way `sutura-serve`'s `stop` does: dropping a runtime with a
@@ -151,10 +157,10 @@ where
 /// install a subscriber must send it to standard error: on this transport standard output is the
 /// protocol channel, which is why the startup notice is an `eprintln!`.
 ///
-/// What is left here is the transport's own decisions, and there are two - how catalog descriptions
-/// are treated, and how many questions may be executing at once. **It takes the whole `Settings`
-/// rather than the values it needs**, so both are READ here and not handed in; `#266`'s `H1` is what
-/// a caller-supplied setting costs.
+/// What is left here is the transport's own decisions, and there are three - how catalog
+/// descriptions are treated, how many questions may be executing at once, and how long a peer waits
+/// for one of them. **It takes the whole `Settings` rather than the values it needs**, so all three
+/// are READ here and not handed in; `#266`'s `H1` is what a caller-supplied setting costs.
 fn mcp_service<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, settings: &sutura_config::Settings) -> Result<Served<W>, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
@@ -177,6 +183,12 @@ where
         started(catalog, opened, settings.runtime())?,
         catalog_prose(settings.prompt().catalog_prose()),
         Admission::from_settings(settings.runtime()),
+        // **The peer's wait, and `telekom/sutura#339` is that it had no bound at all.** The same key
+        // `open_engine` above already divides into a `bigquery` job deadline, so before this line
+        // the engine on this transport gave up against a number the PEER was not bounded by. Read
+        // here for the reason the other two are, and the agent surface applies it where it awaits
+        // the port - it has no layer to hang it on.
+        settings.server().request_timeout(),
     ))
 }
 
@@ -203,20 +215,21 @@ mod tests {
     /// releases it after its runtime is gone, which keeps the one remaining edge - an engine
     /// released mid-answer - from being the path this suite exercises as it shuts down.
     ///
-    /// The prose treatment and the admission bound are the caller's, because they are what this
-    /// command resolves from the settings and a test that hardcoded either could not tell two
-    /// settings documents apart.
+    /// The prose treatment and the two bounds are the caller's, because they are what this command
+    /// resolves from the settings and a test that hardcoded any of them could not tell two settings
+    /// documents apart.
     async fn connected<S>(
         service: std::sync::Arc<S>,
         prose: sutura_app::prompt::CatalogProse,
         admission: sutura_runtime::Admission,
+        reply: sutura_config::RequestTimeout,
     ) -> rmcp::service::RunningService<rmcp::RoleClient, ()>
     where
         S: sutura_app::surface::Surface,
     {
         let (client_side, server_side) = tokio::io::duplex(64 * 1024);
         let server = rmcp::serve_server(
-            sutura_mcp::AgentSurface::new(service, sutura_app::Permitted::every_capability(), prose, admission),
+            sutura_mcp::AgentSurface::new(service, sutura_app::Permitted::every_capability(), prose, admission, reply),
             server_side,
         );
         let client = rmcp::serve_client((), client_side);
@@ -284,13 +297,14 @@ mod tests {
     #[test]
     fn the_mcp_composition_serves_every_tool_the_surface_declares() {
         let (catalog, opened, settings) = example_composition("");
-        let (service, prose, admission) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
+        let (service, prose, admission, reply) =
+            mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 
         runtime.block_on(async {
-            let client = connected(std::sync::Arc::clone(&service), prose, admission).await;
+            let client = connected(std::sync::Arc::clone(&service), prose, admission, reply).await;
 
             // Both tools, in the declared order, over the wire.
             let tools = client.list_all_tools().await.expect("tools/list answers");
@@ -347,13 +361,14 @@ mod tests {
     #[test]
     fn the_mcp_composition_honours_the_prose_setting_it_was_configured_with() {
         let (catalog, opened, settings) = example_composition("prompt:\n  catalog_prose: omitted\n");
-        let (service, prose, admission) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
+        let (service, prose, admission, reply) =
+            mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Omitted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 
         runtime.block_on(async {
-            let client = connected(std::sync::Arc::clone(&service), prose, admission).await;
+            let client = connected(std::sync::Arc::clone(&service), prose, admission, reply).await;
             let result = client
                 .call_tool(rmcp::model::CallToolRequestParams::new(
                     sutura_app::Capability::DescribeCatalog.id(),
@@ -404,16 +419,52 @@ mod tests {
     #[test]
     fn the_mcp_composition_bounds_execution_with_the_number_it_was_configured_with() {
         let (catalog, opened, settings) = example_composition("");
-        let (service, _prose, admission) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
+        let (service, _prose, admission, _reply) =
+            mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(admission.bound(), settings.runtime().max_concurrent_queries().count());
         assert_eq!(admission.wait(), settings.runtime().admission_timeout().duration());
         drop(service);
 
         let (catalog, opened, settings) =
             example_composition("runtime:\n  max_concurrent_queries: 3\n  admission_timeout_seconds: 1\n");
-        let (service, _prose, admission) = mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
+        let (service, _prose, admission, _reply) =
+            mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(admission.bound(), 3, "the configured bound did not reach the surface");
         assert_eq!(admission.wait(), std::time::Duration::from_secs(1));
+        drop(service);
+    }
+
+    /// `server.request_timeout_seconds` reaches the served agent surface from THIS command's root.
+    ///
+    /// **The composition half of `telekom/sutura#339`**, and the sibling of the admission test above
+    /// it in every respect: the bound no test in `sutura-mcp` can reach is that a root builds one at
+    /// all, and this root built NONE - `serve_stdio` took no deadline, so a peer that got an
+    /// execution slot waited for as long as the data system took while the HTTP surface answered
+    /// `408` off this very key.
+    ///
+    /// Two documents rather than one, because that is what tells a READ from a constant: the first
+    /// is the settings tree as an operator inherits it and is compared against what those settings
+    /// say, and the second names a number no default carries. A root that returned a constant passes
+    /// the first and fails the second.
+    ///
+    /// The same number `open_engine` divides into a `bigquery` job deadline, which is the reason it
+    /// is this key and not one of the transport's own - stated at `sutura_mcp::server`.
+    ///
+    /// No runtime here, deliberately: this asserts what the composition RESOLVES, and the effect of
+    /// that number on a question in flight is `sutura_mcp::server`'s own suite, over a fake that can
+    /// be held.
+    #[test]
+    fn the_mcp_composition_bounds_the_reply_with_the_number_it_was_configured_with() {
+        let (catalog, opened, settings) = example_composition("");
+        let (service, _prose, _admission, reply) =
+            mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
+        assert_eq!(reply, settings.server().request_timeout());
+        drop(service);
+
+        let (catalog, opened, settings) = example_composition("server:\n  request_timeout_seconds: 7\n");
+        let (service, _prose, _admission, reply) =
+            mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
+        assert_eq!(reply.seconds(), 7, "the configured reply deadline did not reach the surface");
         drop(service);
     }
 }
