@@ -28,15 +28,63 @@
 //! [`BaseOutcome::Unattributed`] is a run that got PAST the compiler and reported no failure this
 //! can name: it used to be folded into `DidNotCompile` and printed *the base tree does not build*
 //! about a tree that built fine, which is how a missing status word turned into a wrong sentence.
+//!
+//! AND A GREEN RUN IS TWO ANSWERS, which is the one this classifier could not reach on its own.
+//! *These tests pass without the change* is the defect the gate exists for **only if the diff added
+//! them**, and a diff cannot tell an added test from a MOVED one - so moving a test into a new file,
+//! which is what this repository's own guidance asks for when a file hits the line cap, produced
+//! *FAILED - green against base behaviour* about a change with no defect in it.
+//! [`BaseOutcome::GreenAfterAMove`] is the other answer and it is INCONCLUSIVE;
+//! `super::provenance::Moved` is the input, because the base TREE is the only place that fact
+//! lives. A mix still fails: the tests that were new passed both ways.
+//!
+//! AND NEITHER INCONCLUSIVE ANSWER IS A PASS ANY MORE, which is `github.com/telekom/sutura#307`.
+//! Both returned [`Verdict::Pass`] - exit 0 - so a required CI step whose whole input is the exit
+//! code read *measured nothing* exactly as it reads *red on base, green on head*. Measured twice on
+//! finished branches: one green `ci` step over `the base tree does not build` (a `-D dead-code`
+//! error) while the same commit refused locally, and one branch-level `INCONCLUSIVE` because a
+//! changed public signature left the held-at-HEAD test files unable to compile against base. They
+//! return [`Verdict::Inconclusive`] now, whose exit code is 3, so the default for any consumer is
+//! CLOSED and a venue that means to continue over it has to say so. Failing was weighed and
+//! rejected: the harness move lands on `DidNotCompile` every time and a gate that reddens correct
+//! work gets disabled. What each venue does with the 3 is in `ci.yml` and `devenv.nix`.
+//!
+//! WHAT THE SENTENCE BESIDE IT MAY CLAIM, the same defect one level down. Both arms printed
+//! `Coverage::ratio()` - `6 of 6 added tests measured` on a run where the base tree never built, so
+//! the six were NAMED by the filterset and not one of them ran. [`earned`] is the choice, in one
+//! place and pure, because it was made at the call site and pinned by review only.
 
 use crate::Verdict;
-use crate::causality::scoped::AddedTest;
+use crate::causality::coverage::{Attributed, Coverage};
+use crate::causality::place::AddedTest;
+use crate::causality::provenance::Moved;
+
+/// Evidence that a base run REPORTED PER-TEST RESULTS, and therefore that the filterset's names
+/// are also what was measured.
+///
+/// **A sealed witness: the field is private to this module, so nothing outside it can build one.**
+/// That is the mechanism, and #307's fix did not have it. [`earned`] was pure, in one place and
+/// under test - and none of that reached `super::prove`, which prints before either run and had
+/// `Coverage::ratio` in reach, so an inconclusive run carried `N of N added tests measured` twenty
+/// lines above its own `0 of N`. A non-zero measured numerator now requires one of these, this
+/// module is the only place that mints one, and it mints one from two of six [`BaseOutcome`]
+/// variants - both of which exist only after a base run has been classified. **So the overstating
+/// direction does not compile**; the understating one - printing the zero numerator before the runs
+/// - is held by `super::remedies`' `the_line_printed_before_either_run_claims_no_measurement`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PerTestResults(());
 
 /// What the base run actually told us.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum BaseOutcome {
     /// The tests under test passed without the change: they do not test it.
     Green,
+    /// They passed, and the base tree ALREADY HAD every one of them. Not a defect: a test that
+    /// moved was not added behaviourally, so there is no old behaviour it could have been red
+    /// against. `super::provenance::Moved` is the classification and carries the direction it
+    /// fails in; this variant is why *green against base behaviour* no longer blames the refactor
+    /// this repository's own guidance asks for when a file hits the line cap.
+    GreenAfterAMove { moved: Vec<String> },
     /// A test the diff added failed an assertion. The evidence the gate exists to collect, and
     /// it carries the names so the printed verdict says what it measured.
     RedByAssertion { failed: Vec<String> },
@@ -57,9 +105,18 @@ pub(crate) enum BaseOutcome {
 /// the compile check comes first or a build failure reads as a real red - that was this gate's
 /// first false green. And a run that matched no test prints no failure at all, so it is settled
 /// before the failure list is consulted rather than falling through as "unknown".
-pub(crate) fn classify_base(text: &str, succeeded: bool, scoped: &[AddedTest]) -> BaseOutcome {
+///
+/// A GREEN RUN IS TWO ANSWERS, and telling them apart takes an input the run does not carry. The
+/// premise is *a test the diff ADDED must be red against the base behaviour*, so a green run is
+/// only that defect if the tests in scope were added here - and `moved` is what says whether they
+/// were. Everything else `moved` says is left to the report: with SOME of them moved the failure
+/// still stands, because the rest passed both ways.
+pub(crate) fn classify_base(text: &str, succeeded: bool, scoped: &[AddedTest], moved: &Moved) -> BaseOutcome {
     if succeeded {
-        return BaseOutcome::Green;
+        return match *moved {
+            Moved::Wholly(ref names) => BaseOutcome::GreenAfterAMove { moved: names.clone() },
+            Moved::Nothing | Moved::Partly(_) => BaseOutcome::Green,
+        };
     }
     if did_not_compile(text) {
         return BaseOutcome::DidNotCompile;
@@ -203,11 +260,58 @@ fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
     scoped.iter().any(|one| one.claims(binary_id, path))
 }
 
+/// Which coverage wording `outcome` has EARNED.
+///
+/// A numerator is what the filterset NAMED, and it equals what was measured only for a base run
+/// that produced a test result. Two outcomes produced none - a tree that did not build ran nothing
+/// at all, and a run no line attributes to a test attributes nothing - so `6 of 6 added tests
+/// measured` beside either one is a claim about six runs that did not happen. That is the wording
+/// half of #307, and it was one `.ratio()` at the call site: pure and in one place here, so a test
+/// can read the CHOICE rather than a synthetic [`Coverage`].
+///
+/// Four of the seven print it: [`BaseOutcome::RedByAssertion`] in its verdict line, both
+/// inconclusive arms in theirs, and [`BaseOutcome::GreenAfterAMove`], whose tests DID run in both
+/// trees - the measurement is real there and what it is not is evidence about the change. The other
+/// three are asserted anyway, because the mapping is what a mutation moves and an arm that starts
+/// printing must not have to re-derive it.
+///
+/// **AND IT IS NOW THE ONLY PLACE THAT CAN MINT [`PerTestResults`]**, which is the half review found
+/// missing: being pure and in one place did not stop a caller with no outcome at all printing the
+/// ratio, and `super::prove` did, ahead of the head run. `Coverage`'s measured wording takes the
+/// evidence rather than a preference, so a numerator no run earned does not compile.
+fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
+    coverage.measured(match *outcome {
+        // Both runs happened and reported per-test results, so the filterset's names are also
+        // what was measured. `PerTestResults(())` is spellable here and nowhere else.
+        BaseOutcome::Green | BaseOutcome::GreenAfterAMove { .. } | BaseOutcome::RedByAssertion { .. } => {
+            Attributed::PerTest(PerTestResults(()))
+        }
+        // Nothing this diff added was measured on base: the tree did not build, the filter matched
+        // none of them, no failure was attributable, or the run stopped on something else.
+        BaseOutcome::RedOutsideTheDiff { .. } | BaseOutcome::NotRun | BaseOutcome::Unattributed | BaseOutcome::DidNotCompile => {
+            Attributed::Nothing
+        }
+    })
+}
+
 /// Turn a base run into the gate's verdict.
 ///
 /// `retried` only changes what the operator is told: after a second attempt, "not separable at
 /// file level" is no longer the likely explanation, because the tree WAS coherently at base.
-pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) -> Verdict {
+///
+/// **NO ARM HERE CITES ANOTHER ARM'S OUTPUT.** The retry branch used to say *the remedy is the same
+/// as for the harness move below*, and the harness-move paragraph is the `else if` this branch
+/// excludes - so the reader was pointed at lines that run never printed. It restates the remedy
+/// instead, which costs two lines and contains no fact no code produced. This module's whole subject
+/// is printed claims, so it is the last place to keep one.
+///
+/// The coverage sentence rides on the PASSING verdict specifically: that is the line a handoff
+/// cites, and it read as a statement about the change while the run covered a subset of the tests
+/// the branch added. [`earned`] decides which wording each outcome may print; `prove`'s own arms
+/// print theirs before either run, where they are asking for something rather than reporting
+/// coverage.
+pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage, moved: &Moved) -> Verdict {
+    let measured = earned(outcome, coverage);
     match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
@@ -215,7 +319,31 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
             eprintln!("The tests this diff added pass with the implementation reverted, so they do");
             eprintln!("not test the change. Make the test exercise the new behaviour, or say plainly");
             eprintln!("that it is not a regression test.");
+            // WHICH OF THEM THIS IS NOT ABOUT. A test the base tree already had cannot be red
+            // against a behaviour nobody changed, so it is not the one to go and fix - and the
+            // failure stands anyway, because the others passed both ways. When EVERY test in scope
+            // was already there this arm is unreachable: that is `GreenAfterAMove`.
+            for one in moved.names() {
+                eprintln!("  already at base: {one}  (this failure is not about that one)");
+            }
             Verdict::Fail
+        }
+        BaseOutcome::GreenAfterAMove { ref moved } => {
+            println!("  base: green - and the base tree already had every test in scope");
+            for one in moved {
+                println!("    already at base: {one}");
+            }
+            println!();
+            println!("xtask test-causality: INCONCLUSIVE - these tests were not ADDED here.");
+            println!("Every test in scope exists at the base commit in a `.rs` file this diff also");
+            println!("touched, which is what a MOVED test looks like from the base side - so passing");
+            println!("there is not the defect this gate names, and reporting one would blame the");
+            println!("refactor this repository asks for when a file hits the line cap.");
+            println!("Two readings this cannot separate, so state which: if they moved, nothing is");
+            println!("wrong with the change; if they are genuinely new and their names collide with");
+            println!("something this diff also touched, they DO pass both ways - prove it by MUTATION.");
+            println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
+            Verdict::Inconclusive
         }
         BaseOutcome::RedByAssertion { ref failed } => {
             println!("  base: red by assertion, as required");
@@ -223,7 +351,7 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
                 println!("    red on base: {one}");
             }
             println!("{}", tail(output, 12));
-            println!("xtask test-causality: ok - red on base, green on head");
+            println!("xtask test-causality: ok - red on base, green on head ({measured})");
             Verdict::Pass
         }
         BaseOutcome::RedOutsideTheDiff { ref failed } => {
@@ -257,7 +385,8 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
             println!("It got past the compiler, so this is not a build failure: a runner that died");
             println!("before reporting, a linker signal, or a status this gate does not recognise.");
             println!("Nothing is proven either way - state the evidence in the handoff.");
-            Verdict::Pass
+            println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
+            Verdict::Inconclusive
         }
         BaseOutcome::DidNotCompile => {
             println!("  base: did not compile");
@@ -268,7 +397,11 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
             if retried {
                 println!("This is the SECOND attempt: every changed file is at base here, so the");
                 println!("build failure is in the changed tests themselves - they reference");
-                println!("something this branch introduced. State the evidence in the handoff.");
+                println!("something this branch introduced, which is usually a public signature");
+                println!("this change altered: a test file kept at HEAD cannot compile against the");
+                println!("base implementation. Nothing is wrong with the change. Scope this gate");
+                println!("PER COMMIT against the commit before the signature change, or prove by");
+                println!("MUTATION.");
             } else if missing_module_file(output) {
                 println!("A `mod` here points at a file the base tree does not have, which is the");
                 println!("HARNESS MOVE shape and the EXPECTED answer to it: a file with no");
@@ -279,10 +412,29 @@ pub(crate) fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) ->
                 println!("Scope that to a whole test binary, never a name pattern - a filter that");
                 println!("omits the guarding test reports green and proves nothing.");
             } else {
-                println!("Usually it means the change is not separable at file level: the test and");
-                println!("what it needs arrived together. State the evidence in the handoff.");
+                // MEASURED, and it is why this fork gained a third cause: driven end to end over a
+                // diff whose only change was a public function's ARITY plus a test calling it, this
+                // arm printed *not separable at file level* - the wrong fix, sending the author to
+                // split a change that is already split. Nothing was held back there, so neither the
+                // retry above nor `missing_module_file` could catch it.
+                println!("Two causes reach here and they ask for different things. Either the change");
+                println!("is not separable at file level - the test and what it needs arrived");
+                println!("together - or this change altered a PUBLIC SIGNATURE that a test file kept");
+                println!("at HEAD calls, so the base implementation cannot compile against it: look");
+                println!("for E0061 or E0308 above naming one of your own items. For that second");
+                println!("cause nothing is wrong with the change; scope this gate PER COMMIT against");
+                println!("the commit before the signature change, or prove by MUTATION. Either way,");
+                println!("state the evidence in the handoff.");
             }
-            Verdict::Pass
+            // WHY THIS IS NOT A PASS AND NOT A FAILURE. It returned `Verdict::Pass` - exit 0 - and
+            // a required CI step reads the exit code and nothing else, so this shape was cited as
+            // red-before-green evidence on a finished branch that had none. Failing instead is the
+            // decision that was rejected: the HARNESS MOVE above and the changed-signature retry
+            // both land here, both are legitimate, and a gate that reddens correct work gets
+            // disabled. Exit 3 puts the choice in the venue with the default closed.
+            println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}:");
+            println!("the base tree ran nothing, whatever the filterset was able to name.");
+            Verdict::Inconclusive
         }
     }
 }
@@ -308,9 +460,35 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseOutcome, classify_base, missing_module_file, names_no_tests, tail};
+    use super::{
+        BaseOutcome, Coverage, Moved, Verdict, classify_base, earned, missing_module_file, names_no_tests, report_base, tail,
+    };
     use crate::causality::fixtures::{changed, manifest, tree};
-    use crate::causality::scoped::{AddedTest, Scan};
+    use crate::causality::place::AddedTest;
+    use crate::causality::scoped::Scan;
+
+    /// A filterset that NAMED `named` tests, out of `named` - the shape an inconclusive run has.
+    fn named(count: usize) -> Coverage {
+        Coverage::Measured {
+            measured: count,
+            unmeasured: Vec::new(),
+            not_runnable: Vec::new(),
+        }
+    }
+
+    /// The classifier over a scope whose every test is NEW here.
+    ///
+    /// A wrapper, because the provenance changes what exactly one answer means - a GREEN base run -
+    /// and every assertion below is about the other five. Its own arm is
+    /// `a_scope_the_base_tree_already_had_is_not_a_defect`, which calls the real function.
+    fn classified(text: &str, succeeded: bool, scoped: &[AddedTest]) -> BaseOutcome {
+        classify_base(text, succeeded, scoped, &Moved::Nothing)
+    }
+
+    /// The report for a scope whose every test is new here, for the same reason.
+    fn reported(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage) -> Verdict {
+        report_base(outcome, output, retried, coverage, &Moved::Nothing)
+    }
 
     /// The tests under test, as if one file in `package` had added each of `names`.
     ///
@@ -361,7 +539,7 @@ mod tests {
         // THE DEFECT. Both failing cells are tier-backed cells this diff did not touch, and the
         // test it did add - the audit record - never ran. The old classifier saw "FAIL [" and
         // answered red-by-assertion, which the gate printed as `ok - red on base, green on head`.
-        let outcome = classify_base(UNRELATED_RED, false, &audit_record());
+        let outcome = classified(UNRELATED_RED, false, &audit_record());
         match outcome {
             BaseOutcome::RedOutsideTheDiff { ref failed } => {
                 assert_eq!(failed.len(), 2, "both cells are named: {failed:?}");
@@ -385,7 +563,7 @@ mod tests {
             "error: test run failed\n",
         );
         assert_eq!(
-            classify_base(text, false, &audit_record()),
+            classified(text, false, &audit_record()),
             BaseOutcome::RedByAssertion {
                 failed: vec![String::from(
                     "sutura-cli::bin/sutura audit::tests::a_refused_question_is_recorded_and_names_the_refusal"
@@ -404,7 +582,7 @@ mod tests {
             "error: test run failed\n",
         );
         let under_test = scoped("sutura-cli", "crates/sutura-cli/src/audit.rs", &["the_added_one"]);
-        match classify_base(text, false, &under_test) {
+        match classified(text, false, &under_test) {
             BaseOutcome::RedByAssertion { ref failed } => {
                 assert_eq!(failed.len(), 1, "only the test under test: {failed:?}");
                 assert!(failed.iter().all(|one| one.ends_with("audit::tests::the_added_one")));
@@ -424,7 +602,7 @@ mod tests {
             "        FAIL [   0.204s] (2/6) pb sums::inner\n",
             "error: test run failed\n",
         );
-        match classify_base(text, false, &scoped("pa", "pa/src/lib.rs", &["sums"])) {
+        match classified(text, false, &scoped("pa", "pa/src/lib.rs", &["sums"])) {
             BaseOutcome::RedOutsideTheDiff { ref failed } => assert_eq!(failed.len(), 2, "{failed:?}"),
             other => panic!("another package's failure is not evidence, got {other:?}"),
         }
@@ -444,7 +622,7 @@ mod tests {
             "crates/sutura-domain/src/calendar.rs",
             &["deserialization_goes_through_the_constructor"],
         );
-        match classify_base(text, false, &under_test) {
+        match classified(text, false, &under_test) {
             BaseOutcome::RedOutsideTheDiff { .. } => {}
             other => panic!("a sibling module's failure is not evidence, got {other:?}"),
         }
@@ -455,7 +633,7 @@ mod tests {
         // `rstest` names a case one segment BELOW the function, so a comparison on the last
         // segment alone would call every case an unrelated failure.
         let text = "        FAIL [   0.010s] (1/4) sutura-app::golden tests::renders::case_2\nerror: test run failed\n";
-        match classify_base(
+        match classified(
             text,
             false,
             &scoped("sutura-app", "crates/sutura-app/tests/golden.rs", &["renders"]),
@@ -471,7 +649,7 @@ mod tests {
         // added `sums`, which is the generous direction that produced the false green.
         let text =
             "        FAIL [   0.313s] (1/9) sutura-app::differential tests::postgres::sums_by_month\nerror: test run failed\n";
-        match classify_base(
+        match classified(
             text,
             false,
             &scoped("sutura-app", "crates/sutura-app/tests/differential.rs", &["sums"]),
@@ -494,7 +672,7 @@ mod tests {
             "error: test run failed\n",
         );
         let under_test = scoped("sutura-domain", "crates/sutura-domain/src/calendar.rs", &["the_added_one"]);
-        match classify_base(text, false, &under_test) {
+        match classified(text, false, &under_test) {
             BaseOutcome::RedByAssertion { ref failed } => {
                 assert_eq!(failed.len(), 1, "only the test under test: {failed:?}");
             }
@@ -512,7 +690,7 @@ mod tests {
             "     TIMEOUT [   1.005s] (2/3) pa tests::hangs\n",
             "error: test run failed\n",
         );
-        match classify_base(failing, false, &scoped("pa", "pa/src/lib.rs", &["leaks", "hangs"])) {
+        match classified(failing, false, &scoped("pa", "pa/src/lib.rs", &["leaks", "hangs"])) {
             BaseOutcome::RedByAssertion { ref failed } => assert_eq!(failed.len(), 2, "{failed:?}"),
             other => panic!("expected both, got {other:?}"),
         }
@@ -522,7 +700,7 @@ mod tests {
             "error: test run failed\n",
         );
         assert_eq!(
-            classify_base(passing, false, &scoped("pa", "pa/src/lib.rs", &["leaks", "hangs"])),
+            classified(passing, false, &scoped("pa", "pa/src/lib.rs", &["leaks", "hangs"])),
             BaseOutcome::Unattributed
         );
     }
@@ -533,7 +711,7 @@ mod tests {
         // required" and passed. A tree that does not build has run no tests.
         let compile = "error[E0432]: unresolved import `crate::thing`\nerror: could not compile";
         let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
-        assert_eq!(classify_base(compile, false, &under_test), BaseOutcome::DidNotCompile);
+        assert_eq!(classified(compile, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
     #[test]
@@ -542,7 +720,7 @@ mod tests {
         // real red is the false green this gate already had once.
         let both = "error[E0433]: failed to resolve\nerror: could not compile\nerror: test run failed";
         let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
-        assert_eq!(classify_base(both, false, &under_test), BaseOutcome::DidNotCompile);
+        assert_eq!(classified(both, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
     #[test]
@@ -557,7 +735,7 @@ mod tests {
         );
         assert!(names_no_tests(text));
         let under_test = scoped("pa", "pa/src/lib.rs", &["orphaned"]);
-        assert_eq!(classify_base(text, false, &under_test), BaseOutcome::NotRun);
+        assert_eq!(classified(text, false, &under_test), BaseOutcome::NotRun);
     }
 
     #[test]
@@ -567,7 +745,7 @@ mod tests {
         let cargo = "running 3 tests\ntest suite::the_added_one ... FAILED\ntest result: FAILED. 2 passed; 1 failed";
         let under_test = scoped("pa", "pa/src/lib.rs", &["the_added_one"]);
         assert_eq!(
-            classify_base(cargo, false, &under_test),
+            classified(cargo, false, &under_test),
             BaseOutcome::RedByAssertion {
                 failed: vec![String::from("suite::the_added_one")]
             }
@@ -581,7 +759,7 @@ mod tests {
         // is not a build failure either, and saying so was the wrong sentence.
         let unnamed = "thread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
         let under_test = scoped("pa", "pa/src/lib.rs", &["the_added_one"]);
-        assert_eq!(classify_base(unnamed, false, &under_test), BaseOutcome::Unattributed);
+        assert_eq!(classified(unnamed, false, &under_test), BaseOutcome::Unattributed);
     }
 
     #[test]
@@ -590,7 +768,7 @@ mod tests {
         // not a compile failure just because nothing else fits.
         let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
         assert_eq!(
-            classify_base("linker exited with signal 9", false, &under_test),
+            classified("linker exited with signal 9", false, &under_test),
             BaseOutcome::Unattributed
         );
     }
@@ -599,8 +777,67 @@ mod tests {
     fn a_passing_base_means_the_test_does_not_test_the_change() {
         let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
         assert_eq!(
-            classify_base("test result: ok. 12 passed; 0 failed", true, &under_test),
+            classified("test result: ok. 12 passed; 0 failed", true, &under_test),
             BaseOutcome::Green
+        );
+    }
+
+    #[test]
+    fn a_scope_the_base_tree_already_had_is_not_a_defect() {
+        // THE DEFECT this variant removes. Move a test into a new file - the refactor this
+        // repository's own guidance asks for when a file hits the line cap - and the added lines
+        // name a test whose subject nobody changed: green on base, and the gate printed
+        // *FAILED - green against base behaviour* about a defect that does not exist. A green run
+        // is two answers, and which one it is comes from an input the run does not carry.
+        let under_test = scoped("pa", "pa/src/lib.rs", &["a_moved_assertion"]);
+        let green = "test result: ok. 12 passed; 0 failed";
+        let all = Moved::Wholly(vec![String::from("a_moved_assertion")]);
+        assert_eq!(
+            classify_base(green, true, &under_test, &all),
+            BaseOutcome::GreenAfterAMove {
+                moved: vec![String::from("a_moved_assertion")]
+            }
+        );
+        // NEITHER a pass nor a failure: nothing was proven, and blaming the author would redden
+        // correct work - the direction that gets a gate disabled.
+        assert_eq!(
+            report_base(
+                &BaseOutcome::GreenAfterAMove {
+                    moved: vec![String::from("a_moved_assertion")]
+                },
+                green,
+                false,
+                &named(1),
+                &all
+            ),
+            Verdict::Inconclusive
+        );
+
+        // AND A MIX STILL FAILS, which a blanket rule would have lost: one test moved, one is new,
+        // and the new one passed both ways - which is exactly the defect this gate exists for.
+        let mixed = Moved::Partly(vec![String::from("a_moved_assertion")]);
+        let two = scoped("pa", "pa/src/lib.rs", &["a_moved_assertion", "genuinely_new"]);
+        assert_eq!(classify_base(green, true, &two, &mixed), BaseOutcome::Green);
+        assert_eq!(
+            report_base(&BaseOutcome::Green, green, false, &named(2), &mixed),
+            Verdict::Fail
+        );
+    }
+
+    #[test]
+    fn a_run_that_measured_a_moved_test_measured_it() {
+        // The wording half, and it is the opposite call from the inconclusive arms above: this
+        // outcome's tests RAN, in both trees, and reported per-test results. What the run is not
+        // is evidence about the change - which the verdict line says in words, next to a numerator
+        // that is true. `Attributed::PerTest` is only mintable from an outcome, and this is one.
+        assert_eq!(
+            earned(
+                &BaseOutcome::GreenAfterAMove {
+                    moved: vec![String::from("a_moved_assertion")]
+                },
+                &named(6)
+            ),
+            "6 of 6 added tests measured"
         );
     }
 
@@ -613,7 +850,7 @@ mod tests {
             "error: test run failed\n",
         );
         let under_test = scoped("sutura-serve", "crates/sutura-serve/tests/served.rs", &["the_added_one"]);
-        match classify_base(text, false, &under_test) {
+        match classified(text, false, &under_test) {
             BaseOutcome::RedByAssertion { ref failed } => assert_eq!(failed.len(), 1, "{failed:?}"),
             other => panic!("expected RedByAssertion, got {other:?}"),
         }
@@ -634,12 +871,104 @@ mod tests {
         assert!(missing_module_file(text));
         assert!(!missing_module_file("error[E0432]: unresolved import `crate::thing`"));
         let under_test = scoped("sutura-exec-bigquery", "crates/sutura-exec-bigquery/tests/corpus.rs", &["t"]);
-        assert_eq!(classify_base(text, false, &under_test), BaseOutcome::DidNotCompile);
+        assert_eq!(classified(text, false, &under_test), BaseOutcome::DidNotCompile);
     }
 
     #[test]
     fn the_tail_is_the_end_of_the_log() {
         assert_eq!(tail("a\nb\nc", 2), "b\nc");
         assert_eq!(tail("", 3), "");
+    }
+
+    #[test]
+    fn an_inconclusive_base_is_neither_a_pass_nor_a_failure() {
+        // #307. Both of these returned `Verdict::Pass`, so a required CI step - whose whole input
+        // is the exit code - read *measured nothing* exactly as it read a proof. Neither may be
+        // exit 0 again, and neither may be a FAILURE either: the harness move lands on
+        // `DidNotCompile` every time and so does a changed public signature on the retry, both
+        // legitimate, and a gate that reddens correct work gets disabled.
+        let six = named(6);
+        assert_eq!(
+            reported(&BaseOutcome::DidNotCompile, "error[E0583]", false, &six),
+            Verdict::Inconclusive
+        );
+        assert_eq!(
+            reported(&BaseOutcome::DidNotCompile, "error[E0061]", true, &six),
+            Verdict::Inconclusive
+        );
+        assert_eq!(
+            reported(&BaseOutcome::Unattributed, "linker exited with signal 9", false, &six),
+            Verdict::Inconclusive
+        );
+
+        // And the other four keep the direction they had, because this change is about the two
+        // answers that measured nothing and not about the ones that measured something.
+        assert_eq!(
+            reported(
+                &BaseOutcome::RedByAssertion {
+                    failed: vec![String::from("pa tests::t")]
+                },
+                "FAIL [ 0.0s ] pa tests::t",
+                false,
+                &six
+            ),
+            Verdict::Pass
+        );
+        assert_eq!(reported(&BaseOutcome::Green, "ok", false, &six), Verdict::Fail);
+        assert_eq!(reported(&BaseOutcome::NotRun, "no tests to run", false, &six), Verdict::Fail);
+        assert_eq!(
+            reported(
+                &BaseOutcome::RedOutsideTheDiff {
+                    failed: vec![String::from("pb tests::other")]
+                },
+                "FAIL [ 0.0s ] pb tests::other",
+                false,
+                &six
+            ),
+            Verdict::Fail
+        );
+    }
+
+    #[test]
+    fn an_outcome_that_ran_nothing_has_earned_no_numerator() {
+        // THE WORDING HALF of #307, and the mutation this exists to catch is one method call:
+        // `6 of 6 added tests measured` beside *the base tree does not build* says six tests ran
+        // against base, when the filterset merely NAMED six and the tree never compiled. The
+        // synthetic `Coverage` here is the input, not the subject - what is asserted is the arm's
+        // own choice of wording, which was made at the call site and pinned by review only.
+        let six = named(6);
+        assert_eq!(
+            earned(&BaseOutcome::DidNotCompile, &six),
+            "0 of 6 added tests measured",
+            "a tree that did not build ran nothing"
+        );
+        assert_eq!(
+            earned(&BaseOutcome::Unattributed, &six),
+            "0 of 6 added tests measured",
+            "a run with no attributable failure attributed nothing"
+        );
+        assert_eq!(earned(&BaseOutcome::NotRun, &six), "0 of 6 added tests measured");
+        assert_eq!(
+            earned(
+                &BaseOutcome::RedOutsideTheDiff {
+                    failed: vec![String::from("pb tests::other")]
+                },
+                &six
+            ),
+            "0 of 6 added tests measured"
+        );
+
+        // The two that DID produce per-test results keep the ratio: this must not become a gate
+        // that under-reports every branch it does measure.
+        assert_eq!(
+            earned(
+                &BaseOutcome::RedByAssertion {
+                    failed: vec![String::from("pa tests::t")]
+                },
+                &six
+            ),
+            "6 of 6 added tests measured"
+        );
+        assert_eq!(earned(&BaseOutcome::Green, &six), "6 of 6 added tests measured");
     }
 }

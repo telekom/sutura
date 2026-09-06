@@ -61,6 +61,10 @@ runs:
       BINARIES: ${{ inputs.binaries }}
     run: |
       set -eu
+      # An EMPTY set is a loop that runs zero times and a step that exits 0, so the job would be
+      # green having built nothing. `set -u` covers the variable being UNSET; nothing covered it
+      # being empty, and the value arrives here as an expression.
+      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build nothing"; exit 1; }
       mkdir -p dist stage facts
       for bin in $BINARIES; do
         if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
@@ -114,6 +118,7 @@ runs:
       BINARIES: ${{ inputs.binaries }}
     run: |
       set -eu
+      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build no image"; exit 1; }
       mkdir -p dist images
       for bin in $BINARIES; do
         if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
@@ -230,6 +235,7 @@ runs:
       BINARIES: ${{ inputs.binaries }}
     run: |
       set -eu
+      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would write no SBOM"; exit 1; }
       mkdir -p dist
       # ONE SBOM PER SHIPPED IMAGE, so the loop is over `BINARIES` as well as over the
       # target. The two binaries are not two views of one inventory: they link different

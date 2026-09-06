@@ -243,10 +243,57 @@ check-changed *paths:
 validate:
     #!/usr/bin/env bash
     set -euo pipefail
+    # THE SITE BUILD, first, and in TWO steps because two different things can go wrong here and
+    # only one of them is a finding about this tree.
+    #
+    # It is not a nix check, and cannot be: the docs toolchain is Python, pixi is the one resolver
+    # for Python here, and a nix sandbox has no network to materialise a pixi environment. Solving
+    # mkdocs-material a second time under `python3.withPackages` is what this tree already tried,
+    # in flake.nix - mike could not import pymdownx from the mkdocs it subprocessed, two resolvers
+    # and one interpreter - so this invokes the ISOLATED docs env rather than widening the linters'.
+    #
+    # WHY A PIXI STEP IS ALLOWED IN THE ONE RECIPE THAT COUNTS AS VERIFIED. Not because it cannot
+    # fail for an environment reason - it can, measured: `.pixi/` absent, an empty package cache
+    # and no network gives `failed to fetch ncurses-...conda ... Connection refused`. It is
+    # allowed because `nix run .#deny` four lines down ALREADY fails offline - measured on this
+    # branch with every proxy pointed at a closed port, `failed to fetch advisory database
+    # https://github.com/RustSec/advisory-db ... Failed to connect to github.com:443`, exit 1. So
+    # this step adds no network requirement the recipe did not already have.
+    #
+    # COST, as a range rather than one machine's number: ~2s wall once the env exists (measured
+    # 4.0s and 2.0s on two runs, of which mkdocs is ~2.7s), and tens of seconds to materialise it
+    # (23s and 51s measured, both with a warm package cache; a cold cache downloads the env and
+    # needs a network). So the steady-state tax is seconds and the first run is the expensive one.
+    #
+    # SEPARATED, because ordering it first would otherwise mean a machine that cannot materialise
+    # the env gets NO signal from this recipe at all, where before it got the nix checks - which
+    # retry `--offline` below - and the secret sweep. So: materialise, and if that fails say so in
+    # one line, run everything else, and fail at the END. A page that cannot RENDER still aborts
+    # immediately, which is the whole point of running it first.
+    #
+    # What it catches that nothing else here does: `mkdocs build --strict` renders every page, and
+    # a page can be CORRECTLY GENERATED and still not render. `check-api-docs` byte-compares the
+    # committed pages against a fresh generation, and a generator that emits an unrenderable link
+    # consistently passes that byte-compare - which is how github.com/telekom/sutura#352 shipped a
+    # page that aborted the site build with every local gate green.
+    site=ok
+    if pixi install --frozen -e docs; then
+        just docs
+    else
+        site=skipped
+        printf '\nvalidate: SKIPPED the site build - the docs env could not be materialised.\n'
+        printf '  It needs a network on a cold package cache. Run `just docs` once online.\n'
+        printf '  Continuing, and this run will NOT be green.\n\n'
+    fi
     just ci
     just secrets
     nix run .#deny
-    printf '\nvalidate: ok - the nix checks, the secret sweep and the supply chain\n'
+    if [ "$site" != ok ]; then
+        printf '\nvalidate: FAILED - every nix check above passed and the site build never ran.\n'
+        printf '  Nothing here has rendered a page. See the SKIPPED line above.\n'
+        exit 1
+    fi
+    printf '\nvalidate: ok - the site build, the nix checks, the secret sweep and the supply chain\n'
 
 # What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds
 # the two checks that need network and therefore cannot be nix checks.
@@ -267,7 +314,7 @@ ci:
     # byte-compared and no test covers them, so four stale-page incidents were invisible locally
     # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
     # along - but this loop names its checks, so a name left out is a check nobody ran.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L \
             || nix build ".#checks.$system.$check" -L --offline
@@ -319,6 +366,11 @@ gates: hygiene
     # publishes cargo's default set - so a `#[cfg(feature = ...)]` compiled only with the feature on
     # can be a hard error in exactly the configuration a release builds. That shipped once.
     cargo run -q -p xtask -- check-default-features
+    # And the lane's tests, which the line above only COMPILES: `cargo check` and `cargo clippy`
+    # both stop at metadata, so every `#[cfg(not(feature = ...))]` test in the tree was compiled
+    # here and executed by nothing - each venue that runs a test passes --all-features, where that
+    # cfg is false. Two such tests were in that state when this landed.
+    cargo run -q -p xtask -- check-default-feature-tests
     bash nix/run-gate.sh crap
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
@@ -845,11 +897,13 @@ dev-up-datahub:
 # `nix/tier-endpoints.nix`, which MERGES its own service into the file, so `sutura-postgres-tier
 # start` no longer leaves `postgres` as the only entry. The other half stands - `xtask dev-up` goes
 # through `sutura_dev::discovery::publish`, which serialises the whole document from the docker
-# services it just read, so a `dev-up` after a nix tier still drops the nix entry. A docker service
-# is therefore still invisible for the whole of `just test` when the order runs that way, which
-# also sets the fail-closed direction, and a cell over one would be unconditionally red there. The
-# remaining half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than
-# papered over here.
+# services it just read, so a `dev-up` after a nix tier still drops the nix entry and the server it
+# named goes on running unnamed. For POSTGRES that no longer blocks a suite run: `nix/with-tier.sh`
+# reads a running-but-unpublished tier as its own state and republishes the entry (#298), which
+# `checks.postgres-tier` holds. For any other nix tier it stands whole, because nothing sources a
+# wrapper for one - and the wholesale write itself is gated by nothing either way. The remaining
+# half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than papered over
+# here.
 #
 # It brings the profile up first, because a task that asked for the fail-closed direction against a
 # tier nobody started would just be a confusing way to spell an error.

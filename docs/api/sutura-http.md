@@ -83,12 +83,15 @@ use std::sync::Arc;
 
 use sutura_config::{Environment, Settings, Sources};
 use sutura_http::{ServiceState, router, serve};
-use sutura_runtime::Shutdown;
+use sutura_runtime::{Admission, Shutdown};
 
 # async fn wire(surface: Arc<dyn sutura_http::Surface>) -> Result<(), Box<dyn core::error::Error>> {
 let settings = Settings::load(&Sources::defaults(Environment::Development))?;
 let address = settings.server().bind().socket();
-let state = ServiceState::new(surface, Arc::new(settings));
+// The execution bound, built HERE and handed down - one per process, like the shutdown below.
+// This crate cannot build one: see `state` for what `telekom/sutura#340` cost.
+let admission = Admission::from_settings(settings.runtime());
+let state = ServiceState::new(surface, Arc::new(settings), admission);
 serve(router(&state)?, address, Shutdown::new()).await?;
 # Ok(())
 # }
@@ -1049,7 +1052,7 @@ pub async fn require_verified_caller(__arg0: axum::extract::State<std::sync::Arc
 Requires a verified caller, and puts one in the request extensions.
 
 A `from_fn_with_state` middleware over the gate rather than over
-[`crate::ServiceState`](crate::state::ServiceState), so the state a handler is given has no way to
+`crate::ServiceState`, so the state a handler is given has no way to
 reach the validator: the only thing that crosses into the handler is the *result*, as a
 `VerifiedCaller` extension that only this function inserts.
 
@@ -2293,14 +2296,27 @@ per request. Nothing else does - the layers were all decided at startup - and th
 deliberate: a value a handler can read is a value a handler can branch on, and the posture
 decisions in this service are supposed to be settled before the first request arrives.
 
-# The admission bound is built here, from the settings this state was given
+# The admission bound is TAKEN, and it used to be built here
 
-And that is the whole of why nothing else had to change to install it. `Admission` is a bound,
-so it has to be *one* value shared by every request - a per-request copy would read like a limit
-and bound nothing - and the only place that can be true without a second constructor argument is
-beside the settings it is derived from. `ServiceState::new` therefore takes exactly what it
-took before, and every caller of it, production and test alike, gets the configured bound rather
-than having to remember to pass one.
+**`telekom/sutura#340`, and the sentence this section replaced is the defect.** It read *the
+only place that can be true without a second constructor argument is beside the settings it is
+derived from*, and it was wrong in the way that matters: `Admission::from_settings` inside
+`ServiceState::new` made a second `ServiceState` a second permit set, and a process serving
+this transport beside another would have held two semaphores each reporting a limit the other
+can exceed. `sutura_runtime::admission`'s own module documentation calls that shape not-a-bound
+and says the composition root builds one - and nothing held it.
+
+So the bound arrives as an argument. Three consequences worth naming, because the argument for
+deriving it was that a caller can forget a bound:
+
+* **It cannot be forgotten**: the parameter has no default and no `Option`, so a state built
+  without one does not compile - the same shape `sutura_app::surface::LocalService::start`
+  gives its audit sink.
+* **It can be SHARED**: one `Admission` handed to two states is one permit set, which is what
+  makes the number a bound on the process rather than on a router.
+* **A composition root builds exactly one**, held by `cargo xtask check-one-bound` in
+  `just hygiene` rather than by this comment. That gate would fail this crate for building one
+  at all.
 
 `Clone` on this type shares that bound rather than duplicating it, because the field is an
 `Admission` whose own `Clone` shares one permit set. That is the property the whole control
@@ -2342,7 +2358,7 @@ to reach the validator, which is why the middleware takes the gate as its own st
 reading it back out of this one.
 
 ```rust
-pub fn new(surface: Arc<dyn Surface>, settings: Arc<Settings>) -> Self
+pub fn new(surface: Arc<dyn Surface>, settings: Arc<Settings>, admission: Admission) -> Self
 ```
 
 Builds the state from a started service and the settings it was started under.
@@ -2351,8 +2367,10 @@ Takes the surface already behind an `Arc`, because the composition root owns it:
 service may be handed to a second transport later, and this crate must not be the one that
 decides there is only ever one.
 
-The admission bound is derived from the settings rather than passed in beside them. See the
-module documentation: a bound that a caller supplies is a bound a caller can forget.
+**The admission bound is taken and not derived, which is `telekom/sutura#340`.** It is the
+same argument as the surface one line above it, one bound further: the permit set belongs to
+the process, so the only component that may decide there is one of it is the composition
+root. See the module documentation for what deriving it cost.
 
 ```rust
 pub fn settings(&self) -> &Settings

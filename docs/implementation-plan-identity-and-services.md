@@ -960,11 +960,14 @@ economise.
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |
+   | `check-one-bound` | the Rust under `crates/`, for how many execution bounds each crate builds, plus which crates have a `src/main.rs` and are therefore a process |
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
    | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
    | `check-expect-thresholds` | every tracked `*.rs` |
+   | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |
    | `check-skills` | `.agents/skills/**` and the router - prose, and none of it under `docs/` |
    | `check-scope` | the `justfile`, which no other gate reads |
+   | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
    | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares |
 
@@ -975,6 +978,7 @@ economise.
    | --- | --- |
    | `check-guidance` | Citations replaced by the text-only check. **Stale phrases, version-against-pin, contradicted claims and counts are deferred to the `main` push** |
    | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
+   | `check-api-links` | Deferred, and the deferral is narrow: it reads `docs/api/*.md`, which are GENERATED, so only a hand edit to a page can break it from such a diff - and `check-api-docs` fails on that edit anyway, since the page no longer matches a fresh generation. What is genuinely deferred is a hand-edited `docs/api/index.md`, which nothing regenerates |
    | `check-shipped-binaries` | Half deferred, and it is the half a page can break: the binary literals it reconciles are under `nix/` and `.github/`, but its second rule reads the documented `cargo build --features` out of `docs/**` - so a page that stops documenting that build, or documents a feature `nix/shipped.nix` does not probe, merges green and only the `main` push says so |
    | `check-crap` | Deferred, and the row easiest to get wrong: it reads `docs/crap.md` for the `cargo-crap` version `nix/crap.nix` pins, so a page edit that drops that version merges green |
    | `check-gate-classification` | Deferred, and it reads the two tables above - so a pull request can break this classification and only the `main` push says so |

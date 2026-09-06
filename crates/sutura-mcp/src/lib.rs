@@ -17,7 +17,7 @@
 //! renders that source and each has a `both_transports_describe_the_same_tools` test asserting it did
 //! not deviate.
 //!
-//! Four properties are load-bearing and each has a test rather than a paragraph:
+//! Five properties are load-bearing and each has a test rather than a paragraph:
 //!
 //! * **The schema is generated.** [`tool::input_schema`] is `schemars::schema_for!` over a wire type
 //!   in [`wire`] - there is no hand-written JSON object in this crate - and every tool's generated
@@ -34,6 +34,19 @@
 //!   three.
 //! * **`deny_unknown_fields` survives the transport.** An argument named `sql`, `table` or
 //!   `predicate` is a named parse error, asserted through a real client rather than assumed.
+//! * **The configured number of questions execute at once, and no more.** The bound is
+//!   `sutura_runtime::Admission`, built by the composition root from
+//!   `runtime.max_concurrent_queries` rather than by this crate, and the permit belongs to the
+//!   blocking work rather than to the future waiting for it. [`server`] carries both halves of that
+//!   argument and the limit on how far the second is exercised over the wire.
+//! * **A peer's whole wait is bounded too, and it was not** - `telekom/sutura#339`. The admission
+//!   window bounded a question that could not START; a question that got a slot waited for as long
+//!   as the data system took, because rmcp applies no per-request deadline and this transport
+//!   composed no equivalent of the HTTP surface's `tower` layer. It is
+//!   `server.request_timeout_seconds` now, wrapping the admission wait as well as the answer - so
+//!   the key means on this transport what it means on the other, which took a second pass to get
+//!   right. It bounds the WAIT and stops no work; [`server`] says which key, why that one, what
+//!   the arithmetic used to be, and what a cancelling peer still does not get.
 //!
 //! # Why the protocol comes from a dependency
 //!
@@ -61,6 +74,12 @@
 //!   it is refused rather than truncated. Whether an agent surface wants a lower advisory cap - and
 //!   what number - is a real question **nobody has measured**, so the bound is left exactly where it
 //!   is rather than guessed at here.
+//! * **A bound on the SIZE of what arrives**, which is `#266`'s `H4` and is a different thing from
+//!   the admission bound this crate now applies. rmcp's stdio transport reads a line off the
+//!   process's own standard input with no cap, so one enormous line is read before anything parses
+//!   it. Nothing here can bound it: the reader is the SDK's, and the boundary is the process - a
+//!   peer that can write to this pipe can already launch the process. It stays named rather than
+//!   claimed as covered.
 //! * **Any notion of who is asking.** `crate::principal` still answers
 //!   `sutura_domain::identity::Subject::TheDeploymentItself`, truthfully: this transport speaks over a
 //!   pipe, where there is no header a token could arrive in. `sutura_http::inbound` is where leg 1
@@ -112,10 +131,26 @@ use sutura_app::surface::Surface;
 /// and prints that at startup - so the value lives next to the notice that states it rather than
 /// hidden in this function.
 ///
-/// rmcp serves requests concurrently - one task per request, unbounded - so several questions from
-/// one peer answer against the same `S` at once. The surface has no state a question mutates, so the
-/// concurrency is free; what it does mean is that the engine's working-set ceiling, not any
-/// transport bound, is what an agent flooding its one pipe cannot exceed.
+/// **`admission` is required for the same reason and answers a different question.** rmcp serves
+/// requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
+/// question a peer sends is executing at once. The surface has no state a question mutates, so the
+/// concurrency itself is free; what is not free is the blocking pool thread and the data system each
+/// question holds. `sutura_runtime::Admission` is the number of those that may be in flight, the
+/// composition root reads it from `runtime.max_concurrent_queries`, and one `Admission` bounds every
+/// transport a process serves because its clones share one permit set - held since
+/// `telekom/sutura#340` by `cargo xtask check-one-bound`, which counts the construction sites.
+///
+/// **`reply` is required and bounds the third thing: how long the peer waits.** It is
+/// `server.request_timeout_seconds`, the same key the HTTP surface answers `408` from, and it had no
+/// counterpart here at all - `telekom/sutura#339`. A question that got a slot waited for as long as
+/// the data system took, and a peer that cancelled or disconnected stopped nothing and learnt
+/// nothing. The composition root passes the number it read and prints it beside the posture at
+/// startup.
+///
+/// **What that leaves to the engine, stated so the three are not confused:** the working-set ceiling
+/// bounds how large one answer may get, the admission bound is how many answers may be being
+/// produced, and the reply deadline is how long one peer waits for one of them. None of the three
+/// cancels a question already inside the pool - see [`server`] and #160.
 ///
 /// Returns when the peer closes or is cancelled.
 ///
@@ -128,13 +163,18 @@ pub async fn serve_stdio<S>(
     service: std::sync::Arc<S>,
     permitted: sutura_app::Permitted,
     prose: sutura_app::prompt::CatalogProse,
+    admission: sutura_runtime::Admission,
+    reply: sutura_config::RequestTimeout,
 ) -> Result<(), NotServed>
 where
     S: Surface,
 {
-    let running = rmcp::serve_server(AgentSurface::new(service, permitted, prose), rmcp::transport::stdio())
-        .await
-        .map_err(|cause| NotServed::Handshake { cause: Box::new(cause) })?;
+    let running = rmcp::serve_server(
+        AgentSurface::new(service, permitted, prose, admission, reply),
+        rmcp::transport::stdio(),
+    )
+    .await
+    .map_err(|cause| NotServed::Handshake { cause: Box::new(cause) })?;
     running
         .waiting()
         .await

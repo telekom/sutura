@@ -19,6 +19,13 @@
 //! [`prose`] returns one entry per SOURCE line, so a line number still means something once the
 //! non-prose half is blanked, and it returns [`Unlexable`] rather than a line list when a block
 //! is still open at the end.
+//!
+//! **Both halves, off one walk, and that is what makes the sharing worth having.** [`code`] is
+//! [`prose`]'s complement - the interior of every fenced block, with the page around it blanked -
+//! because `github.com/telekom/sutura#301` was the same parity toggle in a gate that wants the
+//! code rather than the prose. Two functions over one [`Half`] rather than two state machines:
+//! whichever half a caller asks for, the delimiter it closes on, the nesting it survives and the
+//! unclosed block it refuses over are decided in one place.
 
 use std::fmt;
 
@@ -61,12 +68,12 @@ impl fmt::Display for Unlexable {
                 let run: String = std::iter::repeat_n(marker, len).collect();
                 write!(
                     f,
-                    "line {line} opens a `{run}` fence that no later line closes - every line below it is either code or prose and this cannot say which, so the link scan refuses rather than guessing. Close the fence, or lengthen the outer one if a fence is nested"
+                    "line {line} opens a `{run}` fence that no later line closes - every line below it is either code or prose and this cannot say which, so this scan refuses rather than guessing. Close the fence, or lengthen the outer one if a fence is nested"
                 )
             }
             Self::Comment { line } => write!(
                 f,
-                "line {line} opens an HTML comment that no later line closes - everything below it would be swallowed, so the link scan refuses rather than reading none of it"
+                "line {line} opens an HTML comment that no later line closes - everything below it would be swallowed, so this scan refuses rather than reading none of it"
             ),
         }
     }
@@ -75,10 +82,23 @@ impl fmt::Display for Unlexable {
 /// The fence a line opens, if it opens one.
 ///
 /// **Indentation is deliberately not restricted**, where `CommonMark` allows an opening fence at
-/// most three columns in. Material's admonitions carry fenced blocks four columns in and mkdocs
-/// renders them, so the strict rule would read a documented command as prose. The direction is
-/// the safe one: treating more of the page as code cannot invent a link, and the unclosed check
-/// makes a fence opened by accident loud.
+/// most three columns in. mkdocs-material's admonitions take their body four columns in, so a
+/// fenced block inside one opens at column four and mkdocs renders it - the strict rule would read
+/// a documented command as prose. The direction is the safe one: treating more of the page as code
+/// cannot invent a link, and the unclosed check makes a fence opened by accident loud.
+///
+/// **[`closes`] diverges the same way, and it is the same decision rather than a second one** -
+/// review of `github.com/telekom/sutura#301` reported it as an unspoken divergence, which it was.
+/// `CommonMark` allows a closing fence at most three columns in; a fence OPENED four columns in
+/// inside an admonition is closed four columns in, so restricting the closer while leaving the
+/// opener free would leave that block open to end of file and turn a rendered page into an
+/// [`Unlexable`]. Over-closing is the safe half of the trade for both callers: it ends a block
+/// early rather than swallowing the page.
+///
+/// **Measured, so the reason is not overstated:** `grep -rnE '^\s{4,}```' docs` matches nothing
+/// on 2026-09-05, and six pages carry an admonition with no fence inside one. So both divergences
+/// are for a shape mkdocs renders and this tree does not yet write - a design choice, not a
+/// workaround for a page that exists.
 fn opens(line: &str, number: usize) -> Option<Fence> {
     let trimmed = line.trim_start();
     let marker = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
@@ -185,6 +205,19 @@ fn without_spans(line: &str, in_comment: bool) -> (String, bool) {
     (out, inside)
 }
 
+/// Which half of a page a caller wants.
+///
+/// The two are complements over one walk, so a caller cannot get the fence rules of one and the
+/// content of the other. A fence DELIMITER is content in neither: an opening line carries an info
+/// string and a closing line carries nothing, and neither is a line of the block's language.
+#[derive(Clone, Copy)]
+enum Half {
+    /// What a renderer shows as text: code blocks, HTML comments and code spans blanked.
+    Prose,
+    /// The interior of every fenced code block, with the page around it blanked.
+    Code,
+}
+
 /// The prose of `text`: one entry per source line, with every fenced code block, HTML comment and
 /// inline code span blanked.
 ///
@@ -192,16 +225,104 @@ fn without_spans(line: &str, in_comment: bool) -> (String, bool) {
 /// borrowed because blanking a span rewrites the line - the alternative is a second pass over
 /// the same text by every caller.
 pub(crate) fn prose(text: &str) -> Result<Vec<String>, Unlexable> {
+    lex(text, Half::Prose)
+}
+
+/// One inline link's destination, and the source line it was written on.
+///
+/// The line number is why this exists rather than a bare `&str`: a finding on a generated page
+/// seven thousand lines long has to name the line, and the destination alone cannot.
+pub(crate) struct Destination<'a> {
+    /// The source line, 1-based, as [`prose`] numbers them.
+    pub(crate) line: usize,
+    /// What is between `](` and the matching `)`, trimmed and as written.
+    pub(crate) text: &'a str,
+}
+
+/// Where the destination starting at `after` ends: the first `)` at nesting depth zero.
+///
+/// **Parentheses are BALANCED rather than stopped at.** `CommonMark` allows them inside a
+/// destination, and taking the first `)` turned `](crate::plan::run())` into the destination
+/// `crate::plan::run(` - which is how a gate over these destinations missed the call form
+/// entirely while mkdocs published the whole thing. Measured in review of
+/// `github.com/telekom/sutura#361`.
+///
+/// `None` when the run never closes on this line. That is not a link at all in `CommonMark` -
+/// an inline link needs its `)` - and inventing one that runs to end of line is what this
+/// returned before, so a malformed link became a destination nobody wrote.
+fn destination_end(after: &str) -> Option<usize> {
+    let mut depth = 0_usize;
+    for (at, c) in after.char_indices() {
+        match c {
+            '(' => depth = depth.saturating_add(1),
+            ')' if depth == 0 => return Some(at),
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Every inline link destination in `lines`, in source order.
+///
+/// ONE owner for the `](` walk, because two gates want it: `check-docs` resolves a destination
+/// against the pages on disk, and `check-api-links` asks what mkdocs would do with it. It reads
+/// the PROSE half, so a page documenting a link inside a fence is not making one.
+///
+/// A destination is returned as written, title and all - `](a.md 'titled')` is one destination of
+/// `a.md 'titled'`, and what to do about the title is the caller's rule rather than this one's.
+/// [`destination_end`] carries the one place this is not literal.
+pub(crate) fn destinations(lines: &[String]) -> Vec<Destination<'_>> {
+    let mut found = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let number = index.saturating_add(1);
+        let mut rest = line.as_str();
+        while let Some(at) = rest.find("](") {
+            let after = rest.get(at.saturating_add(2)..).unwrap_or("");
+            let Some(end) = destination_end(after) else {
+                break;
+            };
+            if let Some(text) = after.get(..end) {
+                found.push(Destination {
+                    line: number,
+                    text: text.trim(),
+                });
+            }
+            rest = after.get(end..).unwrap_or("");
+        }
+    }
+    found
+}
+
+/// The fenced code of `text`: one entry per source line, with everything outside a fenced block
+/// blanked, the delimiters included.
+///
+/// The reader for a gate that judges what a page tells somebody to RUN. It carries every property
+/// [`prose`] has and needs each one: `github.com/telekom/sutura#301`'s defect was a nested fence
+/// inverting a boolean, which both lost a declaration and read a MENTION below the block as one.
+///
+/// An HTML comment is blanked here too. A commented-out command is not an instruction, and a
+/// renderer shows neither it nor the fence markers inside it.
+pub(crate) fn code(text: &str) -> Result<Vec<String>, Unlexable> {
+    lex(text, Half::Code)
+}
+
+/// One walk, one set of fence rules, and `half` decides only which lines keep their content.
+fn lex(text: &str, half: Half) -> Result<Vec<String>, Unlexable> {
     let mut out: Vec<String> = Vec::new();
     let mut fence: Option<Fence> = None;
     let mut comment: Option<usize> = None;
     for (index, line) in text.lines().enumerate() {
         let number = index.saturating_add(1);
         if let Some(open) = fence.as_ref() {
-            if closes(line, open) {
+            let closing = closes(line, open);
+            if closing {
                 fence = None;
             }
-            out.push(String::new());
+            out.push(match half {
+                Half::Code if !closing => String::from(line),
+                Half::Code | Half::Prose => String::new(),
+            });
             continue;
         }
         // A fence cannot open inside a comment, and a comment cannot open inside a fence: the
@@ -219,7 +340,12 @@ pub(crate) fn prose(text: &str) -> Result<Vec<String>, Unlexable> {
         } else {
             comment = None;
         }
-        out.push(visible);
+        // Walked for both halves whatever is kept, because the comment state decides whether the
+        // NEXT line can open a fence, and an unclosed one is an error on either side.
+        out.push(match half {
+            Half::Prose => visible,
+            Half::Code => String::new(),
+        });
     }
     if let Some(open) = fence {
         return Err(Unlexable::Fence {
@@ -236,10 +362,100 @@ pub(crate) fn prose(text: &str) -> Result<Vec<String>, Unlexable> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Unlexable, prose};
+    use super::{Unlexable, code, destinations, prose};
+
+    fn dests(text: &str) -> Vec<String> {
+        let lines = prose(text).unwrap_or_else(|e| panic!("{e}"));
+        destinations(&lines)
+            .into_iter()
+            .map(|d| format!("{}:{}", d.line, d.text))
+            .collect()
+    }
+
+    #[test]
+    fn a_destination_is_read_whole_including_its_parentheses() {
+        // THE REVIEWED DEFECT: stopping at the first `)` yielded `a::b(`, and a gate keyed on
+        // the whole destination then judged a shape mkdocs publishes in full.
+        assert_eq!(dests("see [x](a::b())\n"), ["1:a::b()"]);
+        assert_eq!(dests("see [x](a.md)\n"), ["1:a.md"]);
+        assert_eq!(dests("see [x](a_(b).md)\n"), ["1:a_(b).md"]);
+        // Two links on one line, each ending at its own closer.
+        assert_eq!(dests("[a](one.md) and [b](two.md)\n"), ["1:one.md", "1:two.md"]);
+        // A title travels with the destination - the caller's rule, not this one's.
+        assert_eq!(dests("[a](b.md 'why')\n"), ["1:b.md 'why'"]);
+    }
+
+    #[test]
+    fn an_unclosed_destination_is_not_a_link_rather_than_a_destination_to_end_of_line() {
+        assert!(dests("see [x](a.md\n").is_empty());
+        assert!(dests("see [x](a(b.md\n").is_empty());
+        // And the line after it is still read.
+        assert_eq!(dests("see [x](a.md\n[b](c.md)\n"), ["2:c.md"]);
+    }
+
+    #[test]
+    fn a_destination_inside_a_fence_is_not_a_link() {
+        assert!(dests("```\n[shown](a.md)\n```\n").is_empty());
+        assert_eq!(dests("```\n[shown](a.md)\n```\n[real](b.md)\n"), ["4:b.md"]);
+    }
 
     fn lines(text: &str) -> Vec<String> {
         prose(text).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    fn coded(text: &str) -> Vec<String> {
+        code(text).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// The two halves are complements, and a DELIMITER belongs to neither.
+    ///
+    /// Asserted as a partition rather than as two independent expectations, because the way a
+    /// second reader of one page goes wrong is by disagreeing with the first about one line -
+    /// which is what `github.com/telekom/sutura#301` was one level up.
+    #[test]
+    fn the_code_half_and_the_prose_half_partition_the_page() {
+        let page = "intro\n```bash\nrun me\n```\nafter\n";
+        assert_eq!(coded(page), vec!["", "", "run me", "", ""]);
+        assert_eq!(lines(page), vec!["intro", "", "", "", "after"]);
+        // Every line is claimed by at most one half, so a fence marker is in neither.
+        for (from_code, from_prose) in coded(page).iter().zip(lines(page).iter()) {
+            assert!(from_code.is_empty() || from_prose.is_empty(), "{from_code} / {from_prose}");
+        }
+    }
+
+    /// A nested fence keeps its content as CODE, and the page below it stays prose.
+    ///
+    /// The `github.com/telekom/sutura#301` shape read from the code side: a parity toggle loses
+    /// the inner block's content and then reads the line after the outer close as code.
+    #[test]
+    fn a_nested_fence_is_content_and_the_page_below_it_is_not() {
+        let page = "````text\n```bash\nrun me\n````\nafter\n";
+        assert_eq!(coded(page), vec!["", "```bash", "run me", "", ""]);
+        // A tilde block's interior is code, and a backtick line inside it does not close it.
+        assert_eq!(coded("~~~\n```\nrun me\n~~~\n"), vec!["", "```", "run me", ""]);
+    }
+
+    /// An unclosed block is an error on the code side too, for [`Unlexable`]'s own reason.
+    #[test]
+    fn the_code_half_refuses_an_unclosed_block_as_well() {
+        let Err(Unlexable::Fence { line, .. }) = code("intro\n```bash\nrun me\n") else {
+            panic!("an unclosed fence must not produce a line list");
+        };
+        assert_eq!(line, 2);
+        // A fence inside an HTML comment opens nothing, so the comment is what is unclosed.
+        let Err(Unlexable::Comment { line }) = code("<!-- why\n```\n") else {
+            panic!("an unclosed comment must not produce a line list");
+        };
+        assert_eq!(line, 1);
+    }
+
+    /// A commented-out command is not an instruction, on either side.
+    #[test]
+    fn a_fenced_block_inside_an_html_comment_is_not_code() {
+        assert_eq!(
+            coded("<!--\n```bash\nrun me\n```\n-->\nafter\n"),
+            vec!["", "", "", "", "", ""]
+        );
     }
 
     #[test]

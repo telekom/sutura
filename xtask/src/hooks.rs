@@ -44,13 +44,13 @@ use crate::Verdict;
 use crate::repo;
 
 /// The one file this reads.
-const CONFIG: &str = ".pre-commit-config.yaml";
+pub(crate) const CONFIG: &str = ".pre-commit-config.yaml";
 
 /// The stage a push hook declares.
-const PUSH: &str = "pre-push";
+pub(crate) const PUSH: &str = "pre-push";
 
 /// The stage a commit hook declares, or inherits from `default_stages`.
-const COMMIT: &str = "pre-commit";
+pub(crate) const COMMIT: &str = "pre-commit";
 
 /// cargo subcommands that COMPILE first-party code, so an entry naming one proves the stage
 /// compiles.
@@ -61,12 +61,23 @@ const COMMIT: &str = "pre-commit";
 /// puts on push today.
 const COMPILES: &[&str] = &["cargo clippy", "cargo check", "cargo build", "cargo nextest", "cargo test"];
 
-/// One hook: its id, the line it starts on, its resolved entry and the stages it runs at.
-struct Hook {
-    id: String,
+/// One hook: its id, its display name, the line it starts on, its resolved entry and the stages
+/// it runs at.
+///
+/// `pub(crate)` with `name` on it because `crate::hook_coverage` reads the SAME file for a
+/// different question - which hooks a diff-scoped run reported - and two parsers of one
+/// declaration are two answers nobody can reconcile, which is the argument
+/// `shipped::declared` makes about `nix/shipped.nix`. `name` is what prek prints in its output,
+/// so it is the only key a row can be joined on.
+pub(crate) struct Hook {
+    pub(crate) id: String,
+    pub(crate) name: String,
     line: usize,
-    entry: String,
-    stages: Vec<String>,
+    /// The resolved command. `pub(crate)` because `crate::hook_coverage::abstain` reads it for a
+    /// different question - whether this hook decides for ITSELF that it will not run - and the
+    /// entry is where that decision is written.
+    pub(crate) entry: String,
+    pub(crate) stages: Vec<String>,
 }
 
 impl Hook {
@@ -76,7 +87,7 @@ impl Hook {
     }
 
     /// Does it run at `stage`?
-    fn runs_at(&self, stage: &str) -> bool {
+    pub(crate) fn runs_at(&self, stage: &str) -> bool {
         self.stages.iter().any(|declared| declared == stage)
     }
 }
@@ -168,7 +179,7 @@ fn decide(hooks: &[Hook]) -> Verdict {
 ///
 /// One pass. `default_stages:` is read where it stands, which is above every hook in this file and
 /// is the only place YAML would accept it as a top-level key.
-fn hooks(text: &str) -> Vec<Hook> {
+pub(crate) fn hooks(text: &str) -> Vec<Hook> {
     let mut anchors: BTreeMap<String, String> = BTreeMap::new();
     let mut defaults: Vec<String> = Vec::new();
     let mut out: Vec<Hook> = Vec::new();
@@ -186,6 +197,7 @@ fn hooks(text: &str) -> Vec<Hook> {
         if let Some(id) = trimmed.strip_prefix("- id:") {
             out.push(Hook {
                 id: String::from(id.trim()),
+                name: String::new(),
                 line: index.saturating_add(1),
                 entry: String::new(),
                 stages: defaults.clone(),
@@ -197,6 +209,13 @@ fn hooks(text: &str) -> Vec<Hook> {
         };
         if let Some(list) = trimmed.strip_prefix("stages:") {
             hook.stages = stages(list);
+            continue;
+        }
+        // The DISPLAY name, which is what prek prints and therefore the only thing a line of its
+        // output can be joined back to an id on. Read here rather than in a second scan for the
+        // reason this struct's doc gives.
+        if let Some(value) = trimmed.strip_prefix("name:") {
+            hook.name = String::from(value.trim());
             continue;
         }
         if let Some(value) = trimmed.strip_prefix("entry:") {
@@ -396,5 +415,15 @@ mod tests {
         assert!(read.len() > 8, "read {} hooks", read.len());
         assert!(read.iter().any(|hook| hook.runs_at(super::COMMIT) && hook.compiles()));
         assert!(read.iter().any(|hook| hook.runs_at(super::PUSH) && hook.compiles()));
+        // Every hook has a DISPLAY name, because `crate::hook_coverage` joins prek's output rows
+        // back to this file on it - a nameless hook there is a row nothing can be matched to, and
+        // a hook silenced by `SKIP` prints no row at all, so the join is the only thing that can
+        // see it.
+        let nameless: Vec<&str> = read
+            .iter()
+            .filter(|hook| hook.name.is_empty())
+            .map(|hook| hook.id.as_str())
+            .collect();
+        assert!(nameless.is_empty(), "hooks with no name: {nameless:?}");
     }
 }

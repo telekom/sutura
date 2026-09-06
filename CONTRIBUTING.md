@@ -155,7 +155,7 @@ just test           # the gate's own invocation - never hand-write the cargo lin
 just check-changed  # does what I touched compile
 just causality      # red-before-green proof
 just ship-check     # the finishing sequence; run this before saying done
-just validate       # THE gate: the nix checks, which build their own copy of the tree
+just validate       # THE gate: the site build, then the nix checks, which build their own tree copy
 ```
 
 **A new or changed test must be red against the base behaviour and green with your change.** A test
@@ -164,6 +164,26 @@ that passes both ways proves nothing and is worse than no test, because it looks
 file, a rename with no behavioural difference, or every added test `#[ignore]`d so no run here
 reaches one - the gate says so and asks for evidence instead: the command you ran, the failure
 before the fix, the pass after. That goes in the pull request. **Do not skip it silently.**
+
+**Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
+did not build, the base run named no failure, or every test in scope was one the base tree already
+had - a MOVED test, which the gate reads out of the base tree because a diff cannot tell a move from
+an addition. A harness move and a changed public signature that a test file kept at HEAD calls both
+land there too, so it is not a defect in your change - but nothing about causality was proven
+either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
+Read the verdict line, never a step's colour.
+
+**The gate measures the MERGE BASE, and it says which commit that was.** It resolves
+`git merge-base <ref> HEAD` itself, so a base branch that has moved on cannot put other people's
+commits into the diff - but on the second branch of a stack that merge base is the fork point of the
+whole stack, so the diff still carries the parent branch's implementation. `SHIP_CHECK_BASE_REF`, or
+a commit as the recipe's argument, is the lever. A changed page, recipe or nix file IS an
+implementation to the gate and gets reverted like any other; **a manifest or a lockfile is not** -
+it is held at HEAD and named as `not reverted:` on whichever arm you land on, because reverting one
+changes what cargo RESOLVES rather than what the tests measure. So a change whose only
+implementation is a manifest reads as *tests changed but no implementation did*, at exit 0, with the
+manifest named beside it: that is the gate saying it could not see your change, not that there was
+nothing to see.
 
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.
@@ -273,7 +293,9 @@ resolve to one file, and a published page that LINKS an excluded one. That last 
 job: mkdocs logs such a link at INFO and exits 0, measured. **This file is one of those published
 pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relative link written
 here resolves against that page's URL rather than the repository root, and the gate reads this file
-to judge it. `just validate` does **not** render the site, so `just docs` is owed by any change that
-touches a doc comment.
+to judge it. `just validate` renders the site as its first step, so a page that cannot render fails
+before the nix closure rather than after a merge; `just docs` is the same build, reached on its own.
+If the docs environment cannot be materialised at all - a cold package cache with no network - that
+step says SKIPPED in one line and the recipe fails at the end instead of losing every other check.
 [Publishing the docs](https://github.com/telekom/sutura/blob/main/docs/publishing.md) covers the
 versioning and the one repository setting it needs.

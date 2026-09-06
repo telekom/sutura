@@ -899,245 +899,6 @@ golden matrix still gains no entry - one live statement is not a registered data
   ever seen is a dependency decision this change does not take. Stated because a dropped warning
   is exactly the kind of absence that reads as "there were none".
 
-### `struct QueryDeadline`
-
-```rust
-pub struct QueryDeadline
-```
-
-How long a job may run, and how long the client waits for its answer.
-
-**A newtype rather than a constant, because the value belongs to the deployment.** The setting that
-decides it is the one the transport in front of this service already uses -
-`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
-copy of it that drifts the day somebody changes the first.
-
-**It is a SHARE of that setting rather than the setting itself**, which review had to point out:
-one answer makes `Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its
-own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
-running. `Self::within_request_timeout` is the constructor that does the division, and it is the
-one a composition root should reach for; `Self::parse` stays for a deployment stating a budget
-outright.
-
-#### Methods
-
-```rust
-pub const fn budget(self) -> Duration
-```
-
-The whole budget, as a duration.
-
-```rust
-pub const fn milliseconds(self) -> u64
-```
-
-The deadline in milliseconds, which is the unit both request fields take.
-
-`saturating_mul` rather than `*`, and it cannot saturate: `Self::MAX_SECONDS` times a
-thousand is far inside `u64`. Written that way because a bound that could wrap is a bound that
-could become zero, and zero is the one value `Self::parse` refuses.
-
-```rust
-pub const fn parse(seconds: u64) -> Result<Self, UnusableBound>
-```
-
-Parses a deadline in whole seconds.
-
-```rust
-pub const fn socket(self) -> Duration
-```
-
-How long a socket may stay open for a call that has spent none of its budget yet.
-
-**The backstop on the agent rather than the bound that holds.** What a single operation is
-really allowed is `CallDeadline::socket(left)` over what is LEFT of the call's budget - see
-`CallDeadline`, and see the module header for why a per-operation timeout was not enough. This
-value is what the agent is configured with, so an operation that somehow reached the client
-without an override is still bounded.
-
-```rust
-pub const fn within_request_timeout(request_timeout_seconds: u64) -> Result<Self, UnusableBound>
-```
-
-The largest deadline that keeps one ANSWER inside a transport's own request timeout.
-
-**The arithmetic a composition root would otherwise have to remember, and get wrong.** The
-number to fill this from is `server.request_timeout_seconds`, which ships as thirty; what a
-caller wants is not that number but the share of it one call may spend, because an answer makes
-`Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its own budget. So
-`within_request_timeout(30)` is ten seconds, and two calls of ten plus five is the thirty a
-caller was promised.
-
-A request timeout too short to leave anything is `UnusableBound::NoBudget` rather than a
-silently clamped value, because a deployment whose timeout cannot fit a query wants to be told
-so at startup.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `struct BytesBilledCeiling`
-
-```rust
-pub struct BytesBilledCeiling
-```
-
-The most a single job may be billed for scanning.
-
-**Sent as `maximumBytesBilled`, which is enforced at the service and is what makes it worth
-more than a client-side check.** A job that would exceed it FAILS and is not charged. Nothing else
-in this repository bounds bytes scanned: `LIMIT 10001` bounds rows RETURNED, the one-page refusal
-bounds a page, and `MAX_ANSWER_BYTES` bounds what is read into memory - a question can satisfy
-all three and still scan a partitioned table end to end.
-
-#### Methods
-
-```rust
-pub fn as_text(self) -> String
-```
-
-The ceiling, as the request body writes it.
-
-**Text, because the endpoint writes and reads 64-bit integers as JSON strings.** A number here
-would be silently truncated to a double by a strict reader at the far end.
-
-```rust
-pub const fn parse(bytes: u64) -> Result<Self, UnusableBound>
-```
-
-Parses a ceiling in bytes.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `enum UnusableBound`
-
-```rust
-pub enum UnusableBound
-```
-
-Why a bound this adapter was handed is not usable.
-
-#### Variants
-
-- `Zero` - Zero, which would refuse every question rather than bounding one.
-- `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
-- `NoBudget` - A transport's request timeout too short to leave a job any budget at all.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct CallDeadline`
-
-```rust
-pub struct CallDeadline
-```
-
-The instant one call into this transport has to be finished by.
-
-**One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
-that distinction is the correction this type exists to carry.** The previous shape put
-`timeout_global` on the agent, so EVERY request through it got the full budget independently: a
-single `JobTransport::run` does a token exchange and then a job, and both were allowed
-`deadline + CONNECT_MARGIN` of their own. A review measured the consequence at the answer level -
-four HTTP operations, each with its own budget, against a transport whose own request timeout is
-thirty seconds - and the five-second overrun this module claimed was false.
-
-So the budget is opened once per call and every operation gets only what is LEFT of it: the token
-exchange, the socket the job waits on, and the `timeoutMs` and `jobTimeoutMs` the request carries -
-which is what keeps the service cancelling at the instant the client stops waiting even when the
-exchange spent half the budget first. When nothing is left, the refusal comes before the send.
-
-**A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
-stepped deadline is either a job abandoned early or one that outlives its caller.
-
-**The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
-`Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor `JobTransport`
-takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
-`CALLS_PER_ANSWER` budgets rather than one, which is exactly why
-`QueryDeadline::within_request_timeout` exists: it does that arithmetic once so a composition root
-cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
-signature tweak.
-
-#### Methods
-
-```rust
-pub fn opened(deadline: QueryDeadline) -> Self
-```
-
-Opens a budget now.
-
-```rust
-pub const fn opened_at(started: std::time::Instant, deadline: QueryDeadline) -> Self
-```
-
-Opens a budget that started at a named instant.
-
-**The canonical constructor, with `Self::opened` delegating to it**, and it is public for one
-reason: a caller cannot otherwise construct a budget that is already spent, so the refusal at
-the end of one could not be reached from a test without sleeping through a real one.
-
-```rust
-pub fn remaining(self) -> Option<Duration>
-```
-
-What is left of the budget, or `None` when it is spent.
-
-`None` rather than a zero duration, because zero means *no timeout* to the client underneath -
-so handing it on would turn a spent budget into an unbounded wait, which is the opposite of what
-this type is for.
-
-```rust
-pub const fn socket(left: Duration) -> Duration
-```
-
-How long a socket may stay open for an operation with `left` of the budget remaining: that,
-plus connection setup.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`
-
-### `struct JobBounds`
-
-```rust
-pub struct JobBounds
-```
-
-What every job this adapter submits is bounded by.
-
-Two bounds in one value, because they are one decision: *how much of a deployment's time and money
-may one question spend*. A struct rather than two arguments so a call site cannot supply one and
-forget the other, and so `WireAgent` can carry them both.
-
-#### Methods
-
-```rust
-pub const fn deadline(self) -> QueryDeadline
-```
-
-How long a job may run.
-
-```rust
-pub const fn max_bytes_billed(self) -> BytesBilledCeiling
-```
-
-The most one job may be billed for scanning.
-
-```rust
-pub const fn of(deadline: QueryDeadline, max_bytes_billed: BytesBilledCeiling) -> Self
-```
-
-Names both bounds. Neither has a default, for the reason `BigQueryWarehouse::new` gives about
-its own arguments: a defaulted deadline is a promise nobody made, and a defaulted ceiling is
-money somebody else pays.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
 ### `struct WireAgent`
 
 ```rust
@@ -1269,11 +1030,276 @@ the credential source refreshes through - one connection pool, one set of pins, 
 
 ### `use None`
 
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### Module `bounds`
+
+What one job may spend: the TIME bound, the MONEY bound, and the per-call budget they are
+charged against.
+
+**Split out of `wire.rs` when that file reached the thousand-line limit `cargo xtask max-lines`
+enforces and cannot exempt**, at the cut `document.rs` already made once. The seam is the first
+bullet of `wire.rs`'s own header - *a job is bounded in TIME and in MONEY, and neither bound is a
+constant here* - and everything in this file is one of those two bounds, the arithmetic that
+keeps them inside the transport's own request timeout, or the refusal a deployment gets when the
+number it wrote cannot be used. Nothing here opens a socket, holds a credential or builds a
+document, which is what makes it the half a test reaches without a project.
+
+Why each bound is shaped the way it is stays with the type; `wire.rs`'s header is the one place
+they are argued together.
+
+#### `struct QueryDeadline`
+
+```rust
+pub struct QueryDeadline
+```
+
+How long a job may run, and how long the client waits for its answer.
+
+**A newtype rather than a constant, because the value belongs to the deployment.** The setting that
+decides it is the one the transport in front of this service already uses -
+`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
+copy of it that drifts the day somebody changes the first.
+
+**It is a SHARE of that setting rather than the setting itself**, which review had to point out:
+one answer makes `Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its
+own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
+running. `Self::within_request_timeout` is the constructor that does the division, and it is the
+one a composition root should reach for; `Self::parse` stays for a deployment stating a budget
+outright.
+
+##### Methods
+
+```rust
+pub const fn budget(self) -> Duration
+```
+
+The whole budget, as a duration.
+
+```rust
+pub const fn milliseconds(self) -> u64
+```
+
+The deadline in milliseconds, which is the unit both request fields take.
+
+`saturating_mul` rather than `*`, and it cannot saturate: `Self::MAX_SECONDS` times a
+thousand is far inside `u64`. Written that way because a bound that could wrap is a bound that
+could become zero, and zero is the one value `Self::parse` refuses.
+
+```rust
+pub const fn parse(seconds: u64) -> Result<Self, UnusableBound>
+```
+
+Parses a deadline in whole seconds.
+
+```rust
+pub const fn socket(self) -> Duration
+```
+
+How long a socket may stay open for a call that has spent none of its budget yet.
+
+**The backstop on the agent rather than the bound that holds.** What a single operation is
+really allowed is `CallDeadline::socket(left)` over what is LEFT of the call's budget - see
+`CallDeadline`, and see the module header for why a per-operation timeout was not enough. This
+value is what the agent is configured with, so an operation that somehow reached the client
+without an override is still bounded.
+
+```rust
+pub const fn within_request_timeout(request_timeout_seconds: u64) -> Result<Self, UnusableBound>
+```
+
+The largest deadline that keeps one ANSWER inside a transport's own request timeout.
+
+**The arithmetic a composition root would otherwise have to remember, and get wrong.** The
+number to fill this from is `server.request_timeout_seconds`, which ships as thirty; what a
+caller wants is not that number but the share of it one call may spend, because an answer makes
+`Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its own budget. So
+`within_request_timeout(30)` is ten seconds, and two calls of ten plus five is the thirty a
+caller was promised.
+
+A request timeout too short to leave anything is `UnusableBound::NoBudget` rather than a
+silently clamped value, because a deployment whose timeout cannot fit a query wants to be told
+so at startup.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct BytesBilledCeiling`
+
+```rust
+pub struct BytesBilledCeiling
+```
+
+The most a single job may be billed for scanning.
+
+**Sent as `maximumBytesBilled`, which is enforced at the service and is what makes it worth
+more than a client-side check.** A job that would exceed it FAILS and is not charged. Nothing else
+in this repository bounds bytes scanned: `LIMIT 10001` bounds rows RETURNED, the one-page refusal
+bounds a page, and `MAX_ANSWER_BYTES` bounds what is read into memory - a question can satisfy
+all three and still scan a partitioned table end to end.
+
+##### Methods
+
+```rust
+pub fn as_text(self) -> String
+```
+
+The ceiling, as the request body writes it.
+
+**Text, because the endpoint writes and reads 64-bit integers as JSON strings.** A number here
+would be silently truncated to a double by a strict reader at the far end.
+
+```rust
+pub const fn parse(bytes: u64) -> Result<Self, UnusableBound>
+```
+
+Parses a ceiling in bytes.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum UnusableBound`
+
+```rust
+pub enum UnusableBound
+```
+
+Why a bound this adapter was handed is not usable.
+
+##### Variants
+
+- `Zero` - Zero, which would refuse every question rather than bounding one.
+- `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
+- `NoBudget` - A transport's request timeout too short to leave a job any budget at all.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct CallDeadline`
+
+```rust
+pub struct CallDeadline
+```
+
+The instant one call into this transport has to be finished by.
+
+**One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
+that distinction is the correction this type exists to carry.** The previous shape put
+`timeout_global` on the agent, so EVERY request through it got the full budget independently: a
+single `crate::transport::JobTransport::run` does a token exchange and then a job, and both were allowed
+`deadline + CONNECT_MARGIN` of their own. A review measured the consequence at the answer level -
+four HTTP operations, each with its own budget, against a transport whose own request timeout is
+thirty seconds - and the five-second overrun this module claimed was false.
+
+So the budget is opened once per call and every operation gets only what is LEFT of it: the token
+exchange, the socket the job waits on, and the `timeoutMs` and `jobTimeoutMs` the request carries -
+which is what keeps the service cancelling at the instant the client stops waiting even when the
+exchange spent half the budget first. When nothing is left, the refusal comes before the send.
+
+**A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
+stepped deadline is either a job abandoned early or one that outlives its caller.
+
+**The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
+`Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor `crate::transport::JobTransport`
+takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
+`CALLS_PER_ANSWER` budgets rather than one, which is exactly why
+`QueryDeadline::within_request_timeout` exists: it does that arithmetic once so a composition root
+cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
+signature tweak.
+
+##### Methods
+
+```rust
+pub fn opened(deadline: QueryDeadline) -> Self
+```
+
+Opens a budget now.
+
+```rust
+pub const fn opened_at(started: std::time::Instant, deadline: QueryDeadline) -> Self
+```
+
+Opens a budget that started at a named instant.
+
+**The canonical constructor, with `Self::opened` delegating to it**, and it is public for one
+reason: a caller cannot otherwise construct a budget that is already spent, so the refusal at
+the end of one could not be reached from a test without sleeping through a real one.
+
+```rust
+pub fn remaining(self) -> Option<Duration>
+```
+
+What is left of the budget, or `None` when it is spent.
+
+`None` rather than a zero duration, because zero means *no timeout* to the client underneath -
+so handing it on would turn a spent budget into an unbounded wait, which is the opposite of what
+this type is for.
+
+```rust
+pub const fn socket(left: Duration) -> Duration
+```
+
+How long a socket may stay open for an operation with `left` of the budget remaining: that,
+plus connection setup.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`
+
+#### `struct JobBounds`
+
+```rust
+pub struct JobBounds
+```
+
+What every job this adapter submits is bounded by.
+
+Two bounds in one value, because they are one decision: *how much of a deployment's time and money
+may one question spend*. A struct rather than two arguments so a call site cannot supply one and
+forget the other, and so `super::WireAgent` can carry them both.
+
+##### Methods
+
+```rust
+pub const fn deadline(self) -> QueryDeadline
+```
+
+How long a job may run.
+
+```rust
+pub const fn max_bytes_billed(self) -> BytesBilledCeiling
+```
+
+The most one job may be billed for scanning.
+
+```rust
+pub const fn of(deadline: QueryDeadline, max_bytes_billed: BytesBilledCeiling) -> Self
+```
+
+Names both bounds. Neither has a default, for the reason `BigQueryWarehouse::new` gives about
+its own arguments: a defaulted deadline is a promise nobody made, and a defaulted ceiling is
+money somebody else pays.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### Module `credential`
 
 Where the bearer token a job is submitted with comes from.
 
-**A second narrow port, for the reason [`JobTransport`](crate::transport::JobTransport) is one.**
+**A second narrow port, for the reason `JobTransport` is one.**
 The wire needs two things from a credential - a token that is usable right now, and whether a
 request carrying it has to name a quota project - and everything else about how a deployment
 authenticates is somebody else's decision. So `AccessTokens` is those two things, and the
@@ -1281,8 +1307,12 @@ transport is generic in it.
 
 It is a port on the first day rather than a `String` field, so *which* credential shape a
 deployment holds is a choice of implementor. `Bearer` carries the deadline because a minted token
-has one, and `crate::BigQueryWarehouse`'s `IMPERSONATION` still says `NoPlaceForASubject` because
-nothing mints one.
+has one, and whether this adapter has anywhere for a subject's own credential to arrive is
+declared by `crate::BigQueryWarehouse`'s `IMPERSONATION` rather than by anything this port
+decides - and that declaration is deliberately the only copy of the value. This sentence used to
+carry a second copy and stated the OPPOSITE of it for three commits, on a published page;
+`check-guidance` refuses the shape now, so the correction is to stop encoding the value rather
+than to keep two copies in step.
 
 **What this is NOT, and the correction is review's rather than a hedge:** this port is not yet the
 seam at which per-subject execution arrives as *merely another implementor*. Three signatures say

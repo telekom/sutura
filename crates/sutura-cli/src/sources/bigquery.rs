@@ -358,6 +358,11 @@ mod tests {
         // from the set of adapters a given binary linked: `kind: bigquery` parses, because
         // `sutura-exec-bigquery` exists, and THIS binary links none of it. A message that only said
         // "not a data system this build can open" would send an operator looking for a typo.
+        //
+        // **WHICH VENUE RUNS THIS ONE:** `just gates` and the `The shipped feature set runs its
+        // tests` step in `ci.yml`, both through `cargo xtask check-default-feature-tests`. Not
+        // `just test` and not the `nextest` nix check - they pass `--all-features`, so this cfg is
+        // false there. It was compiled by a gate and executed by nothing until that task existed.
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),

@@ -13,6 +13,17 @@ description = "The agent-facing surface. Transport only: one tool over MCP, and 
 # The service, behind the driving port. This crate calls `answer` and nothing else; every rule about
 # what may be answered lives on the other side of that call.
 sutura-app = { workspace = true }
+# The two BOUNDS this transport is subject to, as the parsed newtypes an operator's numbers become.
+# A normal dependency since `telekom/sutura#339`, and it was a dev-dependency until then on the
+# argument that nothing in `src/` reads a setting - which is still true and is not what changed.
+# What changed is that the reply deadline has to arrive here as `RequestTimeout` and not as a bare
+# duration: `server.request_timeout_seconds` is refused at zero and above five minutes by that
+# type's own `parse`, and a transport that took a `Duration` would be a second place where those
+# refusals do not apply. The composition root still does all the reading - this crate names two
+# types and loads no document. `sutura-http`, the sibling in the same class, holds the whole
+# `Settings` for its token gate, so the edge itself is the transport-layer norm here rather than a
+# new one.
+sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
 # For ONE function - `spawn_carrying_span` - and not for anything this crate installs. The `Surface`
 # port is synchronous and the engine behind it drives its own runtime, so a port call has to leave
@@ -44,6 +55,7 @@ thiserror = { workspace = true }
 # discharged. The workspace entry's `rt` is what makes that type exist.
 tokio = { workspace = true }
 tracing = { workspace = true }
+
 
 [dev-dependencies]
 # The committed schema dump. Reviewed as a diff, never typed: a new or widened tool input changes

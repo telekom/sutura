@@ -29,32 +29,14 @@ const FORK_EVENTS: &[&str] = &["pull_request", "pull_request_target"];
 /// prints the key instead of storing it, and a check that knew only `echo` read that as clean.
 pub(super) const PRINTS: &[&str] = &["echo", "printf", "printenv", "cat "];
 
-/// One job's own lines, from its header to the next thing at the same indentation.
+/// The two block readers, from the module that owns them.
 ///
-/// Two spaces is where a job's name sits and four is where its keys do, so a comment block
-/// introducing the NEXT job - which this file writes at two spaces - ends the block rather than
-/// joining it.
-pub(super) fn job<'a>(text: &'a str, name: &str) -> Option<Vec<&'a str>> {
-    keyed_block(text, "  ", name)
-}
-
-/// The lines under `name:` written at `indent`, up to the next line no deeper than that key.
-///
-/// One reader for two scopes, because the second one is what [`configures_tracing`] was missing:
-/// column zero is the WORKFLOW's own mapping, where `defaults:` and `env:` hold keys that decide
-/// how this job's shells start. A block is a block at either indentation, so the depth is an
-/// argument rather than a second function that can disagree with this one.
-pub(super) fn keyed_block<'a>(text: &'a str, indent: &str, name: &str) -> Option<Vec<&'a str>> {
-    let header = format!("{indent}{name}:");
-    let deeper = format!("{indent}  ");
-    let mut lines = text.lines().skip_while(|line| *line != header);
-    lines.next()?;
-    Some(
-        lines
-            .take_while(|line| line.trim().is_empty() || line.starts_with(&deeper))
-            .collect(),
-    )
-}
+/// `crate::workflows::step` reads a STEP's own lines for `check-default-feature-tests`, which it
+/// cannot do without first narrowing the file to one job - so the indentation contract these two
+/// carry was about to exist twice, and a second copy is how one of them stops matching the file
+/// after a reindent. Re-exported rather than moved and rewired, so this gate's call sites and the
+/// `job` doc links in [`super`] still name one thing.
+pub(super) use crate::workflows::step::{job, keyed_block};
 
 /// One key of a step, whether it is written on the `-` line or below it.
 ///

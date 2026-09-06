@@ -230,8 +230,11 @@ sutura mcp examples/single-player/catalog examples/single-player/data
 
 An agent client launches that process and speaks the protocol on its pipes - the same two tools this
 page describes, from the same `sutura_app::Capability` declaration. The command prints at startup, on
-standard error, that it grants every capability to whoever can reach the process: a pipe has no header
-a token could arrive in, which is the limit stated beside the mode rather than left as a default.
+standard error, that it grants every capability to whoever can reach the process, how many questions
+it will answer at once, and how long a peer waits for one of them: a pipe has no header a token could
+arrive in, which is the limit stated beside the mode rather than left as a default, and the two
+numbers are [`runtime.max_concurrent_queries`](#capacity) and `server.request_timeout_seconds`, which
+bound that surface exactly as they bound this one.
 
 ## The endpoints
 
@@ -424,6 +427,27 @@ seconds for a slot is better served by a `503` they can retry than by a `408` tw
 later that says the same thing less clearly. Setting it *above* the request timeout is allowed and
 does nothing: the timeout layer answers first.
 
+**The bound is the process's and not this endpoint's**, which is why the same two keys bound the agent
+surface the `mcp` command serves - and one `Admission` per process is what makes them the process's:
+`sutura_runtime::Admission` is built by a composition root and handed to whatever serves, and
+`cargo xtask check-one-bound` counts the constructions, failing a transport that builds one or a root
+that builds two. Its own header states what a text scan cannot see.
+
+`server.request_timeout_seconds` bounds the reply on that surface too, and it bounds the same thing:
+the caller's **whole** wait, admission included. Here that is because the timeout is an outer layer
+and the admission wait happens inside it; there it is because one deadline wraps both waits. So the
+paragraph above holds on both surfaces - a window at or above the reply deadline is allowed and does
+nothing, because the deadline answers first.
+
+What differs is how each answer comes back: there is no status code on a pipe, so a shed question and
+a question whose deadline expired are both a tool result marked as an error - the first saying to ask
+again shortly, the second saying the question may still be running and to ask for less. Neither
+carries a number: the bound, the window and the deadline are the operator's own configuration, so
+they go to the log rather than into a model's context. Everything under *what it does not bound* is
+true of that surface as well, and one thing more: a peer that sends `notifications/cancelled` stops
+nothing and learns nothing until the deadline fires, because the pinned MCP SDK delivers that
+cancellation as a token the handler does not read.
+
 ### What it does not bound
 
 Stated plainly, because each of these has been mistaken for the thing above.
@@ -489,7 +513,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | --- | --- | --- |
 | `server.host` | `127.0.0.1` | An IP address, never a hostname: a name resolves to whatever the resolver says today. Either family - `::1` and `[::1]` are both read. See [Address families](#address-families) |
 | `server.port` | `8080` | |
-| `server.request_timeout_seconds` | `30` | At most 300 |
+| `server.request_timeout_seconds` | `30` | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. It is also what a `bigquery` job's own deadline is divided out of |
 | `server.max_body_bytes` | `65536` | At most one mebibyte. A question is a few hundred bytes |
 | `security.access_token` | absent | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared** |
 | `security.tls_termination` | `none` | One of `none`, `sidecar`, `ingress`, `in-process`. Must be declared for any bind other hosts can reach |

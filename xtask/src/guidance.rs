@@ -10,7 +10,7 @@
 //! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
 //! than read.
 //!
-//! Seven checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Nine checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
@@ -19,8 +19,11 @@
 //! * `references` - a gate, task or skill named in prose must exist
 //! * `remedies` - the correction a failure prints, held to the standard of the prose it corrects
 //! * `advice` - a task a failure prints must exist, over every `.rs` file this repository publishes
+//! * `constants` - a doc comment naming a variant of a constant it links must name the one it holds
+//! * `hosts` - the file a sentence names as holding a mechanism must be the file that holds it
 //!
-//! The last two are the ones that read Rust rather than prose. `remedies` is here because of
+//! `remedies`, `advice` and `constants` are the three that read Rust rather than prose;
+//! `hosts` reads prose and derives its answer from anywhere. `remedies` is here because of
 //! `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface was absent for as
 //! long as it took a person to read it, because the prose scope below never reached this binary's
 //! own source. `advice` is here because of `github.com/telekom/sutura#243`, which is the same hole
@@ -58,8 +61,18 @@ mod claims;
 // reason above: this file has to have room for the tables, and a scan over Rust source shares
 // nothing with them but the span walk and the task-name parse below.
 mod advice;
+// `github.com/telekom/sutura#295`, and its own module for `advice`'s reason. It shares the
+// flattened view with `claims` and nothing else: what it resolves is a CONSTANT, out of the tree,
+// which none of the tables above can express - a forbidden wording is a ratchet on a sentence
+// somebody has already got wrong, and that one was true when it was written.
+mod constants;
+// `github.com/telekom/sutura#297`. Prose again, so it could have been lines here - it is a module
+// because it grows by ENTRY like the tables above and this file is what has to have room for those.
+mod hosts;
 
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
+use constants::constant_problems;
+use hosts::{HOSTED, host_mismatches};
 
 /// A phrase that should not appear, and what to write instead.
 struct Forbidden {
@@ -278,7 +291,7 @@ fn task_name_at(tail: &str) -> Option<&str> {
 /// One walk, here rather than in each of its callers, because the remedy check under `claims` and
 /// [`advice`] read a citation the same way, and a second copy of "what is a backtick span" would be
 /// a second thing to keep true - the class of drift this whole module is about.
-fn spans(text: &str) -> Vec<&str> {
+pub(in crate::guidance) fn spans(text: &str) -> Vec<&str> {
     let parts: Vec<&str> = text.split('`').collect();
     let closed = parts.len().saturating_sub(1);
     parts.into_iter().take(closed).skip(1).step_by(2).collect()
@@ -455,6 +468,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     problems.extend(contradicted_claims(&root, &text_files));
     problems.extend(count_mismatches(&root, &files, &text_files));
     problems.extend(bad_task_references(&root, &text_files));
+    // `all` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
+    // the scope limit is about where a claim may be made rather than about what may be read.
+    problems.extend(host_mismatches(&root, &files, &text_files));
     problems.extend(dead_paths(&root, &text_files));
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
@@ -463,6 +479,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // in `.rs`. `files` and not `text_files` is the whole point of `github.com/telekom/sutura#243`.
     let (advice, cited) = advice::advice_problems(&root, &files);
     problems.extend(advice);
+    // Also `.rs`, and the same reason a third time: what a page PUBLISHES about a constant is a
+    // doc comment, and `docs/api/**` is regenerated from it - so the scope limit above would put
+    // this check on the derived copy rather than on the source of the claim.
+    let (contradicted_constants, confirmed) = constant_problems(&root, &files);
+    problems.extend(contradicted_constants);
     // FAIL CLOSED. A citation walk that reads nothing passes everything, which is the failure mode
     // `check-scope` and the remedy scan each guard separately. This tree prints dozens, so zero
     // means the span reader stopped reading rather than the advice being clean.
@@ -475,12 +496,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if problems.is_empty() {
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {cited} printed citation(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed",
             text_files.len(),
             FORBIDDEN.len(),
             PINS.len(),
             CONTRADICTED.len(),
-            COUNTS.len()
+            COUNTS.len(),
+            HOSTED.len()
         );
         return Verdict::Pass;
     }

@@ -53,11 +53,11 @@ this process holds for that source*. `AGENTS.md` records which half is mechanise
 principal" trivially true and worth nothing.
 
 That is a property of the runtime, so it is a property of every deployment this crate
-configures. An [`AccessToken`](security::AccessToken) authenticates *the deployment*: a caller
+configures. An `AccessToken` authenticates *the deployment*: a caller
 who presents it proves they hold a secret an operator configured, and nothing more. It does not
 say which caller, it cannot be scoped to a subset of the catalog, it does not reach the data
 system, and every query still runs with whatever access the process already had.
-[`SecuritySettings::describes_identity`](security::SecuritySettings::describes_identity) is the
+`SecuritySettings::describes_identity` is the
 function that answers this, it always answers `false`, and the startup log prints that answer
 on every boot so an operator cannot deploy this believing otherwise.
 
@@ -745,7 +745,7 @@ It does *not* make a data source execute as that person - that is leg 2, and it 
 per leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows
 who is asking and still reads every row as one identity. `InboundIdentity::what_it_does_not_do`
 is that sentence as a value, printed at startup, for the same reason
-[`TlsTermination::cleartext_hop`](crate::security::TlsTermination::cleartext_hop) is one: a log
+`TlsTermination::cleartext_hop` is one: a log
 line and this documentation read the same string, so neither can drift into claiming per-user
 access because there is authentication.
 
@@ -913,7 +913,7 @@ pub enum InboundIdentity
 How the identity of a caller reaches this deployment. Printed at startup, per deployment.
 
 A closed enum with a required key, in the shape
-[`TlsTermination`](crate::security::TlsTermination) already uses here - and for the same reason
+`TlsTermination` already uses here - and for the same reason
 `Environment` is a parsed enum rather than a string with a fallback: the value that decides a
 posture must not be satisfiable by silence.
 
@@ -989,7 +989,7 @@ pub const fn who_authenticated(&self) -> &'static str
 Who authenticated the caller, as a sentence for the startup log.
 
 A function rather than a comment for the reason
-[`TlsTermination::cleartext_hop`](crate::security::TlsTermination::cleartext_hop) is one: the
+`TlsTermination::cleartext_hop` is one: the
 log, this documentation and the type read the same value, so none of them can drift into
 claiming more than the mode does.
 
@@ -1296,8 +1296,8 @@ not as an omission from this one.
 
 # Why there is no environment-derived default here
 
-[`ApiSettings`](crate::api::ApiSettings) and [`LogFormat`](crate::telemetry::LogFormat) default by
-[`Environment`](crate::Environment) and record whether an operator wrote the value down, so the
+`ApiSettings` and `LogFormat` default by
+`Environment` and record whether an operator wrote the value down, so the
 startup log can tell "somebody chose this" from "nobody did". Neither key here does, and the
 reason is that neither decision is a function of the environment.
 
@@ -1316,7 +1316,7 @@ is there and silently omits the section when it is not, which is right for a *co
 file means nobody wrote one. Here it is a *configured path*, so absence means the operator wrote
 a path down and the file behind it is not there - and quietly serving a prompt without the
 operator's rules in it would be the failure this crate refuses everywhere else. Existence is not
-checked at parse time, for the reason [`CatalogSettings`](crate::catalog::CatalogSettings) does
+checked at parse time, for the reason `CatalogSettings` does
 not check its directories: a check here is a claim that is already stale by the time the file is
 read. The read is what fails, loudly, at the composition root.
 
@@ -1330,7 +1330,7 @@ Whether the catalog's own prose is quoted into the prompt.
 
 The word an operator writes. The type that does the work is
 `sutura_app::prompt::CatalogProse`, and the split is the one
-[`LogFilter`](crate::telemetry::LogFilter) already uses: this crate parses what was written down,
+`LogFilter` already uses: this crate parses what was written down,
 and the crate that acts on it owns the type that acts.
 
 #### Variants
@@ -2203,7 +2203,7 @@ a field out.
 
 So there is **no `Default`**, no derivation, and a deployment that configures a source without
 declaring the mode does not boot -
-[`NotFitToServe::DeploymentIdentityUndeclared`](crate::NotFitToServe::DeploymentIdentityUndeclared).
+`NotFitToServe::DeploymentIdentityUndeclared`.
 The refusal is keyed on a source being configured rather than raised unconditionally, and that is
 not a softening: a deployment with no source configured cannot answer anything, and the composition
 root refuses it on the catalog naming a source with no declaration - so every deployment that can
@@ -2729,11 +2729,11 @@ This module is the **parse**: an alias that is not a name, two entries whose ali
 a kind this build has no adapter for, an entry with no file location, a relative path, a word that
 is not a posture, and a pairing of declarations that contradict each other. Every one of those is a
 value or a combination this type cannot hold, so it is a
-[`SettingsError`](crate::SettingsError) naming the key.
+`SettingsError` naming the key.
 
 Two checks are deliberately **not** here, and they are not here for two different reasons.
 
-- **The shared-identity acknowledgement** is a [`NotFitToServe`](crate::NotFitToServe) out of
+- **The shared-identity acknowledgement** is a `NotFitToServe` out of
   `Settings::refusals`, because whether it is required depends on the *declared deployment mode* -
   a fact about the tree as a whole rather than about this entry. A single-user deployment holds
   every source under one static credential legitimately: that credential *is* the one user's.
@@ -3128,9 +3128,9 @@ There is no way to make these private, so **a placement is constructible in-proc
 that can name the type** - including one carrying a relative `data_dir`, which `parse_data_dir`
 refuses when it reads a file. That is a real gap in this type and it is not the one that matters,
 for the reason AGENTS.md already states about the other constructors here: what is closed is the
-path from a **configuration file**. [`ConfiguredSource`](crate::ConfiguredSource) holds its
+path from a **configuration file**. `ConfiguredSource` holds its
 placement in a private field and has no public constructor, so a
-[`SourceRegistry`](crate::SourceRegistry) can still only come into existence through
+`SourceRegistry` can still only come into existence through
 `Settings::parse`, and that is the only door a deployment goes through.
 
 Written down rather than left to be re-derived, because "the fields are public" and "the checks can

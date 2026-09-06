@@ -365,6 +365,18 @@ jobs:
         if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
         run: nix build .#checks.x86_64-linux.keycloak-tier -L
 
+      # The Postgres tier's state machine, which the `Tests` step above cannot report on: it starts
+      # this tier and stops it, so a green run there means a server came up. Whether `status` and
+      # `.sutura-dev/endpoints.json` agree, what a stop that FAILS does to the claim, and which of
+      # the two records `nix/with-tier.sh` acts on are all invisible to it - and all three were one
+      # discarded suite run.
+      #
+      # Gated like the identity tier and for its reason: nothing compiled here changes what the
+      # tier script does, and the two conditions between them cover every file it reads.
+      - name: Postgres tier
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
+        run: nix build .#checks.x86_64-linux.postgres-tier -L
+
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
       # would pass unnoticed. A separate check, so the gap is visible rather than assumed.
       - name: Doctests
@@ -566,6 +578,39 @@ jobs:
 
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.
+      #
+      # EXIT 3 IS "I MEASURED NOTHING", and this step is the one place that decides what this
+      # venue does with it. Both of the gate's inconclusive answers used to be exit 0, so a
+      # required check went green over no evidence and no reader of the check could tell - see
+      # `github.com/telekom/sutura#307` and `xtask/src/main.rs`'s `Verdict::Inconclusive`. They
+      # exit 3 now, which fails any consumer that does not know the code; this one KNOWS it and
+      # continues, because the changes that land there are legitimate (a harness move, a changed
+      # public signature that a held-at-HEAD test file calls) and a gate that reddens correct
+      # work gets disabled.
+      #
+      # WHAT CONTINUING COSTS, stated because a green step is exactly what #307 is about: the
+      # job is still green on an inconclusive run, and the two surfaces below do NOT reach the
+      # pull-request conversation. `$GITHUB_STEP_SUMMARY` renders on the workflow RUN SUMMARY
+      # page - that is what the variable is for - and a `::warning` with no `file=`/`line=` is a
+      # PATH-LESS annotation: the job log, the run's annotations list and the check run, anchored
+      # wherever GitHub chooses rather than where this file chose. So a reviewer who reads only
+      # the conversation sees one green check and nothing else, which is #307's failure mode with
+      # one click removed rather than closed. An earlier version of this comment claimed the
+      # conversation, and an overstated control is itself the defect.
+      #
+      # THE CONVERSATION MECHANISM IS IN THIS FILE, in the `crap-comment` job below: a
+      # marker-keyed sticky comment posted from a separate job holding `pull-requests: write`,
+      # shaped so a delivery failure cannot recolour the gate. Routing this verdict through it is
+      # the open improvement, and it was not taken yet because the branch below HAS EXECUTED IN NO
+      # VENUE - no run of this repository has reached exit 3 here - so a delivery path built on top
+      # of it would be assumed rather than proven. What IS proven about this branch: exit 3 is a
+      # unit test on `Verdict::exit_code`, `nix run` propagates 3 unchanged, and
+      # `cargo xtask check-inconclusive` refuses a venue that suppresses it or declares a branch
+      # it does not have.
+      #
+      # The substitute evidence (a mutation run, or the gate scoped per commit) is the author's,
+      # and nothing here can check that they gave it. Cite the VERDICT LINE, never this step's
+      # colour.
       - name: Test causality
         if: steps.classify.outputs.rust == 'true'
         env:
@@ -576,7 +621,60 @@ jobs:
             echo "no usable base ref; causality not checked"
             exit 0
           fi
-          nix run .#causality -- --since "$BASE"
+          status=0
+          nix run .#causality -- --since "$BASE" || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "::warning title=Test causality was INCONCLUSIVE::The gate reached no verdict about this change - this step is green over NO red-before-green evidence. Read the verdict line in the log and require a mutation run, or the gate scoped per commit."
+            {
+              echo "### Test causality: INCONCLUSIVE"
+              echo
+              echo "The gate ran and measured nothing (exit 3), so this green step is not coverage."
+              echo "Usual causes: a harness move, or a changed public signature a test file kept at"
+              echo "HEAD calls. Ask for the substitute evidence - a mutation run, or \`just causality\`"
+              echo "scoped per commit - and read the verdict line rather than this step's colour."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$status"
+
+      # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
+      # publishes and no other venue in this job uses. Every compiling gate above passes
+      # `--all-features`, `Clippy` and `Tests` included, so a `#[cfg(feature = ..)]` arm only ever
+      # compiled with the feature ON was a hard error in the exact configuration a release builds
+      # while every step here was green. That shipped once, and its `cfg(not(..))` TEST was compiled
+      # by the gate below and executed by nothing at all.
+      #
+      # Apps rather than checks for `Supply chain`'s reason: both shell out to cargo, which needs a
+      # registry and a writable target directory the sandbox has not got.
+      #
+      # ADJACENT, AND THAT IS THE ONE THING THE ORDER DECIDES. The two ask cargo the SAME narrow
+      # question - one shipped package, no feature flags - which the v2 resolver gives a narrower
+      # feature set than the workspace-wide union `craneLib.buildDepsOnly` warmed, so about a third
+      # of each dependency graph is compiled again. Whichever runs first pays that; the second
+      # reuses it. `xtask/src/default_features.rs` carries the measurement and says why the
+      # recompile is the price of the question rather than a defect. Neither position makes the warm
+      # start possible: `Structural gates` puts the closure in the store before any of these steps.
+      #
+      # AFTER `Test causality`, which is a correctness order rather than a cost one: that step
+      # regenerates build script output whose baked `OUT_DIR` did not survive the unpack. Both apps
+      # below carry `nix/purge-baked-out-dirs.sh` themselves where they need it, so this is which
+      # step pays for it and not whether it happens.
+      #
+      # `rust` and not a narrower classification, for both: the package list is derived from
+      # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
+      #
+      # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
+      # so the four `cross` jobs stay the authority on a musl LINK - and nothing here reaches a
+      # feature no shipped binary enables, which is what the `--all-features` gates are for.
+      - name: The shipped feature set compiles and lints
+        if: steps.classify.outputs.rust == 'true'
+        run: nix run .#default-features
+
+      # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
+      # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
+      - name: The shipped feature set runs its tests
+        if: steps.classify.outputs.rust == 'true'
+        run: nix run .#default-feature-tests
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.

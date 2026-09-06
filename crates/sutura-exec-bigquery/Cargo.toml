@@ -146,6 +146,11 @@ base64 = { workspace = true, optional = true }
 # deliberately no `sutura-exec-duckdb` here: the engine is the reference, which is
 # `crates/sutura-app/tests/differential.rs`'s own reasoning.
 [dev-dependencies]
+# Already a normal dependency; this entry asks for one FEATURE. `warehouse::agreement` is the typed
+# row comparison this leg's row check makes, and it is SHARED with
+# `crates/sutura-app/tests/differential.rs` rather than copied - the copy is what let both of them
+# compare cells through a display form and call a null equal to the word `null`.
+sutura-domain = { workspace = true, features = ["agreement"] }
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
 # THE engine, and the far side of the comparison. A data source exists to run a subplan of what the

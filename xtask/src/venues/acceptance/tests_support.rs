@@ -12,7 +12,7 @@ pub(super) const KEY_ENV: &str = "          SUTURA_BQ_KEY: ${{ secrets.a_key }}\
 /// The job's own condition, built from the constant the gate reads - so a change to the rule cannot
 /// leave a fixture perturbing a string nothing looks for any more.
 pub(super) fn condition() -> String {
-    format!("if: github.event_name == 'push' || {}", super::FORK_RULE)
+    format!("if: github.event_name == 'push' || {}", super::shape::FORK_RULE)
 }
 
 /// The one line that stores the key, which most perturbations here add a line beside.

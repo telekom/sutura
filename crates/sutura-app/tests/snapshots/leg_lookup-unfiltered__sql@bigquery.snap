@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden/legs.rs
 expression: query.sql()
 ---
-SELECT `dim_customer`.`customer_key` AS `customer_key`, `dim_customer`.`region` AS `region` FROM `dim_customer` GROUP BY `dim_customer`.`customer_key`, `dim_customer`.`region` ORDER BY `dim_customer`.`customer_key` NULLS LAST, `dim_customer`.`region` NULLS LAST
+SELECT `dim_customer`.`customer_key` AS `0_link`, `dim_customer`.`region` AS `region` FROM `dim_customer` GROUP BY `dim_customer`.`customer_key`, `dim_customer`.`region` ORDER BY `dim_customer`.`customer_key` NULLS LAST, `dim_customer`.`region` NULLS LAST

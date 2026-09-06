@@ -1,0 +1,27 @@
+[package]
+name = "sutura-conformance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry, and not shipped either: every consumer takes it as a
+# DEV-dependency, so no artefact contains it. `sutura-dev` is the same shape one directory up.
+publish = false
+description = "Conformance packs: one set of test bodies over the ports, bound to an adapter by a macro."
+
+[dependencies]
+# The ports and the types the packs are written against, and the ONLY first-party dependency this
+# crate may have. A pack that reached an adapter would be a test written against one implementor,
+# which is the whole thing `docs/adr/0012` exists to stop.
+#
+# `agreement` is asked for here rather than by each consumer, and asking for it IS the point: what
+# makes two answers the same answer is `sutura_domain::warehouse::agreement`'s to decide, and a pack
+# that compared rows any other way would be the second comparison policy that record forbids. The
+# feature is default-off in the domain and this crate is a dev-dependency everywhere, so nothing
+# published gains it - the limit that module states about itself is unchanged.
+sutura-domain = { workspace = true, features = ["agreement"] }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

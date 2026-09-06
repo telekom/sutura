@@ -104,20 +104,14 @@ pub(super) struct Scan {
 }
 
 /// Every inline link target in the prose, as written.
+///
+/// The walk is [`crate::markdown::destinations`], shared with `check-api-links` rather than
+/// written twice: this gate resolves a target against the pages on disk and that one asks whether
+/// it is a Rust path, and a second copy of "where does a destination start and end" is a second
+/// answer to that question. The line number it carries is dropped here - this gate reports the
+/// PAGE, since a dead link is a fact about the page rather than about one line of it.
 fn targets(lines: &[String]) -> Vec<&str> {
-    let mut found = Vec::new();
-    for line in lines {
-        let mut rest = line.as_str();
-        while let Some(at) = rest.find("](") {
-            let after = rest.get(at.saturating_add(2)..).unwrap_or("");
-            let end = after.find(')').unwrap_or(after.len());
-            if let Some(target) = after.get(..end) {
-                found.push(target.trim());
-            }
-            rest = after.get(end..).unwrap_or("");
-        }
-    }
-    found
+    crate::markdown::destinations(lines).into_iter().map(|d| d.text).collect()
 }
 
 /// A percent-encoded destination, decoded.

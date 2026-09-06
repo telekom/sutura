@@ -14,7 +14,7 @@ fact:
       table: fct_subscription_monthly
       column: month
   keys:
-    - label: customer_key
+    - label: 0_link
       column:
         table: fct_subscription_monthly
         column: customer_key
@@ -25,14 +25,14 @@ fact:
           column:
             table: fct_subscription_monthly
             column: mrr_cents
-      label: mean_subscription_mrr__sum
+      label: 0_leaf_0
     - term:
         aggregate:
           aggregate: count
           column:
             table: fct_subscription_monthly
             column: mrr_cents
-      label: mean_subscription_mrr__count
+      label: 0_leaf_1
   filters:
     - origin: definition
       predicate:

@@ -9,6 +9,7 @@
 
 mod action_shell;
 mod api_docs;
+mod api_links;
 mod arrow_major;
 mod attribution;
 mod boot_order;
@@ -20,16 +21,21 @@ mod changes;
 mod commit_msg;
 mod compose;
 mod crap;
+mod default_feature_tests;
 mod default_features;
 mod docs;
+mod examples;
 mod fmt;
 mod gate_classification;
 mod guidance;
+mod hook_coverage;
 mod hooks;
+mod inconclusive;
 mod line_endings;
 mod markdown;
 mod max_lines;
 mod newtype_leaks;
+mod one_bound;
 mod pins;
 mod refusals;
 mod repo;
@@ -61,6 +67,23 @@ pub(crate) enum Verdict {
     /// Invoked wrongly - bad or missing arguments. Distinct from a violation, because a
     /// mistyped command is not a repo problem.
     Usage,
+    /// The gate reached no verdict about the change: its precondition held, it ran, and what it
+    /// exists to measure was not measurable. Neither a violation nor a clean bill.
+    ///
+    /// WHY IT IS A THIRD EXIT CODE RATHER THAN A SENTENCE. A required CI step reads the exit code
+    /// and nothing else, so a gate that could not measure and exits 0 hands its reader a green
+    /// check over no evidence - measured twice on finished branches, and the record is
+    /// `github.com/telekom/sutura#307`. Failing instead was weighed and rejected: the changes that
+    /// land on `causality`'s inconclusive arms are legitimate ones (a harness move, a changed
+    /// public signature a held-at-HEAD test calls) and a gate that reddens correct work gets
+    /// disabled. So the decision moves to the venue, and the DEFAULT is closed: any consumer that
+    /// does not recognise this code fails on it, because 3 is not 0.
+    ///
+    /// **What it is not**: a venue may still choose to continue over it - `ci.yml`'s causality step
+    /// and `devenv.nix`'s `ship-check` both do, at one line each, and surface the verdict instead.
+    /// What changed is that continuing is now a stated decision in one readable place rather than
+    /// an exit code no reader can tell from a proof.
+    Inconclusive,
 }
 
 impl Verdict {
@@ -70,6 +93,7 @@ impl Verdict {
             Self::Pass => ExitCode::SUCCESS,
             Self::Fail => ExitCode::FAILURE,
             Self::Usage => ExitCode::from(2),
+            Self::Inconclusive => ExitCode::from(3),
         }
     }
 }
@@ -158,7 +182,7 @@ const TASKS: &[Task] = &[
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
         // rather than evaluated, one value that has to be the same in both.
         name: "check-warm-start",
-        description: "the causality gate builds where nix warms its target directory",
+        description: "the warm start's directory, stamp and profile agree with what reads them",
         kind: Kind::Hygiene(Reads::Code),
         run: warm_start::run,
     },
@@ -206,11 +230,23 @@ const TASKS: &[Task] = &[
         // rather than hygiene for `check-attribution-current`'s reason: it invokes cargo, so it
         // needs a resolvable registry and a target directory the nix sandbox has not got, so `just
         // gates` is its caller. The lane it covers is the one every other compiling gate is blind
-        // to, and CI does not run it yet - the module's own header says what that costs.
+        // to; CI reaches it as `nix run .#default-features` inside the one required job, and it
+        // takes no argument there - the profile is derived, not passed. The module's header says why.
         name: "check-default-features",
         description: "every shipped package compiles and lints at cargo's default features",
         kind: Kind::Standalone,
         run: default_features::run,
+    },
+    Task {
+        // The other half of the line above, and it is a separate task because the two cost
+        // different amounts: that one stops at metadata, this one links and RUNS. Standalone for
+        // the same reason, and it reads the same declaration. What it closes is a whole category
+        // of test that was compiled by that gate and executed by no venue at all - the module's
+        // header carries the count and the measurement.
+        name: "check-default-feature-tests",
+        description: "every shipped package runs its tests at cargo's default features",
+        kind: Kind::Standalone,
+        run: default_feature_tests::run,
     },
     Task {
         // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
@@ -263,6 +299,16 @@ const TASKS: &[Task] = &[
         run: boot_order::run,
     },
     Task {
+        // Beside `check-boot-order` because it is the same shape of gate over the same files: a
+        // property of a composition root that no signature can hold, read as text. That one holds an
+        // ORDER of calls, this one holds a COUNT of them - `sutura_runtime::admission` says a process
+        // builds one bound and, until `github.com/telekom/sutura#340`, nothing said it twice.
+        name: "check-one-bound",
+        description: "one composition root builds one execution bound, and a transport builds none",
+        kind: Kind::Hygiene(Reads::Code),
+        run: one_bound::run,
+    },
+    Task {
         // The third of that shape, and the one whose failure mode is the most expensive to
         // diagnose: a gate hanging with no output. The compose tier routes every wait on a
         // container-runtime child through one function that carries a deadline, and nothing made
@@ -305,6 +351,16 @@ const TASKS: &[Task] = &[
         run: tasks::run,
     },
     Task {
+        // Beside `check-scope` because it is the same shape as `check-boot-order`: a small DECLARED
+        // list of sites, refusing a site the scan finds that the list does not name. What it holds
+        // is `Verdict::Inconclusive`'s own argument - the default is closed only while no venue
+        // suppresses exit 3, which was a fact about the tree and held by nothing.
+        name: "check-inconclusive",
+        description: "every venue invoking a gate that can answer INCONCLUSIVE handles exit 3",
+        kind: Kind::Hygiene(Reads::Code),
+        run: inconclusive::run,
+    },
+    Task {
         // Beside `check-scope` for the same reason it sits beside `check-guidance`: a claim
         // checked against the thing it claims, over a file no other gate reads. `check-scope`
         // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering
@@ -340,6 +396,24 @@ const TASKS: &[Task] = &[
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene(Reads::Prose),
         run: docs::run,
+    },
+    Task {
+        // Beside `check-docs` because both read published pages, and a DIFFERENT concern: that one
+        // asks whether a destination resolves to a page in this tree, this one whether the
+        // destination is a URL at all. It is in the cheap sweep and `check-api-docs` is not,
+        // because this reads the committed pages as text - no rustdoc, no nightly, no registry.
+        name: "check-api-links",
+        description: "no page under docs/api links to a Rust path",
+        kind: Kind::Hygiene(Reads::Prose),
+        run: api_links::run,
+    },
+    Task {
+        // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the
+        // Rust that reaches for them. A `docs/*.md`-only diff can change neither.
+        name: "check-examples",
+        description: "every directory under examples/ is reached by a test",
+        kind: Kind::Hygiene(Reads::Code),
+        run: examples::run,
     },
     Task {
         // `Reads::Prose`, and it has to be: the page it reads is a `docs/*.md` one, so the
@@ -405,6 +479,20 @@ const TASKS: &[Task] = &[
         description: "what a diff requires; --since <ref>, or paths (fails open)",
         kind: Kind::Standalone,
         run: changes::run_classify,
+    },
+    Task {
+        // Beside `classify` because it reads the same diff, and STANDALONE because it reads a
+        // prek LOG - an argument, produced by a run that has already happened, which no
+        // argument-free sweep can have. It exists because `just ship-check` said `green` over a
+        // diff five of its ten hooks never looked at, and printed neither number.
+        //
+        // FAILS CLOSED where `classify` fails open, and the two directions are deliberate: that
+        // gate widens what runs when it cannot read a diff; this one reports what a run covered,
+        // where an unreadable diff would declare every surface untouched and every gap absent.
+        name: "hook-coverage",
+        description: "what a diff-scoped hook run left uninspected; --since <ref> [--log <stage>:<path>]... [--ran <task>]... [--surface-tasks]",
+        kind: Kind::Standalone,
+        run: hook_coverage::run,
     },
     Task {
         name: "changed-packages",
@@ -746,6 +834,17 @@ mod tests {
         assert_eq!(
             format!("{:?}", Verdict::Usage.exit_code()),
             format!("{:?}", ExitCode::from(2))
+        );
+        // AND IT IS NOT 0, which is the whole of #307: a gate that measured nothing may not hand
+        // a required step the same code a proof does. Asserted against `SUCCESS` as well as
+        // against 3, because the failure mode being closed here is someone mapping it back.
+        assert_eq!(
+            format!("{:?}", Verdict::Inconclusive.exit_code()),
+            format!("{:?}", ExitCode::from(3))
+        );
+        assert_ne!(
+            format!("{:?}", Verdict::Inconclusive.exit_code()),
+            format!("{:?}", ExitCode::SUCCESS)
         );
     }
 

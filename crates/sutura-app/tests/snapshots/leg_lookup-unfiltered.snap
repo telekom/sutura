@@ -6,7 +6,7 @@ lookup:
   source: crm
   table: dim_customer
   keys:
-    - label: customer_key
+    - label: 0_link
       column:
         table: dim_customer
         column: customer_key

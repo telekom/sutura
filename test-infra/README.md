@@ -117,18 +117,27 @@ names follow the stack after a re-`up` (which only rotates the keys). `just infr
 `gh` authenticated to the repository, and defaults to the `bq-test` environment (override with
 `BQ_TEST_ENV`).
 
+**Each row IS the list**, and `cargo xtask check-venues` is what holds it: every name the sync
+script pushes appears in its row, every name a row carries is one the script pushes, and every
+`vars.SUTURA_BQ_*` / `secrets.SVC_*` a workflow reads is a name the script can provision. Before
+that gate existed these were three independent lists with nothing deriving one from another, and
+the row below listed five `vars` while the script pushed ten. What the gate cannot see is whether
+the environment is actually provisioned - that authority is the GitHub API, and it is unreachable
+from the sandbox the gate runs in, so `just infra-up` and `just infra-set` having been run is still
+a thing somebody has to know.
+
 | Kind | Names |
 | --- | --- |
 | `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B` |
-| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
-| `vars`, the two-principal cell's own | `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`, `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` |
+| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL`, `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`, `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` |
 
-`sync-bq-test-env.sh` pushes all ten, so the second row is what an `infra-set` against a stack
-that predates it will not have put there. The cell's own workflow step **fails closed** on any
-one of the five being unset rather than skipping - so the environment carrying the first row and
-not the second is a red `bigquery-acceptance`, not a quiet skip. **Nothing reconciles these two
-lists**: neither the script's names, nor this table, nor the `vars.` the job reads is derived from
-either of the others, so all three are held by review - see telekom/sutura#310.
+The last five are the two-principal cell's own: the row-access-policied dataset and table, the
+column the two policies filter on, and the grouping value each policy grants. The policied dataset
+is deliberately **not** the one the acceptance legs run against - those legs render `CREATE OR
+REPLACE TABLE`, which drops a table's row access policies - and the program refuses a configuration
+where the two coincide. An `infra-set` that predates them leaves the environment incomplete, and
+the consequence is a red `bigquery-acceptance` on every push rather than a skip: the job fails
+closed on an unset value deliberately.
 
 The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
 `bigquery.jobUser` and dataset-level `bigquery.dataEditor` on both the stack dataset and the

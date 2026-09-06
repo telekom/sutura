@@ -7,6 +7,27 @@
 //!
 //! Generated and vendored output is exempt via `devco/max-lines-ignore`. Hand-written source
 //! is not exemptable at all - see [`UNEXEMPTABLE_PREFIXES`].
+//!
+//! # An exemption that exempts nothing
+//!
+//! The ignore file's own header calls a `[warn]` entry *a promise to split, not a way to silence
+//! the gate - and it keeps printing until somebody keeps that promise*. It kept printing only
+//! while the file was still over the cap, because the warning was collected inside the
+//! `lines > max` branch: an entry for a file that had come back under the limit warned about
+//! nothing, failed nothing and said nothing. **The live instance:** a `[warn]` entry for a
+//! workflow, with a paragraph arguing the cap and citing the file at 1042 lines; the workflow was
+//! then split to 911 and the verdict read `none over 1000 lines (0 warned)` with the entry present
+//! and the argument intact. What rots is not the entry - it is the reasoning beside it, which is
+//! the only thing a reviewer reads to decide whether the exemption is still earned. See
+//! [`inert_entries`].
+//!
+//! **Why the rule is not *every literal entry under the cap*, which is what the report asked for.**
+//! Measured before it was written: `devenv.lock` is 86 lines and `flake.lock` is 98, both literal
+//! `[silent]` entries, and both correct - a lockfile's length is a function of the dependency graph
+//! and may cross the cap on any given day. That rule would have failed a clean tree, and a gate
+//! that fails correct configuration is one somebody disables. What the two sections PROMISE is the
+//! seam: `[silent]` is a claim about a CLASS of file, so its length today decides nothing, while
+//! `[warn]` is a claim about one file's length and is exactly falsifiable.
 
 use crate::Verdict;
 use crate::repo;
@@ -92,11 +113,13 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
     let mut violations: Vec<(String, usize)> = Vec::new();
     let mut warnings: Vec<(String, usize)> = Vec::new();
+    let mut over_cap: Vec<String> = Vec::new();
     for rel in &files {
         let lines = count_lines(&root.join(rel));
         if lines <= max {
             continue;
         }
+        over_cap.push(rel.clone());
         if ignores.warn.iter().any(|p| repo::matches(p, rel)) {
             warnings.push((rel.clone(), lines));
         } else if !ignores.silent.iter().any(|p| repo::matches(p, rel)) {
@@ -104,14 +127,87 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
     }
 
-    report(&files, &violations, &warnings, max)
+    let inert = inert_entries(&ignores, &files, &over_cap);
+    report(&files, &violations, &warnings, &inert, max)
 }
 
-fn report(files: &[String], violations: &[(String, usize)], warnings: &[(String, usize)], max: usize) -> Verdict {
+/// Exemptions that exempt nothing, each with the sentence saying why.
+///
+/// **Literal paths only.** A glob is how generated and vendored trees are covered - `vendor/**`,
+/// `docs/*.md`, `site/**` - and those legitimately match files that may or may not be over the cap
+/// on any given day, so a per-file rule would fire on correct configuration. A pattern with no
+/// glob metacharacter is a claim about one path, and it is the shape every hand-written exemption
+/// here has.
+///
+/// Two rules, and the second is the one the ignore file's header already promised:
+///
+/// * **a literal naming no file in the tree** - in either section. The path was renamed or deleted
+///   and the exemption outlived it.
+/// * **a `[warn]` literal whose file is under the cap** - the promise was kept and the paragraph
+///   arguing for it stayed. Only `[warn]`, for the reason in the module header: `[silent]` claims
+///   something about a CLASS of file rather than about today's line count, and two of its literal
+///   entries are correct while sitting well under the cap.
+fn inert_entries(ignores: &Ignores, files: &[String], over_cap: &[String]) -> Vec<String> {
+    let mut inert = Vec::new();
+    for pattern in ignores.all().filter(|pattern| is_literal(pattern)) {
+        let present = files.iter().any(|rel| repo::matches(pattern, rel));
+        if !present {
+            inert.push(format!(
+                "`{pattern}` names no file in the tree - it was renamed or deleted and the exemption outlived it"
+            ));
+        } else if ignores.warn.iter().any(|warned| warned == pattern) && !over_cap.iter().any(|rel| repo::matches(pattern, rel)) {
+            inert.push(format!(
+                "`[warn]` `{pattern}` is under the cap, so it prints nothing - the promise to split was kept and the argument for the exemption stayed"
+            ));
+        }
+    }
+    inert
+}
+
+/// Is this pattern a plain path rather than a glob?
+///
+/// `*` and `?` are the two metacharacters `repo::matches` reads, so they are the two that decide.
+fn is_literal(pattern: &str) -> bool {
+    !pattern.contains('*') && !pattern.contains('?')
+}
+
+/// Both findings, then the verdict.
+///
+/// **BOTH, and the early return is why that needed saying.** The inert-exemption block returned
+/// before the violations report, so with one stale `[warn]` entry a 1200-line file was not named -
+/// measured in review: the exit code was right and the report was half of what the gate knew. A
+/// gate that knows two numbers and prints one is this commit's own subject.
+fn report(
+    files: &[String],
+    violations: &[(String, usize)],
+    warnings: &[(String, usize)],
+    inert: &[String],
+    max: usize,
+) -> Verdict {
     for (path, lines) in warnings {
         println!("xtask max-lines: WARN {path} has {lines} lines (max {max}) - split pending");
     }
-    if violations.is_empty() {
+    if !inert.is_empty() {
+        eprintln!(
+            "xtask max-lines: FAILED - {} exemption(s) in {IGNORE_FILE} exempt nothing",
+            inert.len()
+        );
+        for entry in inert {
+            eprintln!("  {entry}");
+        }
+        eprintln!();
+        eprintln!("  An exemption nothing needs is a claim nothing checks, and this file is a list of");
+        eprintln!("  claims: the paragraph beside an entry is the only thing a reviewer reads to decide");
+        eprintln!("  whether it is still earned. Delete the entry and its argument together.");
+    }
+    if !violations.is_empty() {
+        eprintln!("xtask max-lines: FAILED - {} file(s) over {max} lines", violations.len());
+        for (path, lines) in violations {
+            eprintln!("  {path}: {lines} lines");
+        }
+        eprintln!("  split the file. Generated or vendored output belongs in {IGNORE_FILE}, nothing else does.");
+    }
+    if inert.is_empty() && violations.is_empty() {
         println!(
             "xtask max-lines: ok - {} files checked, none over {max} lines ({} warned)",
             files.len(),
@@ -119,11 +215,6 @@ fn report(files: &[String], violations: &[(String, usize)], warnings: &[(String,
         );
         return Verdict::Pass;
     }
-    eprintln!("xtask max-lines: FAILED - {} file(s) over {max} lines", violations.len());
-    for (path, lines) in violations {
-        eprintln!("  {path}: {lines} lines");
-    }
-    eprintln!("  split the file. Generated or vendored output belongs in {IGNORE_FILE}, nothing else does.");
     Verdict::Fail
 }
 
@@ -154,7 +245,80 @@ fn count_lines(path: &Path) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_MAX_LINES, Ignores, is_unexemptable, parse_max_lines};
+    use super::{DEFAULT_MAX_LINES, Ignores, inert_entries, is_literal, is_unexemptable, parse_max_lines};
+    use crate::Verdict;
+
+    #[test]
+    fn a_warn_entry_for_a_file_back_under_the_cap_is_reported() {
+        // The measured instance: an entry added while the file was 1042 lines, still present after
+        // the split took it to 911 with the argument for it intact, and the verdict read
+        // `none over 1000 lines (0 warned)`. Nobody would have been told.
+        let ignores = Ignores::parse("[silent]\nCargo.lock\n\n[warn]\n.github/workflows/ci.yml\n");
+        let files = vec![String::from("Cargo.lock"), String::from(".github/workflows/ci.yml")];
+        let discharged = inert_entries(&ignores, &files, &[String::from("Cargo.lock")]);
+        assert_eq!(discharged.len(), 1, "{discharged:?}");
+        assert!(discharged.first().is_some_and(|row| row.contains("[warn]")), "{discharged:?}");
+        // AND THE ARM THAT STILL FIRES: while the file IS over the cap the entry is live, prints
+        // its WARN and fails nothing. That is the state the exemption exists for.
+        let live = inert_entries(&ignores, &files, &files);
+        assert!(live.is_empty(), "{live:?}");
+    }
+
+    #[test]
+    fn a_literal_entry_naming_a_path_that_is_gone_is_reported_in_either_section() {
+        let ignores = Ignores::parse("[silent]\nremoved.lock\n\n[warn]\nalso-gone.md\n");
+        let inert = inert_entries(&ignores, &[String::from("Cargo.lock")], &[]);
+        assert_eq!(inert.len(), 2, "{inert:?}");
+        assert!(inert.iter().all(|row| row.contains("names no file")), "{inert:?}");
+    }
+
+    #[test]
+    fn a_silent_literal_under_the_cap_and_a_glob_matching_nothing_are_both_left_alone() {
+        // MEASURED, and the reason this rule is not the one the report asked for: `devenv.lock` is
+        // 86 lines and `flake.lock` 98, both correct - a lockfile's length is a function of the
+        // dependency graph and may cross the cap any day. A rule failing every literal under the
+        // cap would fail a clean tree.
+        let ignores = Ignores::parse("[silent]\ndevenv.lock\ndocs/generated/*\nvendor/**\n");
+        let files = vec![String::from("devenv.lock")];
+        assert!(inert_entries(&ignores, &files, &[]).is_empty());
+        assert!(is_literal("devenv.lock"));
+        assert!(!is_literal("docs/generated/*"));
+        assert!(!is_literal("vendor/**"));
+        assert!(!is_literal("docs/adr/000?.md"));
+    }
+
+    #[test]
+    fn the_committed_ignore_file_has_no_inert_entry() {
+        // Over the REAL file and the REAL tree, because the fixtures above prove the rule and not
+        // the configuration. This is the assertion that reddens the day an entry's promise is kept.
+        let root = crate::repo::root().expect("the repo root");
+        let ignores = Ignores::parse(&std::fs::read_to_string(root.join(super::IGNORE_FILE)).expect("the ignore file"));
+        let mut files = Vec::new();
+        crate::repo::collect_text_files(&root, &root, &mut files);
+        let over_cap: Vec<String> = files
+            .iter()
+            .filter(|rel| super::count_lines(&root.join(rel)) > DEFAULT_MAX_LINES)
+            .cloned()
+            .collect();
+        let inert = inert_entries(&ignores, &files, &over_cap);
+        assert!(inert.is_empty(), "{inert:?}");
+    }
+
+    #[test]
+    fn an_inert_exemption_does_not_hide_a_file_over_the_cap() {
+        // Reported in review: the inert block returned before the violations report, so with a
+        // stale `[warn]` entry present a 1200-line file went unnamed. Both are reported now, and
+        // the verdict is a failure whichever of the two is non-empty.
+        let over = [(String::from("BIGFILE.md"), 1200_usize)];
+        let inert = [String::from("`[warn]` `README.md` is under the cap, so it prints nothing")];
+        let files = [String::from("BIGFILE.md"), String::from("README.md")];
+        assert_eq!(super::report(&files, &over, &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        // Each half on its own is still a failure, and neither is a pass.
+        assert_eq!(super::report(&files, &over, &[], &[], DEFAULT_MAX_LINES), Verdict::Fail);
+        assert_eq!(super::report(&files, &[], &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        // AND THE ARM THAT STILL FIRES: neither half, and the success line is printed.
+        assert_eq!(super::report(&files, &[], &[], &[], DEFAULT_MAX_LINES), Verdict::Pass);
+    }
 
     #[test]
     fn sections_split_silent_from_warn() {
