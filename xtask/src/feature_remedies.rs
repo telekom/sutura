@@ -412,21 +412,25 @@ mod tests {
     }
 
     #[test]
-    fn a_description_of_the_build_is_not_an_instruction_to_rebuild() {
-        // THE distinction the gate rests on. Both sentences hold the word `build`; only the second
-        // sends a reader somewhere, and only the second owes them a name. Demanding one of the
-        // first would fail the very message #366 replaces the broken one with.
+    fn a_message_that_never_says_feature_sends_nobody_anywhere() {
+        // THE line the gate rests on, and it moved. This test used to assert the ORDERING rule -
+        // that a sentence naming a feature BEFORE its verb was a description and owed no name - and
+        // a review disproved it with five shapes, the worst being this tree's own house style. So
+        // the surviving distinction is narrower and honest: a message that never says `feature` and
+        // carries no feature flag is not directing anyone at one.
         assert!(!instructs_a_rebuild(
             "names a metadata adapter no build of this binary links - write `markdown` instead"
         ));
         assert!(instructs_a_rebuild("build the binary with the feature that provides it"));
-        // The word has to come AFTER the verb: a sentence that names a feature and then describes
-        // what was built is not directing anyone to rebuild.
-        assert!(!instructs_a_rebuild(
+        assert!(instructs_a_rebuild("Build `sutura-serve` with `--features bigquery`"));
+
+        // And the widening is DELIBERATE, so it is pinned rather than left to be rediscovered: a
+        // sentence that merely describes which feature is off is now a subject too. Nothing a text
+        // scan can do separates it from the house-style instruction, and the only thing being asked
+        // of it - name a feature that exists - is a correct demand of a description as well.
+        assert!(instructs_a_rebuild(
             "the `bigquery` feature is off, so this build links nothing"
         ));
-        // Case is not the trigger.
-        assert!(instructs_a_rebuild("Build `sutura-serve` with `--features bigquery`"));
     }
 
     #[test]
