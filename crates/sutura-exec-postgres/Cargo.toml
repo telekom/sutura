@@ -25,5 +25,19 @@ bytes = { workspace = true }
 futures-util = { workspace = true }
 thiserror = { workspace = true }
 
+# The conformance packs, which `tests/conformance.rs` binds this adapter to, and the developer
+# workflow crate that answers where this worktree's Postgres is listening.
+#
+# **Both DEV-dependencies, and the second one is the whole reason this binding is possible.** The
+# packs may not depend on the crate that performs discovery - `xtask/src/boundaries/harness.rs`
+# holds `sutura-conformance` to `sutura-domain` alone, and its own remedy assigns *reaching a
+# provisioned tier* to the adapter's fixture - so the fixture asks `sutura_dev::provisioned`, which
+# also owns the skip-or-fail direction for every harness here. Nothing shipped can reach either:
+# `sutura-cli` and `sutura-serve` take this crate as a normal dependency and a dev-dependency
+# propagates to no consumer.
+[dev-dependencies]
+sutura-conformance = { workspace = true }
+sutura-dev = { workspace = true }
+
 [lints]
 workspace = true

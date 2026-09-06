@@ -3821,6 +3821,8 @@ version = "0.4.1"
 dependencies = [
  "bytes",
  "futures-util",
+ "sutura-conformance",
+ "sutura-dev",
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.20",

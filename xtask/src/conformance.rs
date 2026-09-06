@@ -27,6 +27,16 @@
 //! derived from the first path segment of the adapter type the entry names - not from a name
 //! written here. Both ends of the comparison move with the tree.
 //!
+//! # The exemption list is EMPTY as of `telekom/sutura#348`
+//!
+//! This gate shipped with one declared exemption - `postgres`, registered in the golden matrix and
+//! carrying no binding because `sutura_conformance` had no way to say *no tier is up here* that was
+//! not a pass. It has one now (`sutura_conformance::Fixture`), the adapter binds the packs from its
+//! own crate, and the entry is deleted rather than reworded: an exemption for something that is
+//! bound after all is itself a failure here, so it could not have been left behind. The mechanism
+//! stays with the list empty, because the alternative to a declared exemption is an EXCLUSION,
+//! which hides an entry instead of classifying it.
+//!
 //! # This is also the gate `telekom/sutura#135` needs
 //!
 //! That issue wants CI's job matrix intersected with path-filter categories, keyed by the registry
@@ -467,10 +477,17 @@ fn explain() {
     eprintln!("So the fix is one of exactly two things, and both are visible in a diff:");
     eprintln!("  1. bind the adapter from its own crate - `sutura_conformance::execute_packs!` in");
     eprintln!("     <the crate>/{BINDING_FILE}, wrapped in `mod {BINDING_MODULE}`; or");
-    eprintln!("  2. declare it unbound in UNBOUND in xtask/src/conformance.rs, with what and why.");
+    eprintln!("  2. declare it unbound in UNBOUND in xtask/src/conformance/reconcile.rs, with what");
+    eprintln!("     and why.");
     eprintln!();
     eprintln!("The second is an architecture decision: `docs/adr/0012` says one registration, not");
     eprintln!("two, and an exemption is that consequence going unmet. Today:");
+    if UNBOUND.is_empty() {
+        // Said out loud rather than left as an empty list, because *nothing is exempt* is the
+        // state this gate was built to reach and a reader arriving at a failure needs to know
+        // that the first option above is the only one anybody has taken.
+        eprintln!("  nothing is declared unbound, so option 1 is what every registered adapter did.");
+    }
     for allowance in UNBOUND {
         eprintln!("  {} in {} - {}", allowance.name, allowance.crate_name, allowance.what);
         eprintln!("    Why: {}", allowance.why);

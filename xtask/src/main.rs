@@ -339,8 +339,10 @@ const TASKS: &[Task] = &[
         // cannot state about itself, read as text. What it holds is the half `telekom/sutura#116`
         // could not - the packs are bound from an adapter's own crate, so WHICH adapters are held
         // was a reading of which crates carry a `tests/conformance.rs`, and deleting one left
-        // `just validate` green. It starts with ONE declared exemption, because
-        // `docs/adr/0012`'s *one registration, not two* is violated as built.
+        // `just validate` green. It shipped with ONE declared exemption, because
+        // `docs/adr/0012`'s *one registration, not two* was violated as built; that entry was
+        // `postgres` and `telekom/sutura#348` deleted it by binding the adapter, so the list is
+        // empty and an exemption is now an architecture decision with nothing to hide behind.
         name: "check-conformance-bindings",
         description: "every registered data system is bound to the conformance packs, or declared unbound",
         kind: Kind::Hygiene(Reads::Code),

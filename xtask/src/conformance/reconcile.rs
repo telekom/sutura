@@ -46,24 +46,21 @@ pub(super) struct Unbound {
 
 /// Every registered data system this gate accepts as unbound.
 ///
-/// **One entry, and it arrives with the gate.** `docs/adr/0012`'s *one registration, not two* is
-/// violated as built, and this is the whole of the violation: the third data system in the matrix
-/// is registered and carries no binding on purpose.
+/// **EMPTY, and that is the state this gate was built to reach.** It shipped with one entry -
+/// `postgres`, registered in the golden matrix and carrying no binding because the packs had no way
+/// to say *no tier is up here* that was not a pass - and `docs/adr/0012`'s *one registration, not
+/// two* was violated by exactly that entry. `telekom/sutura#348` gave the harness
+/// `sutura_conformance::Fixture`, `crates/sutura-exec-postgres/tests/conformance.rs` binds it, and
+/// so the entry is gone rather than reworded. An exemption for something that is bound after all is
+/// itself a failure here ([`inert`]), so this list could not have been left behind.
 ///
-/// **Adding one is an architecture decision** - the sentence `BLOCKING` in
+/// **Adding one back is an architecture decision** - the sentence `BLOCKING` in
 /// `xtask/src/bounded_wait.rs` carries for the same reason. The diff is where the argument happens,
-/// and an entry that stops being true fails the gate rather than quietly widening it.
-pub(super) const UNBOUND: &[Unbound] = &[Unbound {
-    name: "postgres",
-    crate_name: "sutura-exec-postgres",
-    what: "registered in the golden matrix and carrying no `tests/conformance.rs`",
-    why: "its cells need a provisioned tier, and the packs have no way to say `no tier is up here` \
-          that is not a pass. The golden matrix has one - `DataSystemUnderTest::available`, whose \
-          false answer SKIPS a cell and whose skip-or-fail direction a provisioner decides - and \
-          the packs carry no equivalent, so a binding written today would be green over a data \
-          system that never answered. `telekom/sutura#348` is where the harness grows that, and \
-          this entry is deleted by the same change",
-}];
+/// and an entry that stops being true fails the gate rather than quietly widening it. The mechanism
+/// stays with the list empty on purpose: the alternative to a declared exemption is an
+/// EXCLUSION, which hides an entry instead of classifying it, and the next adapter that cannot be
+/// bound will need this and not that.
+pub(super) const UNBOUND: &[Unbound] = &[];
 
 /// What the tree says about one registry entry. Two states are held and two are the defect.
 #[derive(Debug)]
@@ -230,7 +227,7 @@ impl Reconciled {
             })
             .collect();
         problems.extend(strays.iter().filter_map(Stray::problem));
-        problems.extend(inert(&self.judged));
+        problems.extend(inert(UNBOUND, &self.judged));
         problems
     }
 
@@ -299,9 +296,15 @@ impl Stray {
 /// Three ways, and each one widens what is permitted while reading as a considered decision: an
 /// entry for a name the registry does not carry, an entry naming the wrong crate for a name it
 /// does, and an entry excusing something that is bound after all.
-fn inert(judged: &[Decision]) -> Vec<String> {
+///
+/// **The list is a PARAMETER rather than [`UNBOUND`] read directly**, and that is what keeps this
+/// function provable now that the constant is empty: every caller in the gate passes `UNBOUND`, and
+/// the tests pass a list they built - so all three arms stay provoked by a test rather than by
+/// whichever exemption happened to be declared. A check whose only fixture is live data stops being
+/// a check the day that data goes away, which is the shape this repository has already paid for.
+fn inert(declared: &[Unbound], judged: &[Decision]) -> Vec<String> {
     let mut problems = Vec::new();
-    for allowance in UNBOUND {
+    for allowance in declared {
         let Some((entry, held)) = judged.iter().find(|(entry, _)| entry.name == allowance.name) else {
             problems.push(format!(
                 "`{}` is declared here as deliberately unbound ({}) and the registry carries no data \
@@ -377,7 +380,7 @@ fn misplacement(entry: &Entry, binding: &Binding) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Binding, Classified, Entry, Held, Reconciled, Stray, UNBOUND, decide, inert, misplacement, scan};
+    use super::{Binding, Classified, Entry, Held, Reconciled, Stray, UNBOUND, Unbound, decide, inert, misplacement, scan};
 
     fn entry(name: &str, crate_name: &str) -> Entry {
         Entry {
@@ -421,10 +424,12 @@ mod tests {
             .find(|why| why.contains("`ghost` is registered"))
             .unwrap_or_else(|| panic!("the unbound entry is named: {problems:?}"));
         assert!(named.contains("crates/sutura-exec-ghost/tests/conformance.rs"), "{named}");
-        // The rest of the list is the inert-exemption half firing over this fixture's registry,
-        // which is the point of reporting both in one run: a gate that knew two numbers and
-        // printed one cost a round trip (`telekom/sutura#311`).
-        assert_eq!(problems.len(), 2, "{problems:?}");
+        // ONE problem, and the number moved when `telekom/sutura#348` deleted the `postgres`
+        // exemption: it used to be two, the second being the inert-exemption half firing over this
+        // fixture's registry. Both are still reported in one run where both exist - a gate that
+        // knew two numbers and printed one cost a round trip (`telekom/sutura#311`) - and the arms
+        // that prove it are the three `inert` cells below, which build their own exemption.
+        assert_eq!(problems.len(), 1, "{problems:?}");
     }
 
     /// **The witness.** A verdict that judged fewer members than it found is refused rather than
@@ -516,21 +521,35 @@ mod tests {
         assert_eq!(found.invocation.selector(), "conformance::duckdb");
     }
 
+    /// One exemption, built here rather than read out of [`UNBOUND`].
+    ///
+    /// **Which is what keeps the three arms below provable now that the constant is empty.** The
+    /// earlier version of each of them started `UNBOUND.first().expect("one declared exemption")`,
+    /// so deleting the only entry - the thing `telekom/sutura#348` exists to do - would have turned
+    /// this gate's own inert-exemption checks into three panicking cells. A check whose only
+    /// fixture is live data stops being a check the day the data goes.
+    const DECLARED: Unbound = Unbound {
+        name: "ghost",
+        crate_name: "sutura-exec-ghost",
+        what: "registered in the golden matrix and carrying no `tests/conformance.rs`",
+        why: "a fixture for this file, so the arms below are provoked by a test rather than by \
+              whichever exemption happens to be declared",
+    };
+
     /// **The inert exemption**, which is the `max-lines` defect this gate must not repeat: an
     /// entry excusing something that is bound after all is a failure, and it is reported in the
     /// same run as everything else the gate knows.
     #[test]
     fn an_exemption_for_something_that_is_bound_is_reported_as_inert() {
-        let declared = UNBOUND.first().expect("one declared exemption");
         let judged = vec![(
-            entry(declared.name, declared.crate_name),
+            entry(DECLARED.name, DECLARED.crate_name),
             Held::Bound(binding(
-                declared.name,
-                &format!("crates/{}/tests/conformance.rs", declared.crate_name),
+                DECLARED.name,
+                &format!("crates/{}/tests/conformance.rs", DECLARED.crate_name),
                 &["conformance"],
             )),
         )];
-        let problems = inert(&judged);
+        let problems = inert(&[DECLARED], &judged);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
             problems.first().is_some_and(|why| why.contains("delete the entry")),
@@ -542,7 +561,7 @@ mod tests {
     /// a stale entry actually goes: the registry moved and the exemption stayed.
     #[test]
     fn an_exemption_for_an_unregistered_name_is_reported_as_inert() {
-        let problems = inert(&[(entry("somebody-else", "sutura-exec-other"), Held::Unheld)]);
+        let problems = inert(&[DECLARED], &[(entry("somebody-else", "sutura-exec-other"), Held::Unheld)]);
         assert!(
             problems.iter().any(|why| why.contains("carries no data system of that name")),
             "{problems:?}"
@@ -553,13 +572,28 @@ mod tests {
     /// gives is about a crate, so it stops applying when the adapter type moves.
     #[test]
     fn an_exemption_naming_the_wrong_crate_is_reported_as_inert() {
-        let declared = UNBOUND.first().expect("one declared exemption");
-        let problems = inert(&[(entry(declared.name, "sutura-exec-moved"), Held::Unheld)]);
+        let problems = inert(&[DECLARED], &[(entry(DECLARED.name, "sutura-exec-moved"), Held::Unheld)]);
         assert!(
             problems
                 .iter()
                 .any(|why| why.contains("the reason an entry gives is about a crate")),
             "{problems:?}"
+        );
+    }
+
+    /// **Nothing is exempt today, and that is asserted rather than assumed.**
+    ///
+    /// The gate shipped with `postgres` declared unbound because the packs could not say *no tier
+    /// is up here*; `telekom/sutura#348` gave them `sutura_conformance::Fixture` and the adapter
+    /// binds them from its own crate, so an entry here now would be an exemption for something that
+    /// is bound - which [`inert`] reports. This cell is what makes re-adding one deliberate: it
+    /// reddens, and the diff is where the argument has to be.
+    #[test]
+    fn no_registered_data_system_is_declared_unbound() {
+        assert!(
+            UNBOUND.is_empty(),
+            "an exemption is an architecture decision, and this cell is where it is argued: {:?}",
+            UNBOUND.iter().map(|allowance| allowance.name).collect::<Vec<_>>()
         );
     }
 
@@ -602,9 +636,11 @@ mod tests {
         assert!(why.contains("binary(conformance)"), "{why}");
     }
 
+    /// Whatever is declared carries a reason. Vacuous while [`UNBOUND`] is empty, and kept for the
+    /// entry that is added back: the cell above is what says the list is empty on purpose.
     #[test]
     fn every_declared_exemption_carries_its_reason() {
-        for allowance in UNBOUND {
+        for allowance in UNBOUND.iter().chain(core::iter::once(&DECLARED)) {
             assert!(!allowance.what.is_empty(), "{} has no `what`", allowance.name);
             assert!(!allowance.why.is_empty(), "{} has no `why`", allowance.name);
             assert!(
