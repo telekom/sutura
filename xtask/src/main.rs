@@ -35,6 +35,7 @@ mod line_endings;
 mod markdown;
 mod max_lines;
 mod newtype_leaks;
+mod one_bound;
 mod pins;
 mod refusals;
 mod repo;
@@ -296,6 +297,16 @@ const TASKS: &[Task] = &[
         description: "the pre-flight runs after the credential and before the transport",
         kind: Kind::Hygiene(Reads::Code),
         run: boot_order::run,
+    },
+    Task {
+        // Beside `check-boot-order` because it is the same shape of gate over the same files: a
+        // property of a composition root that no signature can hold, read as text. That one holds an
+        // ORDER of calls, this one holds a COUNT of them - `sutura_runtime::admission` says a process
+        // builds one bound and, until `github.com/telekom/sutura#340`, nothing said it twice.
+        name: "check-one-bound",
+        description: "one composition root builds one execution bound, and a transport builds none",
+        kind: Kind::Hygiene(Reads::Code),
+        run: one_bound::run,
     },
     Task {
         // The third of that shape, and the one whose failure mode is the most expensive to

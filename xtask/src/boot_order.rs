@@ -403,7 +403,11 @@ fn call_line(code: &[String], tests: &TestScope, call: &str) -> Option<usize> {
 ///
 /// `ends_with("fn")` is checked on the whitespace-trimmed prefix, so `pub(crate) fn` is a definition
 /// and a variable ending in the letters `fn` is not - the token is compared, not the suffix.
-fn defines(line: &str, at: usize) -> bool {
+///
+/// **`pub(crate)` because `one_bound` reads for the same two shapes**, and one place knowing what a
+/// definition and a `use` item look like to a text scan is this module's own argument about its
+/// parser one gate over.
+pub(crate) fn defines(line: &str, at: usize) -> bool {
     let before = line.get(..at).unwrap_or_default().trim_end();
     before.split_whitespace().last() == Some("fn") || imports(line)
 }
@@ -414,7 +418,7 @@ fn defines(line: &str, at: usize) -> bool {
 /// `pub(crate) use bigquery::refuse_absent_tables;`, so a `starts_with("use ")` misses it and reports
 /// the re-export as a third caller - which is a red gate on an honest tree. Tokens are compared
 /// rather than the string prefixed, so `pub`, `pub(crate)` and `pub(super)` are all one case.
-fn imports(line: &str) -> bool {
+pub(crate) fn imports(line: &str) -> bool {
     let mut tokens = line.split_whitespace();
     match tokens.next() {
         Some("use") => true,

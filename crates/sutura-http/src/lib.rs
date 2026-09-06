@@ -74,12 +74,15 @@
 //!
 //! use sutura_config::{Environment, Settings, Sources};
 //! use sutura_http::{ServiceState, router, serve};
-//! use sutura_runtime::Shutdown;
+//! use sutura_runtime::{Admission, Shutdown};
 //!
 //! # async fn wire(surface: Arc<dyn sutura_http::Surface>) -> Result<(), Box<dyn core::error::Error>> {
 //! let settings = Settings::load(&Sources::defaults(Environment::Development))?;
 //! let address = settings.server().bind().socket();
-//! let state = ServiceState::new(surface, Arc::new(settings));
+//! // The execution bound, built HERE and handed down - one per process, like the shutdown below.
+//! // This crate cannot build one: see `state` for what `telekom/sutura#340` cost.
+//! let admission = Admission::from_settings(settings.runtime());
+//! let state = ServiceState::new(surface, Arc::new(settings), admission);
 //! serve(router(&state)?, address, Shutdown::new()).await?;
 //! # Ok(())
 //! # }

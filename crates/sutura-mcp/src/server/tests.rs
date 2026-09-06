@@ -12,11 +12,17 @@ use rmcp::{RoleClient, RoleServer, ServiceError, serve_client, serve_server};
 use sutura_app::prompt::CatalogProse;
 use sutura_app::surface::{LocalService, Surface};
 use sutura_app::{Capability, Permitted};
-use sutura_config::{Environment, Settings, Sources};
+use sutura_config::{Environment, RequestTimeout, Settings, Sources};
 use sutura_runtime::Admission;
 
 use super::AgentSurface;
 use crate::testing;
+
+/// What `server.request_timeout_seconds` bounds here, in its own file.
+///
+/// Split off because this suite plus `server.rs` crosses the 1000-line cap; the module's own header
+/// says which group moved and why the admission pair did not.
+mod deadline;
 
 /// A client and a server joined by an in-memory pipe, with the peer permitted everything.
 ///
@@ -39,21 +45,31 @@ async fn permitting<S>(surface: S, permitted: Permitted, prose: CatalogProse) ->
 where
     S: Surface,
 {
-    served(surface, permitted, prose, admission("")).await
+    served(surface, permitted, prose, admission(""), reply("")).await
 }
 
-/// The same again, with the admission bound stated as well.
+/// The same again, with both bounds stated as well.
 ///
-/// The seam the bound's own tests use, and it is the production signature for the same reason
+/// The seam the bounds' own tests use, and it is the production signature for the same reason
 /// [`permitting`] is: `AgentSurface::new` takes an `Admission` because only a composition root can
-/// decide there is one bound for the process, and a test is another composition root. Every other
-/// test here reaches it through [`permitting`] with the settings tree's own defaults.
-async fn served<S>(surface: S, permitted: Permitted, prose: CatalogProse, admission: Admission) -> RunningService<RoleClient, ()>
+/// decide there is one bound for the process, and a `RequestTimeout` because only a root can decide
+/// how long a peer waits - and a test is another composition root. Every other test here reaches it
+/// through [`permitting`] with the settings tree's own defaults.
+async fn served<S>(
+    surface: S,
+    permitted: Permitted,
+    prose: CatalogProse,
+    admission: Admission,
+    reply: RequestTimeout,
+) -> RunningService<RoleClient, ()>
 where
     S: Surface,
 {
     let (client_side, server_side) = tokio::io::duplex(64 * 1024);
-    let server = serve_server(AgentSurface::new(Arc::new(surface), permitted, prose, admission), server_side);
+    let server = serve_server(
+        AgentSurface::new(Arc::new(surface), permitted, prose, admission, reply),
+        server_side,
+    );
     let client = serve_client((), client_side);
     // Both halves of the handshake have to run at once: the server is waiting for `initialize`
     // and the client is waiting for its result, so awaiting either one first deadlocks.
@@ -106,6 +122,15 @@ fn settings(overlay: &str) -> Settings {
 /// The admission bound those settings describe.
 fn admission(overlay: &str) -> Admission {
     Admission::from_settings(settings(overlay).runtime())
+}
+
+/// The reply deadline those settings describe.
+///
+/// Read off the same document as [`admission`], because the two bounds are one deployment's
+/// decision and a test that took the first from a document and the second from a literal could not
+/// tell either read from a constant.
+fn reply(overlay: &str) -> RequestTimeout {
+    settings(overlay).server().request_timeout()
 }
 
 /// Polls `ready` until it holds. `false` if it never did.
@@ -653,6 +678,7 @@ async fn the_configured_bound_is_what_executes_at_once_and_the_next_question_is_
             Permitted::every_capability(),
             CatalogProse::Quoted,
             admission.clone(),
+            settings.server().request_timeout(),
         )
         .await,
     );
@@ -735,7 +761,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     let call = tokio::spawn({
         let service = Arc::clone(&service);
         let admission = admission.clone();
-        async move { super::answer(&service, &admission, a_query()).await }
+        async move { super::answer(&service, &admission, reply(""), a_query()).await }
     });
     assert!(
         eventually(|| holding.inside() == 1).await,
@@ -758,7 +784,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     );
     // And the consequence, which is the whole point of holding it: nothing else may start on top of
     // work that is still running.
-    let shed = super::answer(&service, &admission, a_query()).await;
+    let shed = super::answer(&service, &admission, reply(""), a_query()).await;
     assert_eq!(shed.is_error, Some(true), "a second question ran on top of the first");
 
     // Handed back when the WORK finishes, and not before.
