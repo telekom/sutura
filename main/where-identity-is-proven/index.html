@@ -2663,20 +2663,41 @@ can. So every venue below carries what it <strong>cannot</strong> answer, next t
 <p class="admonition-title">What this page is not</p>
 <p>It is a map of venues, not a coverage report. <strong>yes</strong> means a venue can answer the claim and a
 test in it does; <strong>can</strong> means the venue is capable and the standing test lives somewhere else,
-with the cell saying where; <strong>unrun</strong> means the standing test lives HERE and nothing has run it.
-The test names in the venue sections are what has actually been written, and they are the list
-to check a claim against.</p>
-<p><strong><code>unrun</code> is a token and not a caveat, and the difference is the point.</strong> A written test is not
-a green run, so a venue in that state may not be cited - and <code>cargo xtask check-venues</code> holds
-four things: only <code>yes</code> and <code>can</code> count as answering, an <code>unrun</code> cell is refused for a venue
-nothing reaches, the venue's own section has to use that word, and <strong>a venue whose <code>Reached by</code>
-task CI invokes may not say <code>unrun</code> at all</strong>. It exists because the two-keys venue below is at
-the wrong end of it today and saying so in prose put the difference where nothing read it.</p>
-<p><strong>What that fourth rule does not reach, said next to it:</strong> it reads an <em>invocation</em> in a
-workflow, a local composite action or the shared <code>nix/</code> shell - not a green run. A wired job
-that always skips reddens the cell too, and a run somebody did by hand is invisible to it. So
-<em><code>unrun</code> has stopped being honest</em> is mechanical; <em><code>yes</code> is earned</em> is review's, with the run
-named beside it.</p>
+with the cell saying where; <strong>unrun</strong> means the standing test lives HERE and nothing has run it;
+<strong>wired</strong> means a job now reaches that test and no run of it has been observed. The test names
+in the venue sections are what has actually been written, and they are the list to check a claim
+against.</p>
+<p><strong><code>unrun</code> and <code>wired</code> are tokens and not caveats, and the difference is the point.</strong> A written
+test is not a green run, and neither is a job that will run one, so a venue in either state may
+not be cited. <code>cargo xtask check-venues</code> holds it: only <code>yes</code> and <code>can</code> count as answering,
+neither token may be used by a venue nothing reaches, the venue's own section has to use
+whichever word its cell states, <strong>a venue whose <code>Reached by</code> task CI invokes may not say
+<code>unrun</code></strong>, and <strong>a venue whose <code>Reached by</code> task CI does not invoke may not say <code>wired</code></strong>. The
+last two are one rule pointing both ways, so exactly one of the two is available for any tree.</p>
+<p><strong>Why there are two of them rather than one.</strong> The change that wires a leg into a job cannot
+also produce that leg's first green run - the run happens after the push. So for one commit the
+only moves were a cell the gate refuses and a <code>yes</code> nobody had earned, which is a gate
+satisfiable only by an overstatement. <code>wired</code> is that commit's honest state, and it is still not
+evidence. <strong>Nothing expires it:</strong> a cell can sit in <code>wired</code> for as long as nobody looks, exactly
+as <code>can</code> could before <code>unrun</code> existed. What is mechanical is the pair of transitions around it.</p>
+<p><strong>Three more rules, each added because review found one of the above reachable by spelling.</strong> A
+venue whose own <code>Where it runs</code> cell says it runs <strong>nowhere</strong> may not say <code>yes</code>, <code>can</code> or
+<code>wired</code>: the two columns of a row are read together, because a <code>Reached by</code> that merely named a
+task was otherwise enough to earn a citation for a venue that runs nowhere - and that is the row
+carrying leg 2. A <strong>built</strong> venue whose <code>Reached by</code> names no <code>just &lt;task&gt;</code> or <code>nix run .#&lt;app&gt;</code>
+in backticks is refused, because dropping that prefix made the cell resolve to nothing and its
+verdict permanent. And <em>CI invokes it</em> reads a <strong>command</strong> rather than a substring, because a
+task named inside an <code>echo</code> was resolving as an invocation.</p>
+<p><strong>What none of it reaches, said next to it.</strong> What is read is an <em>invocation</em> in a workflow, a
+local composite action or the shared <code>nix/</code> shell - never a green run. A wired job that always
+skips reads the same as one that passes, and a hand-run is invisible to both. So <em><code>unrun</code> has
+stopped being honest</em> and <em><code>wired</code> is not yet earned</em> are mechanical; <em><code>yes</code> is earned</em> is
+review's, with the run named beside it.</p>
+<p><strong>And the one that is REVIEW's alone, named rather than left to be discovered.</strong> Nothing checks
+that the task a <code>Reached by</code> cell names is the task that runs <em>this</em> venue. Measured: pointing
+the two-keys row at <code>`nix run .#actionlint`</code> - a real, CI-invoked, entirely unrelated lint -
+passes at exit 0. What the gate holds is that a venue's state is consistent with what CI runs;
+that a row describes the thing it names is read by a person.</p>
 </div>
 <h2 id="the-venues">The venues<a class="headerlink" href="#the-venues" title="Permanent link">&para;</a></h2>
 <table>
