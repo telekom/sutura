@@ -368,8 +368,17 @@ exchanges a subject's own assertion through the composition `sutura-serve` ships
 `the_deployments_own_identity_is_neither_principal` is the control, the same read under the
 credential the transport itself holds, without which an exchange that did nothing at all would pass.
 
-**The state is `unrun`**, and that is the token rather than a caveat: the test is written, no run has
-happened, and nothing in CI reaches it. It may not be cited for anything.
+**The state is `unrun`**, and that is the token rather than a caveat: no run has answered the claim
+the cell's column states, and nothing in CI reaches it. It may not be cited for anything.
+
+**One leg HAS run, and it is not that one.** On 2026-09-06,
+`the_deployments_own_identity_is_neither_principal` passed against the acceptance project from a
+developer machine - so `SESSION_USER()` is a statement this endpoint accepts, its answer really is one
+row of one text cell, and the adapter reads it. That makes the observable measured rather than
+plausible and settles nothing about impersonation: the leg runs under the credential the transport
+already holds. It also does not move this cell, twice over - a hand-run is invisible to
+`check-venues` by construction, and the claim in this column is about an EXCHANGE, which that leg
+performs none of.
 
 ### Why nothing reaches it, which is a finding rather than a schedule
 

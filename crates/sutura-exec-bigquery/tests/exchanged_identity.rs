@@ -38,10 +38,19 @@
 //! about a claim it never makes: the two legs here are two subjects, and this cell reads only who
 //! they became.
 //!
-//! # THIS CELL HAS NEVER RUN, and two things stand between it and a run
+//! # ONE LEG HAS RUN AND THE TWO THAT MATTER HAVE NOT, and two things stand between them and a run
 //!
-//! Both were found by writing it, neither is a defect in it, and both are recorded here rather than
-//! in a commit message because the next person to reach for this file needs them first.
+//! **Measured on 2026-09-06, from a developer machine against the acceptance project:**
+//! `the_deployments_own_identity_is_neither_principal` passed. So `SESSION_USER()` is a statement
+//! this endpoint accepts, the answer really is one row of one text cell, and
+//! `BigQueryWarehouse::session_user` reads it - which is what makes the observable this cell rests
+//! on a measured thing rather than a plausible one. **It establishes nothing about impersonation:**
+//! that leg runs under the credential the transport already holds and asserts only that it is
+//! neither principal, which is the control's whole job.
+//!
+//! `each_principal_is_who_this_source_says_it_is_executing_as` has NOT run and cannot be run today.
+//! Both reasons were found by writing it, neither is a defect in it, and both are recorded here
+//! rather than in a commit message because the next person to reach for this file needs them first.
 //!
 //! **1. The environment does not carry a subject assertion per principal.** Issue #376 reasons that
 //! the claim needs only variables that already exist, and that is not so. A plain RFC 8693 exchange
