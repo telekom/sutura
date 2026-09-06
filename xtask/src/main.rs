@@ -20,11 +20,13 @@ mod causality;
 mod changes;
 mod commit_msg;
 mod compose;
+mod conformance;
 mod crap;
 mod default_feature_tests;
 mod default_features;
 mod docs;
 mod examples;
+mod feature_remedies;
 mod fmt;
 mod gate_classification;
 mod guidance;
@@ -278,6 +280,16 @@ const TASKS: &[Task] = &[
         run: refusals::run,
     },
     Task {
+        // Beside `check-refusal-coverage` because it is the other half of the same subject: that
+        // one asks whether a refusal can be provoked, this one whether the REMEDY it prints can be
+        // acted on. `github.com/telekom/sutura#246` made a gate's own remedy resolve; this is the
+        // same rule where the claim is about the manifest rather than about the justfile.
+        name: "check-feature-remedies",
+        description: "a refusal that says to rebuild names a feature the crate declares",
+        kind: Kind::Hygiene(Reads::Code),
+        run: feature_remedies::run,
+    },
+    Task {
         // The third of the newtype rules held by a check, beside `check-serde-parse`. It starts
         // GREEN - there was no first-party `Deref` and no `Borrow` in the tree when it was written
         // - so its whole job is to keep it that way, which makes it the cheapest gate here and the
@@ -321,6 +333,18 @@ const TASKS: &[Task] = &[
         description: "one place in the compose tier can be blocked by a child process",
         kind: Kind::Hygiene(Reads::Code),
         run: bounded_wait::run,
+    },
+    Task {
+        // Beside `check-bounded-wait` because it is the fourth of that shape: a rule the code
+        // cannot state about itself, read as text. What it holds is the half `telekom/sutura#116`
+        // could not - the packs are bound from an adapter's own crate, so WHICH adapters are held
+        // was a reading of which crates carry a `tests/conformance.rs`, and deleting one left
+        // `just validate` green. It starts with ONE declared exemption, because
+        // `docs/adr/0012`'s *one registration, not two* is violated as built.
+        name: "check-conformance-bindings",
+        description: "every registered data system is bound to the conformance packs, or declared unbound",
+        kind: Kind::Hygiene(Reads::Code),
+        run: conformance::run,
     },
     Task {
         name: "line-endings",

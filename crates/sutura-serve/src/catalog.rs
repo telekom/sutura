@@ -45,9 +45,15 @@ fn open_one_catalog(settings: &sutura_config::CatalogSettings) -> Result<LocalCa
             PathBuf::from(settings.dir()),
             settings.version().clone(),
         )),
+        // NO instruction to rebuild, and that is the point rather than a wording preference:
+        // `github.com/telekom/sutura#366`. This crate declares no feature that links the adapter and
+        // does not depend on it in any form, so "build with the feature that provides it" named
+        // nothing an operator could type. What a binary cannot do is a fact about the binary; the
+        // second kind IS reachable, so that is what the sentence offers.
+        // `check-feature-remedies` is what keeps the next message of this shape honest.
         sutura_config::CatalogKind::Datahub => Err(format!(
-            "`catalog.kind: {}` names a metadata adapter this build does not link - build the binary \
-             with the feature that provides it, or write `markdown`",
+            "`catalog.kind: {}` names a metadata adapter no build of this binary links - write \
+             `markdown`, the one catalog kind it can open",
             sutura_config::CatalogKind::Datahub.as_str()
         )),
     }

@@ -305,9 +305,55 @@ declaration. Neither touches a pack body, and that is the property the requireme
   aggregating them per pack and per adapter rather than instrumenting anything.
 
   **"Reported from the start" is what this line said until the first packs landed without them, and
-  the correction is the point:** nothing aggregates a duration per pack or per adapter, and no gate
-  reads one. What exists is nextest's own per-test line, which is per CELL and is discarded unless a
-  reader passes a flag. Tracked, rather than left as a sentence a reader would take for a mechanism.
+  the correction was the point:** nothing aggregated a duration per pack or per adapter, and no gate
+  read one. What existed was nextest's own per-test line, which is per CELL and is discarded unless a
+  reader passes a flag.
+
+  **What ships now, and the sentence above it that was wrong about the MECHANISM rather than the
+  tense.** *"`cargo nextest` already reports per-test durations, so the missing half is aggregating
+  them rather than instrumenting anything"* is false, and measuring is what showed it. nextest
+  reports one duration per cell, which cannot be split at the seam that makes this matrix
+  multiplicative: `execute_packs!` rebuilds the fixture once per BEHAVIOUR, so a cell's number is
+  *fixture plus behaviour* and aggregating it would report the fixture as the behaviour's cost.
+  **Measured, and stated as the measurement survived re-taking.** The figure this record rests on is
+  a FRACTION rather than an ordering: over the two bindings with the instrumented split, *the
+  fixture is between a third and three quarters of every cell* - 43-68% per cell across four
+  serialized re-takes of
+  `cargo nextest run -p sutura-exec-duckdb -p sutura-exec-datafusion --all-features -E 'binary(conformance)'`
+  with `--test-threads=1`, and 35-71% per cell on a `just test` run of the whole suite, where the
+  per-adapter totals came out 74.1 of 125.0 ms for `duckdb` and 42.5 of 88.1 ms for `datafusion`.
+  The limit case is the DECLINED cell, and it is the clearest statement of the seam: `datafusion`'s
+  pre-flight behaviour ran 5.6 ms of fixture against 22.5 µs of pack, because `dry_run` answered
+  `NotAsked` and nothing was checked - a per-cell duration would have reported that as the cost of
+  the behaviour.
+
+  **An earlier version of this paragraph read the ORDERING off one sample, and that does not
+  reproduce - withdrawn rather than quietly kept.** It said the fixture was the larger term for one
+  adapter and the smaller for the other, from `duckdb` at 39.2 against 16.4 ms and `datafusion` at
+  24.2 against 49.9 ms; re-taken, `datafusion`'s fixture was the larger term in three of four runs,
+  so the reading held in one run of four. The absolute numbers moved by about 5x across those runs
+  on a machine with concurrent builds, which is exactly why a single sample cannot carry an
+  ordering - and why `n` and the spread are printed here beside the number that survived.
+
+  The structural argument needs no ordering, and that is the point of keeping it separate: nextest
+  reports one duration per cell, the fixture is INSIDE it, and under nextest each test is its own
+  process, so nothing in a run can join two numbers. The aggregation the withdrawn sentence assumed
+  would have to be a gate reading a run's machine-readable output.
+
+  So the deliverable is a REPORT, taken at the two `Instant`s that sentence said were unnecessary.
+  `sutura_conformance::Spent` is a witness whose fields are private and whose constructors both
+  measure - a `Duration` parameter would have let a caller report a number nobody took - every cell
+  prints `total (fixture + pack)` beside its behaviour's name, and the census prints the per-adapter
+  FLOOR: `behaviours x fixture`, the cost a binding pays before an assertion runs, multiplied by the
+  same list the census compares, so the multiplier is the number of tests actually emitted rather
+  than a constant beside it. `.config/nextest.toml`'s second override is what keeps all of it on a
+  green run.
+
+  **Two halves deliberately not taken, each for its own reason.** Aggregating per PACK across
+  adapters is a gate over a run's output rather than a measurement, and it needs the run artefacts a
+  test process has not got. And a BUDGET: a threshold nobody measured cannot be re-taken, so the
+  numbers above are cited with the command that produced them and any budget comes second with its
+  own measurement.
 
 ## Consequences
 
@@ -330,16 +376,40 @@ declaration. Neither touches a pack body, and that is the property the requireme
   cannot be a dependency an adapter's own crate takes, which is the whole reason the crate exists.
 - The existing `tests/adapters` registry becomes the place an adapter is registered for the matrix,
   and the macro invocation is what registers it for the packs. One registration, not two - **and as
-  built it is two, with nothing relating them.** A data system is named in
+  built it was two, with nothing relating them.** A data system is named in
   `crates/sutura-app/tests/adapters/mod.rs` and bound again in its own crate's
-  `tests/conformance.rs`, and no gate compares the two lists: deleting a binding leaves every check
-  green. The gate that closes it reads the registry against the set of crates holding a binding, and
-  it arrives with ONE declared exemption - `sutura-exec-postgres`, registered and deliberately
-  unbound until the harness has a way to say *no tier is up here* that is not a pass. Until then this
-  consequence is a decision the tree does not yet meet, which is a thing to state rather than to
-  round up. And that
-  registry becomes the source CI's own job matrix is EMITTED from, rather than a category list typed into
-  a workflow file. A registered adapter absent from CI's matrix is not an error in YAML, which is the
-  quiet way a new adapter ends up conformance-tested locally and untested in CI.
+  `tests/conformance.rs`, and no gate compared the two lists: deleting a binding left every check
+  green.
+
+  **`cargo xtask check-conformance-bindings` is what relates them now**, and the shape is the part
+  worth recording: the registry side is DERIVED - the `data_systems` arm read out of the tree, with
+  each entry's crate taken from the first path segment of the adapter type it names - because a
+  hand-written list of adapters is a second thing to keep true. Two candidate sources were rejected
+  and the reasons generalise: `Warehouse` implementors cannot be told apart from the fakes by any
+  text scan, and crate membership counts a crate nobody registered (`sutura-exec-bigquery` is
+  exactly that). It holds both directions, and it also holds the two properties the per-adapter and
+  whole-suite nextest selectors rest on and nothing enforced - the binding's file name and its
+  wrapper module - which is why `telekom/sutura#135` wants the same gate.
+
+  **What it compares is a written INVOCATION and its position, never an emitted test name, and the
+  strong form is DEFERRED rather than claimed.** Three text shapes were measured satisfying a needle
+  while emitting no cell - a `cfg` the gate cannot evaluate, a one-line string literal spelling the
+  invocation, and the invocation inside an uninvoked `macro_rules!` body - and each is now a refusal
+  naming the file and line, alongside a manifest that turns off test autodiscovery. That is as far
+  as text reaches: proving the test EXISTS needs a run's machine-readable output, which is the same
+  artefact the withdrawn aggregation sentence above assumed and the same one a per-pack aggregate
+  would need. Recording it here is the decision; a gate over a run's output is where it would live.
+
+  **It arrives with ONE declared exemption, and that exemption IS this consequence going unmet:**
+  `sutura-exec-postgres`, registered and deliberately unbound until the harness has a way to say
+  *no tier is up here* that is not a pass. The golden matrix has one (`DataSystemUnderTest::available`)
+  and the packs carry no equivalent, so a binding written today would be green over a data system
+  that never answered. An exemption that stops being true - naming an entry the registry no longer
+  carries, naming the wrong crate, or excusing something that turns out to be bound - fails the gate
+  rather than quietly widening it.
+
+  And that registry becomes the source CI's own job matrix is EMITTED from, rather than a category
+  list typed into a workflow file. A registered adapter absent from CI's matrix is not an error in
+  YAML, which is the quiet way a new adapter ends up conformance-tested locally and untested in CI.
 - Compile packs make the semantic compiler testable against N catalogs with no data system, which is
   the tier most of the value lives in and the one that can run on every push.

@@ -53,9 +53,17 @@
 //!   `.agents/skills/sutura/invariants`, held by other mechanisms.
 //! - **That the corpus is hard.** It is two questions over one table - [`corpus`] lists by name the
 //!   cases `docs/adr/0012` says nothing else finds, none of which is here yet.
-//! - **That every adapter is held.** A pack is bound where an adapter's own crate binds it, so which
-//!   adapters conform is a question about which crates carry a `tests/conformance.rs`, and the
-//!   answer is in those crates rather than here.
+//! - **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
+//!   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
+//!   crates carry a `tests/conformance.rs` - deleting one left `just validate` green.
+//!   `cargo xtask check-conformance-bindings` compares the golden matrix's `data_systems` registry
+//!   against the crates holding a binding, with one declared exemption. **Its limit is the one this
+//!   crate cannot help with:** it holds that a registered data system HAS a binding, never that a
+//!   pack's body asserts anything - the four mechanisms above are what cover that, and a pack
+//!   returning `Ok` unconditionally passes all of them and the gate.
+//! - **A COST, rather than a budget.** [`Spent`] reports what every cell and every fixture took,
+//!   and [`census`] prints the per-adapter floor; nothing thresholds either, and nothing joins two
+//!   adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
 
 /// The domain, re-exported so [`execute_packs`] can name the port without the consuming crate
 /// having to depend on `sutura-domain` under that spelling.
@@ -165,6 +173,104 @@ pub enum Declination {
     OffersNoPreFlight,
 }
 
+/// What one cell of the matrix cost, measured rather than stated.
+///
+/// **`docs/adr/0012` said per-pack timings were reported *from the start* and nothing measured
+/// one** (`telekom/sutura#353`). The record's own argument for having them is the one that governs
+/// every number in this repository: a conformance matrix grows multiplicatively - adapters times
+/// behaviours times cases - so *the tier that is supposed to be fast stops being fast quietly*, and
+/// the fast tier is defended with a measurement or it is defended with a feeling.
+///
+/// # Two numbers, and the seam between them is where the multiplication is
+///
+/// [`execute_packs`] calls the binding's `open` once per BEHAVIOUR, so the fixture - opening the
+/// adapter and attaching the corpus - is paid once per emitted test rather than once per binding.
+/// That is deliberate, because no state may cross between tests, and it is also the term that
+/// grows fastest - so one total would hide the thing a reader needs: whether a slow cell is a slow
+/// behaviour or a slow fixture paid six times.
+///
+/// # It cannot be fabricated, which is why it is a type
+///
+/// The fields are private and both constructors MEASURE. A `Duration` parameter would have let a
+/// caller report a number nobody took, which is the shape this repository has already paid for: a
+/// count in a message is not a witness.
+///
+/// # What it does not reach, next to the claim
+///
+/// **Nothing joins two adapters' numbers.** A pack is a behaviour name shared across adapters, and
+/// each binding is its own test binary in its own crate - under nextest each test is its own
+/// PROCESS - so no value here can see another binding's. Aggregating per pack ACROSS adapters
+/// needs a reader of a run's machine-readable output, which is a gate rather than a measurement;
+/// `docs/adr/0012` carries that split. **And nothing thresholds any of this**: a budget with no
+/// run beside it cannot be re-taken, so the report is the deliverable and a budget comes second
+/// with its own measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Spent {
+    /// Building the fixture: the adapter opened and the corpus attached.
+    fixture: core::time::Duration,
+    /// Running the behaviour against it.
+    pack: core::time::Duration,
+}
+
+impl Spent {
+    /// Builds the fixture, runs the behaviour against it, and reports what each cost.
+    ///
+    /// Both halves are measured here rather than by the caller, so a cell's numbers and the work
+    /// they are about cannot be paired wrongly and the split is the same split in every binding.
+    pub fn measuring<W, T>(open: impl FnOnce() -> W, run: impl FnOnce(&W) -> T) -> (T, Self) {
+        let building = std::time::Instant::now();
+        let warehouse = open();
+        let fixture = building.elapsed();
+        let running = std::time::Instant::now();
+        let answered = run(&warehouse);
+        (
+            answered,
+            Self {
+                fixture,
+                pack: running.elapsed(),
+            },
+        )
+    }
+
+    /// The fixture alone: what [`census`] measures, because it runs no behaviour.
+    #[must_use]
+    pub fn building<W>(open: impl FnOnce() -> W) -> Self {
+        let ((), spent) = Self::measuring(open, |_| ());
+        spent
+    }
+
+    /// What the fixture cost.
+    #[inline]
+    #[must_use]
+    pub const fn fixture(self) -> core::time::Duration {
+        self.fixture
+    }
+
+    /// What the behaviour cost, once the fixture was standing.
+    #[inline]
+    #[must_use]
+    pub const fn pack(self) -> core::time::Duration {
+        self.pack
+    }
+}
+
+impl core::fmt::Display for Spent {
+    /// One decimal, through `Duration`'s own precision-aware formatter.
+    ///
+    /// **Not a hand-rolled millisecond conversion**, and the reason is a lint rather than taste:
+    /// `clippy::float_arithmetic` is denied here, and an integer one needs a division that
+    /// `clippy::integer_division` refuses - so the honest option is the one std already has, which
+    /// also picks the unit rather than forcing a sub-millisecond cell to read `0.0`.
+    ///
+    /// A cheap honest number beside every behaviour is worth more than a precise one that never
+    /// ships, and this shape is what makes the per-pack aggregate a `grep` over a green run: the
+    /// behaviour's own name is on the same line.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let total = self.fixture.saturating_add(self.pack);
+        write!(f, "{total:.1?} (fixture {:.1?} + pack {:.1?})", self.fixture, self.pack)
+    }
+}
+
 /// Why a behaviour did not hold.
 ///
 /// Generic in the adapter's own error, so a data system's typed failure survives to the report
@@ -234,34 +340,38 @@ where
 /// What one behaviour of one pack answers.
 pub type Conformed<E> = Result<Outcome, Fault<E>>;
 
-/// Reports one behaviour, and fails the test if it did not hold.
+/// Reports one behaviour with what it cost, and fails the test if it did not hold.
 ///
 /// The only place in this crate that ends a test, so what a failure prints is decided once: the
-/// adapter, the behaviour, and the whole cause chain. `Display` on a `thiserror` enum prints the
-/// outermost message and stops, and the outermost message here is the pack's - what tells a rejected
-/// statement from an outage is one and two levels down.
+/// adapter, the behaviour, the cost, and the whole cause chain. `Display` on a `thiserror` enum
+/// prints the outermost message and stops, and the outermost message here is the pack's - what
+/// tells a rejected statement from an outage is one and two levels down.
+///
+/// **The cost is on the failing line too**, and that is not symmetry for its own sake: a cell that
+/// failed in two milliseconds and one that failed after thirty seconds are different diagnoses, and
+/// the second is the one `docs/adr/0012` says goes quiet.
 #[expect(
     clippy::panic,
     reason = "this is the pack boundary's one assertion: a conformance failure IS a test failure, \
               and the panic message is what makes the report name the behaviour rather than only \
               the adapter"
 )]
-pub fn hold<E>(adapter: &str, behaviour: Behaviour, conformed: Conformed<E>)
+pub fn hold<E>(adapter: &str, behaviour: Behaviour, conformed: Conformed<E>, spent: Spent)
 where
     E: core::error::Error + 'static,
 {
     match conformed {
-        Ok(Outcome::Held) => println!("conformance {adapter}: HELD - {}", behaviour.as_str()),
+        Ok(Outcome::Held) => println!("conformance {adapter}: HELD - {} - {spent}", behaviour.as_str()),
         Ok(Outcome::Declined(why)) => {
-            println!("conformance {adapter}: DECLINED - {} - {why}", behaviour.as_str());
+            println!("conformance {adapter}: DECLINED - {} - {spent} - {why}", behaviour.as_str());
         }
-        Err(fault) => panic!("conformance {adapter}: {} - {}", behaviour.as_str(), chain(&fault)),
+        Err(fault) => panic!("conformance {adapter}: {} - {spent} - {}", behaviour.as_str(), chain(&fault)),
     }
 }
 
-/// What a binding actually covered, asserted and printed.
+/// What a binding actually covered, asserted and printed - with the cost of covering it.
 ///
-/// Three things, and the first is the one a review had to correct:
+/// Four things, and the first is the one a review had to correct:
 ///
 /// 1. **the behaviours the binding actually emitted tests for are [`Behaviour::EVERY`]**. `bound`
 ///    is not a second hand-written list: [`execute_packs`] generates it from the same repetition
@@ -273,11 +383,20 @@ where
 /// 3. the counts are PRINTED - behaviours, cases, and which direction the leg declaration selected.
 ///    A suite that reports a ratio it has not earned is the failure this repository has already met
 ///    twice, and `.config/nextest.toml`'s second override is what makes this line survive a green
-///    run instead of being captured and discarded.
+///    run instead of being captured and discarded;
+/// 4. **the per-adapter FLOOR is printed, from a measurement.** `docs/adr/0012` asks for timings
+///    aggregated per pack and per adapter (`telekom/sutura#353`); this is the per-adapter half that
+///    a test process can actually take. [`execute_packs`] rebuilds the fixture once per behaviour,
+///    so `behaviours x fixture` is the cost this binding pays before a single assertion runs - the
+///    multiplicative term the record's *stops being fast quietly* is about. It is derived from the
+///    same `bound` slice the comparison above uses, so the multiplier is the number of tests that
+///    were actually emitted rather than a constant beside it.
 ///
 /// What it cannot do: know that a behaviour's BODY asserts anything. A pack that returned `Ok`
-/// unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for.
-pub fn census<W>(adapter: &str, bound: &[Behaviour])
+/// unconditionally passes every census, which is what `tests/bound.rs`'s fault half is for. And
+/// the floor is a FLOOR: it is not the tier's cost, it says nothing about another adapter's cells,
+/// and no gate reads it - see [`Spent`] for why each of those is deliberate.
+pub fn census<W>(adapter: &str, bound: &[Behaviour], fixture: Spent)
 where
     W: Warehouse,
 {
@@ -299,9 +418,15 @@ where
     } else {
         "REFUSED (the adapter declares it does not)"
     };
+    let floor = fixture
+        .fixture()
+        .saturating_mul(u32::try_from(bound.len()).unwrap_or(u32::MAX));
     println!(
-        "conformance {adapter}: {} behaviour(s) over {cases} case(s), and the leg one {direction}",
+        "conformance {adapter}: {} behaviour(s) over {cases} case(s), and the leg one {direction} - \
+         the fixture costs {:.1?} and every behaviour rebuilds it, so this binding's floor is \
+         {floor:.1?}",
         bound.len(),
+        fixture.fixture(),
     );
 }
 
@@ -457,17 +582,31 @@ macro_rules! execute_packs {
         $(
             #[test]
             fn $test_name() {
-                $crate::hold(
-                    ADAPTER,
-                    $crate::Behaviour::$variant,
-                    $crate::execute::$pack(&$open()),
-                );
+                // `Spent::measuring` builds the fixture AND runs the behaviour, so the two numbers
+                // it reports cannot be paired with the wrong work - and the split is what says
+                // whether a slow cell is a slow behaviour or a fixture paid once per behaviour.
+                //
+                // The pack is handed over as a FUNCTION ITEM rather than wrapped in a closure, and
+                // that is a lint rather than a style: `clippy::result_large_err` inspects a
+                // closure's return type at its definition site, so `|w| pack(w)` reported every
+                // adapter's own `Fault<E>` as too large to return - six errors per binding, in the
+                // adapter's crate, about a type this crate owns.
+                let (conformed, spent) = $crate::Spent::measuring($open, $crate::execute::$pack);
+                $crate::hold(ADAPTER, $crate::Behaviour::$variant, conformed, spent);
             }
         )*
 
         #[test]
         fn every_behaviour_this_declaration_selects_has_a_test_here() {
-            $crate::census::<$warehouse>(ADAPTER, &[$($crate::Behaviour::$variant),*]);
+            // The fixture is measured HERE rather than passed in, so the number this binding's
+            // floor is computed from is one this crate took. It costs one more `open` in a target
+            // that already pays one per behaviour, which is the cheapest place to buy the
+            // multiplicative term `docs/adr/0012` asks to have measured.
+            $crate::census::<$warehouse>(
+                ADAPTER,
+                &[$($crate::Behaviour::$variant),*],
+                $crate::Spent::building($open),
+            );
         }
     };
 }
