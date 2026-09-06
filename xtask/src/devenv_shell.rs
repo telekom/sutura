@@ -27,11 +27,11 @@
 //!    transitively, so `runs`, `onStable` and `sourced` are wrappers because they reach `linted`.
 //!    A binding that only looks like one is not.
 //! 2. **The scan is fail-closed at both ends.** An unreadable module, an `imports` entry this
-//!    cannot follow, no wrapper at all, and a discovery pass that found NOTHING are each a
-//!    refusal. #402's own measurement of this repository's gates is the argument: over a
-//!    whole-repo falsifier tree only 3 of 31 refused because their own rule fired, 20 refused on
-//!    a missing input and 8 on an empty-scan floor - so a gate wants all three arms, and wants to
-//!    say which one answered.
+//!    cannot follow, no wrapper at all, a wrapper NAME bound twice, and a discovery pass that
+//!    found NOTHING are each a refusal. #402's own measurement of this repository's gates is the
+//!    argument: over a whole-repo falsifier tree only 3 of 31 refused because their own rule
+//!    fired, 20 refused on a missing input and 8 on an empty-scan floor - so a gate wants all
+//!    three arms, and wants to say which one answered.
 //! 3. **The wrapper's argument set is CLOSED.** #402's seventh escape defeated the linter rather
 //!    than the rule: `checkPhase = "true";` added to `linted` removes `bash -n` AND `shellcheck`
 //!    from every body, and every textual gate stayed green because they held the spelling
@@ -205,6 +205,38 @@ fn wrappers(modules: &[Module]) -> BTreeSet<String> {
     }
 }
 
+/// A wrapper name bound more than once, if there is one.
+///
+/// **A NAME is the whole of rule 1, so a name that means two things defeats it.** Bind
+/// `onStable = name: body: body;` in a nested `let` and a body assigned through it reads as
+/// routed while reaching no linter - the text scan cannot say which binding a use site resolves
+/// to, and Nix scoping is not modelled here. So a duplicate is refused rather than resolved:
+/// this is a refusal over a shape nobody writes, which is what a ratchet on a hole should be.
+fn shadowed(modules: &[Module], wrapped: &BTreeSet<String>) -> Option<String> {
+    for name in wrapped {
+        let sites: Vec<String> = modules
+            .iter()
+            .flat_map(|module| {
+                module
+                    .assignments
+                    .iter()
+                    .filter(|a| a.lets > 0 && &a.attribute == name)
+                    .map(|a| format!("{}:{}", module.rel, a.line))
+            })
+            .collect();
+        if sites.len() > 1 {
+            return Some(format!(
+                "`{name}` is bound {} times ({}) - a body assigned through that name reaches \
+                 whichever binding Nix scoping picks, and this gate reads text rather than \
+                 evaluating it. One binding per wrapper name, or the routing rule means nothing",
+                sites.len(),
+                sites.join(", ")
+            ));
+        }
+    }
+    None
+}
+
 /// The argument set the wrapper hands the linter, or why it could not be read.
 ///
 /// Returns the set so the verdict can name it: a reader who sees `name, bashOptions, text` knows
@@ -374,6 +406,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         );
     }
 
+    if let Some(reason) = shadowed(&read, &wrapped) {
+        return refuse("its own rule", &[reason]);
+    }
+
     let declared = match arguments(&read) {
         Ok(declared) => declared,
         Err(reason) => return refuse("its own rule", &[reason]),
@@ -527,6 +563,19 @@ in
         ));
         assert!(faked.contains("linted"));
         assert!(!faked.contains("fake"), "{faked:?}");
+    }
+
+    #[test]
+    fn a_wrapper_name_bound_twice_is_a_refusal_rather_than_a_guess() {
+        // A NAME is the whole of rule 1, so a second binding of one - `onStable = n: b: b;` in a
+        // nested `let` - would make a routed body reach no linter. Nix scoping is not modelled
+        // here, so the duplicate is refused instead of resolved.
+        let read = module(&GOOD.replace("in\n{", "  nested = let onStable = n: b: b; in onStable;\nin\n{"));
+        let wrapped = wrappers(&read);
+        let refusal = super::shadowed(&read, &wrapped).expect("a shadowed wrapper refuses");
+        assert!(refusal.contains("`onStable` is bound 2 times"), "{refusal}");
+        // And the real tree has one binding per wrapper name.
+        assert!(super::shadowed(&module(GOOD), &wrappers(&module(GOOD))).is_none());
     }
 
     #[test]
