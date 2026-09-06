@@ -12,19 +12,32 @@
 //! That one resolves a CONSTANT out of the tree. This resolves an ABSENCE: the sentence says the
 //! tree holds no such thing, and the entry says what holding one would look like.
 //!
-//! # Both sides are read, and only one failure is the sighting
+//! # Every way this reports `ok` over nothing, and the arm that refuses it
 //!
-//! A count is a witness only when its two numbers come from different places, so an entry is red
-//! four ways:
+//! A number is a witness only when it comes from somewhere the mutation cannot reach, so an entry
+//! is red six ways and only one of them is the sighting. **Five of the six were measured as live
+//! holes in review** rather than imagined:
 //!
+//! * **the table is empty** - both printed numbers derive from iterating it, so they collapse
+//!   together and `0 statement(s) over 0 file(s)` reads exactly like a clean tree. Measured:
+//!   `ABSENCES = &[]` left 1023 tests green and the gate at exit 0;
 //! * **nothing states the absence** - the tree is scanned and compared to nothing, which is
 //!   `count_mismatches`' and `version_mismatches`' failure and was live in both;
 //! * **a sighting's globs reach no file** - a scan whose subject is unscanned reports the absence
 //!   held without having read anything, which is the defect this repository has shipped most often;
+//! * **a sighting's walk is TRUNCATED inside a file** - measured: `.enumerate().take(2)` on the line
+//!   walk left every test green with a planted refutation on line 837 unseen, **and neither printed
+//!   number moved**, because a per-FILE count cannot see a per-LINE truncation. [`Reading::lines`]
+//!   is the number that moves, and it is what makes the pair a witness;
 //! * **a file in scope could not be read** - the same defect one file at a time, which
 //!   `check-docs` and `check-shipped-binaries` each shipped as a silent `continue` above their own
 //!   fail-closed arm;
 //! * **a sighting stands** - the absence is refuted, and the message names both ends.
+//!
+//! The composition is held one layer up: [`absence_problems`] is called from `guidance::tree_problems`
+//! rather than from `run`, so `tests::a_check_dropped_from_the_run_is_caught` covers the CALL.
+//! Measured before that move: replacing `problems.extend(refuted)` with a discard left 1023 tests
+//! green and printed a verdict byte-identical to a clean run over a planted refutation.
 //!
 //! # What it holds, and where it stops
 //!
@@ -33,6 +46,14 @@
 //!   [`prose`] is what makes the wider scope safe rather than an exception list - for a `.rs` file
 //!   only DOC COMMENTS are read, markers stripped, so this gate's own table (string literals, under
 //!   `xtask/`) is unreadable to it twice over.
+//! * **A sighting reads the code image AND the string literals.** `code_lines` blanks the interior of
+//!   any string that SPANS LINES, which is its documented contract - so a `format!` whose literal is
+//!   `\`-continued in this tree's house style was invisible to the blanked image alone. Measured: the
+//!   very line `#370` names, `inbound/gate.rs:173`, rewritten as a continued literal carrying the
+//!   parameter, passed at exit 0 while the single-line form failed; **the difference was one
+//!   backslash**, and 291 continued literals sit under `crates/*/src`. [`string_literals`] is
+//!   `code_lines`' documented inverse over the same walk, so reading both asks one question twice
+//!   rather than answering it twice.
 //! * **A sighting is a literal authored per entry, not a caller set derived from a name.** Deriving
 //!   one was measured and rejected: on 2026-09-06 `.and(` occurred 23 times under `crates/`, of which
 //!   exactly one was the call the combiner sentence was about and the rest were `Option::and` and a
@@ -42,20 +63,24 @@
 //!   entry below says what its glob covers. It under-claims in a direction a reader can see.
 //! * **Test code does not refute an absence.** [`regions::scope`] classifies it, including an
 //!   out-of-line `#[cfg(test)] mod x;` whose marker is in the parent file - the shape the entries
-//!   below actually have. What it does not reach is a `#[cfg(test)]` on something other than
-//!   an item with a body or a declaration.
+//!   below actually have. What it does not reach is a `#[cfg(test)]` on something other than an item
+//!   with a body or a declaration. **And it exempts a file whose PATH holds `/tests/` whole**, on the
+//!   path alone - so `crates/*/src/**/tests/*.rs` is invisible to a sighting. That is why the floor
+//!   counts PRODUCTION LINES: such a file contributes none, where a per-file count would have risen
+//!   from 446 to 448 while coverage went down.
 //! * **A `///` inside a multi-line string literal reads as prose here**, the same limit `constants`
 //!   states about itself. Nothing in this tree is in that shape.
 //! * **A literal is matched, so a paraphrase escapes** - the limit `AGENTS.md` records for the leak
 //!   guard and `claims` records for itself. This is a reader for the sentence somebody wrote, not
 //!   for the one they meant.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::claims::flatten;
 use crate::causality::regions;
 use crate::repo::matches_any;
-use crate::serde_parse::scan::code_lines;
+use crate::serde_parse::scan::{code_lines, string_literals};
 
 /// What the tree would have to hold for an absence to be false.
 struct Sighting {
@@ -91,12 +116,16 @@ struct Absence {
 
 /// Short for the reason `COUNTS` is short: an absence is worth a gate when a reader would plan
 /// against it. How many there are is `cargo xtask check-guidance`'s own success line, which prints
-/// the statements read and the files opened - written there rather than here, because a number in
-/// prose that a command answers is the defect this module exists for.
+/// the statements read, the files opened and the production lines searched - written there rather
+/// than here, because a number in prose that a command answers is the defect this module exists for.
 ///
-/// Each of these is a limit somebody is told to work around - configure a client out of band, do not
+/// **Emptying this table is a FAILURE, not a clean tree** - see [`absences_hold`]. Both printed
+/// numbers derive from iterating it, so they are two counters from one source and collapse together;
+/// the arm that refuses that is what makes them a floor rather than a decoration.
+///
+/// Each entry is a limit somebody is told to work around - configure a client out of band, do not
 /// alert on a gauge, do not read an accessor as covered - so the day it stops being true is the day
-/// an instruction has to be withdrawn. That is the property the entry holds, not the sentence.
+/// an instruction has to be withdrawn. That is the property held here, not the sentence.
 ///
 /// **Not here, and deliberately.** The combiner sentence `#370` opens with is corrected rather than
 /// registered: it is already false, so an entry for it would be a gate that fails on landing, and
@@ -225,13 +254,18 @@ fn statements(root: &Path, files: &[String], absence: &Absence, unread: &mut Vec
 
 /// What one sighting's scan read, and what it found.
 ///
-/// `scanned` is the half that matters in a GREEN run: a hit list is empty both when the absence
-/// holds and when the walk read nothing, and those are opposite verdicts.
+/// `files` and `lines` are the halves that matter in a GREEN run: a hit list is empty when the
+/// absence holds, when the walk opened nothing, **and when it opened everything and read the first
+/// two lines of each**. Only `lines` separates the third from the first.
 struct Sighted {
-    /// Files actually opened.
-    scanned: usize,
-    /// Production lines holding the literal: the file, and the one-based line.
-    hits: Vec<(String, usize)>,
+    /// Distinct files that contributed at least one production line.
+    files: BTreeSet<String>,
+    /// Production lines actually searched. A file `regions::scope` exempts whole contributes none,
+    /// which is why this cannot rise while coverage falls.
+    lines: usize,
+    /// Production lines holding the literal: the file, and the one-based line. A set, because a
+    /// single-line literal is found by the code image AND by the literal walk.
+    hits: BTreeSet<(String, usize)>,
     /// Files in scope that could not be read.
     unread: Vec<String>,
 }
@@ -241,6 +275,10 @@ struct Sighted {
 /// A file in scope that cannot be read goes in [`Sighted::unread`] rather than being skipped: the
 /// hit list being empty is the verdict, and a walk that quietly dropped a file would report exactly
 /// that. See [`statements`] for why the guard cannot fire on a binary.
+///
+/// **TWO images of every file, and the second is not an optimisation.** The blanked one gives a line
+/// number for a call; [`string_literals`] gives the body of a literal whose interior the blanked one
+/// removes when it spans lines. The module header records the measurement that forced it.
 fn sighted(root: &Path, files: &[String], sighting: &Sighting) -> Sighted {
     // The blanked image is what both the region walk and the search read, so a `#[cfg(test)]` in a
     // comment opens no region and a needle in a comment is not a call. `regions::scope` follows a
@@ -252,26 +290,42 @@ fn sighted(root: &Path, files: &[String], sighting: &Sighting) -> Sighted {
             .map(|text| code_lines(&text).join("\n"))
     };
     let mut found = Sighted {
-        scanned: 0,
-        hits: Vec::new(),
+        files: BTreeSet::new(),
+        lines: 0,
+        hits: BTreeSet::new(),
         unread: Vec::new(),
     };
     for rel in files {
         if !matches_any(sighting.over, rel) {
             continue;
         }
-        let Some(code) = read(rel) else {
+        let (Some(code), Ok(raw)) = (read(rel), std::fs::read_to_string(root.join(rel))) else {
             found.unread.push(rel.clone());
             continue;
         };
-        found.scanned = found.scanned.saturating_add(1);
         let tests = regions::scope(rel, &read);
+        let mut production = 0_usize;
         for (index, line) in code.lines().enumerate() {
             let number = index.saturating_add(1);
-            if tests.covers(number) || !line.contains(sighting.holds) {
+            if tests.covers(number) {
                 continue;
             }
-            found.hits.push((rel.clone(), number));
+            // Counted BEFORE the match, so the floor measures the walk rather than its findings.
+            production = production.saturating_add(1);
+            if line.contains(sighting.holds) {
+                found.hits.insert((rel.clone(), number));
+            }
+        }
+        // The half the blanked image cannot show. A literal is attributed to the line its opening
+        // quote sits on, which is the line a reader opens.
+        for literal in string_literals(&raw) {
+            if !tests.covers(literal.line) && literal.body.contains(sighting.holds) {
+                found.hits.insert((rel.clone(), literal.line));
+            }
+        }
+        if production > 0 {
+            found.files.insert(rel.clone());
+            found.lines = found.lines.saturating_add(production);
         }
     }
     found
@@ -279,27 +333,44 @@ fn sighted(root: &Path, files: &[String], sighting: &Sighting) -> Sighted {
 
 /// What the run actually read, so a green line can say so.
 ///
-/// Two numbers from two different places - statements out of prose, files out of the tree - because
-/// one of them alone is what a gate over silence prints.
+/// Three numbers from three different places - statements out of prose, distinct files out of the
+/// tree walk, production lines out of the walk INSIDE each file. The third exists because the first
+/// two cannot see a truncated line walk, which is the mutation that survived review.
 pub(super) struct Reading {
     /// Statements of an absence found.
     pub(super) stated: usize,
-    /// Files a sighting opened.
-    pub(super) scanned: usize,
+    /// Distinct files a sighting opened and read at least one production line of. Distinct rather
+    /// than summed: the old number counted one file once per entry, so it grew with the table and
+    /// could never be a coverage floor.
+    pub(super) files: usize,
+    /// Production lines searched, across every sighting. **The number a per-file count cannot
+    /// replace** - see [`Sighted`].
+    pub(super) lines: usize,
 }
 
 /// The absences, held against the tree.
 ///
 /// Takes the table rather than reading the const, so the fixtures in `tests` exercise the code the
 /// gate runs and not a re-implementation of it - `remedies_hold`'s reason, and the one that makes
-/// the empty-set and truncated-walk cases provable at all.
+/// the empty-table, empty-set and truncated-walk cases provable at all.
 fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<String>, Reading) {
     let mut problems = Vec::new();
-    let mut reading = Reading { stated: 0, scanned: 0 };
+    let mut stated_total = 0_usize;
+    let mut scanned: BTreeSet<String> = BTreeSet::new();
+    let mut lines = 0_usize;
+    if table.is_empty() {
+        // FAIL CLOSED on the table itself. Every number below is derived by iterating it, so an
+        // empty table makes them agree at zero and the verdict reads like a clean tree - measured,
+        // with 1023 tests green. A check with no subject is not a check.
+        problems.push(String::from(
+            "ABSENCES is empty, so this check reads nothing and every number it prints is zero - \
+             a gate with no subject, not a tree with no defect",
+        ));
+    }
     for absence in table {
         let mut unread = Vec::new();
         let stated = statements(root, files, absence, &mut unread);
-        reading.stated = reading.stated.saturating_add(stated.len());
+        stated_total = stated_total.saturating_add(stated.len());
         for rel in &unread {
             problems.push(format!(
                 "{rel}: in the {} absence's stated_in scope and could not be read - the walk is \
@@ -317,7 +388,8 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
         }
         for sighting in absence.refuted_by {
             let found = sighted(root, files, sighting);
-            reading.scanned = reading.scanned.saturating_add(found.scanned);
+            scanned.extend(found.files.iter().cloned());
+            lines = lines.saturating_add(found.lines);
             for rel in &found.unread {
                 problems.push(format!(
                     "{rel}: in the {} sighting's scope and could not be read - the scan is short by \
@@ -325,10 +397,10 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
                     absence.name
                 ));
             }
-            if found.scanned == 0 {
+            if found.files.is_empty() {
                 problems.push(format!(
-                    "the {} sighting (`{}` under {:?}) opened no file - the scan is over an empty \
-                     set, so it reports the absence held without having read anything",
+                    "the {} sighting (`{}` under {:?}) read no production line - the scan is over an \
+                     empty set, so it reports the absence held without having read anything",
                     absence.name, sighting.holds, sighting.over
                 ));
                 continue;
@@ -344,10 +416,17 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
             }
         }
     }
-    (problems, reading)
+    (
+        problems,
+        Reading {
+            stated: stated_total,
+            files: scanned.len(),
+            lines,
+        },
+    )
 }
 
-/// The entry point `guidance::run` wires in.
+/// The entry point `guidance::tree_problems` wires in.
 pub(super) fn absence_problems(root: &Path, files: &[String]) -> (Vec<String>, Reading) {
     absences_hold(root, files, ABSENCES)
 }
@@ -356,7 +435,7 @@ pub(super) fn absence_problems(root: &Path, files: &[String]) -> (Vec<String>, R
 mod tests {
     use std::path::PathBuf;
 
-    use super::{Absence, Sighting, absences_hold, prose};
+    use super::{Absence, Sighting, absence_problems, absences_hold, prose};
 
     /// A fixture tree of `(relative path, content)`, and the file list a walk would hand the check.
     fn tree(tag: &str, files: &[(&str, &str)]) -> (PathBuf, Vec<String>) {
@@ -418,10 +497,11 @@ mod tests {
         );
         let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
         assert!(problems.is_empty(), "{problems:?}");
-        // BOTH numbers, because either alone is what a gate over silence prints: one statement
-        // read out of prose, one file opened out of the tree.
+        // THREE numbers, because each alone is what some green-over-nothing prints: one statement
+        // read out of prose, one file opened out of the tree, and the lines actually searched.
         assert_eq!(reading.stated, 1);
-        assert_eq!(reading.scanned, 1);
+        assert_eq!(reading.files, 1);
+        assert_eq!(reading.lines, 3, "every line of the fixture is production");
     }
 
     #[test]
@@ -458,18 +538,46 @@ mod tests {
     }
 
     #[test]
-    fn a_call_from_test_code_does_not_refute_it() {
-        // Which is the point: every live entry's subject is called from tests and reads as covered.
-        let (dir, files) = tree(
-            "tested",
-            &[(
-                "crates/a/src/lib.rs",
-                "/// no consumer today\npub fn widget() {}\n#[cfg(test)]\nmod tests {\n    fn t(a: &A) { a.widget(); }\n}\n",
-            )],
-        );
+    fn a_refutation_far_down_a_file_is_found_and_the_line_floor_moves_with_it() {
+        // THE TRUNCATED-WALK CASE, per file rather than per tree. `.enumerate().take(2)` on the line
+        // walk left every other fixture green - each plants its call on line 1 or 2 - and neither a
+        // file count nor a statement count moved. Both halves are asserted here: the hit is found,
+        // and `lines` is the number that a truncation would drop.
+        let mut body = String::from("/// no consumer today\nfn head() {}\n");
+        for _ in 0..40 {
+            body.push_str("// filler\n");
+        }
+        body.push_str("fn read(a: &A) -> u8 {\n    a.widget()\n}\n");
+        let (dir, files) = tree("deep", &[("crates/a/src/lib.rs", body.as_str())]);
         let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
-        assert!(problems.is_empty(), "{problems:?}");
-        assert_eq!(reading.scanned, 1);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("crates/a/src/lib.rs:44:"), "{}", problems[0]);
+        assert_eq!(reading.files, 1);
+        assert!(
+            reading.lines > 40,
+            "the line floor has to see the whole file, not its first lines: {}",
+            reading.lines
+        );
+    }
+
+    #[test]
+    fn a_needle_inside_a_line_continued_string_literal_is_found() {
+        // `#370`'s own headline scenario, in the shape this tree actually writes. `code_lines`
+        // blanks the interior of a string that SPANS LINES, so the blanked image alone passed this
+        // at exit 0 while the single-line form failed - the difference being one backslash.
+        let (dir, files) = tree(
+            "continued",
+            &[
+                ("crates/a/src/lib.rs", "/// no consumer today\npub fn widget() {}\n"),
+                (
+                    "crates/b/src/lib.rs",
+                    "fn challenge() -> String {\n    format!(\n        \"Bearer realm, \\\n         a.widget()={}\",\n        realm\n    )\n}\n",
+                ),
+            ],
+        );
+        let (problems, _) = absences_hold(&dir, &files, &[ENTRY]);
+        assert_eq!(problems.len(), 1, "a continued literal is still code: {problems:?}");
+        assert!(problems[0].starts_with("crates/b/src/lib.rs:3:"), "{}", problems[0]);
     }
 
     #[test]
@@ -483,7 +591,21 @@ mod tests {
         assert_eq!(reading.stated, 0);
         // The walk still happened - which is exactly why the hit list being empty proves nothing
         // on its own.
-        assert_eq!(reading.scanned, 1);
+        assert_eq!(reading.files, 1);
+    }
+
+    #[test]
+    fn an_empty_table_is_red_rather_than_a_clean_tree() {
+        // MEASURED: `const ABSENCES: &[Absence] = &[];` left 1023 tests green and the gate at exit 0
+        // printing `0 statement(s) over 0 file(s)`. Both numbers are derived by iterating the table,
+        // so they are two counters from one source and cannot witness each other.
+        let (dir, files) = tree("emptytable", &[("crates/a/src/lib.rs", "pub fn widget() {}\n")]);
+        let (problems, reading) = absences_hold(&dir, &files, &[]);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("ABSENCES is empty"), "{}", problems[0]);
+        assert_eq!(reading.stated, 0);
+        assert_eq!(reading.files, 0);
+        assert_eq!(reading.lines, 0);
     }
 
     #[test]
@@ -499,8 +621,44 @@ mod tests {
         );
         let (problems, reading) = absences_hold(&dir, &files, &[NOWHERE]);
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("opened no file"), "{}", problems[0]);
-        assert_eq!(reading.scanned, 0);
+        assert!(problems[0].contains("read no production line"), "{}", problems[0]);
+        assert_eq!(reading.files, 0);
+        assert_eq!(reading.lines, 0);
+    }
+
+    #[test]
+    fn a_file_regions_exempts_whole_raises_no_floor() {
+        // The corollary review measured: `regions::is_dedicated_test_target` exempts a path holding
+        // `/tests/` on the SUBSTRING alone, so `crates/*/src/**/tests/*.rs` is invisible to a
+        // sighting. A per-FILE floor rose 446 -> 448 over such a file while coverage went down; a
+        // production-LINE floor cannot, because the file contributes none.
+        let (dir, files) = tree(
+            "exempt",
+            &[
+                ("crates/a/src/lib.rs", "/// no consumer today\npub fn widget() {}\n"),
+                ("crates/a/src/pool/tests/planted.rs", "fn t(a: &A) { a.widget(); }\n"),
+            ],
+        );
+        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        assert!(problems.is_empty(), "test code refutes nothing: {problems:?}");
+        assert_eq!(reading.files, 1, "the exempted file raises no file floor either");
+        assert_eq!(reading.lines, 2, "and contributes no production line");
+    }
+
+    #[test]
+    fn a_call_from_test_code_does_not_refute_it() {
+        // Which is the point: every live entry's subject is called from tests and reads as covered.
+        let (dir, files) = tree(
+            "tested",
+            &[(
+                "crates/a/src/lib.rs",
+                "/// no consumer today\npub fn widget() {}\n#[cfg(test)]\nmod tests {\n    fn t(a: &A) { a.widget(); }\n}\n",
+            )],
+        );
+        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(reading.files, 1);
+        assert!(reading.lines < 6, "the test region is not searched: {}", reading.lines);
     }
 
     #[test]
@@ -525,8 +683,8 @@ mod tests {
 
         let (problems, reading) = absences_hold(&dir, &truncated, &[OUTSIDE]);
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("opened no file"), "{}", problems[0]);
-        assert_eq!(reading.scanned, 0);
+        assert!(problems[0].contains("read no production line"), "{}", problems[0]);
+        assert_eq!(reading.files, 0);
     }
 
     #[test]
@@ -550,7 +708,7 @@ mod tests {
             problems.iter().any(|p| p.contains("sighting's scope and could not be read")),
             "{problems:?}"
         );
-        assert_eq!(reading.scanned, 0, "an unreadable file is not a file scanned");
+        assert_eq!(reading.files, 0, "an unreadable file is not a file scanned");
     }
 
     #[test]
@@ -565,5 +723,31 @@ mod tests {
         assert!(!read.contains("no consumer today"));
         // Anything else is its own text, untouched.
         assert_eq!(prose("docs/a.md", "no consumer today\n"), "no consumer today\n");
+    }
+
+    #[test]
+    fn the_real_workspace_is_what_the_floor_is_about() {
+        // THE LIVE TABLE, run against the real tree. Before this, `grep -rn ABSENCES` found three
+        // hits all inside this file: every fixture above passes a table built in the test, so the
+        // three entries the gate actually ships were exercised by nothing. Every sibling in this
+        // gate has this test - `constants.rs`, `advice.rs`, `claims.rs`, `guidance.rs` - and each
+        // states its floor rather than only its emptiness.
+        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
+            panic!("could not locate the repo");
+        };
+        assert!(!super::ABSENCES.is_empty(), "the shipped table is what this is about");
+        let (problems, reading) = absence_problems(&root, &files);
+        assert!(problems.is_empty(), "{problems:#?}");
+        // The floors, asserted rather than only printed. `stated` is prose, `files` is the tree
+        // walk, `lines` is the walk INSIDE each file - and only the third moves when the per-file
+        // walk is truncated, which is the mutation that survived review.
+        assert!(reading.stated > 0, "no page states any registered absence");
+        assert!(reading.files > 0, "no sighting opened a file");
+        assert!(
+            reading.lines > reading.files.saturating_mul(4),
+            "the line walk reads more than a handful per file, or it is truncated: {} line(s) over {} file(s)",
+            reading.lines,
+            reading.files
+        );
     }
 }
