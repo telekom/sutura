@@ -18,7 +18,9 @@
 //!   makes *just add the four legs to the required list* a bad remedy. A rename fails here instead.
 //! * **every job that can report on a pull request is declared, in one section or the other.** A
 //!   new job is then a decision rather than an omission, which is the whole content of the
-//!   advisory section: it makes the status quo visible.
+//!   advisory section: it makes the status quo visible. **A workflow a gating one CALLS counts** -
+//!   its jobs report on the same pull request while its own `on:` is `workflow_call`, so the event
+//!   test alone read none of them. See [`gating_jobs`] and [`super::reach`].
 //! * **every advisory entry names a job that exists**, so an entry cannot outlive its job.
 //!
 //! # What it does NOT reach, and this one is the important limit
@@ -48,6 +50,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use super::reach;
 use crate::repo;
 
 /// The declaration. Beside `max-lines-ignore` because it is the same kind of file: gate policy a
@@ -85,7 +88,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         )];
     }
 
-    let Gating { jobs, unreadable } = gating_jobs(root);
+    let Gating { jobs, refusals } = gating_jobs(root);
     if jobs.is_empty() {
         return vec![String::from(
             "no job in any pull-request-triggered workflow was read - the scan is broken, not the declaration",
@@ -93,11 +96,11 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     }
 
     let mut problems = Vec::new();
-    // ONE unreadable file, not all of them. The floor above fails closed only when EVERY workflow
+    // ONE unreachable file, not all of them. The floor above fails closed only when EVERY workflow
     // is unreadable, so a single dropped file was a gating job this record never classified -
     // reported in review. `crate::hook_coverage` had this right: an unreadable input is a recorded
     // failure, never a smaller scan.
-    problems.extend(unreadable);
+    problems.extend(refusals);
     for context in &required {
         if !derivable(context) {
             problems.push(format!(
@@ -157,7 +160,7 @@ fn section(text: &str, header: &str) -> BTreeSet<String> {
     entries
 }
 
-/// Every job that can report a context, and every workflow that could not be read.
+/// Every job that can report a context, and every reason that answer is over a subset.
 ///
 /// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
 /// is right to for `crate::shipped::Reconciliation`'s reason: two `Vec`s side by side say nothing
@@ -165,23 +168,32 @@ fn section(text: &str, header: &str) -> BTreeSet<String> {
 struct Gating {
     /// Every job in a workflow that can report on a pull request or a queue entry.
     jobs: Vec<Job>,
-    /// One sentence per workflow file that could not be read at all.
-    unreadable: Vec<String>,
+    /// One sentence per workflow that could not be read, and per call the reach walk could not
+    /// follow. Both are the same failure: a file whose jobs are classified by nothing.
+    refusals: Vec<String>,
 }
 
 /// Every job in every workflow that can report a context on a pull request or a queue entry, and
-/// one sentence per workflow that could not be read.
+/// one sentence per file that could not be reached.
+///
+/// **Two ways a workflow gets here, and the second is what was missing.** A workflow whose own
+/// `on:` block names a gating event is a root. A workflow a root CALLS is one too - its jobs report
+/// `<caller> / <job>` on the same pull request - and its own `on:` is `workflow_call`, so the
+/// event test alone classified none of them: `cross-link.yml`'s legs were a job nobody had
+/// classified while this gate printed *every gating job classified*. The whole content of the
+/// advisory section is that a new job is a DECISION rather than an omission, and a called workflow
+/// was the omission.
 fn gating_jobs(root: &Path) -> Gating {
     let mut paths = Vec::new();
     repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"], &mut paths);
     paths.sort();
-    let mut jobs = Vec::new();
-    let mut unreadable = Vec::new();
+    let mut refusals = Vec::new();
+    let mut roots = Vec::new();
     for rel in &paths {
         let text = match std::fs::read_to_string(root.join(rel)) {
             Ok(text) => text,
             Err(error) => {
-                unreadable.push(format!(
+                refusals.push(format!(
                     "{rel} could not be read, so any job it declares is classified by nothing: {error}"
                 ));
                 continue;
@@ -191,9 +203,16 @@ fn gating_jobs(root: &Path) -> Gating {
             continue;
         }
         let file = rel.rsplit('/').next().unwrap_or(rel);
-        jobs.extend(jobs_in(file, &text));
+        roots.push(reach::Reached::workflow(file, text));
     }
-    Gating { jobs, unreadable }
+
+    let closure = reach::Closure::from_roots(root, roots);
+    refusals.extend(closure.drift());
+    let mut jobs = Vec::new();
+    for file in closure.inspected().iter().filter(|file| file.is_workflow()) {
+        jobs.extend(jobs_in(file.label(), file.text()));
+    }
+    Gating { jobs, refusals }
 }
 
 /// Does this workflow run on an event whose run reports a context that could gate a merge?
@@ -407,13 +426,58 @@ mod tests {
         std::fs::write(workflows.join("unreadable.yml"), [0xff_u8, 0xfe, 0xfd]).expect("the unreadable workflow");
         let read = super::gating_jobs(&scratch);
         assert_eq!(read.jobs.len(), 2, "the readable file is still read");
-        assert_eq!(read.unreadable.len(), 1, "{:?}", read.unreadable);
+        assert_eq!(read.refusals.len(), 2, "{:?}", read.refusals);
         assert!(
-            read.unreadable
-                .first()
-                .is_some_and(|line| line.contains("classified by nothing")),
+            read.refusals.iter().any(|line| line.contains("classified by nothing")),
             "{:?}",
-            read.unreadable
+            read.refusals
+        );
+        // AND the call the readable file makes: `cross-link.yml` is not in this scratch tree, so
+        // the walk cannot open it and says so rather than classifying a smaller set of jobs.
+        assert!(
+            read.refusals.iter().any(|line| line.starts_with("UNFOLLOWED CALL:")),
+            "{:?}",
+            read.refusals
+        );
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+    }
+
+    #[test]
+    fn a_job_in_a_called_workflow_is_classified_by_this_record_too() {
+        // THE HOLE THIS CLOSES. A called workflow's own `on:` is `workflow_call`, so the event
+        // test read none of its jobs while its legs reported on every pull request. Over a scratch
+        // tree whose declaration classifies the CALLER and not the called job.
+        let scratch = std::env::temp_dir().join(format!("sutura-called-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        std::fs::create_dir_all(scratch.join("devco")).expect("the devco directory");
+        std::fs::write(
+            workflows.join("ci.yml"),
+            concat!(
+                "on:\n  pull_request:\njobs:\n",
+                "  ci:\n    runs-on: ubuntu-latest\n",
+                "  cross:\n    uses: ./.github/workflows/cross-link.yml\n"
+            ),
+        )
+        .expect("the caller");
+        std::fs::write(
+            workflows.join("cross-link.yml"),
+            "on:\n  workflow_call:\njobs:\n  link:\n    runs-on: ubuntu-latest\n",
+        )
+        .expect("the called workflow");
+        std::fs::write(
+            scratch.join(super::DECLARATION),
+            "[required]\nci\n\n[advisory]\nci.yml:cross\n",
+        )
+        .expect("the declaration");
+
+        let problems = super::problems(&scratch);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems
+                .first()
+                .is_some_and(|line| line.starts_with("`cross-link.yml:link` can report on a pull request")),
+            "{problems:?}"
         );
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
