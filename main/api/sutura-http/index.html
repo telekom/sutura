@@ -2975,7 +2975,7 @@ nothing is being asked.</p>
 </span></code></pre></div>
 <p>Requires a verified caller, and puts one in the request extensions.</p>
 <p>A <code>from_fn_with_state</code> middleware over the gate rather than over
-<a href="crate::state::ServiceState"><code>crate::ServiceState</code></a>, so the state a handler is given has no way to
+<code>crate::ServiceState</code>, so the state a handler is given has no way to
 reach the validator: the only thing that crosses into the handler is the <em>result</em>, as a
 <code>VerifiedCaller</code> extension that only this function inserts.</p>
 <p><strong>The insertion overwrites</strong>, which matters: <code>axum</code> extensions are a map, and a request arriving

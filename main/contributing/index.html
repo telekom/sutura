@@ -2648,7 +2648,7 @@ minor, <code>fix</code> and the rest a patch, <code>!</code> or a <code>BREAKING
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>just<span class="w"> </span>check-changed<span class="w">  </span><span class="c1"># does what I touched compile</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>just<span class="w"> </span>causality<span class="w">      </span><span class="c1"># red-before-green proof</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>just<span class="w"> </span>ship-check<span class="w">     </span><span class="c1"># the finishing sequence; run this before saying done</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>just<span class="w"> </span>validate<span class="w">       </span><span class="c1"># THE gate: the nix checks, which build their own copy of the tree</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>just<span class="w"> </span>validate<span class="w">       </span><span class="c1"># THE gate: the site build, then the nix checks, which build their own tree copy</span>
 </span></code></pre></div>
 <p><strong>A new or changed test must be red against the base behaviour and green with your change.</strong> A test
 that passes both ways proves nothing and is worse than no test, because it looks like coverage.
@@ -2766,8 +2766,10 @@ resolve to one file, and a published page that LINKS an excluded one. That last 
 job: mkdocs logs such a link at INFO and exits 0, measured. <strong>This file is one of those published
 pages:</strong> <code>docs/contributing.md</code> pulls it in with <code>pymdownx.snippets</code>, so a relative link written
 here resolves against that page's URL rather than the repository root, and the gate reads this file
-to judge it. <code>just validate</code> does <strong>not</strong> render the site, so <code>just docs</code> is owed by any change that
-touches a doc comment.
+to judge it. <code>just validate</code> renders the site as its first step, so a page that cannot render fails
+before the nix closure rather than after a merge; <code>just docs</code> is the same build, reached on its own.
+If the docs environment cannot be materialised at all - a cold package cache with no network - that
+step says SKIPPED in one line and the recipe fails at the end instead of losing every other check.
 <a href="https://github.com/telekom/sutura/blob/main/docs/publishing.md">Publishing the docs</a> covers the
 versioning and the one repository setting it needs.</p>
 

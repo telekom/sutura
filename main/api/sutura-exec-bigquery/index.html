@@ -3144,7 +3144,7 @@ money somebody else pays.</p>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="module-credential">Module <code>credential</code><a class="headerlink" href="#module-credential" title="Permanent link">&para;</a></h3>
 <p>Where the bearer token a job is submitted with comes from.</p>
-<p><strong>A second narrow port, for the reason <a href="crate::transport::JobTransport"><code>JobTransport</code></a> is one.</strong>
+<p><strong>A second narrow port, for the reason <code>JobTransport</code> is one.</strong>
 The wire needs two things from a credential - a token that is usable right now, and whether a
 request carrying it has to name a quota project - and everything else about how a deployment
 authenticates is somebody else's decision. So <code>AccessTokens</code> is those two things, and the

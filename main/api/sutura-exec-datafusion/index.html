@@ -2467,7 +2467,7 @@ which carries the configured ceiling and deliberately nothing about what the que
 </span></code></pre></div>
 <p>How many bytes the engine's operators may reserve at once.</p>
 <p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
-<a href="crate::DataFusionWarehouse::with_worker_threads"><code>DataFusionWarehouse::with_worker_threads</code></a>
+<code>DataFusionWarehouse::with_worker_threads</code>
 already takes a <code>NonZeroUsize</code> for a thread count, so a second bare <code>NonZeroUsize</code> beside it would
 be two arguments of one type whose meanings are a width and a quantity of memory. Swapping them
 compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>

@@ -2291,11 +2291,11 @@ this process holds for that source</em>. <code>AGENTS.md</code> records which ha
 <code>examples/README.md</code> explains why single-player makes "every query runs as the calling
 principal" trivially true and worth nothing.</p>
 <p>That is a property of the runtime, so it is a property of every deployment this crate
-configures. An <a href="security::AccessToken"><code>AccessToken</code></a> authenticates <em>the deployment</em>: a caller
+configures. An <code>AccessToken</code> authenticates <em>the deployment</em>: a caller
 who presents it proves they hold a secret an operator configured, and nothing more. It does not
 say which caller, it cannot be scoped to a subset of the catalog, it does not reach the data
 system, and every query still runs with whatever access the process already had.
-<a href="security::SecuritySettings::describes_identity"><code>SecuritySettings::describes_identity</code></a> is the
+<code>SecuritySettings::describes_identity</code> is the
 function that answers this, it always answers <code>false</code>, and the startup log prints that answer
 on every boot so an operator cannot deploy this believing otherwise.</p>
 <p>Rate limiting is not authentication either - see <code>limits</code> for what it does and does not buy.</p>
@@ -2734,7 +2734,7 @@ It does <em>not</em> make a data source execute as that person - that is leg 2, 
 per leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows
 who is asking and still reads every row as one identity. <code>InboundIdentity::what_it_does_not_do</code>
 is that sentence as a value, printed at startup, for the same reason
-<a href="crate::security::TlsTermination::cleartext_hop"><code>TlsTermination::cleartext_hop</code></a> is one: a log
+<code>TlsTermination::cleartext_hop</code> is one: a log
 line and this documentation read the same string, so neither can drift into claiming per-user
 access because there is authentication.</p>
 <h1 id="behindgateway-does-not-mean-trust-a-header-and-the-type-is-what-stops-it-meaning-that"><code>BehindGateway</code> does not mean "trust a header", and the type is what stops it meaning that<a class="headerlink" href="#behindgateway-does-not-mean-trust-a-header-and-the-type-is-what-stops-it-meaning-that" title="Permanent link">&para;</a></h1>
@@ -2845,7 +2845,7 @@ newtype, so the list is seven invariants rather than seven strings.</p>
 </span></code></pre></div>
 <p>How the identity of a caller reaches this deployment. Printed at startup, per deployment.</p>
 <p>A closed enum with a required key, in the shape
-<a href="crate::security::TlsTermination"><code>TlsTermination</code></a> already uses here - and for the same reason
+<code>TlsTermination</code> already uses here - and for the same reason
 <code>Environment</code> is a parsed enum rather than a string with a fallback: the value that decides a
 posture must not be satisfiable by silence.</p>
 <h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
@@ -2892,7 +2892,7 @@ whose whole body is one string does.</p>
 </span></code></pre></div>
 <p>Who authenticated the caller, as a sentence for the startup log.</p>
 <p>A function rather than a comment for the reason
-<a href="crate::security::TlsTermination::cleartext_hop"><code>TlsTermination::cleartext_hop</code></a> is one: the
+<code>TlsTermination::cleartext_hop</code> is one: the
 log, this documentation and the type read the same value, so none of them can drift into
 claiming more than the mode does.</p>
 <h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
@@ -3082,8 +3082,8 @@ key whose failure mode is invisible, and this crate's whole shape is arranged ag
 wholesale replacement is ever wanted it should arrive as its own named key with its own argument,
 not as an omission from this one.</p>
 <h1 id="why-there-is-no-environment-derived-default-here">Why there is no environment-derived default here<a class="headerlink" href="#why-there-is-no-environment-derived-default-here" title="Permanent link">&para;</a></h1>
-<p><a href="crate::api::ApiSettings"><code>ApiSettings</code></a> and <a href="crate::telemetry::LogFormat"><code>LogFormat</code></a> default by
-<a href="crate::Environment"><code>Environment</code></a> and record whether an operator wrote the value down, so the
+<p><code>ApiSettings</code> and <code>LogFormat</code> default by
+<code>Environment</code> and record whether an operator wrote the value down, so the
 startup log can tell "somebody chose this" from "nobody did". Neither key here does, and the
 reason is that neither decision is a function of the environment.</p>
 <p>Whether a catalog's authors are trusted enough to quote their prose into an agent's context is a
@@ -3099,7 +3099,7 @@ is there and silently omits the section when it is not, which is right for a <em
 file means nobody wrote one. Here it is a <em>configured path</em>, so absence means the operator wrote
 a path down and the file behind it is not there - and quietly serving a prompt without the
 operator's rules in it would be the failure this crate refuses everywhere else. Existence is not
-checked at parse time, for the reason <a href="crate::catalog::CatalogSettings"><code>CatalogSettings</code></a> does
+checked at parse time, for the reason <code>CatalogSettings</code> does
 not check its directories: a check here is a claim that is already stale by the time the file is
 read. The read is what fails, loudly, at the composition root.</p>
 <h3 id="enum-catalogprose"><code>enum CatalogProse</code><a class="headerlink" href="#enum-catalogprose" title="Permanent link">&para;</a></h3>
@@ -3108,7 +3108,7 @@ read. The read is what fails, loudly, at the composition root.</p>
 <p>Whether the catalog's own prose is quoted into the prompt.</p>
 <p>The word an operator writes. The type that does the work is
 <code>sutura_app::prompt::CatalogProse</code>, and the split is the one
-<a href="crate::telemetry::LogFilter"><code>LogFilter</code></a> already uses: this crate parses what was written down,
+<code>LogFilter</code> already uses: this crate parses what was written down,
 and the crate that acts on it owns the type that acts.</p>
 <h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
 <ul>
@@ -3678,7 +3678,7 @@ identity. The failure is silent, it is one user's data served to another, and it
 a field out.</p>
 <p>So there is <strong>no <code>Default</code></strong>, no derivation, and a deployment that configures a source without
 declaring the mode does not boot -
-<a href="crate::NotFitToServe::DeploymentIdentityUndeclared"><code>NotFitToServe::DeploymentIdentityUndeclared</code></a>.
+<code>NotFitToServe::DeploymentIdentityUndeclared</code>.
 The refusal is keyed on a source being configured rather than raised unconditionally, and that is
 not a softening: a deployment with no source configured cannot answer anything, and the composition
 root refuses it on the catalog naming a source with no declaration - so every deployment that can
@@ -4003,10 +4003,10 @@ bound.</p>
 a kind this build has no adapter for, an entry with no file location, a relative path, a word that
 is not a posture, and a pairing of declarations that contradict each other. Every one of those is a
 value or a combination this type cannot hold, so it is a
-<a href="crate::SettingsError"><code>SettingsError</code></a> naming the key.</p>
+<code>SettingsError</code> naming the key.</p>
 <p>Two checks are deliberately <strong>not</strong> here, and they are not here for two different reasons.</p>
 <ul>
-<li><strong>The shared-identity acknowledgement</strong> is a <a href="crate::NotFitToServe"><code>NotFitToServe</code></a> out of
+<li><strong>The shared-identity acknowledgement</strong> is a <code>NotFitToServe</code> out of
   <code>Settings::refusals</code>, because whether it is required depends on the <em>declared deployment mode</em> -
   a fact about the tree as a whole rather than about this entry. A single-user deployment holds
   every source under one static credential legitimately: that credential <em>is</em> the one user's.</li>
@@ -4264,9 +4264,9 @@ cannot disagree about what a source is.</p>
 that can name the type</strong> - including one carrying a relative <code>data_dir</code>, which <code>parse_data_dir</code>
 refuses when it reads a file. That is a real gap in this type and it is not the one that matters,
 for the reason AGENTS.md already states about the other constructors here: what is closed is the
-path from a <strong>configuration file</strong>. <a href="crate::ConfiguredSource"><code>ConfiguredSource</code></a> holds its
+path from a <strong>configuration file</strong>. <code>ConfiguredSource</code> holds its
 placement in a private field and has no public constructor, so a
-<a href="crate::SourceRegistry"><code>SourceRegistry</code></a> can still only come into existence through
+<code>SourceRegistry</code> can still only come into existence through
 <code>Settings::parse</code>, and that is the only door a deployment goes through.</p>
 <p>Written down rather than left to be re-derived, because "the fields are public" and "the checks can
 be skipped" look like the same sentence and are not.</p>

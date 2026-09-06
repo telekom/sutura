@@ -2648,7 +2648,7 @@ of those two conventions produces off-by-one bugs at month boundaries and the ot
 wire form is a two-field mapping - <code>start</code> and <code>end</code>, which is how a catalog author writes one -
 and both halves already agree on it: <code>Serialize</code> derives that mapping and <code>try_from</code> reads it back
 through <code>TimeRange::new</code>. What this type does NOT have is a canonical text form to convert into.
-<a href="core::fmt::Display"><code>Display</code></a> renders <code>[2026-06-01, 2026-07-01)</code> for a human reading a refusal,
+<code>Display</code> renders <code>[2026-06-01, 2026-07-01)</code> for a human reading a refusal,
 and nothing parses that shape, so serializing into it would produce exactly the asymmetry the
 <code>into</code> on <code>Date</code> exists to remove. The round trip that has to hold here is the mapping one, and it
 is asserted as such.</p>
@@ -3060,7 +3060,7 @@ filtering and permits no value.</p>
 the caller gets <code>DimensionNotFilterable</code> rather than a query.</p>
 <p>Takes a <code>DimensionValue</code> rather than a <code>&amp;str</code>, so the two sides of the comparison are the
 same type: a caller's value is parsed by <code>DimensionValue::parse</code> at the wire boundary the way
-their metric name is parsed by <a href="crate::model::MetricName::parse"><code>MetricName::parse</code></a>, and text
+their metric name is parsed by <code>MetricName::parse</code>, and text
 that could not have been declared never reaches this comparison to be found absent from it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">via</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">RelationshipName</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -3143,7 +3143,7 @@ metric's dimensions name one label and nothing downstream re-asks. <code>assembl
 asked - by the time a <code>Metric</code> reaches it the map has collapsed an exact pair - and the
 DECLARED order is here and nowhere later, so the refusal names the two spellings in the
 order the file wrote them. Same shape, and the same argument, as
-<a href="crate::plan::StatementTables::parse"><code>StatementTables::parse</code></a>.</p>
+<code>StatementTables::parse</code>.</p>
 <p><strong>What a folded pair costs was measured rather than argued.</strong> <code>DuckDB</code> 1.5.5
 (<code>v1.5.5 Variegata d8cdaa33fd</code>), whose <code>sutura_sql::Dialect::identifier_case</code> declares
 <code>IdentifierCase::InsensitiveAscii</code>:
@@ -3291,7 +3291,7 @@ a human and may be reworded without breaking a caller that matched on <code>Wron
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h2 id="module-expression">Module <code>expression</code><a class="headerlink" href="#module-expression" title="Permanent link">&para;</a></h2>
 <p>The escape hatch: SQL a catalog author wrote, for the metrics the closed vocabulary cannot say.</p>
-<p><a href="crate::measure"><code>measure</code></a> is closed and stays closed. A window function, a percentile, an
+<p><code>measure</code> is closed and stays closed. A window function, a percentile, an
 expression over two columns - <code>SUM(price * quantity)</code> - has no <code>Measure</code> and cannot get one
 without turning that vocabulary into an expression language. Two things forced a second path
 anyway. Metrics people actually certify use those constructs; and a provider whose catalog
@@ -3538,7 +3538,7 @@ repository exists to prevent.
 <p><strong>A measure that does not descend is not a refusal.</strong> Decision 2 is explicit: where an aggregate
 cannot be computed per leg and re-aggregated, the leg carries finer-grained rows and the
 aggregate happens above, paying the processing cost. So there is no error type in this module and
-no <a href="crate::query::RefusalReason"><code>RefusalReason</code></a> variant behind it - <code>Descent</code> is total over
+no <code>RefusalReason</code> variant behind it - <code>Descent</code> is total over
 the vocabulary, and its third variant is a plan rather than a decline.</p>
 <p><strong>Three exhaustive matches, and each of them is the mechanism.</strong> <code>Descent::of</code> matches
 <code>Aggregate</code>, so a seventh aggregate cannot compile without stating which of the three classes
@@ -4495,7 +4495,7 @@ folds all three:</p>
   IMPLICIT alias <code>FROM a.b.orders</code> gives the table;</li>
 <li>the alias a projected column is labelled with, which <code>GoogleSQL</code> resolves ahead of a table of
   the same spelling - the wrong-answer report behind
-  <a href="crate::catalog::InconsistentDefinitions::LabelShadowsTable"><code>LabelShadowsTable</code></a>;</li>
+  <code>LabelShadowsTable</code>;</li>
 <li>the name of a result column, which is what makes two labels one column rather than two.</li>
 </ul>
 <h1 id="why-the-catalog-and-the-plan-both-compare-under-selfcoarsest">Why the catalog and the plan both compare under <code>Self::COARSEST</code><a class="headerlink" href="#why-the-catalog-and-the-plan-both-compare-under-selfcoarsest" title="Permanent link">&para;</a></h1>
@@ -5204,7 +5204,7 @@ job is to make that run look different from the one that included the source.</p
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-262-1"><a id="__codelineno-262-1" name="__codelineno-262-1" href="#__codelineno-262-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">capabilities</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MetadataCapabilities</span>
 </span></code></pre></div>
 <p>What this source declared it supplies, the manifest record of
-<a href="crate::pinned::SemanticCatalog::capabilities"><code>SemanticCatalog::capabilities</code></a>.</p>
+<code>SemanticCatalog::capabilities</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-263-1"><a id="__codelineno-263-1" name="__codelineno-263-1" href="#__codelineno-263-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">missing</span><span class="p">(</span><span class="n">capabilities</span><span class="p">:</span><span class="w"> </span><span class="nc">MetadataCapabilities</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The record for a configured source this bundle serves without.</p>
@@ -5451,7 +5451,7 @@ statement.</p>
 </span></code></pre></div>
 <p>The most rows this plan's result may carry before it is refused.</p>
 <p>The cap itself, which is what a row count is compared against. Read it with
-<a href="QueryPlan::row_limit"><code>row_limit</code></a>: the two differ by one, deliberately, and neither is
+<code>row_limit</code>: the two differ by one, deliberately, and neither is
 useful without the other.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-312-1"><a id="__codelineno-312-1" name="__codelineno-312-1" href="#__codelineno-312-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">measure</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PlanMeasure</span>
 </span></code></pre></div>
@@ -5479,12 +5479,12 @@ cannot disagree about it - which is the whole reason two adapters can be compare
 each other at all.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-319-1"><a id="__codelineno-319-1" name="__codelineno-319-1" href="#__codelineno-319-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">row_limit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u32</span>
 </span></code></pre></div>
-<p>How many rows an adapter asks for: one more than <a href="QueryPlan::max_rows"><code>max_rows</code></a>.</p>
+<p>How many rows an adapter asks for: one more than <code>max_rows</code>.</p>
 <p><strong>The extra row is the whole mechanism.</strong> Fetching exactly the cap makes a result AT the cap
 indistinguishable from a result the cap cut short, and the second of those is a partial total
 under a certified name. Asking for one more makes "there is more" observable at no cost - the
 extra row is never returned to a caller, because a result carrying it is refused as
-<a href="crate::query::RefusalReason::ResultTooLarge"><code>RefusalReason::ResultTooLarge</code></a>.</p>
+<code>RefusalReason::ResultTooLarge</code>.</p>
 <p>Saturating, so a cap of <code>u32::MAX</code> stays a number rather than wrapping to zero and asking
 a data system for nothing.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-320-1"><a id="__codelineno-320-1" name="__codelineno-320-1" href="#__codelineno-320-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span>
@@ -5501,13 +5501,13 @@ a data system for nothing.</p>
 <h3 id="struct-anchorplan"><code>struct AnchorPlan</code><a class="headerlink" href="#struct-anchorplan" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-323-1"><a id="__codelineno-323-1" name="__codelineno-323-1" href="#__codelineno-323-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AnchorPlan</span><span class="o">&lt;'</span><span class="na">bundle</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The one thing <a href="crate::warehouse::Warehouse::verify_anchor"><code>Warehouse::verify_anchor</code></a> accepts:
+<p>The one thing <code>Warehouse::verify_anchor</code> accepts:
 a plan the pinned bundle itself agrees is one of its anchors' own.</p>
 <h1 id="what-this-type-is-and-what-it-is-not">What this type is, and what it is not<a class="headerlink" href="#what-this-type-is-and-what-it-is-not" title="Permanent link">&para;</a></h1>
 <p><strong>It is a self-check on the boot path, and it is NOT an authority.</strong> That distinction is the whole
 of what a second review corrected, and getting it wrong once put a false sentence in ten places
-across seven files - <code>docs/adr/0008</code>'s second amendment to its correction 2 lists them. <a href="crate::warehouse::Warehouse::execute"><code>Warehouse::execute</code></a> cannot be called without a
-<a href="crate::identity::Presented"><code>Presented</code></a>; <code>verify_anchor</code> deliberately takes no credential,
+across seven files - <code>docs/adr/0008</code>'s second amendment to its correction 2 lists them. <code>Warehouse::execute</code> cannot be called without a
+<code>Presented</code>; <code>verify_anchor</code> deliberately takes no credential,
 because there is no caller at boot, and it therefore runs under whatever identity the deployment
 configured that adapter with. So the question is what bounds its INPUT.</p>
 <p><code>Self::of</code> answers "did the boot path compile the question it meant to" and nothing stronger.
@@ -5606,14 +5606,14 @@ real budget this becomes its floor.</p>
 <p><strong>It is a refusal and not a truncation, and that is the correction a review forced.</strong> This used
 to be the <code>LIMIT</code> on the statement and nothing else: nothing compared the rows that came back
 against it. So a question at <code>day</code> grain over a year, grouped by up to
-<a href="crate::query::MAX_DIMENSIONS"><code>MAX_DIMENSIONS</code></a> keys, answered with the first ten thousand
+<code>MAX_DIMENSIONS</code> keys, answered with the first ten thousand
 groups by group key, carried a provenance digest, and said nowhere that it was partial. Summing
 those rows gives a wrong number under a certified name, arrived at by omission - which is the
 failure mode this repository exists to prevent, and the one a caller has no way to detect.</p>
 <p>What holds it up is two things that have to be read together. <code>QueryPlan::row_limit</code> is one
 MORE than this, so a result that reached the cap is distinguishable from a result the cap cut
 short; and a row count above this is
-<a href="crate::query::RefusalReason::ResultTooLarge"><code>RefusalReason::ResultTooLarge</code></a>. A refusal is the
+<code>RefusalReason::ResultTooLarge</code>. A refusal is the
 honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
 the caller's move is to narrow the range or drop a dimension.</p>
 <h3 id="module-federated">Module <code>federated</code><a class="headerlink" href="#module-federated" title="Permanent link">&para;</a></h3>
@@ -5633,15 +5633,15 @@ copy of the naming rule to drift.</p>
 result carries public dimension labels beside the internal ones, so an internal label spelled as
 an identifier is a label a legal dimension name can collide with - reproduced. <code>InternalLabel</code>
 is the type that cannot be spelled by one.</p>
-<p><strong>The division cannot happen in a leg, and <a href="FederatedPlan::combine"><code>combine</code></a> is where it
-happens instead.</strong> The <a href="crate::federation::Above"><code>Above</code></a> tree already carries the only
-<a href="crate::measure::ZeroDenominator"><code>ZeroDenominator</code></a> in the federated path; this module walks it
+<p><strong>The division cannot happen in a leg, and <code>combine</code> is where it
+happens instead.</strong> The <code>Above</code> tree already carries the only
+<code>ZeroDenominator</code> in the federated path; this module walks it
 above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
 the wrong number this shape exists to prevent.</p>
 <p><strong>What this module will not do, because <code>combine</code> cannot express it.</strong> The re-aggregation
 <code>combine</code> performs covers the leaves a <em>decomposable</em> measure produces - a re-aggregating
-<a href="crate::model::Aggregate::Sum"><code>Sum</code></a>, <a href="crate::model::Aggregate::Min"><code>Min</code></a> or
-<a href="crate::model::Aggregate::Max"><code>Max</code></a> over already-aggregated leg columns. A measure that does not
+<code>Sum</code>, <code>Min</code> or
+<code>Max</code> over already-aggregated leg columns. A measure that does not
 decompose at all (a distinct count) has no re-aggregating function, and the honest answer for this
 slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
 have to re-count. The refusal names the aggregate.</p>
@@ -5651,7 +5651,7 @@ have to re-count. The refusal names the aggregate.</p>
 <p>The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
 another, linked by a single column.</p>
 <p><strong>Two legs, as two named fields.</strong> A match over <code>LegPlan</code> is exhaustive, so the fact leg <em>is</em>
-the <a href="LegPlan::Fact"><code>Fact</code></a> variant and the lookup leg the <a href="LegPlan::Lookup"><code>Lookup</code></a> one, and
+the <code>Fact</code> variant and the lookup leg the <code>Lookup</code> one, and
 a plan that had anything other than exactly these two is a type that does not exist rather than a
 count a caller checks. The shape is deliberately the one <code>crate::plan::leg</code> pins in its goldens:
 the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
@@ -5667,8 +5667,8 @@ be reconstructed from its serialized form and no field here is a request a calle
 <p>Turns one result per leg into one answer's rows.</p>
 <p>The fact and lookup results are joined on the recorded link column, grouped by the answer's
 keys - in the order the question asked them, matching the mono path - and the bucket,
-re-aggregated by each leaf's own <a href="crate::federation::Carried::combine"><code>Carried::combine</code></a>,
-and only then divided through the <a href="crate::federation::Above"><code>Above</code></a> tree. Those last two
+re-aggregated by each leaf's own <code>Carried::combine</code>,
+and only then divided through the <code>Above</code> tree. Those last two
 steps belong to <code>reaggregate</code>, reached as <code>Leaves::of</code> and <code>Leaves::measure</code>; the join, the
 grouping and the budget are this file's.</p>
 <p><code>byte_budget</code> is the working-set ceiling <code>docs/adr/0009</code> applies at the conversion boundary:
@@ -5756,7 +5756,7 @@ for the two legs to disagree about, and the constructor requires both legs to pr
 </span></code></pre></div>
 <p>Why a federated answer could not be assembled.</p>
 <p>The shape failures are defects in this workspace's own wiring - a leg result missing a column
-<code>labels</code> named, or a row narrower than its result's own columns. The <a href="FederatedFailure::NonFinite"><code>NonFinite</code></a>
+<code>labels</code> named, or a row narrower than its result's own columns. The <code>NonFinite</code>
 variant is a <code>fails</code> guard meeting a zero denominator, which no divide-tree node can produce a
 value for.</p>
 <h5 id="variants_45">Variants<a class="headerlink" href="#variants_45" title="Permanent link">&para;</a></h5>
@@ -5794,7 +5794,7 @@ measure. The splitter spelled the first with the physical remote join COLUMN's t
 second as <code>metric__{n}</code>, and both of those are legal identifiers: a metric with a legal dimension
 named <code>customer_key</code>, backed by a different column, projected two fact columns under one label
 and the combiner refused the answer it could not disambiguate. A dimension is free to be named
-anything <a href="crate::model::DimensionName"><code>DimensionName</code></a> accepts, so the internal labels are what
+anything <code>DimensionName</code> accepts, so the internal labels are what
 has to move - keeping a legal question legal is the constraint, not a naming rule for authors.</p>
 <p><strong>What makes the two namespaces disjoint, and it is one character.</strong> Every rendering here starts
 with a digit, which <code>crate::model</code>'s identifier parser refuses as a FIRST character - a leading
@@ -5804,7 +5804,7 @@ any spelling and any length. <code>federated/tests.rs</code> asserts that by par
 label as each of those names and requiring the refusal, rather than leaving it to this paragraph.</p>
 <p><strong>The disjointness has a second half, and it is the one a parse check cannot answer: every target
 has to ACCEPT the label as a quoted alias.</strong> The character this scheme is built on is the one
-<a href="crate::model::InvalidIdentifier::BadFirstCharacter"><code>BadFirstCharacter</code></a> refuses because it is
+<code>BadFirstCharacter</code> refuses because it is
 <em>"legal in some dialects and not others, so accepting it would make a model portable by luck"</em> -
 so the same sentence that justifies the namespace is the reason to doubt it. Two different
 questions live under it: whether a target accepts a digit-leading string as an <strong>identifier</strong>,
@@ -5859,17 +5859,17 @@ have refused - which is why the variants carry their data in the open and no con
 fallible. What the type buys is that the TEXT can only come from here.</p>
 <p><strong>The other half of the namespace is held elsewhere, and this is the whole of it in one place.</strong>
 The labels a result carries besides these are public: the answer's dimension labels, the time
-bucket's <a href="crate::catalog::TIME_BUCKET_LABEL"><code>TIME_BUCKET_LABEL</code></a> and the measure's metric name.
+bucket's <code>TIME_BUCKET_LABEL</code> and the measure's metric name.
 Those are held against each other at load by
-<a href="crate::catalog::Definitions::assemble"><code>Definitions::assemble</code></a> -
+<code>Definitions::assemble</code> -
 <code>DimensionShadowsTimeBucket</code>, <code>DimensionShadowsMeasure</code>, <code>TwoDimensionsOneLabel</code> and
 <code>LabelShadowsTable</code>, each case-folded to the coarsest dialect rule. So a public label collides
 with another public label at load, and cannot collide with an internal one at all. <strong>The limit:</strong>
 nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
 is the property the test asserts, and the thing to re-establish if this spelling ever changes.</p>
 <p><strong>And the two halves are held by different KINDS of thing, which is the asymmetry to know about.</strong>
-This half is a type. The public half is not: <a href="crate::plan::PlanKey"><code>PlanKey</code></a> and
-<a href="crate::plan::LegTerm"><code>LegTerm</code></a> carry their labels as <code>String</code>, so what keeps a public label out
+This half is a type. The public half is not: <code>PlanKey</code> and
+<code>LegTerm</code> carry their labels as <code>String</code>, so what keeps a public label out
 of this namespace is that <code>sutura_semantic::plan::federated_plan</code> derives every one of them from a
 <code>DimensionName</code>, a <code>MetricName</code> or <code>TIME_BUCKET_LABEL</code> - a derivation held by review, and by no
 test: the test above asks the four name parsers to refuse these spellings, which is a property of
@@ -5917,19 +5917,19 @@ module says it rather than leaving it to be discovered.
 <code>docs/adr/0007-federating-across-different-data-systems.md</code> decides the shape and
 <code>docs/adr/0009-the-plan-from-one-source-to-many.md</code> Decision 2 decides what a leg may compute.</p>
 <p><strong>Why a leg is not a <code>QueryPlan</code>, which is the whole reason this module exists.</strong> A
-<code>QueryPlan</code> requires a <code>PlanBucket</code>, a <a href="crate::plan::PlanMeasure"><code>PlanMeasure</code></a> and a measure
+<code>QueryPlan</code> requires a <code>PlanBucket</code>, a <code>PlanMeasure</code> and a measure
 label, and a dimension lookup has none of the three: a dimension table has no time column, no
 measure and no metric name. Reaching for <code>Option</code> on those three fields would make <em>a dimension
 leg carrying a time range</em> constructible, which is the checked shape where this one is the
 unrepresentable one.</p>
-<p>And the measure is worse than absent. <a href="crate::plan::PlanMeasure"><code>PlanMeasure</code></a> has exactly two
+<p>And the measure is worse than absent. <code>PlanMeasure</code> has exactly two
 variants and the only one carrying two terms is the one that <strong>divides</strong> them -
 <code>sutura_sql::generate</code> renders a <code>Ratio</code> as <code>CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)</code>.
 So a decomposed <code>Avg</code> travelling as a sum beside a count, and a ratio travelling as an undivided
 numerator and denominator, are not expressible by <code>PlanMeasure</code> at all - and the division per leg
 that 0009's Decision 2 forbids is exactly what it <em>would</em> express. <code>LegTerm</code> is the answer: a
 <code>PlanTerm</code> and a label, with no shape that divides and no field a
-<a href="crate::measure::ZeroDenominator"><code>ZeroDenominator</code></a> fits in, at any depth. That is the same
+<code>ZeroDenominator</code> fits in, at any depth. That is the same
 argument <code>crate::federation::Carried</code> makes one level up, and the two are deliberately built
 the same way.</p>
 <p><strong>Two variants and not three.</strong> There are three shapes a leg can be - an aggregate fact leg, a
@@ -5940,13 +5940,13 @@ metric name; and a one-hop dimension join does not start from it, so no joins. S
 <em>whether an aggregate is applied</em> moves one bit, and both halves render identically - project the
 key list, group by the key list. So the distinct-key leg is a <code>LegPlan::Fact</code> whose <code>terms</code> are
 empty, and it needs no variant of its own.</p>
-<p><strong>No leg carries a row cap.</strong> A leg is not an answer, and <a href="crate::plan::MAX_ROWS"><code>MAX_ROWS</code></a>
+<p><strong>No leg carries a row cap.</strong> A leg is not an answer, and <code>MAX_ROWS</code>
 caps one answer's rows; <code>sutura_sql::generate_leg</code> emits no <code>LIMIT</code> for the same reason.</p>
 <h4 id="struct-legterm"><code>struct LegTerm</code><a class="headerlink" href="#struct-legterm" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-349-1"><a id="__codelineno-349-1" name="__codelineno-349-1" href="#__codelineno-349-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegTerm</span>
 </span></code></pre></div>
 <p>One number a leg computes, and the label it is projected under.</p>
-<p><strong>A <code>PlanTerm</code> and not a <a href="crate::plan::PlanMeasure"><code>PlanMeasure</code></a>, and that is a type rather
+<p><strong>A <code>PlanTerm</code> and not a <code>PlanMeasure</code>, and that is a type rather
 than a convention.</strong> There is no shape here that divides, so a leg's statement cannot carry a
 <code>NULLIF</code> guard and a per-leg quotient is unrepresentable rather than discouraged. The bug that
 closes is specific: applied <em>inside</em> a leg, <code>ZeroDenominator::Null</code> turns a subgroup with a zero
@@ -6214,11 +6214,11 @@ expression with upwards of thirty fields, which <code>sutura_sql</code>'s render
 for a reason. An alias on one side of a join and not the other is not a fix.</p>
 <p>So the decision is the other one, and it is made where the plan is built rather than where it is
 rendered: <strong>a statement whose tables cannot be told apart is unrepresentable.</strong> There is no
-<a href="crate::plan::QueryPlan"><code>QueryPlan</code></a> and no <a href="crate::plan::LegPlan::Fact"><code>LegPlan::Fact</code></a> holding
+<code>QueryPlan</code> and no <code>LegPlan::Fact</code> holding
 such a set, because <code>StatementTables</code> is the only way to construct either and its canonical
 constructor refuses the pair. <code>sutura_semantic::plan</code> turns
 that refusal into
-<a href="crate::query::RefusalReason::PlanTablesShareAnIdentifier"><code>PlanTablesShareAnIdentifier</code></a>, so the
+<code>PlanTablesShareAnIdentifier</code>, so the
 question is declined and the metric stays authorable: a question that does NOT reach the colliding
 table is still answered. The alternative - refusing the metric at load - would make the estate
 shape unauthorable, and unlike a label a physical table is not something an author can rename.</p>
@@ -6235,11 +6235,11 @@ instead, pinned by a <code>compile_fail</code> doctest with a compiling twin, so
 reintroduce it - <strong>a prediction in a doc comment is not a mechanism, which is the lesson worth
 keeping from this.</strong></p>
 <p>What remains is narrow and stated so it is not mistaken for the above. A
-<a href="crate::plan::LegPlan::Lookup"><code>Lookup</code></a> leg reads ONE table and declares no joins, so it has no
+<code>Lookup</code> leg reads ONE table and declares no joins, so it has no
 pair to compare - the shape is the check. And two LEGS whose tables collide are not this defect:
 each leg is its own statement on its own data system, so nothing binds one identifier to two
 tables; what the combiner joins on is a label, and a label that shadowed a table is
-<a href="crate::catalog::InconsistentDefinitions::LabelShadowsTable"><code>LabelShadowsTable</code></a>'s refusal at
+<code>LabelShadowsTable</code>'s refusal at
 load.</p>
 <h4 id="enum-ambiguoustables"><code>enum AmbiguousTables</code><a class="headerlink" href="#enum-ambiguoustables" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-375-1"><a id="__codelineno-375-1" name="__codelineno-375-1" href="#__codelineno-375-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">AmbiguousTables</span>
@@ -6264,7 +6264,7 @@ emitting - is a variant a caller can branch on rather than a change to a message
 <p>The tables one statement reads: the <code>FROM</code> table, and one per join.</p>
 <p><strong>If an instance of this type exists, every table in it is distinguishable from every other one
 inside the statement</strong> - which is the whole return on the newtype, and what lets
-<a href="crate::plan::QueryPlan::new"><code>QueryPlan::new</code></a> stay infallible while the plan it builds cannot be
+<code>QueryPlan::new</code> stay infallible while the plan it builds cannot be
 the ambiguous one. See this module's header for what the ambiguity does and why it is refused
 rather than aliased around.</p>
 <h5 id="methods_66">Methods<a class="headerlink" href="#methods_66" title="Permanent link">&para;</a></h5>
@@ -6329,7 +6329,7 @@ request side wanted it too. It does, for four reasons, and the last one is the d
 </ul>
 <p><strong>What does NOT follow is that a refusal may name the text.</strong> <code>sutura_http::wire</code> parses the value
 and reports <code>filters[i].value</code> without the parse error underneath it, because
-<a href="crate::catalog::InvalidDimensionValue"><code>InvalidDimensionValue</code></a> carries the offending input and
+<code>InvalidDimensionValue</code> carries the offending input and
 <code>RefusalReason</code>'s own rule is that caller-supplied text is never reflected into a message that
 reaches a log, a UI and an agent's context.</p>
 <h4 id="methods_67">Methods<a class="headerlink" href="#methods_67" title="Permanent link">&para;</a></h4>
@@ -6380,7 +6380,7 @@ works.</p>
 <p><strong>There is no <code>TimeRangeUnbounded</code> variant, deliberately.</strong> <code>TimeRange</code> has no unbounded form,
 so such a refusal could never be provoked, and a variant with no test that can reach it looks
 like coverage while being dead code. The type does that job instead.</p>
-<p><a href="RefusalReason::TimeRangeTooLong"><code>TimeRangeTooLong</code></a> is the variant that exists for the half the
+<p><code>TimeRangeTooLong</code> is the variant that exists for the half the
 type does <em>not</em> do, and the pair is worth reading together: an absent bound is unrepresentable, a
 bound that is present and enormous is refused. The second has to be a refusal rather than a parse
 error because the same <code>TimeRange</code> is also a catalog author's anchor range, and a maximum on the
@@ -6570,7 +6570,7 @@ the offending input as typed fields; the <code>#[error]</code> text is a conveni
 part nobody writes unless the type demands it.</strong> A boolean acknowledgement records that somebody
 clicked past a question; this records what they meant, on the source's own entry, and the startup
 log prints it beside the posture.</p>
-<p>Construct it with <a href="Self::parse"><code>parse</code></a>. There is no other way in: the field is private, there is
+<p>Construct it with <code>parse</code>. There is no other way in: the field is private, there is
 no <code>Deserialize</code>, and <code>TryFrom&lt;String&gt;</code> delegates to the same constructor.</p>
 <p>No <code>Default</code>, deliberately. A default reason is a reason nobody gave.</p>
 <h4 id="methods_70">Methods<a class="headerlink" href="#methods_70" title="Permanent link">&para;</a></h4>
@@ -6602,7 +6602,7 @@ path takes the other.</p>
 behind it arrives with the credential port. Least authority on it is a configuration requirement
 an operator arranges - an identity holding a row-level-security bypass certifies the <em>unfiltered</em>
 number, so the anchor passes and proves less than it appears to.</p>
-<p>Construct it with <a href="Self::parse"><code>parse</code></a>. No <code>Deserialize</code> and no <code>Default</code>, so it cannot be
+<p>Construct it with <code>parse</code>. No <code>Deserialize</code> and no <code>Default</code>, so it cannot be
 arrived at by leaving anything unset and cannot be inherited from a neighbouring source.</p>
 <h4 id="methods_71">Methods<a class="headerlink" href="#methods_71" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-405-1"><a id="__codelineno-405-1" name="__codelineno-405-1" href="#__codelineno-405-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
@@ -6834,7 +6834,7 @@ our side. An adapter binds them with whatever its driver offers, and the driver 
 how a date is written on the wire.</p>
 <p><strong>There is no <code>Integer</code>, and its absence is the decision rather than an omission.</strong> The variant
 was here and nothing in the workspace constructed one: every caller value and every required
-filter binds as <a href="ParamValue::Text"><code>Text</code></a>, because that is the type both of them are. Both
+filter binds as <code>Text</code>, because that is the type both of them are. Both
 adapters carried an arm for it and the goldens carried a rendering, so it read as covered while
 no question could reach it - and the dead arm was the lesser half of the cost. The real half is
 that a <em>numeric</em> definitional filter cannot be expressed safely here: <code>equals: { column:
@@ -7055,7 +7055,7 @@ property the record wanted, reached by removing the argument instead of by typin
 <p><strong>What bounds a method with no credential is WHERE it is called from, and that is a lint here
 rather than a type - which is a second review's correction to a claim this comment used to make.</strong>
 The first correction gave <code>Self::verify_anchor</code> an <code>AnchorPlan</code> instead of a bare
-<a href="crate::plan::QueryPlan"><code>QueryPlan</code></a> and said the method could no longer be handed a question. A
+<code>QueryPlan</code> and said the method could no longer be handed a question. A
 reviewer disproved that in one function: the constructor is <code>pub</code>, every value it read was
 publicly constructible, and a fabricated tuple passed all four guards. That is not a hole a fifth
 guard closes - a shape check over caller-constructible values can only ever be a shape check, and
@@ -7175,7 +7175,7 @@ engine is given one file per model, and a missing one is a refusal naming the mo
 data system has no such step - the tables live in the dataset, and this process learns whether
 one is there when a question reaches it. So the same mistyped table name cost a boot refusal on
 one kind of deployment and a failed answer for whoever asked first on the other.</p>
-<p><a href="crate::warehouse::Warehouse::preflight"><code>Warehouse::preflight</code></a> is the port that closes it, and
+<p><code>Warehouse::preflight</code> is the port that closes it, and
 this is the answer it returns.</p>
 <p><strong>The links here are <code>crate::</code>-prefixed rather than <code>super::</code>-prefixed on purpose.</strong> The API
 reference pages are generated from these doc comments and copied through verbatim, and
@@ -7219,7 +7219,7 @@ domain is one: a second reason has somewhere to go.</p>
 </span></code></pre></div>
 <p>What a data system said about the tables it was asked for.</p>
 <p><strong><code>Self::NotAsked</code> is not <code>Self::All</code>, and no caller can read it as one.</strong> That is the shape
-<a href="crate::warehouse::PreFlight"><code>PreFlight</code></a> already uses and it is here for the same reason: the port's
+<code>PreFlight</code> already uses and it is here for the same reason: the port's
 default has to be <em>nothing to report</em>, because an adapter that cannot ask a data system cheaply
 must not be forced to lie - and a default of "every table is there" is exactly that lie, told at
 boot, in the one place a deployment is deciding whether to serve at all. An adapter that really
@@ -7292,18 +7292,18 @@ place it is made. What was wrong is using a display form as an equality.</p>
 <li><strong>Multiplicity survives.</strong> Content is a MULTISET, not a set: a row answered twice by one side
   and once by the other is a disagreement, which a set cannot see.</li>
 <li><strong>The one approximation is named and scoped.</strong>
-  <a href="crate::warehouse::agreement::RealTolerance"><code>RealTolerance</code></a> applies to <code>Value::Real</code> and to
+  <code>RealTolerance</code> applies to <code>Value::Real</code> and to
   nothing else. An integer, a date-as-text and a text cell are compared exactly.</li>
 <li><strong>Order is a separate assertion.</strong>
-  <a href="crate::warehouse::agreement::agree_on_content"><code>agree_on_content</code></a> says nothing about order
-  and <a href="crate::warehouse::agreement::agree_on_order"><code>agree_on_order</code></a> says nothing else, so <em>a
+  <code>agree_on_content</code> says nothing about order
+  and <code>agree_on_order</code> says nothing else, so <em>a
   wrong number</em> and <em>the right rows in the wrong order</em> stay two diagnoses rather than one. Call
   the content one first, or the first symptom of a wrong number is reported as a sort order.</li>
 </ul>
 <h1 id="what-this-does-not-decide">What this does NOT decide<a class="headerlink" href="#what-this-does-not-decide" title="Permanent link">&para;</a></h1>
 <p>Whether an order was promised at all. A plan that emits <code>ORDER BY</code> claims one, and a leg
 comparing an answer to a plan without one should not call
-<a href="crate::warehouse::agreement::agree_on_order"><code>agree_on_order</code></a>. Nothing here can tell, because
+<code>agree_on_order</code>. Nothing here can tell, because
 a <code>RowSet</code> does not carry the plan that produced it.</p>
 <h1 id="three-limits-worth-reading-before-citing-this">Three limits worth reading before citing this<a class="headerlink" href="#three-limits-worth-reading-before-citing-this" title="Permanent link">&para;</a></h1>
 <p><strong>A disagreement carries rows, which is the one place this module departs from the rule that an

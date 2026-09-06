@@ -2446,7 +2446,7 @@ of which the domain has anything to put in them.</p>
 </span></code></pre></div>
 <p>The deepest table path this data system resolves.</p>
 <p>A declaration, exhaustively matched, so a fifth dialect cannot compile without answering -
-the <code>DateTruncShape</code> and <a href="Dialect::identifier_quote"><code>identifier_quote</code></a> precedent, and for
+the <code>DateTruncShape</code> and <code>identifier_quote</code> precedent, and for
 the same reason: <strong>the dialect layer renders <code>catalog.schema.name</code> for ANY target given three
 parts.</strong> Its <code>TableRef</code> is a name plus two <code>Option</code>s with no per-dialect arity check, so
 without this declaration a <code>project.dataset.table</code> rendered for a target with no third
