@@ -60,8 +60,17 @@
 # # What it does NOT do
 #
 # It is not a lock. Two commands starting at once could both see nothing up and both arm a teardown;
-# `start` is idempotent and the second `stop` is a no-op on an already-stopped server, so the outcome
-# is a wasted teardown rather than a corrupted one. A lockfile is not worth that.
+# `start` is idempotent and the second `stop` is a no-op on an already-stopped server.
+#
+# **That used to make the worst outcome a wasted teardown. It no longer does.** `stop` now removes
+# the data directory - the tier is provisioned on demand and nothing it writes outlives a teardown,
+# `github.com/telekom/sutura#377` - so a teardown that lands while another shell is inside `start`
+# takes that shell's directory with it, leaving an endpoint entry published over nothing: the
+# `#231`/`#298` state this file exists to prevent. The window is the duration of the endpoint
+# withdrawal, tens of milliseconds, and reaching the end state in a test required widening it
+# deliberately; the natural interleaving (A stops, B's `status` answers 1, B starts) puts B at its
+# edge rather than inside it. So this is a stated limit and not a measured failure - but the
+# sentence that used to bound the damage is gone, and a lockfile is the thing that would restore it.
 #
 # **And it cannot follow the tier across a WORKTREE, which is the half that bit.** The requirement
 # follows the tier in TIME - exported only once a server is up - and an export follows a process

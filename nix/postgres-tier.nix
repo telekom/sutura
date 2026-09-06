@@ -100,22 +100,38 @@ rec {
       fi
 
       start() {
-        mkdir -p "$pg" "$root/.sutura-dev"
-        if [ ! -f "$pg/PG_VERSION" ]; then
-          # `PG_VERSION` absent is the right question and `initdb` alone was the wrong answer:
-          # initdb writes that file LATE, so its absence beside other entries is the signature of an
-          # INTERRUPTED initdb - and initdb then refuses the non-empty directory, every run, for as
-          # long as the directory survives. The tier diagnosed itself correctly and wedged anyway.
-          #
-          # Clearing it is safe in a way that clearing a cluster would not be: without `PG_VERSION`
-          # nothing was ever a cluster, nothing can read it, and no committed data can exist in it.
-          # A COMPLETE cluster is still reused, which is what keeps a repeated run cheap.
-          if [ -d "$pg" ] && [ -n "$(ls -A "$pg" 2>/dev/null)" ]; then
-            echo "postgres tier: clearing a partial data directory left by an interrupted initdb" >&2
-            rm -rf "''${pg:?the tier data directory is unset}"
-            mkdir -p "$pg"
+        mkdir -p "$root/.sutura-dev"
+        # WRECKAGE IS DECIDED BY WHETHER ANYONE IS RUNNING ON IT, NOT BY WHAT IS IN IT - and it is
+        # the ephemerality below that makes that decidable. `stop` removes this directory, so a
+        # directory that exists here with NO postmaster on it is wreckage from a run that never
+        # reached its teardown: a kill, an OOM, a reboot. A live one is a tier somebody else brought
+        # up, and reusing it is what keeps `start` idempotent.
+        #
+        # THE STRUCTURAL TEST THIS REPLACES WAS KEYED ON A FALSE PREMISE, and the premise is the
+        # interesting part. `PG_VERSION` is written EARLY, not late - `initdb.c` says "Top level
+        # PG_VERSION is checked by bootstrapper, so make it first" - so "non-empty and no
+        # PG_VERSION" is not the signature of an interrupted run. Measured here, killing `initdb`:
+        #
+        #   at  20ms -> 0 entries                                      (nothing to clear)
+        #   at  50ms -> 19 entries, PG_VERSION, no global/pg_control
+        #   at 100ms+ -> 23 entries, PG_VERSION AND global/pg_control
+        #   complete -> 22 entries
+        #
+        # Past ~100ms the wreck carries MORE entries than a finished cluster and every file a
+        # structural check could ask for, while `pg_ctl start` still fails with `FATAL: database
+        # "postgres" does not exist`. So no test of the contents can separate the two, and the one
+        # that was here covered only a window of a few milliseconds.
+        if [ -d "$pg" ] && [ -n "$(ls -A "$pg" 2>/dev/null)" ] && ! pg_ctl -D "$pg" status >/dev/null 2>&1; then
+          echo "postgres tier: clearing a data directory left by a run that never reached its teardown" >&2
+          if ! rm -rf "''${pg:?the tier data directory is unset}"; then
+            echo "postgres tier: could not clear $pg, so this worktree's tier cannot start." >&2
+            echo "               Remove it by hand; nothing in it is a cluster this tier can open." >&2
+            exit 1
           fi
-          initdb -D "$pg" -U postgres -E UTF8 --locale=C
+        fi
+        mkdir -p "$pg"
+        if [ ! -f "$pg/PG_VERSION" ]; then
+        initdb -D "$pg" -U postgres -E UTF8 --locale=C
         fi
         # Socket-only, under the short directory. No TCP, so no port allocation or collision.
         cat > "$pg/postgresql.conf" <<EOC
@@ -179,9 +195,10 @@ rec {
         # argues for surviving `stop`, and nothing here ever removed it: measured on one machine,
         # nine directories from four separate days, 40 MB each.
         #
-        # The cost of not keeping it is one `initdb`, measured at 0.87s - which is what a repeated
-        # `just test` pays now, against a directory that accumulates forever and a partial one that
-        # wedges the tier until somebody deletes a path nothing told them about.
+        # The cost of not keeping it is one `initdb`: 0.63-0.73s measured directly, and ~0.70s as the
+        # difference between a cold and a warm `start` - which is what a repeated `just test` pays
+        # now, against a directory that accumulated forever at 47 MB a time and a wreck that wedged
+        # the tier until somebody deleted a path nothing told them about.
         #
         # AFTER the withdraw and after the stop-failure exit above: a server that would not stop
         # keeps both its entry and its data, because removing a live postmaster's directory is a
@@ -241,7 +258,9 @@ rec {
   # two xtask gates so it cannot leave that file, and this body would put it over the 1000-line cap.
   check = pkgs.runCommand "postgres-tier"
     {
-      nativeBuildInputs = [ tier endpoints.script pkgs.jq ];
+      # `psql` for the canary that proves a running server is REUSED rather than re-created. The
+      # tier carries postgres as a runtime input of its own; this body needs a client too.
+      nativeBuildInputs = [ tier endpoints.script pkgs.jq pkgs.postgresql_18 ];
     }
     ''
       tree="$NIX_BUILD_TOP/worktree"
@@ -330,29 +349,44 @@ rec {
         exit 1
       fi
 
-      # --- a partial data directory heals instead of wedging the worktree ---
-      # `github.com/telekom/sutura#377`. An interrupted `initdb` leaves a directory that is neither
-      # a cluster nor empty: `PG_VERSION` is written LATE, so it is absent while the entries around
-      # it are already there. `initdb` then refuses the non-empty directory on every later run, so
-      # the tier was wedged for that worktree until somebody deleted a path nothing told them about
-      # - deterministic once it had happened, and reported as an `initdb` complaint about a temp
-      # path rather than as the state it is.
-      mkdir -p "$pg/base" "$pg/global"
-      : > "$pg/postgresql.auto.conf"
-      # The fixture has to BE the state under test: with `PG_VERSION` present this arm would only
-      # prove that a complete cluster is reused, which is the arm above.
-      if [ -f "$pg/PG_VERSION" ]; then
-        echo "the fixture is not a partial cluster - it carries PG_VERSION" >&2
+      # --- a directory left by a killed run heals, at EVERY point initdb can be killed at ---
+      # `github.com/telekom/sutura#377`. Two fixtures, because a structural check cannot tell them
+      # apart and the first version of this fix only covered the first: measured, killing `initdb`
+      # leaves no `PG_VERSION` for a few milliseconds, then `PG_VERSION` without `global/pg_control`,
+      # and from ~100ms BOTH - 23 entries where a finished cluster has 22. The rule is not what is in
+      # the directory but whether a postmaster is on it, which `stop` removing the directory is what
+      # makes decidable.
+      for fixture in early late; do
+        mkdir -p "$pg/base" "$pg/global"
+        : > "$pg/postgresql.auto.conf"
+        if [ "$fixture" = late ]; then
+          # The DOMINANT outcome, and the one the first version of this fix could not see: every
+          # file a structural test would ask for, and still not a cluster any postgres can open.
+          echo 18 > "$pg/PG_VERSION"
+          : > "$pg/global/pg_control"
+        fi
+        sutura-postgres-tier start
+        expect_state 0 "a $fixture wreck is cleared and the tier comes up on it"
+        expect_entry true "and the server it brought up is published"
+        sutura-postgres-tier stop
+        expect_state 1 "the healed tier tears down like any other"
+      done
+
+      # --- a LIVE server is reused, and reuse is the only thing that means now ---
+      # This replaces a guarantee that quietly lost its coverage: with `stop` removing the
+      # directory, "a complete cluster is reused" can no longer be reached by a second `start`, so
+      # asserting it would assert nothing. What survives - and what keeps `start` idempotent over a
+      # repeated `just test` - is that a RUNNING server is left alone and its data with it.
+      sutura-postgres-tier start
+      psql -h "$pg" -p "$port" -U postgres -d sutura -v ON_ERROR_STOP=1 \
+        -c "CREATE TABLE canary(v int)" -c "INSERT INTO canary VALUES (42)"
+      sutura-postgres-tier start
+      canary="$(psql -h "$pg" -p "$port" -U postgres -d sutura -tAc "SELECT v FROM canary")"
+      if [ "$canary" != 42 ]; then
+        echo "a second start did not reuse the running server: canary read '$canary'" >&2
         exit 1
       fi
-      sutura-postgres-tier start
-      expect_state 0 "start clears a partial data directory instead of refusing forever"
-      expect_entry true "and publishes the server it brought up on it"
       sutura-postgres-tier stop
-      expect_state 1 "the healed tier tears down like any other"
-      ( . ${./with-tier.sh}; sutura_tier_up )
-      expect_state 1 "the wrapper's EXIT trap stopped the server it started"
-      expect_entry absent "that teardown withdrew the claim too"
 
       # --- a stop that does not take keeps the claim ---
       # SIGSTOP on the postmaster is a fast shutdown that cannot complete: the signal reaches a
@@ -370,6 +404,14 @@ rec {
         exit 1
       fi
       expect_entry true "a stop that did not take keeps the claim over the live server"
+      # AND ITS DATA. Held by line order alone before this - the `rm -rf` sits after the
+      # stop-failure `exit 1`, and a reorder would delete a LIVE server's directory with every
+      # explicit assertion still passing. Deleting a running postmaster's data is a worse failure
+      # than the wedge this file set out to fix, so it gets a line rather than a position.
+      if [ ! -e "$pg" ]; then
+        echo "a failed stop deleted the live server's data directory" >&2
+        exit 1
+      fi
 
       # The queued shutdown runs the moment it is resumed, so wait for it rather than racing a
       # second stop against the first one's signal.
