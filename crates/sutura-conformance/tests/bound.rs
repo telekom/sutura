@@ -523,14 +523,29 @@ mod venue {
     #[test]
     fn the_requirement_this_harness_reads_is_the_one_the_provisioner_writes() {
         assert_eq!(sutura_conformance::REQUIRE_TIER, sutura_dev::requirement::FORCE);
-        for value in ["", " ", "0", "false", "no", "FALSE", "1", "true", "TRUE", "yes", "CI"] {
+        // **The falsy spellings are ITERATED from the owner, not listed here**, and that is the
+        // correction review asked for: a fixed literal array is a SAMPLE, and the sample was
+        // chosen in the crate that would not be the one changed. Add `"off"` to
+        // `sutura_dev::requirement::NOT_REQUIRED` - the obvious next spelling for a variable people
+        // set by hand - and `SUTURA_DEV_REQUIRE_TIER=off` would mean *optional* to
+        // `provisioned::here`, which skips, and *required* to `a_tier_is_required`, which then
+        // refuses the very absence that skip produced. Red on a machine that asked to skip, with a
+        // message naming the one thing that did not happen. Iterating the constant makes that a
+        // failure of this cell instead.
+        let falsy = sutura_dev::requirement::NOT_REQUIRED
+            .iter()
+            .flat_map(|spelling| [(*spelling).to_owned(), format!("  {spelling}"), spelling.to_uppercase()]);
+        // The truthy side stays a sample and has to: *anything not falsy* has no list to iterate,
+        // so what is asserted is that both copies agree over the spellings a reader would try.
+        let truthy = ["1", "true", "TRUE", "yes", "CI", "on"].into_iter().map(String::from);
+        for value in falsy.chain(truthy) {
             assert_eq!(
-                sutura_conformance::a_tier_is_required(Some(value)),
-                sutura_dev::requirement::decide(Some(value)).is_required(),
+                sutura_conformance::a_tier_is_required(Some(&value)),
+                sutura_dev::requirement::decide(Some(&value)).is_required(),
                 "`{value}`"
             );
         }
-        // And the unset direction, which is the one a developer machine is in.
+        // And the unset direction, which is the one a host with no tier binary is in.
         assert!(!sutura_conformance::a_tier_is_required(None));
         assert!(!sutura_dev::requirement::decide(None).is_required());
     }

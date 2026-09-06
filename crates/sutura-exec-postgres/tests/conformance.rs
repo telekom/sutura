@@ -29,6 +29,17 @@
 //! fixture. What that trust is worth is the paragraph above: in every venue that counts, the
 //! provisioner has already failed the run before an absence could be returned.
 //!
+//! # The fixture path is shared wider than this crate, and `telekom/sutura#405` is that
+//!
+//! This is the first fixture that loads `corpus::on_disk()` into a **server**, and it reads that
+//! file seven times per binding - once per behaviour plus the census. The path is
+//! `<temp_dir>/sutura-conformance/<table>.csv`, which carries no worktree and no digest, so
+//! another checkout of this repository running `just test` is a second writer of it. If one lands
+//! between this fixture's `on_disk()` and Postgres reading it, the cell fails as a content fault
+//! naming the case and this adapter while the run that caused it is green. **Not fixed here** -
+//! `crates/sutura-conformance/src/corpus.rs` is a fixture every binding shares and this file is
+//! about one adapter - and #405 is where the per-worktree path lands.
+//!
 //! # What this file does not establish
 //!
 //! The three things the `DuckDB` binding's header lists - nothing about impersonation (this adapter

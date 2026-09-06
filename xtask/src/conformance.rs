@@ -177,6 +177,15 @@
 //! Both directions are the price of reading text rather than a compiled artefact, which is not
 //! available - see [`scan`]'s header for why.
 //!
+//! **Two things the witnesses do NOT reach, and both are pre-existing rather than introduced by
+//! the change that wrote this paragraph.** [`Reconciled`]'s `judged` field is `pub(super)`, so a
+//! struct literal written in [`reconcile`] bypasses `Reconciled::of` and the one-decision-per-entry
+//! law with it - the law is held against every caller that exists, and nothing stops a future one
+//! in that module. And the `N file(s) read` figure printed on green is a plain `usize` counter, not
+//! a witness type: it is honest because an unreadable file in scope is a hard error rather than a
+//! skip, so `read` cannot be short of what was in scope without the run having already failed -
+//! which is an argument about the other guard rather than about the number.
+//!
 //! **The derivation from a type to a crate is `_` to `-` plus a manifest that declares that
 //! name.** A crate whose directory disagrees with its package name is found through the manifest;
 //! a package name that is not a path segment of the adapter type fails closed with the derivation
@@ -599,6 +608,26 @@ mod tests {
                 entry.crate_dir
             );
         }
+    }
+
+    /// **The third empty-scan floor, which had no cell.**
+    ///
+    /// `check-conformance-bindings` refuses an empty scan in three places, and the other two are
+    /// covered: `scan::cells` refuses a registry arm with no entry, and `Reconciled::of` refuses a
+    /// verdict short of what was found. This is the outermost one - *no Rust under `crates/` was
+    /// read* - and it is the arm that fires when the tree has moved out from under the gate, which
+    /// is the failure mode a gate exists to prevent and the least likely to be noticed, because a
+    /// scan that read nothing has nothing to disagree with.
+    ///
+    /// Called with an empty file list rather than by moving the tree, which is what makes it a
+    /// cell and not a manual experiment.
+    #[test]
+    fn a_scan_that_read_no_rust_is_a_failure_and_not_a_clean_tree() {
+        let repo::RepoFiles { root, .. } = repo::all_files().expect("the tests run inside the repo");
+        let Err(why) = super::collect(&root, &[]) else {
+            panic!("a scan that read nothing is not a verdict")
+        };
+        assert!(why.contains("was read, so this gate checked nothing"), "{why}");
     }
 
     #[test]
