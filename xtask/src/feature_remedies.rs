@@ -24,11 +24,16 @@
 //! [`regions::scope`](crate::causality::regions::scope), so a fixture asserting on a message is not
 //! itself a message.
 //!
-//! A literal is a subject when it instructs a rebuild: **a build verb, and the word `feature` after
-//! it.** The order is the trigger and not merely both words, because "this build does not link the
-//! adapter" is a statement about the build and not an instruction - it earns no remedy and is not
-//! asked for one. What a subject must then do is name a feature its own crate's `[features]` table
-//! declares, read out of `crates/<name>/Cargo.toml`.
+//! A literal is a subject when it directs a reader at a cargo feature: a feature FLAG on its own,
+//! or the word `feature` together with a verb about acquiring one, **in either order**. The order
+//! used to be the trigger and a review broke that with five sentence shapes, the worst being this
+//! tree's own house style - *"built without the `x` feature ... Rebuild it"* - where the noun
+//! precedes the verb. What still earns no remedy is a message that never says `feature`: "no build
+//! of this binary links the adapter" describes the binary and sends nobody anywhere.
+//!
+//! A subject must name a feature its own crate's `[features]` table declares, read out of
+//! `crates/<name>/Cargo.toml`. **Every name it cites, not one of them** - `any` let a bogus feature
+//! ride along beside a real one and then printed the bogus name as though it had resolved.
 //!
 //! # Fails closed
 //!
@@ -37,6 +42,14 @@
 //! zero subjects is red, and so is a manifest that cannot be read. How many there are is PRINTED
 //! with the files, not written down here: a number in a comment is a second thing to keep true, and
 //! a count with no list behind it is not a witness.
+//!
+//! **Zero was not enough, and a review proved it.** Making the walk `break` after its first hit left
+//! three of four messages unread, the verdict `ok`, and every test in this module green. So the
+//! verdict carries DENOMINATORS - files read against in-scope files counted from the listing, and
+//! per file, literals classified against the literals that file holds. Two levels, because fixing
+//! only the first was measured insufficient: the same `break` moved one level down left the file
+//! count at 204 of 204 and read `ok` again. Both are pairs of numbers taken from different places,
+//! which is the only reason comparing them proves anything, and a shortfall in either is red.
 //!
 //! # Three limits, next to the claim
 //!
@@ -66,11 +79,20 @@ use crate::serde_parse::scan::string_literals;
 /// The word a remedy has to resolve, and the one this gate keys on.
 const FEATURE: &str = "feature";
 
-/// The verb that makes a sentence an instruction rather than a description.
+/// Ways a sentence spells a feature SELECTION, which is an instruction on its own.
 ///
-/// One spelling covers `Build` and `Rebuild` too, because the comparison is over lowercased text -
-/// and both forms are live in this tree.
-const BUILD: &str = "build";
+/// Either of these in a message is a remedy whatever the surrounding prose says, so they need no
+/// verb beside them.
+const FLAGS: &[&str] = &["--features", "--all-features", "-f "];
+
+/// Verbs that turn a mention of a feature into a direction to go and do something.
+///
+/// `build` covers `Build` and `Rebuild`, because the comparison is over lowercased text. The set is
+/// deliberately about ACQUIRING a feature - a review broke the single-verb, ordered version of this
+/// rule with five sentence shapes it could not see, of which the most damning was this repository's
+/// OWN house style: *"built without the `x` feature ... Rebuild it"*, where the word `feature`
+/// precedes the only verb.
+const VERBS: &[&str] = &["build", "enable", "install", "compile", "activate", "turn on"];
 
 /// One literal that instructs a rebuild.
 #[derive(Debug, PartialEq, Eq)]
@@ -99,18 +121,17 @@ fn crate_dir(rel: &str) -> Option<String> {
     Some(String::from(dir))
 }
 
-/// Does this text instruct a rebuild - a build verb, and the word `feature` after it?
+/// Does this text direct a reader at a cargo feature?
 ///
-/// The ORDER is the trigger. "this build does not link the adapter" is a statement about what was
-/// linked; "build it with the `x` feature" is a direction to go somewhere. Only the second owes a
-/// reader a name, and demanding one of the first would fail correct prose.
+/// A feature FLAG is one on its own. Otherwise it takes the word `feature` and a verb about
+/// acquiring one, in either order - **the order used to be the trigger and that was wrong**: it let
+/// through every sentence naming the feature before the verb, which is how most of this tree writes
+/// them. What still earns no remedy is a message that never says `feature` at all: "no build of
+/// this binary links the adapter" describes the binary and sends nobody anywhere.
 fn instructs_a_rebuild(body: &str) -> bool {
     let lowered = body.to_lowercase();
-    lowered
-        .find(BUILD)
-        .and_then(|at| at.checked_add(BUILD.len()))
-        .and_then(|after| lowered.get(after..))
-        .is_some_and(|tail| tail.contains(FEATURE))
+    FLAGS.iter().any(|flag| lowered.contains(flag))
+        || (lowered.contains(FEATURE) && VERBS.iter().any(|verb| lowered.contains(verb)))
 }
 
 /// Every feature name the sentence spells out.
@@ -125,10 +146,15 @@ fn named_features(body: &str) -> Vec<String> {
         let Some(tail) = at.checked_add("--features".len()).and_then(|after| rest.get(after..)) else {
             break;
         };
-        if let Some(name) = tail.split_whitespace().next().map(trim_name)
-            && !name.is_empty()
-        {
-            names.push(String::from(name));
+        // Split on commas: `--features tls,bigquery` is one legal argument naming two features, and
+        // reading it as a single name reddened a correct message.
+        if let Some(argument) = tail.split_whitespace().next() {
+            for piece in argument.split(',') {
+                let name = trim_name(piece);
+                if !name.is_empty() {
+                    names.push(String::from(name));
+                }
+            }
         }
         rest = tail;
     }
@@ -177,7 +203,11 @@ fn declared_features(manifest: &str) -> BTreeSet<String> {
     for line in manifest.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            inside = trimmed == "[features]";
+            // The header's own text, without a trailing comment. `[features] # what this links` is
+            // legal TOML and an exact-line comparison read it as some other section, which made the
+            // whole table invisible and produced "declares none" about a manifest declaring two.
+            // A false RED with a false REASON, and this tree's manifests are heavily commented.
+            inside = trimmed.split('#').next().unwrap_or(trimmed).trim() == "[features]";
             continue;
         }
         if !inside || trimmed.starts_with('#') {
@@ -193,29 +223,64 @@ fn declared_features(manifest: &str) -> BTreeSet<String> {
     found
 }
 
+/// What one walk of the tree saw.
+///
+/// `scanned` exists because a review broke this gate by making it `break` out of the file loop
+/// after the first hit: three of four messages went unread, the verdict was `ok`, and every one of
+/// this module's tests stayed green. **A count of what was FOUND cannot see that.** A count of what
+/// was LOOKED AT, compared against a list built independently, can.
+struct Scan {
+    /// The instructions, in source order.
+    found: Vec<Subject>,
+    /// In-scope files actually read.
+    scanned: usize,
+    /// Literals examined - the other number that collapses when a reader stops early.
+    literals: usize,
+}
+
 /// Every rebuild instruction in the tree, outside test code.
-fn subjects(files: &[String], read: &PostImage<'_>) -> Result<Vec<Subject>, String> {
-    let mut found = Vec::new();
+fn subjects(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
+    let mut scan = Scan {
+        found: Vec::new(),
+        scanned: 0,
+        literals: 0,
+    };
     for rel in files.iter().filter(|rel| in_scope(rel)) {
         let text = read(rel).ok_or_else(|| {
             format!("could not read {rel}, so the scan that decides which messages this gate reads is incomplete")
         })?;
-        if !text.contains(FEATURE) {
+        scan.scanned = scan.scanned.saturating_add(1);
+        if !text.contains(FEATURE) && !FLAGS.iter().any(|flag| text.contains(flag)) {
             continue;
         }
         let tests = regions::scope(rel, read);
-        for literal in string_literals(&text) {
+        // Two numbers about the SAME loop, one taken before it and one counted inside it. The file
+        // denominator above does not reach here: a review's `break` after the first hit left files
+        // at 204 of 204 and still read `ok`, because what collapsed was the literal walk. This is
+        // the number that collapses with it.
+        let literals = string_literals(&text);
+        let total = literals.len();
+        let mut classified = 0_usize;
+        for literal in literals {
+            classified = classified.saturating_add(1);
             if tests.covers(literal.line) || !instructs_a_rebuild(&literal.body) {
                 continue;
             }
-            found.push(Subject {
+            scan.found.push(Subject {
                 file: rel.clone(),
                 line: literal.line,
                 names: named_features(&literal.body),
             });
         }
+        if classified != total {
+            return Err(format!(
+                "classified {classified} of {total} literal(s) in {rel} - the literal walk stopped \
+                 early, so this verdict is about part of the file"
+            ));
+        }
+        scan.literals = scan.literals.saturating_add(total);
     }
-    Ok(found)
+    Ok(scan)
 }
 
 /// Each subject against its own crate's table.
@@ -240,12 +305,21 @@ fn unresolved(root: &std::path::Path, found: &[Subject]) -> Result<Vec<String>, 
             ));
             continue;
         }
-        if !subject.names.iter().any(|name| declared.contains(name)) {
+        // EVERY name, not any of them. `any` passed a message citing a real feature and a bogus
+        // one together - and then PRINTED the bogus name in the ok line as though it had resolved,
+        // so the witness asserted the opposite of the truth.
+        let missing: Vec<&str> = subject
+            .names
+            .iter()
+            .map(String::as_str)
+            .filter(|name| !declared.contains(*name))
+            .collect();
+        if !missing.is_empty() {
             problems.push(format!(
-                "{at}: cites the feature(s) {} - {path} declares {}",
-                subject.names.join(", "),
+                "{at}: cites {} - {path} declares {}",
+                missing.join(", "),
                 if declared.is_empty() {
-                    String::from("none")
+                    String::from("no features at all")
                 } else {
                     declared.iter().cloned().collect::<Vec<_>>().join(", ")
                 }
@@ -258,7 +332,18 @@ fn unresolved(root: &std::path::Path, found: &[Subject]) -> Result<Vec<String>, 
 fn check() -> Result<Vec<String>, String> {
     let repo::RepoFiles { root, files } = repo::all_files().ok_or_else(|| String::from("could not locate the repo root"))?;
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
-    let found = subjects(&files, &read)?;
+    // The denominator, built from the LISTING rather than from the walk - the two cannot agree by
+    // construction, which is the only reason comparing them proves anything.
+    let expected = files.iter().filter(|rel| in_scope(rel)).count();
+    let scan = subjects(&files, &read)?;
+    if scan.scanned != expected {
+        return Err(format!(
+            "read {} of {expected} in-scope file(s) - the walk stopped early, so this verdict is \
+             about part of the tree",
+            scan.scanned
+        ));
+    }
+    let found = scan.found;
     if found.is_empty() {
         return Err(String::from(
             "read no rebuild instruction out of any crate source - the literal scan is broken, not \
@@ -268,10 +353,15 @@ fn check() -> Result<Vec<String>, String> {
     }
     let problems = unresolved(&root, &found)?;
     if problems.is_empty() {
-        return Ok(found
+        let mut held: Vec<String> = found
             .iter()
             .map(|subject| format!("{}:{} -> {}", subject.file, subject.line, subject.names.join(", ")))
-            .collect());
+            .collect();
+        held.push(format!(
+            "(read {} literal(s) in {} of {expected} in-scope file(s))",
+            scan.literals, scan.scanned
+        ));
+        return Ok(held);
     }
     Err(problems.join("\n  "))
 }
@@ -289,7 +379,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // reader that stopped reading, and this gate's whole failure mode is the second one.
             eprintln!(
                 "xtask check-feature-remedies: ok - {} rebuild instruction(s) name a declared feature",
-                held.len()
+                held.len().saturating_sub(1)
             );
             for one in &held {
                 eprintln!("  {one}");
@@ -382,7 +472,9 @@ mod tests {
             ("crates/thing/Cargo.toml", "[features]\ntls = []\n"),
         ];
         let read = reading(&files);
-        let found = subjects(&[String::from("crates/thing/src/lib.rs")], &read).expect("the fixture reads");
+        let found = subjects(&[String::from("crates/thing/src/lib.rs")], &read)
+            .expect("the fixture reads")
+            .found;
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found.first().expect("one subject").names.is_empty(), "{found:?}");
 
@@ -391,7 +483,9 @@ mod tests {
             "fn refuse() -> String {\n    String::from(\"Build `thing` with `--features tls`, or declare a plain source\")\n}\n",
         )];
         let read = reading(&ok);
-        let found = subjects(&[String::from("crates/thing/src/lib.rs")], &read).expect("the fixture reads");
+        let found = subjects(&[String::from("crates/thing/src/lib.rs")], &read)
+            .expect("the fixture reads")
+            .found;
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found.first().expect("one subject").names, vec!["tls"], "{found:?}");
     }
@@ -414,8 +508,97 @@ mod tests {
              }\n",
         )];
         let read = reading(&files);
-        let found = subjects(&[String::from("crates/thing/src/lib.rs")], &read).expect("the fixture reads");
+        let found = subjects(&[String::from("crates/thing/src/lib.rs")], &read)
+            .expect("the fixture reads")
+            .found;
         assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn a_bogus_feature_beside_a_real_one_does_not_ride_along() {
+        // Found by review. `any` passed this and then PRINTED `zzz_bogus` in the ok line as if it
+        // had resolved - a witness asserting the opposite of the truth. Run against a real manifest
+        // on disk, because `unresolved` reads one and that read is half of what is being fixed.
+        let root = std::env::temp_dir().join(format!("sutura-feature-remedies-{}", std::process::id()));
+        let src = root.join("crates/thing/src");
+        std::fs::create_dir_all(&src).expect("a scratch crate");
+        std::fs::write(
+            root.join("crates/thing/Cargo.toml"),
+            "[features] # commented, as this tree's are\ntls = []\n",
+        )
+        .expect("a manifest");
+        let files = [(
+            "crates/thing/src/lib.rs",
+            "fn refuse() -> String {\n    String::from(\"Rebuild with `--features tls`, or for metadata the `zzz_bogus` feature\")\n}\n",
+        )];
+        let read = reading(&files);
+        let scan = subjects(&[String::from("crates/thing/src/lib.rs")], &read).expect("the fixture reads");
+        let names = &scan.found.first().expect("one subject").names;
+        assert!(
+            names.contains(&String::from("tls")) && names.contains(&String::from("zzz_bogus")),
+            "{names:?}"
+        );
+
+        let problems = unresolved(&root, &scan.found).expect("the manifest reads");
+        let _swept = std::fs::remove_dir_all(&root);
+        // One problem, naming ONLY the name that does not resolve - not the real one beside it.
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        let problem = problems.first().expect("one problem");
+        assert!(problem.contains("zzz_bogus"), "{problem}");
+        assert!(
+            !problem.contains("cites tls"),
+            "the resolving name is not the complaint: {problem}"
+        );
+    }
+
+    #[test]
+    fn the_five_shapes_a_review_slipped_past_the_ordered_rule_are_all_subjects() {
+        // Each of these left the single-verb, ordered trigger at `ok`, exit 0. The first is this
+        // repository's own house style, which is what made it the worst of them.
+        for sentence in [
+            "this binary was built without the `zzz` feature, so it links no adapter. Rebuild it and try again",
+            "`catalog.kind: datahub` needs the `zzz` feature - build the binary again to link it",
+            "start it with `cargo run -p sutura-serve --features zzz` to link the adapter",
+            "enable the `zzz` feature and try again",
+            "install the binary with `--features zzz`",
+        ] {
+            assert!(instructs_a_rebuild(sentence), "not seen as an instruction: {sentence}");
+        }
+        // And the message #366 replaces the broken one with is still NOT a subject.
+        assert!(!instructs_a_rebuild(
+            "names a metadata adapter no build of this binary links - write `markdown`, the one catalog kind it can open"
+        ));
+    }
+
+    #[test]
+    fn the_walk_reports_how_many_files_it_read_not_just_what_it_found() {
+        // Found by review: a `break` after the first hit left three of four messages unread and the
+        // verdict `ok`, with every test here green. The denominator is what sees that.
+        let files = [
+            (
+                "crates/a/src/lib.rs",
+                "fn f() { let _ = \"Rebuild with `--features tls`\"; }\n",
+            ),
+            ("crates/b/src/lib.rs", "fn g() { let _ = \"nothing to say here\"; }\n"),
+        ];
+        let read = reading(&files);
+        let listing = vec![String::from("crates/a/src/lib.rs"), String::from("crates/b/src/lib.rs")];
+        let scan = subjects(&listing, &read).expect("the fixture reads");
+        assert_eq!(scan.scanned, 2, "both in-scope files are read, not only the one that hit");
+        assert_eq!(scan.found.len(), 1);
+    }
+
+    #[test]
+    fn a_commented_table_header_and_a_comma_list_are_both_legal_and_neither_is_a_red() {
+        // Both were FALSE REDS found by review, and a false red is the shape that gets a gate
+        // disabled. The manifests in this tree are heavily commented.
+        let declared = declared_features("[features] # what this binary can link\ntls = []\nbigquery = []\n");
+        assert!(declared.contains("tls") && declared.contains("bigquery"), "{declared:?}");
+        // One legal argument naming two features.
+        assert_eq!(
+            named_features("Rebuild with `--features tls,bigquery`"),
+            vec!["bigquery", "tls"]
+        );
     }
 
     #[test]
@@ -426,7 +609,8 @@ mod tests {
             return;
         };
         let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
-        let found = subjects(&files, &read).expect("every crate source reads");
+        let scan = subjects(&files, &read).expect("every crate source reads");
+        let found = scan.found;
         assert!(!found.is_empty(), "no rebuild instruction found - the literal scan is broken");
         assert_eq!(unresolved(&root, &found).expect("every manifest reads"), Vec::<String>::new());
     }
