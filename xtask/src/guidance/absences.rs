@@ -295,10 +295,7 @@ pub(super) struct Reading {
 /// the empty-set and truncated-walk cases provable at all.
 fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<String>, Reading) {
     let mut problems = Vec::new();
-    let mut reading = Reading {
-        stated: 0,
-        scanned: 0,
-    };
+    let mut reading = Reading { stated: 0, scanned: 0 };
     for absence in table {
         let mut unread = Vec::new();
         let stated = statements(root, files, absence, &mut unread);
@@ -434,7 +431,10 @@ mod tests {
         // mid-sentence and is not found.
         let (dir, files) = tree(
             "wrapped",
-            &[("crates/a/src/lib.rs", "/// There is\n/// no consumer today.\npub fn widget() {}\n")],
+            &[(
+                "crates/a/src/lib.rs",
+                "/// There is\n/// no consumer today.\npub fn widget() {}\n",
+            )],
         );
         let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
         assert!(problems.is_empty(), "{problems:?}");
@@ -518,10 +518,7 @@ mod tests {
         let truncated = vec![String::from("crates/a/src/lib.rs")];
         let (whole, _) = absences_hold(
             &dir,
-            &[
-                String::from("crates/a/src/lib.rs"),
-                String::from("crates/b/src/lib.rs"),
-            ],
+            &[String::from("crates/a/src/lib.rs"), String::from("crates/b/src/lib.rs")],
             &[ENTRY],
         );
         assert_eq!(whole.len(), 1, "the refutation is there to be found: {whole:?}");
