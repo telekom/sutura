@@ -5,6 +5,13 @@
 # An entry is a DECISION somebody wrote down, not a suppression. The date is what makes a stale one
 # visible: an exception nobody has revisited in a year is a question, and a gate cannot ask it.
 #
+# EVERY ROW MUST NAME A MAJOR Cargo.lock HOLDS, and `cargo xtask check-arrow` fails on one that does
+# not - including the engine's own row, which is here so the report can name a reason for every major
+# present rather than because it is an exception. Delete an entry in the same change that closes the
+# split it permitted: what rots is not the row, it is the paragraph beside it, and that paragraph is
+# the only thing a reviewer reads to decide whether the exception is still earned. The gate still
+# cannot read the DATE, so a current-looking entry from a year ago is on you.
+#
 # The rule these are exceptions to: the ENGINE's Arrow major is the workspace's Arrow major. A data
 # source is replaceable and the engine is not, so every other Arrow-consuming dependency conforms to
 # it, and downgrading the engine to match an adapter is not on the table.
@@ -16,4 +23,4 @@
 # test is whether any first-party crate NAMES the type.
 
 59 2026-08-28 the engine's major, and the target every other Arrow consumer conforms to
-58 2026-08-28 the duckdb crate declares arrow ^58 and its newest release still does; measured to be a DUPLICATE and not a type boundary, because sutura-exec-duckdb declares no arrow dependency, names no Arrow type and converts to a neutral row type - and the adapter is a dev-dependency, so both majors coexist only in the test build and never in a shipped artifact. Ends when the duckdb crate reaches arrow 59: a one-line manifest bump was verified clean upstream (single arrow 59.2.0, its own suite 288 passed / 0 failed, identical to the arrow-58 control), so the fix is an upstream PR rather than a fork here. Vendoring is the fallback and buys back only CI compile time at the price of owning that copy's security response.
+58 2026-08-28 the duckdb crate declares arrow ^58 and its newest release still does; measured to be a DUPLICATE and not a type boundary, because sutura-exec-duckdb declares no arrow dependency, names no Arrow type and converts to a neutral row type - and the adapter is a dev-dependency, so both majors coexist only in the test build and never in a shipped artifact. Ends when the duckdb crate reaches arrow 59: a one-line manifest bump was verified clean upstream (single arrow 59.2.0, its own suite 288 passed / 0 failed, identical to the arrow-58 control), so the fix is upstream rather than a fork here - and as of 2026-09-06 that upstream change has MERGED (2026-09-02) while the newest published release predates it (2026-07-22), so what this entry now waits on is a release plus `just update`, not a decision. Vendoring is the fallback and buys back only CI compile time at the price of owning that copy's security response.

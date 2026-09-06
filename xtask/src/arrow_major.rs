@@ -24,6 +24,33 @@
 //!
 //! The allowlist is `devco/arrow-majors-allow`, one entry per line as `<major> <ISO date> <reason>`.
 //! An entry is a decision somebody wrote down, and the date is what makes a stale one visible.
+//!
+//! # BOTH DIRECTIONS, because only one of them used to be asked
+//!
+//! This gate returned on `majors.len() <= 1` before it read the allowlist at all, so on the day a
+//! split closes it printed `ok - one Arrow major` and the entry that permitted the split stayed in
+//! the file permitting nothing, its dated paragraph intact. What rots is not the entry, it is the
+//! reasoning beside it - and that paragraph is the only thing a reviewer reads to decide whether
+//! the exception is still earned. `max-lines` and `check-refusal-coverage` each hold their own
+//! annotated allowlist to that rule already; this is the third list of the same shape.
+//!
+//! So the allowlist is read on every run, and compared both ways: a major in the lock with no entry
+//! fails, and an entry naming a major the lock does not hold fails. See [`assess`].
+//!
+//! **THE CHOICE, and there were two.** `59` is the engine's own major and is not an exception to
+//! anything - it is in the file so the failure message can name a reason for every major present.
+//! Exempting it needs the file to mark which row is the engine's, which is a second thing to keep
+//! true and a marker nothing checks. So: **every row is a row like any other and must name a major
+//! the lock file holds.** The consequence, stated rather than left to be discovered: were Arrow to
+//! leave the dependency graph entirely, every row goes inert at once and the gate fails until the
+//! file is deleted along with them. That is the intended reading - a list of tolerated Arrow majors
+//! on a tree with no Arrow is a rule that lost its subject.
+//!
+//! **WHAT THIS STILL DOES NOT ANSWER.** Not the date: an entry nobody has revisited in a year reads
+//! exactly like one written this morning, which the allowlist's own header already discloses. Not
+//! the shape either - a bare `<major>` with no date and no reason parses, permits the split, and
+//! prints an empty reason beside it. Both are about an entry that is present and current; this gate
+//! answers only whether the major it names is.
 
 use std::collections::BTreeMap;
 
@@ -95,6 +122,49 @@ fn allowed(contents: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// Which majors the Arrow family resolves to, and which members carry each one.
+///
+/// The members are what a failure message needs: naming one crate would send somebody to the
+/// wrong place.
+fn family_majors(lock: &str) -> BTreeMap<String, Vec<String>> {
+    let mut majors: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for package in packages(lock) {
+        if package.name == FAMILY_PREFIX || package.name.starts_with("arrow-") {
+            majors
+                .entry(major(package.version).to_owned())
+                .or_default()
+                .push(format!("{}@{}", package.name, package.version));
+        }
+    }
+    majors
+}
+
+/// What the lock file and the allowlist say about each other, in both directions.
+struct Assessment {
+    /// Majors present in the lock file that no entry explains.
+    unexplained: Vec<String>,
+    /// Entries naming a major the lock file does not hold - the split closed, the paragraph stayed.
+    inert: Vec<String>,
+}
+
+/// Compare the two lists both ways.
+///
+/// **`unexplained` is asked only when there is a split**, and that is a rule rather than an
+/// oversight: one Arrow major is the state this workspace wants, so demanding an entry for it would
+/// fail a tree that is exactly right - and a gate that fails on correct code gets disabled, which is
+/// the argument `deny.toml` already carries. **`inert` is asked on every run**, that one included,
+/// because the day a split closes is precisely the day its entry stops being earned, and until now
+/// nothing looked.
+fn assess(majors: &BTreeMap<String, Vec<String>>, permitted: &BTreeMap<String, String>) -> Assessment {
+    let unexplained = if majors.len() > 1 {
+        majors.keys().filter(|m| !permitted.contains_key(*m)).cloned().collect()
+    } else {
+        Vec::new()
+    };
+    let inert = permitted.keys().filter(|m| !majors.contains_key(*m)).cloned().collect();
+    Assessment { unexplained, inert }
+}
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-arrow: could not determine the repo root");
@@ -106,35 +176,25 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // Which majors each family member resolves to, and which members carry each major. The second
-    // is what the failure message needs: naming one crate would send somebody to the wrong place.
-    let mut majors: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for package in packages(&lock) {
-        if package.name == FAMILY_PREFIX || package.name.starts_with("arrow-") {
-            majors
-                .entry(major(package.version).to_owned())
-                .or_default()
-                .push(format!("{}@{}", package.name, package.version));
-        }
-    }
-
-    if majors.len() <= 1 {
-        let which = majors
-            .keys()
-            .next()
-            .map_or_else(|| "none present".to_owned(), |m| format!("major {m}"));
-        println!("xtask check-arrow: ok - one Arrow major in Cargo.lock ({which})");
-        return Verdict::Pass;
-    }
-
-    // More than one major. An allowlist entry per major is what turns this from a defect into a
-    // decision, and the entry has to name every major present - accepting one and not the other
-    // would be an allowlist that permits a split it never described.
+    let majors = family_majors(&lock);
+    // Read BEFORE any verdict, so a single-major tree is still told what its allowlist claims.
     let allowlist = std::fs::read_to_string(root.join(ALLOWLIST)).unwrap_or_default();
     let permitted = allowed(&allowlist);
-    let all_explained = majors.keys().all(|m| permitted.contains_key(m));
+    let found = assess(&majors, &permitted);
 
-    if all_explained {
+    // BOTH reports, never the first one alone: a gate that knows two numbers and prints one sends
+    // its reader back for a second run to find the half it withheld.
+    if !found.inert.is_empty() {
+        report_inert(&found.inert, &majors);
+    }
+    if !found.unexplained.is_empty() {
+        report_split(&majors, &permitted);
+    }
+    if !found.inert.is_empty() || !found.unexplained.is_empty() {
+        return Verdict::Fail;
+    }
+
+    if majors.len() > 1 {
         println!(
             "xtask check-arrow: ok - {} Arrow majors, every one explained in {ALLOWLIST}",
             majors.len()
@@ -143,11 +203,45 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             let reason = permitted.get(major).map_or("no reason recorded", String::as_str);
             println!("  major {major}: {} crate(s) - {reason}", members.len());
         }
-        return Verdict::Pass;
+    } else {
+        let which = majors
+            .keys()
+            .next()
+            .map_or_else(|| "none present".to_owned(), |m| format!("major {m}"));
+        println!(
+            "xtask check-arrow: ok - one Arrow major in Cargo.lock ({which}), and no entry in {ALLOWLIST} names a major it does not hold"
+        );
     }
+    Verdict::Pass
+}
 
+/// An entry naming a major the lock file no longer holds.
+fn report_inert(inert: &[String], majors: &BTreeMap<String, Vec<String>>) {
+    eprintln!(
+        "xtask check-arrow: FAILED - {ALLOWLIST} names {} major(s) Cargo.lock does not hold",
+        inert.len()
+    );
+    for major in inert {
+        eprintln!("  major {major}: no arrow crate in the lock file resolves to it");
+    }
+    if majors.is_empty() {
+        eprintln!("  the lock file holds no arrow crate at all");
+    } else {
+        let present: Vec<&str> = majors.keys().map(String::as_str).collect();
+        eprintln!("  present: {}", present.join(", "));
+    }
+    eprintln!();
+    eprintln!("  The split that entry permitted has closed. An exception nothing needs is a claim");
+    eprintln!("  nobody checks, and this file is a list of claims: the paragraph beside an entry is");
+    eprintln!("  the only thing a reviewer reads to decide whether it is still earned. Delete the");
+    eprintln!("  entry and its argument together, in the change that closed the split.");
+    eprintln!();
+}
+
+/// A major in the lock file that no entry explains.
+fn report_split(majors: &BTreeMap<String, Vec<String>>, permitted: &BTreeMap<String, String>) {
     eprintln!("xtask check-arrow: FAILED - Cargo.lock holds {} Arrow majors", majors.len());
-    for (major, members) in &majors {
+    for (major, members) in majors {
         let note = permitted.get(major).map_or("NOT EXPLAINED", String::as_str);
         eprintln!("  major {major}: {} crate(s) [{note}]", members.len());
         for member in members.iter().take(3) {
@@ -178,7 +272,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     for major in majors.keys().filter(|m| !permitted.contains_key(*m)) {
         eprintln!("    {major} <ISO date> <why this split is acceptable, and what would end it>");
     }
-    Verdict::Fail
 }
 
 #[cfg(test)]
@@ -238,5 +331,69 @@ mod tests {
     #[test]
     fn a_blank_or_commented_allowlist_permits_nothing() {
         assert!(allowed("\n# nothing here\n\n").is_empty());
+    }
+
+    /// The lock file this workspace has today: an engine major and an adapter's, both allowed.
+    fn split_lock() -> &'static str {
+        "[[package]]\nname = \"arrow\"\nversion = \"58.4.0\"\n\n[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n"
+    }
+
+    #[test]
+    fn an_entry_for_a_major_the_lock_no_longer_holds_is_inert() {
+        // The day the split closes. Before this gate looked, the run printed `ok - one Arrow
+        // major` and the 58 entry stayed in the file with its dated paragraph, permitting nothing.
+        let majors = family_majors("[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n");
+        let permitted = allowed("58 2026-08-28 the duckdb crate lags\n59 2026-08-28 the engine\n");
+        let found = assess(&majors, &permitted);
+        assert_eq!(found.inert, vec!["58".to_owned()], "the closed split's entry is named");
+        assert!(found.unexplained.is_empty(), "one major needs no entry");
+    }
+
+    #[test]
+    fn a_single_major_with_an_allowlist_that_matches_it_is_clean() {
+        // The other half of the same rule: reading the allowlist on a single-major tree must not
+        // turn a correct tree red, or the gate is one somebody disables.
+        let majors = family_majors("[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n");
+        let permitted = allowed("59 2026-08-28 the engine's major\n");
+        let found = assess(&majors, &permitted);
+        assert!(found.inert.is_empty());
+        assert!(found.unexplained.is_empty());
+    }
+
+    #[test]
+    fn a_single_major_needs_no_entry_at_all() {
+        // One major is the state this workspace wants, not an exception to anything.
+        let majors = family_majors("[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n");
+        let found = assess(&majors, &allowed(""));
+        assert!(found.unexplained.is_empty());
+        assert!(found.inert.is_empty());
+    }
+
+    #[test]
+    fn every_entry_goes_inert_when_arrow_leaves_the_graph_entirely() {
+        // The stated consequence of treating the engine's own row as a row like any other: a list
+        // of tolerated Arrow majors on a tree with no Arrow is a rule that lost its subject.
+        let majors = family_majors("[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\n");
+        let permitted = allowed("58 2026-08-28 the adapter\n59 2026-08-28 the engine\n");
+        let found = assess(&majors, &permitted);
+        assert_eq!(found.inert, vec!["58".to_owned(), "59".to_owned()]);
+    }
+
+    #[test]
+    fn a_split_every_entry_explains_is_clean_in_both_directions() {
+        let permitted = allowed("58 2026-08-28 the adapter\n59 2026-08-28 the engine\n");
+        let found = assess(&family_majors(split_lock()), &permitted);
+        assert!(found.unexplained.is_empty());
+        assert!(found.inert.is_empty());
+    }
+
+    #[test]
+    fn a_split_still_fails_on_the_major_no_entry_names() {
+        // Today's failure, unchanged - and the entry for a major that IS absent is reported beside
+        // it rather than instead of it.
+        let permitted = allowed("57 2026-08-28 long gone\n59 2026-08-28 the engine\n");
+        let found = assess(&family_majors(split_lock()), &permitted);
+        assert_eq!(found.unexplained, vec!["58".to_owned()]);
+        assert_eq!(found.inert, vec!["57".to_owned()]);
     }
 }

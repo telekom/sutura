@@ -61,6 +61,16 @@ because a transitive dependant can pin `arrow-schema` by itself and that is the 
 is what let the current split arrive unremarked - the `deny.toml` comment predicted it, deferred
 it, and was right - so the gate exists to make the *next* one arrive in a diff.
 
+**It reads the allowlist on EVERY run, and compares both ways.** It used to return before opening
+the file whenever the lock held one major, so the day a split closed it printed `ok - one Arrow
+major` and the entry permitting that split stayed, permitting nothing, its dated paragraph intact.
+Now an entry naming a major `Cargo.lock` does not hold fails the gate - the same direction
+`max-lines` and `check-refusal-coverage` take on their own annotated allowlists. The engine's own
+row is a row like any other and must be kept current; the alternative was a marker in the file
+saying which row is the engine's, and nothing would check that marker. **What it still cannot read
+is the DATE**, which the allowlist's header already discloses, nor the shape of an entry: a bare
+`<major>` with no date and no reason parses and permits the split.
+
 ## When the newest set cannot be made compatible
 
 **Do not vendor, inline, fork or pin back on your own judgement. Raise it.** In preference order,
