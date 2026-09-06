@@ -54,18 +54,24 @@
 //! name collapse to one line, which under-reports the list and never the ratio: the counts come
 //! from the keys.
 //!
-//! WHAT NEITHER NUMBER COUNTS, stated because `0 of 0` is otherwise read as *no tests*:
-//! `#[ignore]`d added tests are in neither, since no run in this venue reaches one, and
-//! `report_only_ignored` is the answer when they are all there is - putting them in the denominator
-//! instead makes every acceptance-heavy branch read as partially measured forever. On any OTHER arm
-//! an all-`#[ignore]`d diff therefore prints `0 of 0` with the names appearing nowhere, which is
-//! this module's own defect one arm over. Filed as `github.com/telekom/sutura#314` with the three
-//! candidate shapes, rather than closed here: it wants its own test and its own mutation.
+//! WHAT NEITHER NUMBER COUNTS, AND WHY THERE IS A THIRD LIST. `#[ignore]`d added tests are in
+//! neither number, since no run in this venue reaches one, and putting them in the DENOMINATOR
+//! instead would make every acceptance-heavy branch read as partially measured forever - the
+//! *a gate that reddens correct work gets disabled* shape applied to a number. So the numbers stay
+//! as they are and the names are carried beside them: [`Coverage::not_runnable`]. Without that,
+//! `report_only_ignored` named them on its own arm and every OTHER arm printed
+//! `0 of 0 added tests measured` with the names appearing nowhere - and `0 of 0` reads as *this
+//! diff added no tests*, which is the sentence this module exists to remove. Reachable from an
+//! inseparable file whose added tests sit behind a provisioned tier, which is the ordinary shape of
+//! an acceptance change here. `github.com/telekom/sutura#314`, and the numerator that arm used to
+//! format for itself is `Coverage`'s now, so one place formats every number this gate prints.
 
 use crate::causality::attributes::{Adds, adds};
 use crate::causality::base::PerTestResults;
 use crate::causality::diff::ChangedFile;
+use crate::causality::names::Ident;
 use crate::causality::place::AddedTest;
+use crate::causality::provenance::Moved;
 use crate::causality::regions::PostImage;
 use crate::causality::scoped::Scan;
 
@@ -112,6 +118,8 @@ pub(crate) enum Coverage {
         measured: usize,
         /// Added, runnable, and NOT in the filterset, by name.
         unmeasured: Vec<String>,
+        /// Added and `#[ignore]`d, so in neither number. See the field on the other variant.
+        not_runnable: Vec<String>,
     },
     /// The denominator could not be established: a changed file added something that declares a
     /// test, or a module of tests, and this gate could not read what. How many tests the diff
@@ -121,6 +129,16 @@ pub(crate) enum Coverage {
         measured: usize,
         /// The changed files that stopped the total being established.
         unestablished: Vec<String>,
+        /// Added and `#[ignore]`d, so in neither number.
+        ///
+        /// **THE THIRD LIST, AND IT IS ON BOTH VARIANTS ON PURPOSE.** An ignored test is counted by
+        /// neither number for the reason the header gives, and the consequence was that an
+        /// all-`#[ignore]`d diff printed `0 of 0 added tests measured` with the names appearing
+        /// nowhere - the wording a reader takes to mean *this diff added no tests*, which is the
+        /// sentence this module exists to remove, one arm over. `github.com/telekom/sutura#314`.
+        /// A total this gate could not establish still has ignored tests it read, so leaving the
+        /// list off this variant would reopen the same misreading on the arm that says least.
+        not_runnable: Vec<String>,
     },
 }
 
@@ -155,21 +173,33 @@ impl Coverage {
                     .filter(|one| !measured.contains(one))
                     .map(|one| String::from(one.name()))
                     .collect(),
+                not_runnable: named(all.ignored()),
             },
             Scan::Unreadable(paths) => Self::Unknown {
                 measured: measured_count,
                 unestablished: paths,
+                // The scan refused before it finished reading, so what it did see is not a list
+                // this may present as the ignored tests of the diff.
+                not_runnable: Vec::new(),
             },
             Scan::Enabled(refused) => Self::Unknown {
                 measured: measured_count,
                 unestablished: refused.into_iter().map(|one| one.path).collect(),
+                not_runnable: Vec::new(),
             },
-            // Neither of these hides a number. `OnlyIgnored` means every added test is out of
-            // reach of any run here, which the module header records as counted by neither;
-            // `Unnamed` means no added line named a test at all.
-            Scan::OnlyIgnored(_) | Scan::Unnamed => Self::Measured {
+            // Every added test is out of reach of any run here, which the header records as
+            // counted by neither number - so the NAMES are the whole of what this arm can say,
+            // and `0 of 0` beside nothing at all was #314.
+            Scan::OnlyIgnored(ref names) => Self::Measured {
                 measured: measured_count,
                 unmeasured: Vec::new(),
+                not_runnable: named(names),
+            },
+            // No added line named a test at all: nothing to count and nothing to name.
+            Scan::Unnamed => Self::Measured {
+                measured: measured_count,
+                unmeasured: Vec::new(),
+                not_runnable: Vec::new(),
             },
         }
     }
@@ -200,6 +230,7 @@ impl Coverage {
             Self::Measured {
                 measured,
                 ref unmeasured,
+                ..
             } => format!("{measured} of {} {NAMED}", measured + unmeasured.len()),
             Self::Unknown { measured, .. } => {
                 format!("{measured} {NAMED}, of a total this gate could not establish")
@@ -216,6 +247,7 @@ impl Coverage {
             Self::Measured {
                 measured,
                 ref unmeasured,
+                ..
             } => format!("{measured} of {} {MEASURED}", measured + unmeasured.len()),
             Self::Unknown { measured, .. } => {
                 format!("{measured} {MEASURED}, of a total this gate could not establish")
@@ -237,6 +269,7 @@ impl Coverage {
             Self::Measured {
                 measured,
                 ref unmeasured,
+                ..
             } => format!("0 of {} {MEASURED}", measured + unmeasured.len()),
             Self::Unknown { .. } => format!("0 {MEASURED}, of a total this gate could not establish"),
         }
@@ -260,20 +293,53 @@ impl Coverage {
             Self::Unknown { ref unestablished, .. } => unestablished,
         }
     }
+
+    /// The added tests no run in this venue reaches, by name.
+    ///
+    /// In NEITHER number, which is the decision the header argues for and this list is what makes
+    /// it readable: the ratio says what was measured out of what could be, and these say what
+    /// could not be. Without them `0 of 0 added tests measured` was the only thing an
+    /// acceptance-only branch was told.
+    pub(crate) fn not_runnable(&self) -> &[String] {
+        match *self {
+            Self::Measured { ref not_runnable, .. } | Self::Unknown { ref not_runnable, .. } => not_runnable,
+        }
+    }
+}
+
+/// Test names as plain strings, for a line a PERSON reads.
+///
+/// A pointer and not a key, the same limit `AddedTest::name` states: two ignored tests sharing a
+/// name collapse to one line here, and no filter is built from any of this.
+fn named(names: &[Ident]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in names {
+        let one = String::from(name.as_str());
+        if !out.contains(&one) {
+            out.push(one);
+        }
+    }
+    out
 }
 
 /// What the two runs are scoped to, and how much of the diff that leaves unmeasured.
 ///
-/// One value rather than two parameters, so the filter and its own limit reach the reconstruction
-/// together. **What that buys is narrower than it sounds, and it is one step wider than it was:**
-/// `super::base::report_base` used to take the sentence as a `&str` chosen by this caller, so which
-/// wording each of its six arms printed was decided here and pinned by review. It takes the
-/// `Coverage` now and `super::base::earned` maps outcome to wording in one place, with a test on the
-/// mapping. What is still NOT held is that any arm printed it: that is prose, and the review of
-/// these four modules is what holds it.
+/// One value rather than three parameters, so the filter, its own limit and what the base tree
+/// already had reach the reconstruction together. **What that buys is narrower than it sounds, and
+/// it is one step wider than it was:** `super::base::report_base` used to take the sentence as a
+/// `&str` chosen by this caller, so which wording each of its arms printed was decided here and
+/// pinned by review. It takes the `Coverage` now and `super::base::earned` maps outcome to wording
+/// in one place, with a test on the mapping. What is still NOT held is that any arm printed it: that
+/// is prose, and the review of these modules is what holds it.
 pub(crate) struct Scope<'s> {
     pub(crate) only: &'s str,
     pub(crate) coverage: &'s Coverage,
+    /// Which of the tests the filter names the base tree already had.
+    ///
+    /// Here rather than beside it because it is part of what the scope IS: the same filterset over
+    /// tests that were MOVED into this diff is a different question from one over tests it added,
+    /// and `super::base::classify_base` needs both to say what a green run means.
+    pub(crate) moved: &'s Moved,
 }
 
 #[cfg(test)]
@@ -393,6 +459,7 @@ mod tests {
         let seven_of_eight = Coverage::Measured {
             measured: 7,
             unmeasured: vec![String::from("held")],
+            not_runnable: Vec::new(),
         };
         assert_eq!(seven_of_eight.named(), "7 of 8 added tests named");
         assert_eq!(seven_of_eight.measured(Attributed::Nothing), "0 of 8 added tests measured");
@@ -406,6 +473,7 @@ mod tests {
         let unknown = Coverage::Unknown {
             measured: 2,
             unestablished: vec![String::from("crates/x/src/odd.rs")],
+            not_runnable: Vec::new(),
         };
         assert_eq!(
             unknown.named(),
@@ -421,6 +489,38 @@ mod tests {
             assert!(!scope.contains(super::MEASURED), "a scope is not a measurement: {scope}");
             assert!(scope.contains(super::NAMED), "a scope says what was named: {scope}");
         }
+    }
+
+    #[test]
+    fn an_ignored_test_beside_a_runnable_one_is_named_rather_than_dropped() {
+        // THE DEFECT, through the scan rather than at a synthetic value - which matters here,
+        // because a runnable NEIGHBOUR is exactly what used to lose the ignored names: the scan
+        // answered `Runnable` and the ignored list went with the answer that was thrown away. Then
+        // an all-`#[ignore]`d file in an otherwise ordinary diff was in neither number and named
+        // nowhere, and `0 of 1` was everything the reader got about it.
+        let acceptance = concat!("#[test]\n", "#[ignore]\n", "fn needs_a_tier() {}\n");
+        let files = vec![
+            changed("crates/x/src/proved.rs", 1, &["#[test]", "fn proved() {}"]),
+            changed(
+                "crates/x/tests/provisioned.rs",
+                1,
+                &["#[test]", "#[ignore]", "fn needs_a_tier() {}"],
+            ),
+        ];
+        let read = tree(&[
+            ("crates/x/src/proved.rs", &one_test("proved")),
+            ("crates/x/tests/provisioned.rs", acceptance),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let Scan::Runnable(measured) = Scan::of(&files, &[String::from("crates/x/src/proved.rs")], &read) else {
+            panic!("the provable file names a test");
+        };
+        let coverage = Coverage::of(measured.tests(), &files, &read);
+        // The two numbers are unchanged - an ignored test is in NEITHER, which is what stops every
+        // acceptance-heavy branch reading as partially measured forever.
+        assert_eq!(coverage.ratio(), "1 of 1 added tests measured");
+        // And the third list is what removes the misreading.
+        assert_eq!(coverage.not_runnable(), [String::from("needs_a_tier")]);
     }
 
     #[test]

@@ -103,6 +103,15 @@ pub(crate) struct Scoped {
     /// Carried because this scan is AGGREGATE, so a file it could not name is otherwise invisible
     /// whenever a sibling could. Stated rather than refused, and the statement is now checked.
     silent: Vec<Silent>,
+    /// The added tests that left the scope for being `#[ignore]`d.
+    ///
+    /// **CARRIED RATHER THAN DROPPED, which is `github.com/telekom/sutura#314`.** They are in
+    /// neither of `super::coverage`'s numbers by design, and dropping them here meant an
+    /// all-`#[ignore]`d diff that reached any arm other than [`Scan::OnlyIgnored`] printed
+    /// `0 of 0 added tests measured` and named none of them - which reads as *this diff added no
+    /// tests*. A runnable neighbour is what makes that reachable, so the list has to survive
+    /// alongside one.
+    ignored: Vec<Ident>,
 }
 
 impl Scoped {
@@ -114,6 +123,11 @@ impl Scoped {
     /// Provable files this named no test in, with what accounts for each.
     pub(crate) fn silent(&self) -> &[Silent] {
         &self.silent
+    }
+
+    /// The added tests no run in this venue reaches, by name.
+    pub(crate) fn ignored(&self) -> &[Ident] {
+        &self.ignored
     }
 
     /// The nextest filter expression that runs exactly these tests.
@@ -244,7 +258,14 @@ impl Scan {
             return Self::Enabled(enabled);
         }
         if !runnable.is_empty() {
-            return Self::Runnable(Scoped { tests: runnable, silent });
+            return Self::Runnable(Scoped {
+                tests: runnable,
+                silent,
+                // The ignored ones go WITH the runnable answer rather than being dropped: they are
+                // in neither of `super::coverage`'s numbers, so this list is the only thing that
+                // can name them, and a runnable neighbour is exactly when that used to be lost.
+                ignored,
+            });
         }
         if ignored.is_empty() {
             Self::Unnamed

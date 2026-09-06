@@ -1,11 +1,15 @@
 //! How the two runs are invoked, and the one target directory they share.
 //!
-//! `super` decides WHICH tree to ask; this decides how, and the two things worth knowing are both
-//! about the sharing: it is what keeps the gate affordable, and it is a hole the verdict cannot
-//! see. In its own file because the measurement below is longer than the code it qualifies.
+//! `super` decides WHICH tree to ask; this decides how, and the thing worth knowing is the sharing:
+//! it is what keeps the gate affordable, and it USED to be a hole the verdict could not see - a run
+//! reusing the other tree's binaries and even its saved diagnostics. `super::isolation` carries
+//! that measurement and the witness that closes it. In its own file because the measurements below
+//! are longer than the code they qualify.
 
 use std::path::Path;
 use std::process::Command;
+
+use super::isolation::Isolated;
 
 /// Run the test suite in `dir` with nextest, building into `target`.
 ///
@@ -25,33 +29,34 @@ use std::process::Command;
 /// COMPILERS in one directory invalidates every artifact in it; alternating our own sources
 /// does not, because cargo fingerprints them and the dependency graph below them is identical.
 ///
-/// WHAT SHARING IT DOES NOT KEEP APART, measured on 2026-09-04 and NOT fixed here. The two trees
-/// are one unit as far as cargo is concerned - same package names, same relative paths, so the
-/// same artifact - and freshness is decided by mtime, so a build in either tree overwrites the
-/// other's binaries and the next run reuses them without noticing. Reproduced from an empty
-/// directory: the HEAD run built and passed, the base run in the worktree rebuilt the same test
-/// binary, and the same command back at the root then rebuilt NOTHING and failed - on a file that
-/// was present at the root, because the binary it executed was the worktree's.
+/// WHAT SHARING IT DID NOT KEEP APART, and the removal that now precedes every run. The two trees
+/// are one unit as far as cargo is concerned - same package names, same relative paths, so the same
+/// artifact - and freshness is decided by mtime, so a build in either tree satisfied the other.
+/// Reproduced in the gate's own sequence: the base run in the worktree printed
+/// `Finished in 0.02s`, compiled nothing, and answered about the HEAD tree; and a warning present
+/// only in the worktree was re-emitted by the next run at the root, quoting a source line the root
+/// tree does not have. So a run could measure the OTHER tree's code, and a verdict could be
+/// manufactured out of the previous run's saved output.
 ///
-/// So a run can be measuring the OTHER tree's code, and it reaches this repository twice: the
-/// postgres harness resolves its endpoint by walking up from `env!("CARGO_MANIFEST_DIR")`, which
-/// is baked into whichever tree compiled the binary; and the reverted source is baked in the same
-/// way. It is a defect in this optimisation rather than in the classification below, and it is one
-/// reason two runs of one tree can disagree - the other, and the larger one, is that only
-/// `just causality` provisions a tier at all (see [`nextest`]).
+/// [`Isolated`] is what closed it - `super::isolation` carries both reproductions, the measurement
+/// that `cargo clean --workspace` leaves the dependency closure and the warm-start stamp alone, and
+/// why the removal is a witness rather than a line somebody remembers. **The bill is our own crates
+/// compiled once per run**, which is what the sharing paragraph above already claimed the gate paid.
 ///
-/// The direction it fails in is what makes it survivable now: a stale binary makes a scoped test
-/// pass on base ("green against base behaviour") or vanish from HEAD, both of which are loud. It
-/// can only manufacture a false GREEN by executing some third tree's binary in which the same
-/// test failed, which is a far narrower window than *any failure anywhere counts*. Removing it
-/// needs a second target directory, whose cost is the paragraph above, or a first-party rebuild
-/// forced on every run - a trade-off with its own measurement, not a detail to slip in here.
+/// The reason two runs of one tree can still disagree is now only that one venue provisions a
+/// service tier and the others do not (see [`nextest`]).
 ///
 /// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
 /// and passing `ci` there would select a nextest profile that does not exist rather than a
 /// cargo one that does.
 pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree) -> (bool, String) {
-    match nextest(dir, target, only, tree).output() {
+    // The removal comes FIRST and its failure is the run's failure: the run that would follow a
+    // failed clean is exactly the one whose verdict cannot be trusted.
+    let isolated = match Isolated::of(dir, target) {
+        Ok(witness) => witness,
+        Err(why) => return (false, why),
+    };
+    match nextest(dir, target, only, tree, &isolated).output() {
         Ok(o) => {
             let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&o.stderr));
@@ -104,7 +109,12 @@ pub(super) enum Tree {
 /// with fail-fast, WHICH failures a verdict names is a function of nextest's scheduling, and a
 /// gate whose answer moves between two runs of one tree is the property this gate exists to
 /// supply.
-pub(super) fn nextest(dir: &Path, target: &Path, only: &str, tree: Tree) -> Command {
+///
+/// **IT TAKES THE ISOLATION WITNESS AND READS NOTHING OUT OF IT.** That is the point: the invariant
+/// is *no run may reuse an artifact built from another tree*, and it is held by this parameter
+/// rather than by a caller remembering to clean - `super::isolation` is the only place that can
+/// produce one, and producing one is performing the removal.
+pub(super) fn nextest(dir: &Path, target: &Path, only: &str, tree: Tree, _isolated: &Isolated) -> Command {
     let mut command = Command::new("cargo");
     command
         .current_dir(dir)
@@ -122,7 +132,7 @@ mod tests {
     use std::ffi::OsStr;
     use std::path::Path;
 
-    use super::{Tree, nextest};
+    use super::{Isolated, Tree, nextest};
     use crate::causality::fixtures::{changed, manifest, tree};
     use crate::causality::scoped::{Scan, Scoped};
 
@@ -149,6 +159,7 @@ mod tests {
             Path::new("/tmp/target"),
             &one_added_test().filterset(),
             Tree::Provisioned,
+            &Isolated::for_a_wiring_test(),
         );
         let args: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         assert!(args.iter().any(|arg| arg == "-E"), "{args:?}");
@@ -175,9 +186,15 @@ mod tests {
         // had provisioned, and the gate reported that as red-on-base.
         let requirement = OsStr::new(sutura_dev::requirement::FORCE);
         let removed = |tree: Tree| {
-            nextest(Path::new("/tmp/dir"), Path::new("/tmp/target"), "test(=t)", tree)
-                .get_envs()
-                .any(|(name, value)| name == requirement && value.is_none())
+            nextest(
+                Path::new("/tmp/dir"),
+                Path::new("/tmp/target"),
+                "test(=t)",
+                tree,
+                &Isolated::for_a_wiring_test(),
+            )
+            .get_envs()
+            .any(|(name, value)| name == requirement && value.is_none())
         };
         assert!(
             removed(Tree::Reconstructed),

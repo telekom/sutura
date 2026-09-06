@@ -166,10 +166,20 @@ reaches one - the gate says so and asks for evidence instead: the command you ra
 before the fix, the pass after. That goes in the pull request. **Do not skip it silently.**
 
 **Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
-did not build, or the base run named no failure. A harness move and a changed public signature that
-a test file kept at HEAD calls both land there, so it is not a defect in your change - but nothing
-about causality was proven either. Substitute a mutation run, or scope the gate per commit, and say
-which in the pull request. Read the verdict line, never a step's colour.
+did not build, the base run named no failure, or every test in scope was one the base tree already
+had - a MOVED test, which the gate reads out of the base tree because a diff cannot tell a move from
+an addition. A harness move and a changed public signature that a test file kept at HEAD calls both
+land there too, so it is not a defect in your change - but nothing about causality was proven
+either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
+Read the verdict line, never a step's colour.
+
+**The gate measures the MERGE BASE, and it says which commit that was.** It resolves
+`git merge-base <ref> HEAD` itself, so a base branch that has moved on cannot put other people's
+commits into the diff - but on the second branch of a stack that merge base is the fork point of the
+whole stack, so the diff still carries the parent branch's implementation. `SHIP_CHECK_BASE_REF`, or
+a commit as the recipe's argument, is the lever. A changed page, recipe or nix file IS an
+implementation to the gate and gets reverted like any other; a manifest or a lockfile is not, and is
+named in the output instead - so a change whose only implementation is a manifest gets no verdict.
 
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.
