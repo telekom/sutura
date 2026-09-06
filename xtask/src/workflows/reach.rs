@@ -230,16 +230,14 @@ impl Closure {
         }
 
         let unread = self.unread();
-        if !unread.is_empty() {
-            for at in &unread {
-                out.push(format!(
-                    "UNSIGHTED SHAPE: {}:{} plainly names a local call - it carries both `uses:` and a `./` path - and the key reader made no edge of it. {} of {} such line(s) became edges, so a spelling this reader no longer recognises is a call it silently does not follow; see this module's header for the shapes it handles",
-                    at.from,
-                    at.line,
-                    self.sighted.len().saturating_sub(unread.len()),
-                    self.sighted.len()
-                ));
-            }
+        for at in &unread {
+            out.push(format!(
+                "UNSIGHTED SHAPE: {}:{} plainly names a local call - it carries both `uses:` and a `./` path - and the key reader made no edge of it. {} of {} such line(s) became edges, so a spelling this reader no longer recognises is a call it silently does not follow; see this module's header for the shapes it handles",
+                at.from,
+                at.line,
+                self.sighted.len().saturating_sub(unread.len()),
+                self.sighted.len()
+            ));
         }
 
         out
