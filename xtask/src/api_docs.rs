@@ -46,7 +46,10 @@ use crate::Verdict;
 use crate::repo;
 
 /// Where the committed pages live, relative to the repo root.
-const PAGES_DIR: &str = "docs/api";
+///
+/// Shared with `check-api-links`, which reads the same directory. Two spellings of one directory
+/// is how a gate ends up scanning somewhere the generator no longer writes.
+pub(crate) const PAGES_DIR: &str = "docs/api";
 
 /// The generator, relative to the repo root.
 ///
@@ -58,7 +61,10 @@ const GENERATOR: &str = "docs/.tools/rustdoc_to_markdown.py";
 ///
 /// Used to tell a generated page from a hand-written one, which is how a page left behind by a
 /// renamed crate is found. `docs/api/index.md` is hand-written and carries no such header.
-const GENERATED_MARKER: &str = "<!-- GENERATED FILE - do not edit.";
+///
+/// Shared with `check-api-links`, where it is the FLOOR: a scan of that directory finding no
+/// generated page at all is a failure rather than a clean sweep.
+pub(crate) const GENERATED_MARKER: &str = "<!-- GENERATED FILE - do not edit.";
 
 /// Names an interpreter to run the generator with, bypassing pixi.
 ///

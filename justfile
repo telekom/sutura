@@ -243,10 +243,32 @@ check-changed *paths:
 validate:
     #!/usr/bin/env bash
     set -euo pipefail
+    # FIRST, and it is the cheapest thing here: measured 23s on a clone with no `.pixi/` at all,
+    # of which the build itself is 4s. It is first so the failure it catches - a page that cannot
+    # RENDER - arrives in seconds rather than after the nix closure.
+    #
+    # It is not a nix check, and cannot be: the docs toolchain is Python, pixi is the one resolver
+    # for Python here, and a nix sandbox has no network to materialise a pixi environment. Solving
+    # mkdocs-material a second time under `python3.withPackages` is what this tree already tried,
+    # in flake.nix - mike could not import pymdownx from the mkdocs it subprocessed, two resolvers
+    # and one interpreter - so this invokes the ISOLATED docs env rather than widening the linters'.
+    #
+    # It was left OUT of this recipe on the argument that it would fail on a clone whose docs env
+    # is not installed, and that argument is spent: `pixi run --frozen -e docs` MATERIALISES the
+    # environment from the lock, the same way every venue now provisions the postgres tier instead
+    # of asking a developer to have started one. What it needs is a network, which this recipe
+    # already needs for `nix run .#deny` and the substituters.
+    #
+    # What it catches that nothing else here does: `mkdocs build --strict` renders every page, and
+    # a page can be CORRECTLY GENERATED and still not render. `check-api-docs` byte-compares the
+    # committed pages against a fresh generation, and a generator that emits an unrenderable link
+    # consistently passes that byte-compare - which is how github.com/telekom/sutura#352 shipped a
+    # page that aborted the site build with every local gate green.
+    just docs
     just ci
     just secrets
     nix run .#deny
-    printf '\nvalidate: ok - the nix checks, the secret sweep and the supply chain\n'
+    printf '\nvalidate: ok - the site build, the nix checks, the secret sweep and the supply chain\n'
 
 # What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds
 # the two checks that need network and therefore cannot be nix checks.

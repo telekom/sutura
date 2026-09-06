@@ -16,9 +16,9 @@ the cranelift backend, but CI has stable and nothing else, so a docs job cannot 
 JSON. Committing the output is the same arrangement as the ms-rust skill files: one owner, a
 header saying so, and never hand-edited.
 
-    THE GAP, stated rather than hidden: nothing yet FAILS when the committed pages fall behind
-    the sources. That needs a nightly toolchain in CI to regenerate and byte-compare. Until it
-    exists, regenerating is a step in review rather than a gate.
+    WHAT HOLDS THAT: `cargo xtask check-api-docs` regenerates every page into a temporary
+    directory and byte-compares, so a page that falls behind its sources fails rather than
+    reads as current. It is a nix check, and `just api` is the fix it names.
 
 USAGE, from the repository root, inside the dev shell so `cargo` is the pinned nightly:
 
@@ -240,10 +240,37 @@ def render_function(name: str, inner: dict) -> str:
 # code span and loses nothing: the target is on the same page or one click away in the nav.
 INTRA_DOC_LINK = re.compile(r"\[(`[^`\n]+`)\](?!\()")
 
+# A Rust path, in every shape rustdoc accepts as an intra-doc link DESTINATION: an optional
+# disambiguator (`fn@`, `struct@`, `method@`), two or more `::`-separated segments, and an
+# optional `()` or `!` marking a function or a macro.
+RUST_PATH = r"(?:[a-z]+@)?[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+(?:\(\)|!)?"
+
+# `[`Foo`](crate::path::Foo)` is the same intra-doc link written INLINE, and the destination is a
+# Rust path that no web renderer can resolve. It is dropped for the reason the bracket form above
+# is dropped, and the reason is measured rather than tidiness:
+#
+#   * mkdocs runs `urlsplit` over the destination. A URL scheme is `[a-zA-Z][a-zA-Z0-9+.-]*`, so
+#     `crate::...` parses as a URL with the scheme `crate` and is published verbatim - a dead href
+#     on every page, and `github.com/telekom/sutura#321` counted 78 of them.
+#   * `sutura_domain::...` is NOT a legal scheme, because of the underscore. It falls through to
+#     relative-path handling and `mkdocs build --strict` ABORTS on it - measured on #352, where
+#     one such line in one crate failed the site build with every local gate green. Every crate
+#     here is `sutura-x`, i.e. `sutura_x` as a path, so the two cases are one defect and the
+#     dead-href one is a rename away from the aborting one.
+#
+# rustdoc keeps the link for a reader of `cargo doc`; the page keeps the text. `cargo xtask
+# check-api-links` is the gate over the output, so this rewrite going missing is not silent.
+#
+# THE LIMIT: a SINGLE-segment destination - `[`Foo`](Foo)` - is left alone, because it is
+# indistinguishable from a relative link to a page. mkdocs aborts on it, and `just docs` in
+# `just validate` is the venue that says so.
+INLINE_INTRA_DOC_LINK = re.compile(r"\[([^\]\n]+)\]\(" + RUST_PATH + r"\)")
+
 
 def clean_docs(text: str | None) -> str:
     if not text:
         return ""
+    text = INLINE_INTRA_DOC_LINK.sub(r"\1", text)
     return INTRA_DOC_LINK.sub(r"\1", text).strip()
 
 

@@ -148,16 +148,30 @@ therefore does not see.
 
 ## Checks that pass while the thing they describe is broken
 
-- **`just validate` does not render the site.** `check-docs` reads the `nav` and the assets; it does
-  not build a page, and no nix check does either. So a rustdoc link the api-docs generator copies
-  through verbatim can pass `check`, `lint`, `test`, `hygiene`, `api` and every nix check, then fail
-  `mkdocs build --strict`. **Measured:** a doc comment linking another crate's path produced
-  *"contains an unrecognized relative link"* and aborted the strict build, while `crate::`-prefixed
-  links on four other generated pages did not warn. The safe form for a cross-crate reference is
-  plain backticks. Which shapes mkdocs accepts is established for two cases and no more, which is why
-  this is a rule to run `just docs` rather than a gate encoding a boundary nobody measured. It is not
-  in `validate` because that recipe would then fail on a clone whose pixi docs environment is not
-  installed, and **a gate that fails for an environment reason gets disabled.**
+- **`just validate` renders the site now, and the reason it did not for so long was wrong.** No nix
+  check builds a page and none can - the docs toolchain is Python, pixi is the one resolver for it,
+  and a nix sandbox has no network to materialise a pixi environment. So the site build is a
+  `validate` step rather than a check, invoking the ISOLATED docs env. The argument for leaving it
+  out was that the recipe would fail on a clone whose docs env is not installed, and that argument
+  was spent: `pixi run --frozen -e docs` materialises the env from the lock, the same shape as every
+  venue provisioning the postgres tier instead of asking a developer to have started one. **Measured
+  on a worktree with no `.pixi/` at all: 23s wall, of which the build is 4s** - the cheapest step in
+  `validate`, which is why it runs first.
+- **A page can be CORRECTLY GENERATED and still not render, and that is what the byte-compare cannot
+  see.** `check-api-docs` compares the committed pages against a fresh generation, so a generator
+  emitting an unrenderable link *consistently* passes it - `just api` produced no diff on #352 while
+  `mkdocs build --strict` aborted. What the strict build says and rustdoc does not: rustdoc RESOLVED
+  the link and was clean under both spellings, so `rustdoc::broken_intra_doc_links` would not have
+  caught it either. **The discriminator is `urlsplit` inside mkdocs.** A URL scheme is
+  `[a-zA-Z][a-zA-Z0-9+.-]*`, so `](crate::plan::QueryPlan)` parses as a URL with the scheme `crate`
+  and is published as a dead href, while `](sutura_domain::plan::LegPlan)` is not a legal scheme
+  **because of the underscore**, falls through to relative-path handling and aborts. Confirmed by
+  changing one character: `suturadomain::…` builds in 1.68s. So the two are one defect and the
+  tolerated spelling is a rename away from the fatal one - every crate here is `sutura-…`, i.e.
+  `sutura_…` as a path. The generator drops such a destination and keeps the text now, and
+  `check-api-links` is the rule over the output; the 78 dead hrefs #321 counted are gone with it.
+  **What neither holds:** a SINGLE-segment destination (`](Foo)`), which is indistinguishable from a
+  relative link, and rustdoc's own unresolved links - 15 of them, #321's first class, still open.
 - **`--strict` escalates WARNINGs and not INFO, and that is the boundary to know.** An unrecognized
   relative link is a warning, so `--strict` fails on it. A link into a page `exclude_docs` keeps out
   of the build is **INFO**: measured as *"contains a link to 'implementation-plan.md' which is

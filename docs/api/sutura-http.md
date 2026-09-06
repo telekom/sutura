@@ -1049,7 +1049,7 @@ pub async fn require_verified_caller(__arg0: axum::extract::State<std::sync::Arc
 Requires a verified caller, and puts one in the request extensions.
 
 A `from_fn_with_state` middleware over the gate rather than over
-[`crate::ServiceState`](crate::state::ServiceState), so the state a handler is given has no way to
+`crate::ServiceState`, so the state a handler is given has no way to
 reach the validator: the only thing that crosses into the handler is the *result*, as a
 `VerifiedCaller` extension that only this function inserts.
 

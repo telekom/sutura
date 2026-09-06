@@ -228,6 +228,45 @@ pub(crate) fn prose(text: &str) -> Result<Vec<String>, Unlexable> {
     lex(text, Half::Prose)
 }
 
+/// One inline link's destination, and the source line it was written on.
+///
+/// The line number is why this exists rather than a bare `&str`: a finding on a generated page
+/// seven thousand lines long has to name the line, and the destination alone cannot.
+pub(crate) struct Destination<'a> {
+    /// The source line, 1-based, as [`prose`] numbers them.
+    pub(crate) line: usize,
+    /// What is between `](` and the matching `)`, trimmed and as written.
+    pub(crate) text: &'a str,
+}
+
+/// Every inline link destination in `lines`, in source order.
+///
+/// ONE owner for the `](` walk, because two gates want it: `check-docs` resolves a destination
+/// against the pages on disk, and `check-api-links` asks whether it is a Rust path. It reads the
+/// PROSE half, so a page documenting a link inside a fence is not making one.
+///
+/// A destination is returned as written, title and all - `](a.md 'titled')` is one destination of
+/// `a.md 'titled'`, and what to do about the title is the caller's rule rather than this one's.
+pub(crate) fn destinations(lines: &[String]) -> Vec<Destination<'_>> {
+    let mut found = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let number = index.saturating_add(1);
+        let mut rest = line.as_str();
+        while let Some(at) = rest.find("](") {
+            let after = rest.get(at.saturating_add(2)..).unwrap_or("");
+            let end = after.find(')').unwrap_or(after.len());
+            if let Some(text) = after.get(..end) {
+                found.push(Destination {
+                    line: number,
+                    text: text.trim(),
+                });
+            }
+            rest = after.get(end..).unwrap_or("");
+        }
+    }
+    found
+}
+
 /// The fenced code of `text`: one entry per source line, with everything outside a fenced block
 /// blanked, the delimiters included.
 ///

@@ -155,7 +155,7 @@ just test           # the gate's own invocation - never hand-write the cargo lin
 just check-changed  # does what I touched compile
 just causality      # red-before-green proof
 just ship-check     # the finishing sequence; run this before saying done
-just validate       # THE gate: the nix checks, which build their own copy of the tree
+just validate       # THE gate: the site build, then the nix checks, which build their own tree copy
 ```
 
 **A new or changed test must be red against the base behaviour and green with your change.** A test
@@ -279,7 +279,7 @@ resolve to one file, and a published page that LINKS an excluded one. That last 
 job: mkdocs logs such a link at INFO and exits 0, measured. **This file is one of those published
 pages:** `docs/contributing.md` pulls it in with `pymdownx.snippets`, so a relative link written
 here resolves against that page's URL rather than the repository root, and the gate reads this file
-to judge it. `just validate` does **not** render the site, so `just docs` is owed by any change that
-touches a doc comment.
+to judge it. `just validate` renders the site as its first step, so a page that cannot render fails
+before the nix closure rather than after a merge; `just docs` is the same build, reached on its own.
 [Publishing the docs](https://github.com/telekom/sutura/blob/main/docs/publishing.md) covers the
 versioning and the one repository setting it needs.
