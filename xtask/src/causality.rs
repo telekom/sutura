@@ -104,6 +104,7 @@ use provenance::{Commit, Moved, Reach};
 use remedies::{
     report_enabled_tests, report_head_failure, report_moved, report_no_base_behaviour, report_not_separable,
     report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unreadable,
+    report_unreverted,
 };
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
@@ -140,7 +141,7 @@ fn prove(root: &Path, base: &Commit, separable: &Separable, scoped: &Scoped, cov
     let held = base_state(root, base, &holding);
 
     if first.restore.is_empty() {
-        return report_no_base_behaviour(base.short(), &first.remove, coverage);
+        return report_no_base_behaviour(base.short(), &first.remove, coverage, &separable.build_inputs);
     }
 
     println!("xtask test-causality: proving red-before-green");
@@ -159,9 +160,7 @@ fn prove(root: &Path, base: &Commit, separable: &Separable, scoped: &Scoped, cov
     for f in &separable.test_only {
         println!("  held:      {f}  (test-only code that names no test)");
     }
-    for f in &separable.build_inputs {
-        println!("  not reverted: {f}  (a build input: reverting it changes what cargo RESOLVES)");
-    }
+    report_unreverted(&separable.build_inputs);
 
     // HEAD must be green, or "red on base" means nothing.
     // One directory for both runs. Beside the worktree under `target/`, so a `cargo clean`
@@ -353,12 +352,13 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             println!("xtask test-causality: no changed tests - nothing to prove");
             Verdict::Pass
         }
-        Plan::NotSeparable { files: inseparable } => {
-            report_not_separable(&inseparable, &Coverage::of(&[], &files, &working_tree))
-        }
+        Plan::NotSeparable {
+            files: inseparable,
+            build_inputs,
+        } => report_not_separable(&inseparable, &Coverage::of(&[], &files, &working_tree), &build_inputs),
         Plan::Separable(separable) => {
             if separable.revert.is_empty() {
-                return report_nothing_to_revert(&Coverage::of(&[], &files, &working_tree));
+                return report_nothing_to_revert(&Coverage::of(&[], &files, &working_tree), &separable.build_inputs);
             }
             match Scan::of(&files, &separable.test_files, &working_tree) {
                 Scan::Runnable(scoped) => {

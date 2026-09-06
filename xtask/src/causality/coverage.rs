@@ -300,6 +300,14 @@ impl Coverage {
     /// it readable: the ratio says what was measured out of what could be, and these say what
     /// could not be. Without them `0 of 0 added tests measured` was the only thing an
     /// acceptance-only branch was told.
+    ///
+    /// **THE MECHANISM UNDER IT IS DEAD-CODE ANALYSIS, and that holds only while this has exactly
+    /// one production caller.** Deleting the reader today is `error: method 'not_runnable' is never
+    /// used` under `-D warnings` - `super::remedies::unmeasured_lines` is the caller - so the
+    /// plumbing from `Scan::of` cannot be quietly dropped. A second caller would remove that
+    /// property, leaving only
+    /// `an_ignored_test_beside_a_runnable_one_is_named_rather_than_dropped`, which is a real test
+    /// and is why the property is worth naming rather than relying on.
     pub(crate) fn not_runnable(&self) -> &[String] {
         match *self {
             Self::Measured { ref not_runnable, .. } | Self::Unknown { ref not_runnable, .. } => not_runnable,

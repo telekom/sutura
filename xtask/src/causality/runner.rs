@@ -32,23 +32,26 @@ use super::isolation::Isolated;
 /// WHAT SHARING IT DID NOT KEEP APART, and the removal that now precedes every run. The two trees
 /// are one unit as far as cargo is concerned - same package names, same relative paths, so the same
 /// artifact - and freshness is decided by mtime, so a build in either tree satisfied the other.
-/// Reproduced in the gate's own sequence: the base run in the worktree printed
-/// `Finished in 0.02s`, compiled nothing, and answered about the HEAD tree; and a warning present
-/// only in the worktree was re-emitted by the next run at the root, quoting a source line the root
-/// tree does not have. So a run could measure the OTHER tree's code, and a verdict could be
-/// manufactured out of the previous run's saved output.
+/// Reproduced in the gate's own sequence, with the root at `f() -> 1` and the worktree at
+/// `f() -> 999`: the base run printed `Finished in 0.01s`, compiled nothing, and answered `ok` over
+/// source that says 999; and a warning present only in the worktree was re-emitted by the next run
+/// at the root, quoting a source line the root tree does not have. So a run could measure the OTHER
+/// tree's code, and a verdict could be manufactured out of the previous run's saved output.
 ///
-/// [`Isolated`] is what closed it - `super::isolation` carries both reproductions, the measurement
-/// that `cargo clean --workspace` leaves the dependency closure and the warm-start stamp alone, and
-/// why the removal is a witness rather than a line somebody remembers. **The bill is our own crates
-/// compiled once per run**, which is what the sharing paragraph above already claimed the gate paid.
+/// [`Isolated`] is what closed it, and **the profile is the whole mechanism**: a `cargo clean` with
+/// a package selection and no `--profile` cleans `dev`, which is the one profile this gate never
+/// builds, so the first version of the removal took out nothing either run would reuse and the
+/// sequence above reproduced straight through it. The witness carries the directory, the tree and
+/// the profile it cleaned, and this function reads all three OUT of it - so a clean of one profile
+/// cannot license a run at another. `super::isolation` carries both reproductions, the measurement
+/// that the corrected removal leaves the dependency closure and the warm-start stamp alone, and why
+/// it is a witness rather than a line somebody remembers.
 ///
 /// The reason two runs of one tree can still disagree is now only that one venue provisions a
 /// service tier and the others do not (see [`nextest`]).
 ///
 /// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
-/// and passing `ci` there would select a nextest profile that does not exist rather than a
-/// cargo one that does.
+/// and passing the cargo profile there would select a nextest profile that does not exist.
 pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree) -> (bool, String) {
     // The removal comes FIRST and its failure is the run's failure: the run that would follow a
     // failed clean is exactly the one whose verdict cannot be trusted.
@@ -56,7 +59,16 @@ pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree) -> (
         Ok(witness) => witness,
         Err(why) => return (false, why),
     };
-    match nextest(dir, target, only, tree, &isolated).output() {
+    // WHAT THE REMOVAL SAID IT DID, because an exit status says only that it ran - and the first
+    // version of this ran fine while removing nothing at all. A zero here on a directory the gate
+    // has built in before is the tell that the removal has stopped reaching what the run reuses.
+    println!(
+        "  isolated: removed {} first-party {} artifact(s) from {}",
+        isolated.removed(),
+        isolated.profile(),
+        isolated.target().display()
+    );
+    match nextest(&isolated, only, tree).output() {
         Ok(o) => {
             let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&o.stderr));
@@ -110,16 +122,19 @@ pub(super) enum Tree {
 /// gate whose answer moves between two runs of one tree is the property this gate exists to
 /// supply.
 ///
-/// **IT TAKES THE ISOLATION WITNESS AND READS NOTHING OUT OF IT.** That is the point: the invariant
-/// is *no run may reuse an artifact built from another tree*, and it is held by this parameter
-/// rather than by a caller remembering to clean - `super::isolation` is the only place that can
-/// produce one, and producing one is performing the removal.
-pub(super) fn nextest(dir: &Path, target: &Path, only: &str, tree: Tree, _isolated: &Isolated) -> Command {
+/// **THE RUN'S DIRECTORY, TARGET AND PROFILE ARE THE WITNESS'S**, and that is the whole point. The
+/// invariant is *no run may reuse an artifact built from another tree*, and it was held by a
+/// parameter this function read nothing out of - so review found the route that leaves open:
+/// `Isolated::of(Path::new("/"), Path::new("/nowhere"))` and then a run somewhere else compiled and
+/// passed every gate, because nothing tied the pair together. There is no second value to disagree
+/// with now: what was cleaned is what runs, at the profile it was cleaned at.
+pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree) -> Command {
     let mut command = Command::new("cargo");
     command
-        .current_dir(dir)
-        .env("CARGO_TARGET_DIR", target)
-        .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile", "ci"])
+        .current_dir(isolated.dir())
+        .env("CARGO_TARGET_DIR", isolated.target())
+        .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile"])
+        .arg(isolated.profile())
         .args(["--no-fail-fast", "-E", only]);
     if tree == Tree::Reconstructed {
         command.env_remove(sutura_dev::requirement::FORCE);
@@ -134,6 +149,7 @@ mod tests {
 
     use super::{Isolated, Tree, nextest};
     use crate::causality::fixtures::{changed, manifest, tree};
+    use crate::causality::isolation::cleaning;
     use crate::causality::scoped::{Scan, Scoped};
 
     /// The tests one added file declares, for the two wiring assertions below.
@@ -154,13 +170,8 @@ mod tests {
         // The wiring, which no assertion about the filter expression alone would catch: a
         // filterset that never reaches the command line leaves the whole-suite run in place, and
         // that run's verdict is a property of the suite rather than of the change.
-        let command = nextest(
-            Path::new("/tmp/root"),
-            Path::new("/tmp/target"),
-            &one_added_test().filterset(),
-            Tree::Provisioned,
-            &Isolated::for_a_wiring_test(),
-        );
+        let isolated = Isolated::for_a_wiring_test(Path::new("/tmp/root"), Path::new("/tmp/target"));
+        let command = nextest(&isolated, &one_added_test().filterset(), Tree::Provisioned);
         let args: Vec<String> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         assert!(args.iter().any(|arg| arg == "-E"), "{args:?}");
         // Qualified, and that is the half the wiring has to carry: an unqualified name is not a
@@ -175,6 +186,59 @@ mod tests {
         // nextest's scheduling. This gate was reported as answering differently for one tree in
         // two venues, and fail-fast over an unfiltered run is how that happens.
         assert!(args.iter().any(|arg| arg == "--no-fail-fast"), "{args:?}");
+        // THE PAIR THAT CANNOT DISAGREE. Both the run's directory and its target come from the
+        // witness, so the tree that was cleaned is the tree that runs - review found that a unit
+        // witness let a clean of `/` into `/nowhere` license a run anywhere.
+        assert_eq!(command.get_current_dir(), Some(Path::new("/tmp/root")));
+        assert!(
+            command
+                .get_envs()
+                .any(|(name, value)| name == OsStr::new("CARGO_TARGET_DIR") && value == Some(OsStr::new("/tmp/target"))),
+            "the run builds into the directory that was cleaned"
+        );
+    }
+
+    #[test]
+    fn the_run_builds_at_the_profile_the_removal_cleaned() {
+        // THE DEFECT REVIEW FOUND, at the level that would have caught it. `cargo clean` with a
+        // package selection and no `--profile` cleans `dev`; this gate builds `--cargo-profile ci`.
+        // So the removal took out artifacts no run here reads and left every one it does - measured
+        // as `Summary 0 files` against a tree built only at `ci` - and #281 reproduced end to end
+        // straight through the fix.
+        //
+        // Reading the two commands SIDE BY SIDE is the assertion that closes it: whatever the clean
+        // names after `--profile`, the run names after `--cargo-profile`.
+        //
+        // **What that does and does not catch**, because an overstated test is worth less than a
+        // narrow one: it reddens whenever the two DISAGREE - a missing flag, or a literal that is
+        // not the witness's profile - and a literal that happens to equal it today passes here and
+        // reddens only when `warm_start::WARM_PROFILE` moves. Both values come from that constant,
+        // so there is nothing to drift; the assertion is what notices if that stops being true.
+        let isolated = Isolated::for_a_wiring_test(Path::new("/tmp/root"), Path::new("/tmp/target"));
+        let run: Vec<String> = nextest(&isolated, "test(=t)", Tree::Provisioned)
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let cleaned: Vec<String> = cleaning(&isolated)
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let after = |args: &[String], flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|at| args.get(at + 1))
+                .cloned()
+        };
+        let built_at = after(&run, "--cargo-profile");
+        assert_eq!(
+            built_at,
+            after(&cleaned, "--profile"),
+            "the run's profile is the cleaned profile: run {run:?}, clean {cleaned:?}"
+        );
+        assert_eq!(built_at.as_deref(), Some(isolated.profile()), "and it is the witness's");
+        // nextest reserves `--profile` for its OWN profiles, so the run may not spell it that way -
+        // passing a cargo profile there selects a nextest profile that does not exist.
+        assert!(!run.iter().any(|arg| arg == "--profile"), "{run:?}");
     }
 
     #[test]
@@ -185,16 +249,11 @@ mod tests {
         // and therefore absent there. Every tier-backed cell then failed CLOSED in a tree nothing
         // had provisioned, and the gate reported that as red-on-base.
         let requirement = OsStr::new(sutura_dev::requirement::FORCE);
+        let isolated = Isolated::for_a_wiring_test(Path::new("/tmp/dir"), Path::new("/tmp/target"));
         let removed = |tree: Tree| {
-            nextest(
-                Path::new("/tmp/dir"),
-                Path::new("/tmp/target"),
-                "test(=t)",
-                tree,
-                &Isolated::for_a_wiring_test(),
-            )
-            .get_envs()
-            .any(|(name, value)| name == requirement && value.is_none())
+            nextest(&isolated, "test(=t)", tree)
+                .get_envs()
+                .any(|(name, value)| name == requirement && value.is_none())
         };
         assert!(
             removed(Tree::Reconstructed),

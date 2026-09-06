@@ -23,7 +23,11 @@ pub(crate) enum Plan {
     /// Baseline can be reconstructed by reverting [`Separable::revert`].
     Separable(Separable),
     /// Impl and tests share a file; a human must state the evidence.
-    NotSeparable { files: Vec<String> },
+    ///
+    /// It carries the build inputs for the reason [`Separable::build_inputs`] gives: every arm that
+    /// says *this gate did not measure your change* has to be able to name the changed files it
+    /// could not revert, and this is one of the three that returns before the proof block.
+    NotSeparable { files: Vec<String>, build_inputs: Vec<String> },
 }
 
 /// The four groups the reconstruction sorts a diff's Rust files into.
@@ -131,7 +135,10 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
     let provable: Vec<String> = test_files.iter().filter(|p| !inseparable.contains(p)).cloned().collect();
 
     if provable.is_empty() {
-        return Plan::NotSeparable { files: inseparable };
+        return Plan::NotSeparable {
+            files: inseparable,
+            build_inputs,
+        };
     }
 
     Plan::Separable(Separable {
@@ -190,7 +197,7 @@ mod tests {
             "fn fixed() -> u8 { 2 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
         )]);
         match plan(&files, &read) {
-            Plan::NotSeparable { files } => {
+            Plan::NotSeparable { files, .. } => {
                 assert_eq!(files, vec![String::from("crates/x/src/a.rs")]);
             }
             other => panic!("expected NotSeparable, got {other:?}"),
@@ -219,7 +226,7 @@ mod tests {
             ("xtask/src/main.rs", "mod workflows;\n"),
         ]);
         match plan(&files, &read) {
-            Plan::NotSeparable { files } => {
+            Plan::NotSeparable { files, .. } => {
                 assert_eq!(files, vec![String::from("xtask/src/workflows.rs")]);
             }
             other => panic!("expected NotSeparable, got {other:?}"),
@@ -365,6 +372,57 @@ mod tests {
             }
             other => panic!("a changed page is something to revert, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_manifest_only_implementation_change_leaves_nothing_to_revert() {
+        // THE SHAPE #343 IS ABOUT, and the one the first version of this PR could not name: a new
+        // dependency in `Cargo.toml` plus the test that uses it, and NO other implementation file.
+        // `impl_only` is empty, so `run` takes the *tests changed but no implementation did* arm -
+        // which returns before the proof block, where the only `not reverted:` line used to be
+        // printed. `plan` has to carry the manifest for that arm to be able to name it, and
+        // `remedies::a_manifest_only_change_is_named_on_the_arm_it_lands_on` is the other half.
+        let files = vec![
+            changed("crates/x/tests/t.rs", 1, &["#[test]", "fn uses_the_new_dependency() {}"]),
+            changed("crates/x/Cargo.toml", 9, &["serde = \"1\""]),
+        ];
+        let read = tree(&[
+            ("crates/x/tests/t.rs", "#[test]\nfn uses_the_new_dependency() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        match plan(&files, &read) {
+            Plan::Separable(ref one) => {
+                assert!(one.revert.is_empty(), "a manifest is not revertible: {:?}", one.revert);
+                assert_eq!(one.build_inputs, vec![String::from("crates/x/Cargo.toml")]);
+            }
+            other => panic!("expected Separable with nothing to revert, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_inseparable_diff_carries_its_build_inputs_too() {
+        // The third arm that returns before the proof block. One file with an implementation change
+        // and its tests, plus a manifest: `NOT MECHANICALLY SEPARABLE` is a PASS, and a pass that
+        // does not name the changed file it could not revert is the same defect one arm over.
+        let files = vec![
+            changed(
+                "crates/x/src/a.rs",
+                1,
+                &["fn fixed() -> u8 { 2 }", "#[cfg(test)]", "mod tests {", "    #[test]"],
+            ),
+            changed("Cargo.lock", 40, &["name = \"serde\""]),
+        ];
+        let read = tree(&[(
+            "crates/x/src/a.rs",
+            "fn fixed() -> u8 { 2 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+        )]);
+        assert_eq!(
+            plan(&files, &read),
+            Plan::NotSeparable {
+                files: vec![String::from("crates/x/src/a.rs")],
+                build_inputs: vec![String::from("Cargo.lock")],
+            }
+        );
     }
 
     #[test]
@@ -569,7 +627,8 @@ mod tests {
         assert_eq!(
             plan(&with_helper, &read),
             Plan::NotSeparable {
-                files: inseparable.clone()
+                files: inseparable.clone(),
+                build_inputs: Vec::new(),
             }
         );
         // The pass carries its own limit rather than reading as a verdict about the change.
@@ -579,7 +638,13 @@ mod tests {
         );
         // And the answer does not depend on the helper being there, which is the property that
         // was missing: the same diff without it plans identically.
-        assert_eq!(plan(&[added(&hunk)], &read), Plan::NotSeparable { files: inseparable });
+        assert_eq!(
+            plan(&[added(&hunk)], &read),
+            Plan::NotSeparable {
+                files: inseparable,
+                build_inputs: Vec::new(),
+            }
+        );
     }
 
     #[test]

@@ -807,17 +807,34 @@ manifest changes what cargo RESOLVES, and a test file held at HEAD needing a dep
 added would stop compiling. So a manifest-only implementation change still gets no verdict - which
 is #343's territory, now stated in the output instead of nowhere.
 
-**THE SHARED TARGET DIRECTORY WAS A HOLE AND IS CLOSED, and both halves were reproduced before it
-was.** Both runs share `CARGO_TARGET_DIR`; cargo sees ONE unit - same package names, same relative
-paths, and the metadata hash carries neither tree's path - and decides freshness by mtime. Measured
-on cargo 1.100.0-nightly over a synthetic two-crate workspace in the gate's own sequence: the base
-run printed `Finished in 0.02s`, compiled nothing, and answered about the HEAD tree; and a warning
-present only in the worktree was **re-emitted by the next run at the root**, quoting a source line
-the root tree does not have. Cargo replays a fresh unit's saved diagnostics, so a verdict could be
-manufactured out of the previous run's output - and under `-D warnings` a replayed warning IS that
-run's failure. Every run now removes the first-party artifacts first (`cargo clean --workspace`,
-which leaves the dependency closure and the warm-start stamp alone - both measured), and
-`causality::isolation::Isolated` is a sealed witness `runner::nextest` requires, so a run built
-without the removal does not compile. **The bill is our own crates compiled once per run**, which
-is what the sharing comment always claimed the gate paid. Two runs of ONE tree still share
-artifacts, which is cargo's ordinary path and the whole point of sharing.
+**THE SHARED TARGET DIRECTORY WAS A HOLE, and the fix for it is worth reading for the trap rather
+than the hole.** Both runs share `CARGO_TARGET_DIR`; cargo sees ONE unit - same package names, same
+relative paths, and the metadata hash carries neither tree's path - and decides freshness by mtime.
+Measured on cargo 1.100.0-nightly over a synthetic two-crate workspace in the gate's own sequence,
+root at `f() -> 1` and worktree at `f() -> 999`: the base run printed `Finished in 0.01s`, compiled
+nothing, and answered `ok` over source that says 999; and a warning present only in the worktree was
+**re-emitted by the next run at the root**, quoting a source line the root tree does not have. Cargo
+replays a fresh unit's saved diagnostics, so a verdict could be manufactured out of the previous
+run's output - and under `-D warnings` a replayed warning IS that run's failure.
+
+**THE TRAP: `cargo clean` WITH A PACKAGE SELECTION AND NO `--profile` CLEANS `dev`, AND THIS GATE
+BUILDS `ci`.** So the first version of the removal ran, exited 0, removed nothing either run would
+reuse, and the whole sequence above reproduced straight through it - caught in review, not by any
+gate. Measured against a tree built only at `ci`: `cargo clean --workspace --dry-run` says
+`Summary 0 files`, and `--profile ci` says 57. The removal names the profile now, from
+`warm_start::WARM_PROFILE` rather than a fourth spelling of `ci`, and
+`causality::isolation::Isolated` carries the directory, the tree AND the profile it cleaned while
+`runner::nextest` reads all three out of it - so a clean of one profile cannot license a run at
+another, and a run built with no removal at all does not compile. **The transferable rule, which
+this file already states for `file`, `echo` and `grep -c`: an `Ok` from a subprocess is not evidence
+that the side effect happened.** The witness reads cargo's own `Removed <n> files` back and the gate
+prints it, so `isolated: removed 0 …` on a warm directory is visible rather than inferred.
+
+**What it costs and what it does not reach.** The removal is 0.3 s and took **442 files / 2.0 GiB**
+out of a warm `target/causality-target` on this workspace; the dependency closure is untouched
+(measured: the registry dependency was not recompiled) and the warm-start stamp survives, so
+`warm_start::profile_for` still answers `ci`. **The bill is our own crates compiled once per run** -
+which is what the sharing comment always claimed the gate paid. It is bounded to what cargo calls a
+workspace MEMBER at that one profile, so anything else in that directory can still be stale, which
+is why *remove `target/causality-target`* is still the last-resort remedy the gate prints. Two runs
+of ONE tree still share artifacts, which is cargo's ordinary path and the whole point of sharing.

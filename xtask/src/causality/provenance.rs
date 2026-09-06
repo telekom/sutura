@@ -43,7 +43,7 @@
 //! | [`Commit`] | git cannot resolve a merge base | the gate refuses; it does not guess a ref |
 //! | [`Reach::Revertible`] | a reverted file is `include_str!`d and NEW at HEAD | the base tree does not build: INCONCLUSIVE, loud, never a false green |
 //! | [`Moved`] | a name search misses a move | today's answer - the false failure this module exists to remove |
-//! | [`Moved`] | a name search invents one | *green on base* becomes INCONCLUSIVE instead of a failure, and only when EVERY test in scope matched |
+//! | [`Moved`] | a name search invents one | **materially a green step.** A *green against base behaviour* FAILURE - the vacuous test this gate exists to catch - becomes exit 3, and BOTH declared venues continue over it: `ci.yml` warns and exits 0, `ship-check` prints a line and carries on. #344's default-closed argument is closed for a consumer that has not been taught the code, and these two have. It takes EVERY test in scope matching, and the remedy if it is ever seen is narrower matching - a base-side hit under a `#[test]`-bearing region, or a pathspec of only the `.rs` files that LOST lines |
 
 use std::collections::BTreeSet;
 

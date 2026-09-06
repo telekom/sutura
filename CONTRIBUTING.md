@@ -178,8 +178,12 @@ Read the verdict line, never a step's colour.
 commits into the diff - but on the second branch of a stack that merge base is the fork point of the
 whole stack, so the diff still carries the parent branch's implementation. `SHIP_CHECK_BASE_REF`, or
 a commit as the recipe's argument, is the lever. A changed page, recipe or nix file IS an
-implementation to the gate and gets reverted like any other; a manifest or a lockfile is not, and is
-named in the output instead - so a change whose only implementation is a manifest gets no verdict.
+implementation to the gate and gets reverted like any other; **a manifest or a lockfile is not** -
+it is held at HEAD and named as `not reverted:` on whichever arm you land on, because reverting one
+changes what cargo RESOLVES rather than what the tests measure. So a change whose only
+implementation is a manifest reads as *tests changed but no implementation did*, at exit 0, with the
+manifest named beside it: that is the gate saying it could not see your change, not that there was
+nothing to see.
 
 Ports get **fakes**, not mocked HTTP. That is what lets the whole tool surface, refusals included,
 be tested without a warehouse, and a test asserting on source text proves nothing.
