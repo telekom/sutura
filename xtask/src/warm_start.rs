@@ -55,6 +55,14 @@ use crate::repo;
 /// makes them usable. What they share is the seam, which is why they share a gate.
 mod pairing;
 
+/// What the sweep actually REMOVES, asserted over a filesystem rather than read off its source.
+///
+/// Test-only: nothing in production calls it, and nothing else in this repository runs the script
+/// for an answer. Beside [`pairing`] rather than inside it because it is a different claim - that
+/// module holds every taking against the sweep, this one holds the sweep against a directory.
+#[cfg(test)]
+mod sweep;
+
 /// The nix module that unpacks the inherited artifacts into the directory.
 const WARMER: &str = "nix/cargo-env.nix";
 
@@ -426,13 +434,20 @@ fn warm_consumers(lines: &[&str]) -> Vec<usize> {
         .collect()
 }
 
-/// The lines of one consumer's script, from its expansion to the end of the shell string.
+/// The LIVE lines of one consumer's script, from its expansion to the end of the shell string.
+///
+/// `live_lines`' rule applied to a slice, and it is a fail-open this reader had rather than a
+/// refinement: a `# exec cargo run --profile ci ..` line satisfied the profile rule below while
+/// nothing ran it, because the search read the raw body. Same shape as the guard that existed only
+/// in a comment and satisfied the shipped-binaries loop rule - the comment-versus-code split, one
+/// more time. A commented-out `exec` is now *no cargo command*, which is red.
 fn consumer_body<'a>(lines: &[&'a str], index: usize) -> Vec<&'a str> {
     lines
         .iter()
         .skip(index.saturating_add(1))
         .map(|line| line.trim())
         .take_while(|line| !line.ends_with("'');"))
+        .filter(|line| !line.starts_with('#'))
         .collect()
 }
 
@@ -447,7 +462,7 @@ fn inspect_consumer(lines: &[&str], index: usize) -> Result<(), String> {
     // that points `CARGO_TARGET_DIR` somewhere else afterwards keeps all three and uses none of
     // them: cold build, no stamp, and a sweep that reported about a directory this run does not
     // compile into. Nothing fails from it, which is why it is a gate and not a comment.
-    if let Some(own) = body.iter().find(|line| !line.starts_with('#') && line.starts_with(EXPORT)) {
+    if let Some(own) = body.iter().find(|line| line.starts_with(EXPORT)) {
         return Err(format!(
             "{APPS}:{at} expands `{WARM_EXPANSION}` and then exports its own target directory: {own}\n  \
              The unpacked closure, the {STAMP} stamp and the baked-OUT_DIR sweep all belong to the directory \
@@ -692,6 +707,19 @@ mod tests {
                 .map(|consumers| consumers.count()),
             Ok(1)
         );
+    }
+
+    #[test]
+    fn a_commented_out_cargo_command_is_no_cargo_command() {
+        // The fail-open this reader had before #336's branch: the profile rule read the RAW body,
+        // so a parked `exec` line satisfied it while nothing ran it. See `consumer_body`.
+        let apps = concat!(
+            "            ${cargoWarmStart}\n",
+            "            # exec cargo run -q --profile ci -p xtask -- test-causality\n",
+            "          '');\n",
+        );
+        let error = super::profiled_consumers(apps).expect_err("a parked exec line runs nothing");
+        assert!(error.contains("executes no cargo command"), "{error}");
     }
 
     #[test]

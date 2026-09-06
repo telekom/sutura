@@ -23,7 +23,8 @@
 //! WHAT PAIRS A TAKING is one of exactly two things, both resolved out of the tree:
 //!
 //! 1. It is the constructor's own binding, and the constructor's attrset still inlines the sweep.
-//!    Since that is the only [`PHASE`] binding permitted anywhere, no consumer can displace it.
+//!    Since that is the only [`PHASE`] binding permitted in the artifact flow - see
+//!    [`in_the_flow`] for why the rule is scoped and derived - no consumer can displace it.
 //! 2. It is an argument to an `import`ed module, and that module inlines the sweep itself. For a
 //!    module that also exports the target directory - a shell warmer - two more facts are read:
 //!    the sweep comes AFTER that export, and the variable the sweep resolves is the variable the
@@ -36,17 +37,28 @@
 //! WHAT IT DOES NOT REACH. It reads text, for [`crate::pins`]' reason - the sandbox it runs in has
 //! no nix - so a taking assembled by evaluation (a taking behind a `let` alias, an attrset built
 //! by a function this gate does not follow) is invisible, and so is anything that unpacks a store
-//! path without naming [`TAKING`] at all. It says nothing about whether the sweep WORKS; that is
-//! the script's own subject, and the tests below run it over a real directory rather than reading
-//! its source. And it is blind to the profile by design: the sweep derives its profile directory
-//! from cargo's own `root-output` record, so it names none and cannot clean the wrong one.
+//! path without naming [`TAKING`] at all. `preBuild` is the only phase read, so a consumer that
+//! re-places artifacts in a later phase is outside it. It says nothing about whether the sweep
+//! WORKS; that is the script's own subject, and the tests below run it over a real directory
+//! rather than reading its source. And it is blind to the profile by design: the sweep derives
+//! its profile directory from cargo's own `root-output` record, so it names none and cannot clean
+//! the wrong one - which is the trap `cargo clean` fell into in [`crate::causality`].
 
 use std::path::{Path, PathBuf};
 
-use crate::{repo, workflows};
+use crate::repo;
+
+/// Reading a nix file: the binding scan, the brace walks and the `inherit` reader.
+///
+/// Its own file because the claim and the reading are two tasks, and because this one was at
+/// the 1000-line cap. The primitives take text and return offsets, so they are exercised
+/// directly there rather than only through this module's verdict.
+mod reading;
+
+use reading::{NixFile, attrset_at, bound_at, enclosing_attrset, imported_at, inherited_at, line_at, whole_word};
 
 /// The sweep, repo-relative. Every taking is paired with THIS file or with nothing.
-const SWEEP: &str = "nix/purge-baked-out-dirs.sh";
+pub(super) const SWEEP: &str = "nix/purge-baked-out-dirs.sh";
 
 /// crane's argument name for artifacts built in another derivation.
 ///
@@ -67,38 +79,6 @@ const INLINE: &str = "builtins.readFile";
 
 /// The variable the sweep script resolves its target directory out of.
 const SWEEP_TARGET: &str = "targetDir";
-
-/// One `.nix` file, in both of the views this gate needs.
-struct NixFile {
-    /// Repo-relative, with `/` separators - what a reader can open.
-    rel: String,
-    /// The file as written. The shell inside an indented string lives here and nowhere else.
-    raw: String,
-    /// The nix CODE half, comments and string interiors blanked by [`workflows::nix_code_lines`],
-    /// interpolations kept. Lines are joined back up so an offset in it has a line number.
-    code: String,
-}
-
-/// Which view answers which question, stated once because the split is deliberate.
-///
-/// A nix BINDING - `cargoArtifacts = ..`, `preBuild = ..` - is read off [`NixFile::code`], because
-/// this file's own header comments discuss both names in prose and `nix/mimalloc.nix` writes
-/// `runHook preBuild` inside a builder script: a raw scan reports all three. A SHELL line inside
-/// an indented string is read off [`NixFile::raw`] through [`super::live_lines`], because the
-/// lexer blanks exactly that text - so the warmer's `export` is invisible in the code half, and
-/// the rule `live_lines` states (a line that STARTS with `#` runs nothing) is the right one for a
-/// string that is shell either way.
-impl NixFile {
-    fn read(root: &Path, rel: &str) -> Result<Self, String> {
-        let raw = std::fs::read_to_string(root.join(rel)).map_err(|error| format!("could not read {rel}: {error}"))?;
-        let code = workflows::nix_code_lines(&raw).join("\n");
-        Ok(Self {
-            rel: String::from(rel),
-            raw,
-            code,
-        })
-    }
-}
 
 /// The constructor, and the range of the attrset that has to hold the pairing.
 struct Pairing {
@@ -197,93 +177,25 @@ fn nix_files(root: &Path) -> Result<Vec<NixFile>, String> {
     Ok(files)
 }
 
-/// Is this the whole identifier, rather than the tail of a longer one?
-fn whole_word(code: &str, start: usize, end: usize) -> bool {
-    let word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '\'');
-    let before = code.get(..start).and_then(|head| head.chars().next_back());
-    let after = code.get(end..).and_then(|tail| tail.chars().next());
-    !before.is_some_and(word) && !after.is_some_and(word)
-}
-
-/// Every byte offset in `code` at which `name` is BOUND - the identifier followed by an `=`.
+/// Can this file be in the artifact flow at all?
 ///
-/// A binding and a use are different facts and this gate is about bindings: `${cargoArtifacts}`
-/// inside the warmer's shell is a use, `{ pkgs, cargoArtifacts, .. }:` is a parameter, and
-/// `inheritCargoArtifacts` is crane's own function. None of the three hands artifacts to anything.
-fn bound_at(code: &str, name: &str) -> Vec<usize> {
-    let mut found = Vec::new();
-    let mut from = 0_usize;
-    while let Some(offset) = code.get(from..).and_then(|rest| rest.find(name)) {
-        let start = from.saturating_add(offset);
-        let end = start.saturating_add(name.len());
-        from = end;
-        if !whole_word(code, start, end) {
-            continue;
-        }
-        let tail = code.get(end..).unwrap_or_default().trim_start();
-        if tail.starts_with('=') && !tail.starts_with("==") {
-            found.push(start);
-        }
-    }
-    found
-}
-
-/// The 1-based line an offset in the code half sits on.
-fn line_at(code: &str, offset: usize) -> usize {
-    code.get(..offset).unwrap_or_default().matches('\n').count().saturating_add(1)
-}
-
-/// The first balanced `{ .. }` at or after `from`, as a byte range.
-///
-/// An unclosed brace is `None` and therefore an ERROR at the caller, never an answer: this file's
-/// neighbours record three gates that counted braces and reported a parse failure as a verdict.
-fn attrset_at(code: &str, from: usize) -> Option<(usize, usize)> {
-    let open = code.get(from..)?.find('{')?.saturating_add(from);
-    let mut depth = 0_usize;
-    for (offset, character) in code.get(open..)?.char_indices() {
-        match character {
-            '{' => depth = depth.saturating_add(1),
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some((open, open.saturating_add(offset).saturating_add(1)));
-                }
+/// A whole-word mention of the constructor or the taking, in either direction: a file that
+/// APPLIES the constructor, one that RECEIVES it as an argument (`nix/shipped.nix`), and one that
+/// receives the artifacts under crane's own name (`nix/cargo-env.nix`). Anything else has no
+/// artifacts to lose, so [`PHASE`]'s rule has nothing to say about it.
+fn in_the_flow(file: &NixFile) -> bool {
+    [CONSTRUCTOR, TAKING].iter().any(|name| {
+        let mut from = 0_usize;
+        while let Some(offset) = file.code.get(from..).and_then(|rest| rest.find(name)) {
+            let start = from.saturating_add(offset);
+            let end = start.saturating_add(name.len());
+            from = end;
+            if whole_word(&file.code, start, end) {
+                return true;
             }
-            _ => {}
         }
-    }
-    None
-}
-
-/// The `{` of the innermost attrset enclosing `offset`.
-fn enclosing_attrset(code: &str, offset: usize) -> Option<usize> {
-    let mut pending = 0_usize;
-    for (at, character) in code.get(..offset)?.char_indices().rev() {
-        match character {
-            '}' => pending = pending.saturating_add(1),
-            '{' if pending == 0 => return Some(at),
-            '{' => pending = pending.saturating_sub(1),
-            _ => {}
-        }
-    }
-    None
-}
-
-/// The path of the module whose argument set opens at `brace`, if that is what this is.
-///
-/// `inherit (import ./nix/cargo-env.nix {` is the shape in the tree; the leading `(` is trimmed so
-/// the two tokens compared are `import` and a relative path.
-fn imported_at(code: &str, brace: usize) -> Option<&str> {
-    let prefix = code.get(..brace)?.trim_end();
-    let mut words = prefix.split_whitespace().rev();
-    let path = words.next()?;
-    if !path.starts_with("./") {
-        return None;
-    }
-    if words.next()?.trim_start_matches('(') != "import" {
-        return None;
-    }
-    Some(path)
+        false
+    })
 }
 
 /// A nix path literal in `rel`'s directory, as a repo-relative path that EXISTS.
@@ -380,17 +292,23 @@ fn pairing(root: &Path, files: &[NixFile]) -> Result<Pairing, String> {
     })
 }
 
-/// The sweep is the ONLY [`PHASE`] anywhere, which is what closes the shallow-update hole.
+/// The sweep is the ONLY [`PHASE`] in the artifact flow, which closes the shallow-update hole.
 ///
 /// `args // inheritedArtifacts a // { preBuild = ..; }` keeps the artifacts and loses the sweep,
 /// silently, and no count of takings notices - the taking is still paired, by an attrset whose
 /// value was replaced afterwards. So the rule is about the PHASE rather than about the update: a
-/// `preBuild` this tree does not own is refused wherever it appears, and a `preBuild` needed for
-/// another reason composes inside the constructor, where it runs beside the sweep.
+/// `preBuild` this flow does not own is refused, and a `preBuild` needed for another reason
+/// composes inside the constructor, where it runs beside the sweep.
+///
+/// SCOPED, and DERIVED rather than listed. Tree-wide would redden correct work - an unrelated
+/// derivation in some other `nix/` module may want a `preBuild` and has no artifacts to lose - and
+/// a gate that reddens correct work gets disabled. The scope is [`in_the_flow`]: a file that names
+/// the constructor or the taking, which today selects `flake.nix`, `nix/shipped.nix` and
+/// `nix/cargo-env.nix` and would select a new module the moment it received either.
 fn phase_has_one_owner(files: &[NixFile], owner: &Pairing) -> Result<(), String> {
     let mut elsewhere = Vec::new();
     let mut pairings = 0_usize;
-    for file in files {
+    for file in files.iter().filter(|file| in_the_flow(file)) {
         for offset in bound_at(&file.code, PHASE) {
             let inside = file.rel == owner.rel && offset >= owner.attrset.0 && offset < owner.attrset.1;
             if inside {
@@ -407,9 +325,9 @@ fn phase_has_one_owner(files: &[NixFile], owner: &Pairing) -> Result<(), String>
     }
     if !elsewhere.is_empty() {
         return Err(format!(
-            "`{PHASE}` is bound outside `{CONSTRUCTOR}` at {}. `//` updates one level deep, so a phase bound after the \
-             pairing REPLACES the sweep and keeps the artifacts - no error, nothing red, and a build root that names \
-             nothing. Compose it in `{CONSTRUCTOR}` ({}:{}) instead",
+            "`{PHASE}` is bound in the artifact flow but outside `{CONSTRUCTOR}` at {}. `//` updates one level deep, \
+             so a phase bound after the pairing REPLACES the sweep and keeps the artifacts - no error, nothing red, \
+             and a build root that names nothing. Compose it in `{CONSTRUCTOR}` ({}:{}) instead",
             elsewhere.join(", "),
             owner.rel,
             owner.line
@@ -434,6 +352,13 @@ fn discover(files: &[NixFile], owner: &Pairing) -> Discovered {
                 rel: file.rel.clone(),
                 line: line_at(&file.code, offset),
                 receiver,
+            });
+        }
+        for offset in inherited_at(&file.code, TAKING) {
+            takings.push(Taking {
+                rel: file.rel.clone(),
+                line: line_at(&file.code, offset),
+                receiver: Receiver::Unattributed,
             });
         }
     }
@@ -708,8 +633,31 @@ mod tests {
             "  clippy = craneLib.cargoClippy (ciArgs // inheritedArtifacts ciArtifacts // {\n    preBuild = \"true\";\n  });\n  inherit (import ./nix/cargo-env.nix {",
         );
         let why = over(&root).expect_err("a second preBuild replaces the sweep");
-        assert!(why.contains("bound outside `inheritedArtifacts`"), "{why}");
+        assert!(why.contains("outside `inheritedArtifacts`"), "{why}");
         assert!(why.contains("flake.nix:8"), "{why}");
+    }
+
+    #[test]
+    fn an_inherited_taking_is_discovered_and_refused_rather_than_missed() {
+        // `inherit cargoArtifacts;` has no `=` in it, so the binding scan passes straight over it.
+        // Discovered as a taking and never attributed, because an `inherit` names something in an
+        // enclosing scope and this gate follows none.
+        let root = tree("inherited");
+        rewrite(
+            &root,
+            "flake.nix",
+            "  inherit (import ./nix/cargo-env.nix {",
+            "  hygiene = craneLib.mkCargoDerivation (ciArgs // { inherit cargoArtifacts; });\n  inherit (import ./nix/cargo-env.nix {",
+        );
+        let why = over(&root).expect_err("an inherited taking is not an attributed one");
+        assert!(why.contains("cannot attribute it"), "{why}");
+        assert!(why.contains("flake.nix:7"), "{why}");
+        // And the `inherit (expr) names;` form is NOT a false positive, which is why this reader
+        // skips a parenthesised source: the real tree writes exactly that, with a taking inside
+        // the parentheses that the binding scan already attributes to the module.
+        let root = tree("inherit-from-an-expression");
+        let swept = over(&root).expect("the tree writes `inherit (import ..) names;` and passes");
+        assert_eq!(swept.paired.len(), 2, "{:?}", swept.paired);
     }
 
     #[test]
@@ -806,115 +754,5 @@ mod tests {
             let how = super::adjudicate(&root, &files, taking, &owner);
             assert!(how.is_ok(), "{how:?}");
         }
-    }
-
-    /// A synthetic unit directory: what cargo leaves behind for one build script.
-    ///
-    /// `ran_in` is what went into `root-output` - the absolute `$OUT_DIR` the script ran with -
-    /// and `baked` is written into `out/` and into `output` separately, because whether the sweep
-    /// reads the second one is a STATED LIMIT and a stated limit wants a test.
-    fn unit(profile: &Path, crate_name: &str, hash: &str, ran_in: &str, baked_in_out: &str, baked_in_output: &str) {
-        let dir = profile.join("build").join(format!("{crate_name}-{hash}"));
-        std::fs::create_dir_all(dir.join("out")).expect("the unit directory");
-        std::fs::write(dir.join("root-output"), ran_in).expect("the record");
-        std::fs::write(dir.join("out/embed.rs"), baked_in_out).expect("the generated file");
-        std::fs::write(dir.join("output"), baked_in_output).expect("the directives file");
-        std::fs::create_dir_all(profile.join(".fingerprint").join(format!("{crate_name}-{hash}")))
-            .expect("the fingerprint directory");
-    }
-
-    /// Run the real script over `target`, and hand back its output.
-    ///
-    /// An `Ok` from a subprocess is not evidence that a side effect happened, so every assertion
-    /// below is over the FILESYSTEM and this only supplies the sentence beside it.
-    fn sweep(target: &Path) -> String {
-        let root = crate::repo::root().expect("the repo root");
-        let out = std::process::Command::new("bash")
-            .arg(root.join(super::SWEEP))
-            .env("CARGO_TARGET_DIR", target)
-            .current_dir(&root)
-            .output()
-            .expect("bash runs the sweep");
-        assert!(out.status.success(), "{out:?}");
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    }
-
-    #[test]
-    fn the_sweep_removes_what_baked_a_directory_it_no_longer_sits_in() {
-        // THE SCRIPT'S OWN BEHAVIOUR, over a real directory, because nothing else in this
-        // repository runs it: `just lint-workflows` shellchecks it and every venue that executes
-        // it does so for its side effect inside a build. Four units, one per branch of its
-        // decision, and each assertion is a `try_exists` rather than a line of its output.
-        let target = std::env::temp_dir().join(format!("sutura-sweep-{}", std::process::id()));
-        drop(std::fs::remove_dir_all(&target));
-        let profile = target.join("ci");
-        let elsewhere = "/nix/var/nix/builds/nix-74462-1743377963/source/target/ci/build/moved-aaaa/out";
-
-        // 1. MOVED, and what it generated names the directory it ran in. The one purge.
-        unit(
-            &profile,
-            "moved",
-            "aaaa",
-            elsewhere,
-            &format!("#[folder = \"{elsewhere}\"]"),
-            "",
-        );
-        // 2. MOVED, and nothing it generated names that directory. Relocation alone is true of
-        //    every build script in an unpacked closure; purging on it would cost the closure.
-        unit(&profile, "relocated", "bbbb", elsewhere, "pub const N: u8 = 1;", "");
-        // 3. RAN WHERE IT SITS, which is every build script in an ordinary target directory.
-        let own = profile.join("build/local-cccc/out");
-        unit(
-            &profile,
-            "local",
-            "cccc",
-            &own.to_string_lossy(),
-            &format!("#[folder = \"{}\"]", own.display()),
-            "",
-        );
-        // 4. THE STATED LIMIT: the baked path is in `output` - cargo's record of the `cargo::`
-        //    directives - which is a SIBLING of `out/` and not inside it, so the search never
-        //    reads it. This asserts the limit rather than trusting the paragraph that states it.
-        unit(
-            &profile,
-            "directives",
-            "dddd",
-            elsewhere,
-            "pub const N: u8 = 2;",
-            &format!("cargo:rustc-link-search=native={elsewhere}"),
-        );
-
-        let said = sweep(&target);
-
-        let gone = |crate_name: &str, hash: &str| {
-            let unit = profile.join("build").join(format!("{crate_name}-{hash}"));
-            let print = profile.join(".fingerprint").join(format!("{crate_name}-{hash}"));
-            (
-                unit.try_exists().expect("the unit directory is readable"),
-                print.try_exists().expect("the fingerprint is readable"),
-            )
-        };
-        assert_eq!(
-            gone("moved", "aaaa"),
-            (false, false),
-            "the baked unit and its fingerprint both go: {said}"
-        );
-        assert_eq!(
-            gone("relocated", "bbbb"),
-            (true, true),
-            "relocation alone is not a reason: {said}"
-        );
-        assert_eq!(
-            gone("local", "cccc"),
-            (true, true),
-            "a script that ran here baked nothing stale: {said}"
-        );
-        assert_eq!(
-            gone("directives", "dddd"),
-            (true, true),
-            "the `output` file is the STATED LIMIT: {said}"
-        );
-        assert!(said.contains("1 inherited build script output(s) regenerated here"), "{said}");
-        drop(std::fs::remove_dir_all(&target));
     }
 }

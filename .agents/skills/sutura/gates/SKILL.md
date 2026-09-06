@@ -45,10 +45,10 @@ output directory, and - narrower than that paragraph used to admit - a path in `
 cargo's record of the `cargo::` directives the script PRINTED, which is a sibling of `out/` and not
 inside it, so the search never reads it. All three fail the same loud way. Widening to `output` was
 refused rather than costed: a build script that publishes its own output directory as a link path
-names it there as a matter of course, so purging on that record could give back the reuse these
-checks exist on, and the cost is unmeasured. The limit is asserted rather than stated - the sweep's
-own test builds four synthetic unit directories, one per branch of its decision, and checks
-`try_exists` on each; the `output`-only unit is the one it proves SURVIVES.
+names it there as a matter of course, so purging on that record reaches every such crate, and how
+many of the 138 that is has not been counted. The limit is ASSERTED rather than merely stated - the
+sweep's own test builds four synthetic unit directories, one per branch of its decision, and checks
+`try_exists` on the unit AND its fingerprint; the `output`-only unit is the one it proves SURVIVES.
 
 **And that pairing was a SHAPE rather than a mechanism for as long as nobody asked.** One attrset
 makes it hard to separate by accident and holds nothing against `//`, which updates one level deep:
@@ -58,7 +58,10 @@ binding of crane's own `cargoArtifacts`, not a line, a file or an occurrence of 
 Measured on the tree that added it: 13 occurrences of that identifier across the `.nix` files and
 **2 takings**, and two takings written on ONE line still count as two. Each is attributed to what
 receives it (the constructor, or an `import`ed module that inlines the sweep itself), an
-unattributed one is a refusal, and `preBuild` may be bound nowhere else. **The warm start was the
+unattributed one is a refusal - `inherit cargoArtifacts;` included, which has no `=` for a binding
+scan to find - and `preBuild` may be bound nowhere else **inside the artifact flow**, a scope
+derived as the files naming either identifier rather than the whole tree, because an unrelated
+module's legitimate `preBuild` is not this rule's business. **The warm start was the
 route that never called the constructor at all**, and its own fix is by construction rather than by
 gate: the sweep lives in `cargoWarmStart` after the export it resolves, so all five consumers get
 it from one owner instead of three of them inheriting a purge from whichever ran first. **An

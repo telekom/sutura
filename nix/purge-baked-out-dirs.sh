@@ -42,11 +42,13 @@
 # cargo's record of the `cargo::` directives the build script PRINTED, a sibling of `out/` rather
 # than a file in it - is not read at all: an absolute `$OUT_DIR` in a `rustc-link-search` or a
 # `rustc-env` there survives the unpack unregenerated. Widening to it is not free and the cost is
-# UNMEASURED - a build script that publishes its own output directory as a link path names it in
-# `output` as a matter of course, so purging on that record could reach a large share of the
-# closure's 138 build scripts and give back the reuse these checks exist on. Stated rather than
-# taken, because an unmeasured widening of a purge is the more expensive of the two mistakes; all
-# three shapes fail the same loud way this did.
+# UNMEASURED: a build script that publishes its own output directory as a link path names it in
+# `output` as a matter of course, so purging on that record reaches every such crate, and HOW MANY
+# of the closure's 138 that is has not been counted. Stated rather than taken, because an
+# unmeasured widening of a purge is the more expensive of the two mistakes - and the limit is
+# ASSERTED rather than merely written down: this script's test builds four synthetic unit
+# directories, one per branch of the decision below, and the `output`-only one is the case it
+# proves SURVIVES. All three shapes fail the same loud way this did.
 #
 # NO TOP-LEVEL `set`: this text is INLINED, into every artifact-inheriting derivation's `preBuild`
 # and into `cargoWarmStart`, which every warm-start app expands, so a `set -e` here would change
