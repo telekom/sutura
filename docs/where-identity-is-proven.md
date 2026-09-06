@@ -11,22 +11,31 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 
     It is a map of venues, not a coverage report. **yes** means a venue can answer the claim and a
     test in it does; **can** means the venue is capable and the standing test lives somewhere else,
-    with the cell saying where; **unrun** means the standing test lives HERE and nothing has run it.
-    The test names in the venue sections are what has actually been written, and they are the list
-    to check a claim against.
+    with the cell saying where; **unrun** means the standing test lives HERE and nothing has run it;
+    **wired** means a job now reaches that test and no run of it has been observed. The test names
+    in the venue sections are what has actually been written, and they are the list to check a claim
+    against.
 
-    **`unrun` is a token and not a caveat, and the difference is the point.** A written test is not
-    a green run, so a venue in that state may not be cited - and `cargo xtask check-venues` holds
-    four things: only `yes` and `can` count as answering, an `unrun` cell is refused for a venue
-    nothing reaches, the venue's own section has to use that word, and **a venue whose `Reached by`
-    task CI invokes may not say `unrun` at all**. It exists because the two-keys venue below is at
-    the wrong end of it today and saying so in prose put the difference where nothing read it.
+    **`unrun` and `wired` are tokens and not caveats, and the difference is the point.** A written
+    test is not a green run, and neither is a job that will run one, so a venue in either state may
+    not be cited - and `cargo xtask check-venues` holds five things: only `yes` and `can` count as
+    answering, neither token may be used by a venue nothing reaches, the venue's own section has to
+    use whichever word its cell states, **a venue whose `Reached by` task CI invokes may not say
+    `unrun`**, and **a venue whose `Reached by` task CI does not invoke may not say `wired`**. The
+    last two are one rule pointing both ways, so exactly one of the two tokens is available for any
+    given tree and neither can be reached by spelling.
 
-    **What that fourth rule does not reach, said next to it:** it reads an *invocation* in a
+    **Why there are two of them rather than one, which is a defect the fourth rule had:** the change
+    that wires a leg into a job cannot also produce that leg's first green run - the run happens
+    after the push. So for one commit the only moves were a cell the gate refuses and a `yes` nobody
+    had earned, which is a gate satisfiable only by an overstatement. `wired` is that commit's
+    honest state, and it is still not evidence.
+
+    **What those two rules do not reach, said next to them:** what is read is an *invocation* in a
     workflow, a local composite action or the shared `nix/` shell - not a green run. A wired job
-    that always skips reddens the cell too, and a run somebody did by hand is invisible to it. So
-    *`unrun` has stopped being honest* is mechanical; *`yes` is earned* is review's, with the run
-    named beside it.
+    that always skips reads the same as one that passes, and a run somebody did by hand is invisible
+    to both. So *`unrun` has stopped being honest* and *`wired` is not yet earned* are mechanical;
+    *`yes` is earned* is review's, with the run named beside it.
 
 ## The venues
 
@@ -86,7 +95,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **only here** |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **wired** - the only venue that could; `bigquery-acceptance` reaches it now and no run of it has been observed | no | redundant |
 
 ## The fake at the port
 
@@ -274,23 +283,30 @@ rows differ only by arithmetic.
 
 ### What it cannot answer - read this before citing a green run
 
-1. **That the row this venue answers has been answered.** *Nothing has run it*, which the matrix says
-   in one word: **`unrun`**, not `yes` and not `can`. The five values the leg must be pointed at - the
-   policied dataset and table, the grouping column, and the value each policy grants - are not in the
-   environment that holds the two keys. **The change that wires the job into CI is the change that
-   cannot leave this cell saying `unrun`**, and `cargo xtask check-venues` is what makes that a diff
-   rather than a promise: it resolves `just bigquery-two-principals` against every task and app the
-   workflows, the local composite actions and the shared `nix/` shell invoke, and refuses this cell
-   the moment one of them reaches it. It also refuses `unrun` from a venue nothing reaches, and an
-   `unrun` cell whose section does not use the word. Until then this venue is a capability with a
-   written test and no evidence.
+1. **That the row this venue answers has been answered.** *No run has been observed*, which the
+   matrix says in one word: **`wired`**, not `yes` and not `can`. The job step exists - the
+   `bigquery-acceptance` job runs `nix run .#bigquery-two-principals` after the shared-key leg - and
+   that is the whole distance between this state and the `unrun` this cell used to be in. It is not
+   a shorter distance to evidence: a step that exists proves nothing about what it answered.
 
-   **The limit, and it is the half worth reading:** what the gate resolves is an *invocation*, not a
-   green run. It cannot see a run's result - the authority for that is the GitHub API, which is
-   unreachable from the sandbox the gate runs in - so a job that always skips reddens this cell just
-   the same, and a hand-run does not redden it at all. Moving the cell to **`yes`** is therefore
-   review's judgement with the run named beside it; what is mechanical is that leaving it at `unrun`
-   once CI reaches it is no longer possible.
+   **And the step will FAIL until somebody provisions five values**, deliberately. The policied
+   dataset and table, the grouping column, and the value each policy grants are not in the
+   environment that holds the two keys, and the step exits non-zero on any one of them being unset
+   rather than skipping - so until `just infra-set` has pushed them, the honest reading of this venue
+   is *wired, and red for a configuration reason*. That is why the change that wires it is held in
+   draft rather than merged: a job red for a configuration reason is one people learn to ignore.
+
+   **The mechanism, and what it does not reach.** `cargo xtask check-venues` resolves
+   `just bigquery-two-principals` against every task and app the workflows, the local composite
+   actions and the shared `nix/` shell invoke, and it refuses `unrun` the moment one of them reaches
+   this venue and refuses `wired` while none of them does - one rule pointing both ways, so the cell
+   cannot sit in the wrong one of the two. It also refuses either token from a venue nothing reaches,
+   and a cell whose section does not use its own word. What it resolves is an *invocation*, not a
+   green run: it cannot see a run's result, because the authority for that is the GitHub API and the
+   sandbox the gate runs in cannot reach it. So a job that always skips reads exactly like one that
+   passes, and a hand-run is invisible. Moving this cell to **`yes`** is therefore review's
+   judgement with the run named beside it; what is mechanical is that neither `unrun` nor a silent
+   `wired`-forever is available once the wiring lands.
 2. **Whether a deployment can OBTAIN such a credential for the caller who asked.** Each bearer here is
    minted from a service-account key *on disk*, through the crate's own `Credential`, so what a green run
    establishes is that a source executes as the principal whose credential a leg carried. Nobody asked
