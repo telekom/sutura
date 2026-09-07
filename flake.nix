@@ -876,6 +876,15 @@
           program = "${pkgs.betterleaks}/bin/betterleaks";
         };
 
+        # OpenSSF Scorecard, as the CLI rather than as `ossf/scorecard-action`. It reports
+        # findings, so nix is its only pin - and the action is a `using: docker` action whose
+        # image is a MUTABLE `ghcr.io` tag, so pinning `uses:` by SHA would not pin the code
+        # that runs. `docs/adr/0024` is the decision; `devco/scorecard-checks` is what it runs.
+        apps.scorecard = {
+          type = "app";
+          program = "${pkgs.scorecard}/bin/scorecard";
+        };
+
         # The two supply-chain tools the release path runs, from the LOCKED nixpkgs for the
         # reason the block above states at length: `nix run nixpkgs#cosign` resolves through the
         # flake registry to whatever nixpkgs-unstable points at when the job runs, and one of the

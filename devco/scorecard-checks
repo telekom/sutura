@@ -1,0 +1,62 @@
+# Which OpenSSF Scorecard checks this repository runs, and therefore what a run discloses.
+#
+# THE ONE LIST. `.github/workflows/scorecard.yml` derives its `--checks=` argument from this file
+# rather than spelling a second copy, so there is nothing to keep in step - the same reason
+# `apps.<name>` is read out of `flake.nix` and the task list out of `just --summary`. Held by
+# `cargo xtask check-workflows`, which refuses a `--checks=` literal in that workflow.
+#
+# WHY A CHECK SET AT ALL, RATHER THAN THE WHOLE SUITE. `scorecard` with no `--checks` runs every
+# check it has, and three of them answer their question by asking somebody else:
+#
+#   * `Vulnerabilities`     -> OSV, at `osv.dev`
+#   * `CII-Best-Practices`  -> the OpenSSF Best Practices badge API, at `bestpractices.dev`
+#   * `Fuzzing`             -> the OSS-Fuzz project list
+#
+# So the default invocation sends this repository's identity - and for OSV its dependency set - to
+# three services outside GitHub, as a side effect of measuring it. That is a disclosure, and this
+# repository is private as read on 2026-09-07 (`gh api repos/telekom/sutura` -> `private: true`),
+# so it is a disclosure about a tree nobody outside has. None of the three is on the list below,
+# and `cargo xtask check-workflows` REFUSES them by name: adding one is an edit to that gate's
+# `PHONES_HOME` constant as well as a line here, which is a decision in a diff rather than a
+# widening nobody reads.
+#
+# WHAT IS LOST BY EXCLUDING THEM, because it is not nothing and the largest part is already
+# covered: `Vulnerabilities` reports known advisories against the dependency set, and `nix run
+# .#deny` inside the REQUIRED `ci` job already does that against the RustSec database on every
+# pull request that touches a lock file, plus weekly in `security-audit.yml`. `CII-Best-Practices`
+# reports whether a badge exists, and there is none. `Fuzzing` reports whether the project is
+# registered with OSS-Fuzz, and it is not. So two of the three would score zero for a reason
+# already known, and the third duplicates a required gate.
+#
+# WHAT THE REMAINING CHECKS STILL DISCLOSE, stated because "no third party" is a claim about
+# endpoints and not about nothing: every check below reads this repository through the GitHub API,
+# using the workflow's own `GITHUB_TOKEN`. Nothing leaves GitHub, and the run's JSON stays a
+# workflow artifact - it is NOT uploaded to code scanning and NOT published. See the workflow's
+# header for the permission set and `docs/adr/0024` for the decision.
+#
+# WHAT NO GATE HERE CAN HOLD: that a check keeps the behaviour recorded above. The mapping from a
+# check name to the services it queries is the tool's, at the version `flake.nix` pins, and this
+# file is a dated reading of its documentation rather than a trace. Re-read
+# `docs/checks.md` at the pinned version when `just update` moves it, and move this date:
+# read against scorecard 5.5.0 documentation on 2026-09-07.
+#
+# ONE CHECK PER LINE, spelled as the tool spells it - `scorecard --help` is the authority, and a
+# misspelling is an error from the tool rather than a silently skipped check.
+
+Binary-Artifacts
+Branch-Protection
+CI-Tests
+Code-Review
+Contributors
+Dangerous-Workflow
+Dependency-Update-Tool
+License
+Maintained
+Packaging
+Pinned-Dependencies
+SAST
+SBOM
+Security-Policy
+Signed-Releases
+Token-Permissions
+Webhooks
