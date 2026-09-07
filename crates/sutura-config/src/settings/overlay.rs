@@ -21,10 +21,12 @@ use super::{VARIABLE_PREFIX, VARIABLE_SEPARATOR};
 /// a deployment credential into the text of a refusal - which goes to stderr, into a log, and into
 /// whatever collects one.
 ///
-/// **The limit, next to the claim: this is what is SET, not what was USED.** The layering resolves
-/// files and variables into one tree and records no per-key provenance, so a name here is a
-/// candidate for the refusal above it and not a diagnosis. A variable listed here may be setting a
-/// key the refusal is not about, and a refusal may be about a key that came from a file.
+/// **The limit, next to the claim: this is what is SET, not what was USED.** A name here is a
+/// candidate for the refusal above it, not a diagnosis - it may be setting a key the refusal is not
+/// about, and the refusal may be about a key that came from a file.
+///
+/// That is a choice rather than a wall: the pinned `config` records the origin of every value and
+/// `crate::settings::read` discards it, which `github.com/telekom/sutura#440` measures and costs.
 #[must_use]
 pub fn configuration_variables_from_process() -> Vec<String> {
     prefixed(std::env::vars_os().map(|(name, _)| name))

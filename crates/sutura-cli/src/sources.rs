@@ -225,9 +225,14 @@ fn unservable(cause: &sutura_config::SettingsError) -> String {
 /// are in play is the same unactionable shape one level up.
 ///
 /// **What it does NOT claim, stated where the claim is.** These are the variables that are SET, not
-/// the one that was used: the settings layering resolves files and variables into one tree and does
-/// not record which layer won a key, so this is a list of candidates. Saying which variable supplied
-/// the refused key needs the loader to carry provenance per key, which it does not.
+/// the one that was used, so this is a list of CANDIDATES: a name here may be setting a key the
+/// refusal is not about, and a refusal may be about a key that came from a file.
+///
+/// **And the reason is that it is not done, NOT that it cannot be.** An earlier version of this
+/// comment said the loader records no per-key provenance. That was false and review caught it:
+/// `config` 0.15.25 stamps every value with its source, `Config::cache` and `Value::origin()` are
+/// both public, and `crate::settings::read` already builds that value and drops it one line later.
+/// `github.com/telekom/sutura#440` carries the measurement and the shape of the change.
 fn overlay_remedy(variables: &[String]) -> String {
     let prefix = format!("{}{}", sutura_config::VARIABLE_PREFIX, sutura_config::VARIABLE_SEPARATOR);
     let overlay =
