@@ -553,9 +553,11 @@ fn a_key_set_this_deployment_could_not_look_up_is_refused_rather_than_partly_rea
 fn a_coordinate_spelling_the_member_name_still_names_no_key() {
     // The document the test above failed on once, pinned rather than described. Its `y` is the real
     // coordinate `rcgen` generated that day - `...Ukidb3c...` holds `kid` - and the key set names no
-    // key whatever, which is exactly what the refusal is about. `x` is a stand-in of the right shape:
-    // `KeySet::parse` reaches `KeyWithoutAnId` before any coordinate is decoded, so the key material
-    // is not what this cell is measuring.
+    // key whatever, which is exactly what the refusal is about. `x` is the PUBLIC vector from
+    // RFC 7515 A.3 - named rather than left as "a stand-in", because a reader asking where a
+    // coordinate in a public repository came from should not have to leave the file. Neither half is
+    // a credential and neither has to be valid: `KeySet::parse` reaches `KeyWithoutAnId` before any
+    // coordinate is decoded, so the key material is not what this cell is measuring.
     //
     // **This is the evidence a flake cannot supply by re-running.** `contains("kid")` is TRUE here
     // and `any_key_carries_an_id` is FALSE, so the two assertions disagree on one real document, and

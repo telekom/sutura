@@ -248,7 +248,16 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(code, "too_many_dimensions");
-    assert!(detail.contains('4'), "the sentence does not name the maximum: {detail}");
+    // THE PHRASE, and the number READ from the domain. `contains('4')` is the same shape the
+    // `sutura-app` prompt cell carried - a bare number standing in for the sentence that should
+    // name it - and a one-character needle over a haystack this test does not write. It is not
+    // vacuous today, because the sentence interpolates only the two bounds, but nothing holds that.
+    // Binding to `MAX_DIMENSIONS` also makes the cell fail when the cap moves and the sentence does
+    // not, which is what it is for.
+    assert!(
+        detail.contains(&format!("the maximum is {}", sutura_domain::query::MAX_DIMENSIONS)),
+        "the sentence does not name the maximum: {detail}"
+    );
 }
 
 #[tokio::test]

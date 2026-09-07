@@ -277,8 +277,16 @@ mod tests {
     fn a_bound_that_was_exceeded_says_what_the_bound_is() {
         let (_, detail) = refused(&RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 });
         assert!(detail.contains("9000") && detail.contains("3653"), "{detail}");
+        // THE PHRASES, not the two digits. `9000` and `3653` above are four characters each and
+        // could not land in this sentence by accident; `'5'` and `'4'` are one character each, and
+        // what the cell means is that each number arrives in its own ROLE - the one asked for, and
+        // the bound. Two bare digits cannot tell those apart, and would still pass if the sentence
+        // swapped them.
         let (_, detail) = refused(&RefusalReason::TooManyDimensions { requested: 5, limit: 4 });
-        assert!(detail.contains('5') && detail.contains('4'), "{detail}");
+        assert!(
+            detail.contains("5 dimensions were asked for") && detail.contains("at most 4 are allowed"),
+            "{detail}"
+        );
     }
 
     /// The bound with no number still tells an agent what to do, and names nothing it was not told.
