@@ -19,12 +19,17 @@
 //!     decides a change "cannot affect the docs" is a heuristic that will one day be wrong
 //!     silently, which is the exact failure this gate exists to remove.
 //!   * IT NOW ALSO JUDGES THE DOC LINKS, and not by looking at them. `broken_intra_doc_links` is
-//!     denied in the workspace lint table, so the `cargo rustdoc` line below fails on a link
+//!     forbidden in the workspace lint table, so the `cargo rustdoc` line below fails on a link
 //!     rustdoc cannot resolve - 15 of those were warnings behind exit 0 until
-//!     `github.com/telekom/sutura#360`. A lint cannot say whether it was ARMED, though, so the
-//!     `lints` submodule asserts the table exists and that every workspace member inherits it,
-//!     before a single crate is documented. That is a precondition rather than a finding: an
-//!     unarmed run compares pages nobody judged.
+//!     `github.com/telekom/sutura#360`. **This is the only venue that enforces it**: the doctest
+//!     lane does not, measured, and reaches no binary-only member either - `lints` carries both
+//!     measurements and the 30 errors that consequently sit unjudged. A lint also cannot say
+//!     whether it was ARMED, so that submodule asserts the table exists and that every workspace
+//!     member inherits it, before a single crate is documented. That is a precondition rather
+//!     than a finding: an unarmed run compares pages nobody judged. The test that holds the
+//!     precondition is over THIS function rather than over that module - see
+//!     `check_refuses_before_documenting_anything_when_the_lint_is_not_armed`, which exists
+//!     because deleting the call and handing `check` a literal left every test in `lints` green.
 //!   * IT IS THE SAME CODE PATH. The `cargo rustdoc` line and the generator script are the ones
 //!     the `api` recipe in the justfile runs. A gate that reimplemented the rendering could
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
@@ -126,8 +131,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Ok(outcome) if outcome.problems.is_empty() => {
             println!("xtask check-api-docs: ok - the committed pages match a fresh generation");
             println!(
-                "  doc links: `broken_intra_doc_links` = {}, inherited by {} of {} workspace members",
-                outcome.arming.level, outcome.arming.inheriting, outcome.arming.members
+                "  doc links: `broken_intra_doc_links` = {}, {} member(s) declared in Cargo.toml, \
+                 {} resolved by cargo metadata, {} inheriting",
+                outcome.arming.level, outcome.arming.declared, outcome.arming.resolved, outcome.arming.inheriting
             );
             Verdict::Pass
         }
@@ -143,10 +149,11 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 /// The arming travels back with the problems rather than being printed where it is read: a
 /// verdict that says the pages match without saying the rustdoc run behind them judged its links
 /// is the shape this pair exists to make impossible.
+#[derive(Debug)]
 struct Outcome {
     /// Pages that disagree with a fresh generation, or that nothing accounts for.
     problems: Vec<String>,
-    /// The doc-link lint's level, and the two counts that say it reached every member.
+    /// The doc-link lint's level, and the three counts that say it reached every member.
     arming: lints::Arming,
 }
 
@@ -313,8 +320,8 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
     Err(format!(
         "`cargo rustdoc -p {package} ... --output-format json` failed, and rustdoc's own output \
          above says which of two things happened.\n  \
-         A DOC LINK it could not resolve: `broken_intra_doc_links` is denied in the workspace lint \
-         table, so that is an error here rather than a warning behind exit 0. Fix the link - the \
+         A DOC LINK it could not resolve: `broken_intra_doc_links` is forbidden in the workspace \
+         lint table, so that is an error here rather than a warning behind exit 0. Fix the link - the \
          `crate::`-qualified inline form `[`x`](crate::path::x)` resolves without an import and \
          the page keeps the code span.\n  \
          Or the TOOLCHAIN: `--output-format json` is unstable, so this gate needs the nightly pin \
@@ -554,6 +561,37 @@ fn report(problems: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::{excerpt, first_difference, is_lib_target, json_file_name, library_packages, profile_args, python_command};
+
+    #[test]
+    fn check_refuses_before_documenting_anything_when_the_lint_is_not_armed() {
+        // THE COMPOSITION, and it is tested here rather than in `lints` for a measured reason:
+        // every test in that module calls `arm` or `workspace_level` directly, so replacing the
+        // call in `check` with a literal `Arming` left all of them green - measured on this
+        // branch as `just test` exit 0, 2432 passed, with this gate printing its witness line
+        // character for character while reading no manifest at all. This drives `check` itself
+        // against a root that arms nothing, so the only error it can honestly return is the one
+        // `lints::check` produces, and the second assertion is what says it came FIRST.
+        let root = std::env::temp_dir().join(format!("sutura-api-docs-unarmed-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&root).expect("fixture root");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("fixture manifest");
+
+        let outcome = super::check(&root);
+        drop(std::fs::remove_dir_all(&root));
+
+        let error = match outcome {
+            Ok(found) => panic!("an unarmed tree must not be documented, got {found:?}"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("broken_intra_doc_links"),
+            "the refusal has to be the LINT's - anything else means the precondition was skipped: {error}"
+        );
+        assert!(
+            !error.contains(super::GENERATOR),
+            "and it has to come BEFORE the generator is even looked for, or it is not first: {error}"
+        );
+    }
 
     #[test]
     fn identical_files_have_no_first_difference() {
