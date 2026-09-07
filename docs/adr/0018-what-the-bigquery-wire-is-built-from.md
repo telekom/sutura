@@ -608,17 +608,42 @@ bullets down:
       ran out of pages or budget staying an `Err` rather than a comparison against a count this
       transport knows is short.
 
-  **Nothing refuses on it, and that is the decision this record deliberately does not take.** The
-  choice looks like *`Err` or `WARN`* and is not: an `Err` out of `preflight` **is** the warning half
-  unless `listing_was_refused` changes with it, so refusing on a shape change would move the outcome
-  from *deployment refused for the wrong reason* to *deployment served anyway* - the worse direction.
-  `a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named` pins the non-decision, so
-  whoever settles it changes a test and this record together. **Tracked as telekom/sutura#275**,
-  which carries the three shapes the decision has to choose between - a refusal-half `WireError`, a
-  `WARN`, or deleting the value - and why none of them is free. Until then, read this bullet as *the
-  input now arrives*, never as *a shape change is told apart*; the built-and-not-wired register in
-  `.agents/skills/sutura/query-surface` has the entry, and states that no gate notices a change that
-  wires a refusal without revisiting this paragraph.
+  **The decision is taken now, and it is none of the three shapes this record deferred to.**
+  telekom/sutura#275 offered a refusal-half `WireError`, a `WARN`, or deleting the value; the first
+  two share a premise that does not survive being written down. A `WireError` in the refusal half
+  makes `listing_was_refused` - documented as *the endpoint REFUSED* - answer `true` for something
+  that is not a refusal, and BOTH roots render that verdict as *grant this identity
+  `bigquery.tables.list`*, which is the same defect one sentence over: an operator sent to fix a
+  thing that was never wrong. And a `WARN` is not the cheap option in this tree, it is a
+  **loosening** - the case refuses TODAY, for the wrong reason, so warning would let a deployment
+  serve that does not serve now, which is the direction this paragraph already named as worse.
+
+  **So the refusal is a VALUE on the answer and not an `Err`** - the rule `ToolOutcome::Refusal`
+  holds on the query path, applied one port down, and it is what makes the `Err`-is-the-warning-half
+  trap irrelevant rather than worked around. `TablesPresent` gains a fourth variant,
+  `Unaccounted { tables, shortfall }`; `sutura_app::preflight::ask` maps it to a sixth `Verdict` with
+  no wildcard arm, so **both composition roots failed to compile until each decided**, and both
+  refuse. Neither names a model behind the tables, deliberately: nothing here establishes that a
+  `table:` is wrong.
+
+  **And it is narrow, which is the half a blunt version would have got wrong.** A table a short
+  listing NAMED is present - a listing cannot un-name an entry it carried - so a short listing that
+  still named everything the bundle asks about answers `All`, and an ordinary create-or-delete race
+  over tables nobody asked about reddens no boot. Only the tables the listing did not reach land in
+  the new answer. `a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named` was the
+  pin on the non-decision and is gone, replaced by four cells: the gap, the short listing that is
+  still clean, the accounted listing that still names an absence, and the precedence between a
+  definite absence in one dataset and a gap in another.
+
+  **What the decision does NOT reach, stated where the claim is.** Only `Short` is read: a service
+  that re-spells the count as well leaves `Unreported` or `Unreadable`, and a dataset every id of
+  which `usable_table_id` drops is `Accounted` beside no ids - both still answer *absent*, exactly as
+  before. A gap is not a diagnosis, so a document whose shape changed and a table created or dropped
+  mid-listing are one answer. A definite absence outranks a gap, so where a bundle has both the gap
+  waits for the next boot - both refuse, so nothing serves that would not have. And the case has
+  still **never been seen live** and cannot be provoked from the acceptance environment: what holds
+  its meaning is the hermetic suite over documents, and the live leg establishes only that the field
+  arrives.
 
   **The correction worth recording rather than quietly making:** the version of this bullet before
   #263 deferred the question to *the live run above*, and that run could not make the measurement in

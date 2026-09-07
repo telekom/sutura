@@ -7208,6 +7208,68 @@ domain is one: a second reason has somewhere to go.
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `struct UnaccountedTables`
+
+```rust
+pub struct UnaccountedTables
+```
+
+A non-empty set of tables a data system was asked about and did not answer for either way.
+
+**The set an answer that fell short of its own inventory leaves behind**, and it is a third set
+rather than a second reading of `AbsentTables` because the two license different sentences: a
+table in that one is one the data system says it does not have, and a table in this one is one
+the data system's own answer did not reach. Collapsing them is the defect this type exists to
+remove - a listing that named no table beside a total claiming several read as *every table in
+the bundle is absent*, which sends an operator to fix a catalog that was never wrong.
+
+Non-empty by the same construction and for the same reason: a boot outcome that names no table
+is one nobody can act on. An empty difference is `TablesPresent::All`, because a table the
+answer DID name is one the answer accounted for whatever its total said.
+
+##### Methods
+
+```rust
+pub const fn named(&self) -> &BTreeSet<QualifiedTable>
+```
+
+The tables, for an outcome that names them.
+
+```rust
+pub fn parse(tables: BTreeSet<QualifiedTable>) -> Result<Self, NotUnaccounted>
+```
+
+Parses a set of tables a data system's own answer did not reach.
+
+**The canonical constructor.** An adapter computes the difference between what it asked about
+and what an answer it already knows is short actually named, and hands the result over.
+
+# Errors
+
+`NotUnaccounted::Nothing` for an empty set.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `enum NotUnaccounted`
+
+```rust
+pub enum NotUnaccounted
+```
+
+Why a set of unaccounted-for tables is not one.
+
+One variant, an enum for `NotAbsent`'s reason: a second reason has somewhere to go.
+
+##### Variants
+
+- `Nothing` - Nothing was named. Say `TablesPresent::All` instead.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 #### `enum TablesPresent`
 
 ```rust
@@ -7224,14 +7286,24 @@ boot, in the one place a deployment is deciding whether to serve at all. An adap
 looked and found everything answers `Self::All`; one that did not look answers the default, and
 a composition root can tell which it got.
 
-**The third outcome is not a variant here, deliberately.** A data system that could not be
-asked at all - a credential with no permission to list, a dataset that is not there, an endpoint
-that did not answer - is an `Err` from the port, not a variant of this enum. Two reasons, and the
-first is the one that decides it: *could not verify* and *this table is absent* must not collapse
-into one message, because an operator told the wrong one fixes the wrong thing, and the adapter's
-own error type is where the reason lives in the detail an operator needs. The second is that a
-variant would need a reason field, and a reason field in a domain enum is either a bounded string
-nobody owns or an erased cause the domain has no vocabulary for.
+**A data system that could not be ASKED is still not a variant here, deliberately.** A credential
+with no permission to list, a dataset that is not there, an endpoint that did not answer - each
+is an `Err` from the port, not a variant of this enum. Two reasons, and the first is the one that
+decides it: *could not verify* and *this table is absent* must not collapse into one message,
+because an operator told the wrong one fixes the wrong thing, and the adapter's own error type is
+where the reason lives in the detail an operator needs. The second is that a variant would need a
+reason field, and a reason field in a domain enum is either a bounded string nobody owns or an
+erased cause the domain has no vocabulary for.
+
+**`Self::Unaccounted` is not that outcome and is a variant for exactly the reasons that keep it
+out.** The data system WAS asked and it DID answer; what it did not do is account for its own
+inventory, which is a property of the answer rather than a failure to get one. So there is no
+foreign cause to carry: the payload is a set of table paths and one count this adapter computed.
+And an `Err` would have been the wrong channel twice over - `Warehouse::preflight_was_refused`
+puts everything that is not an authorization failure in the WARNING half, so the shape a
+cross-check exists to catch would have reached a root as *serving anyway*. `docs/adr/0018` and
+`telekom/sutura#275` carry that argument; a refusal is a VALUE here for the same reason
+`ToolOutcome::Refusal` is one on the query path.
 
 **The limit, stated with the claim:** what this reports is that a table EXISTS. It says nothing
 about the columns a model names on it, and nothing about whether the identity that asked can
@@ -7243,6 +7315,7 @@ metrics that have one.
 - `NotAsked` - The adapter did not ask. The port's default, and the honest answer for an adapter that has already answered this question another way - a file engine is given its tables at boot, so a second check would be a check on the set it just built.
 - `All` - The data system was asked and holds every table it was asked about.
 - `AllBut` - The data system was asked and does not hold these.
+- `Unaccounted` - The data system was asked, answered, and its answer did not account for every table it said it holds - so whether it holds these is not established either way.
 
 ##### Methods
 
@@ -7254,6 +7327,10 @@ The tables that are not there, if any were named.
 
 `None` for both `Self::NotAsked` and `Self::All`, which is correct for a caller asking
 *what do I refuse over* and is exactly why `Self::was_asked` is a separate question.
+
+**`None` for `Self::Unaccounted` too, and that arm is the whole point of this method having
+one.** A table an answer did not reach is not a table the data system said it does not hold,
+and a caller that read the two as one number is the caller this variant exists to stop.
 
 ```rust
 pub fn of(absent: BTreeSet<QualifiedTable>) -> Self

@@ -158,8 +158,8 @@ impl fmt::Display for UnaccountedTables {
 /// **[`Self::Unaccounted`] is not that outcome and is a variant for exactly the reasons that keep it
 /// out.** The data system WAS asked and it DID answer; what it did not do is account for its own
 /// inventory, which is a property of the answer rather than a failure to get one. So there is no
-/// foreign cause to carry - the payload is a set of table paths and one count this adapter computed
-/// - and an `Err` would have been the wrong channel twice over: `Warehouse::preflight_was_refused`
+/// foreign cause to carry: the payload is a set of table paths and one count this adapter computed.
+/// And an `Err` would have been the wrong channel twice over - `Warehouse::preflight_was_refused`
 /// puts everything that is not an authorization failure in the WARNING half, so the shape a
 /// cross-check exists to catch would have reached a root as *serving anyway*. `docs/adr/0018` and
 /// `telekom/sutura#275` carry that argument; a refusal is a VALUE here for the same reason

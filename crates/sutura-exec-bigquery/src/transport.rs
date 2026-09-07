@@ -212,11 +212,12 @@ pub struct DatasetAddress {
 /// crate drops - that is [`ListingTotal::Accounted`] beside no ids, deliberately, because it is an
 /// ordinary dataset no model in the bundle could have named anyway.
 ///
-/// **Why it travels on the answer rather than being decided here, which is not the same as *it
-/// could not be*:** [`JobTransport::listing_was_refused`] is proof that this port can hold a
-/// decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
-/// that the choice is not settled - `docs/adr/0018` states why refusing is not obviously the safe
-/// direction - and a transport that turned the value into a verdict would have taken it.
+/// **Why it travels on the answer rather than being decided here, now that it IS decided on:** the
+/// decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
+/// a dataset. `BigQueryWarehouse::preflight` is where the two meet, and that is the layer that reads
+/// this field. [`JobTransport::listing_was_refused`] shows the port CAN hold a decision on the layer
+/// above's behalf, so the layer is a choice rather than a constraint; the reason it is this one is
+/// that a verdict minted here would be one taken without half its input.
 ///
 /// The set is still what the pre-flight asks with, and [`Self::holds`] is its only question;
 /// [`Self::named`] is for a diagnostic and for a test, not for a count anything concludes from.
@@ -285,9 +286,13 @@ pub enum ListingTotal {
     /// beside a non-zero total - so nothing needs the third number today, and a decision that wants
     /// to tell those two apart has to add it rather than read this one harder.
     ///
-    /// **Nothing refuses on it yet**, and that is a decision rather than an omission -
-    /// `docs/adr/0018` carries it, including why `Err` is not obviously the safe direction here, and
-    /// `telekom/sutura#275` is where it gets taken.
+    /// **This is the one reading a pre-flight acts on**, and what it produces is
+    /// `TablesPresent::Unaccounted` rather than an absence: a table the bundle names that this
+    /// listing did not name may be sitting in the gap, so a boot refuses without saying the catalog
+    /// is wrong. A VALUE and not an `Err`, because `preflight_was_refused` puts everything that is
+    /// not a `401`/`403` in the warning half. `docs/adr/0018` carries the argument and
+    /// `telekom/sutura#275` is where it was taken. The other three readings decide nothing: they
+    /// say *nothing to compare*, and a dataset they describe still answers *this table is absent*.
     Short {
         /// The total the document reported.
         reported: u64,

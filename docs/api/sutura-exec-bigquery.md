@@ -497,11 +497,12 @@ to compare* rather than *empty dataset*. Nor does it reach a dataset every one o
 crate drops - that is `ListingTotal::Accounted` beside no ids, deliberately, because it is an
 ordinary dataset no model in the bundle could have named anyway.
 
-**Why it travels on the answer rather than being decided here, which is not the same as *it
-could not be*:** `JobTransport::listing_was_refused` is proof that this port can hold a
-decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
-that the choice is not settled - `docs/adr/0018` states why refusing is not obviously the safe
-direction - and a transport that turned the value into a verdict would have taken it.
+**Why it travels on the answer rather than being decided here, now that it IS decided on:** the
+decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
+a dataset. `BigQueryWarehouse::preflight` is where the two meet, and that is the layer that reads
+this field. `JobTransport::listing_was_refused` shows the port CAN hold a decision on the layer
+above's behalf, so the layer is a choice rather than a constraint; the reason it is this one is
+that a verdict minted here would be one taken without half its input.
 
 The set is still what the pre-flight asks with, and `Self::holds` is its only question;
 `Self::named` is for a diagnostic and for a test, not for a count anything concludes from.
