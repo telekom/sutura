@@ -377,6 +377,52 @@ pub(super) fn under_runner_temp(path: &str) -> Option<&str> {
     rest.strip_prefix('/')
 }
 
+/// The same directory as a shell WORD, which is how the job's own commands spell it.
+const RUNNER_TEMP: &str = "$RUNNER_TEMP/";
+
+/// The path below `$RUNNER_TEMP` one shell word names, bounded at the quote or space that ends it.
+fn named_under_runner_temp(word: &str) -> Option<&str> {
+    let file = word
+        .trim_start_matches(['"', '\''])
+        .strip_prefix(RUNNER_TEMP)?
+        .split(['"', '\'', ' '])
+        .next()?;
+    (!file.is_empty()).then_some(file)
+}
+
+/// Every file below `$RUNNER_TEMP` this command redirects into.
+///
+/// The redirect TARGETS, through the same `split('>')` [`redirects_to_file`] reads, because the
+/// question is the same one asked of a different half of the operator: that one asks whether the
+/// output left the log, this asks which file it landed in. An append counts - `>>` yields an empty
+/// first target and the path as the second, so both spellings resolve to one file.
+pub(super) fn writes_under_runner_temp(line: &str) -> impl Iterator<Item = &str> {
+    line.split('>')
+        .skip(1)
+        .filter_map(|rest| named_under_runner_temp(rest.trim_start()))
+}
+
+/// Does this command delete `file` from `$RUNNER_TEMP`?
+///
+/// **An `rm`'s ARGUMENT LIST, and the whole-string form it replaces is what telekom/sutura#389 is
+/// about.** *Placed and removed* was held by looking for the literal `rm -f "$RUNNER_TEMP/<file>"`,
+/// which one `rm -f` over several paths does not contain for any of them but the first - so a job
+/// that removes three key documents on one line reads as removing one, and a job that removes only
+/// the first of three reads exactly the same. The verb is read through [`command`] for the reason
+/// [`traces`] reads it that way, and `-f` is not required of it: `-f` decides what happens when the
+/// file is absent, never whether the file is gone afterwards. Read past a `run:` key for [`traces`]'
+/// reason: a one-line body puts the whole command on that key, which is how this job spells cleanup.
+pub(super) fn removes(line: &str, file: &str) -> bool {
+    let body = step_key(line);
+    let Some(arguments) = command(body.strip_prefix("run:").unwrap_or(body)).strip_prefix("rm ") else {
+        return false;
+    };
+    arguments
+        .split_whitespace()
+        .filter_map(named_under_runner_temp)
+        .any(|named| named == file)
+}
+
 /// Does a print verb on this line take the credential FILE as an argument?
 ///
 /// The file holds the same secret the environment does, so `cat "$RUNNER_TEMP/<file>"` is the whole

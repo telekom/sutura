@@ -501,6 +501,14 @@ therefore does not see.
   true, so `in process, every run` on a venue that runs nowhere passes. **And the issue reporting
   both over-reported one**: a trailing `#` comment was named as a third shape and is not one, in
   four spellings - `#` is in no separator list, so the comment stays glued to what precedes it.
+- **A property held for ONE path while the job places several, and the sentence beside it said
+  *the* credential.** The same gate built *placed and removed* from the single path
+  `GOOGLE_APPLICATION_CREDENTIALS` names, so a second key document written under `$RUNNER_TEMP` and
+  never deleted read as clean - exit 0, byte-identical to the run where every copy is removed. **A
+  QUANTIFIER is a claim**: *the* credential and *every copy of a secret* are different properties,
+  and the record asked for the second. And **a whole-string form is not an argument list**:
+  `rm -f "<a>" "<b>"` contains the literal `rm -f "<b>"` for no `<b>` but the first, so the form
+  that missed two paths would also have FAILED a job removing three correctly.
 - **`just ship-check` is DIFF-SCOPED, and its green used to say nothing about that.** `prek` filters
   every hook by the changed file set - which is what makes it fast enough to run before a push, and
   is correct behaviour. Measured on a branch whose diff was one workflow file and one README: five
