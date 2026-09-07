@@ -962,6 +962,7 @@ economise.
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |
    | `check-one-bound` | the Rust under `crates/`, for how many execution bounds each crate builds, plus which crates have a `src/main.rs` and are therefore a process |
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
+   | `check-worktree-state` | the Rust under `crates/`, `xtask/` and `dev/`, and the shell under `nix/*.sh` - for every acquisition of a machine-shared filesystem root, and whether anything keys the path it builds |
    | `check-conformance-bindings` | the Rust and the manifests under `crates/` - the golden matrix's `data_systems` registry against the crates holding a conformance binding |
    | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
    | `check-feature-remedies` | the string literals under `crates/*/src/` and each crate's own `Cargo.toml` |

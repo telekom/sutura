@@ -138,13 +138,15 @@ pub(super) struct Taking {
 /// as a Rust one; a `.nix` file is NOT, and that is the gate's largest stated limit - see the
 /// module header of `super`.
 pub(super) fn language_of(rel: &str) -> Option<Language> {
-    if rel.ends_with(".rs") && ["crates/", "xtask/", "dev/"].iter().any(|dir| rel.starts_with(dir)) {
-        return Some(Language::Rust);
+    // Extension by suffix, deliberately case-SENSITIVE: `.RS` is not a file this repository writes,
+    // and a case-folding comparison would put a scope decision at the mercy of the filesystem the
+    // path came off - which is the mistake `Scope::from_canonical` records for the digest.
+    let extension = std::path::Path::new(rel).extension().and_then(|raw| raw.to_str());
+    match extension {
+        Some("rs") if ["crates/", "xtask/", "dev/"].iter().any(|dir| rel.starts_with(dir)) => Some(Language::Rust),
+        Some("sh") if rel.starts_with("nix/") => Some(Language::Shell),
+        _ => None,
     }
-    if rel.ends_with(".sh") && rel.starts_with("nix/") {
-        return Some(Language::Shell);
-    }
-    None
 }
 
 /// Assembled from parts so this gate's own source does not carry its own needle as a live anchor.
@@ -247,7 +249,7 @@ pub(super) fn takings(path: &str, language: Language, text: &str) -> Vec<(Taking
         }
     }
 
-    found.sort_by(|left, right| left.0.line.cmp(&right.0.line));
+    found.sort_by_key(|(taking, _)| taking.line);
     found
 }
 
@@ -402,11 +404,14 @@ fn referenced_name(language: Language, segment: &str) -> Option<String> {
     }
 }
 
+/// One binding: where it was written, and what it was bound to.
+type Bound = (usize, String);
+
 /// Every `name = value` this gate can follow, with where it was written.
 #[derive(Debug, Default)]
 struct Bindings {
-    /// Name to (offset, value), every binding in source order.
-    by_name: BTreeMap<String, Vec<(usize, String)>>,
+    /// Name to every binding of it, in source order.
+    by_name: BTreeMap<String, Vec<Bound>>,
 }
 
 impl Bindings {
@@ -418,8 +423,8 @@ impl Bindings {
         self.by_name
             .get(name)?
             .iter()
-            .filter(|(offset, _)| *offset < at)
-            .next_back()
+            .rev()
+            .find(|(offset, _)| *offset < at)
             .map(|(_, value)| value.clone())
     }
 }
@@ -442,11 +447,7 @@ fn bindings_of(language: Language, code: &str) -> Bindings {
                 let Some((_, value)) = declared.split_once('=') else {
                     continue;
                 };
-                bindings
-                    .by_name
-                    .entry(name)
-                    .or_default()
-                    .push((at, truncated(value)));
+                bindings.by_name.entry(name).or_default().push((at, truncated(value)));
             }
         }
         Language::Shell => {
@@ -681,10 +682,7 @@ mod tests {
         // `Scope::from_root` inside a DOCTEST, to prove nothing is provisioned there. Those are
         // prose, and this is the assertion that they are - it is also the limit, stated at the
         // module header: a doctest that really wrote to a shared path is invisible here.
-        let text = rust(&[
-            "/// let dir = std::env::temp_dir().join(\"whatever\");",
-            "fn nothing() {}",
-        ]);
+        let text = rust(&["/// let dir = std::env::temp_dir().join(\"whatever\");", "fn nothing() {}"]);
         assert!(takings("dev/src/discovery.rs", Language::Rust, &text).is_empty());
         assert_eq!(offered(Language::Rust, &text), 0);
     }
@@ -695,7 +693,11 @@ mod tests {
         // never reach a filesystem, so a rule reddening every one of them would redden correct
         // work - and a gate that reddens correct work gets disabled. Both directions here, because
         // either alone is satisfied by a gate that answers one way always.
-        let written = rust(&["fn go() {", "    std::fs::create_dir_all(\"/tmp/sutura-shared\").unwrap();", "}"]);
+        let written = rust(&[
+            "fn go() {",
+            "    std::fs::create_dir_all(\"/tmp/sutura-shared\").unwrap();",
+            "}",
+        ]);
         assert_eq!(only(Language::Rust, &written), Keyed::Shared);
 
         let read = rust(&["fn go() {", "    assert_eq!(one.dir(), Path::new(\"/tmp/tree\"));", "}"]);
@@ -708,11 +710,7 @@ mod tests {
         // an escaped `\"/tmp/..\"`. There is no inner literal for the compiler and there is none
         // here either - which a `contains` would have got wrong, and which the workspace's own
         // literal lexer gets right.
-        let text = rust(&[
-            "fn go() {",
-            "    let fixture = \"let p = \\\"/tmp/s/x.json\\\";\";",
-            "}",
-        ]);
+        let text = rust(&["fn go() {", "    let fixture = \"let p = \\\"/tmp/s/x.json\\\";\";", "}"]);
         assert!(takings("xtask/src/examples.rs", Language::Rust, &text).is_empty());
         assert_eq!(offered(Language::Rust, &text), 0);
     }

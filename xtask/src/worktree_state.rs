@@ -8,9 +8,10 @@
 //!
 //! # The instance this was written for, reproduced rather than argued
 //!
-//! `sutura-conformance`'s corpus renamed its rows onto `<temp_dir>/sutura-conformance/<table>.csv`
-//! - a purpose and no key - and the argument beside it was *the bytes are identical either side of
-//! the rename*, which is true per TREE and not per machine.
+//! `sutura-conformance`'s corpus renamed its rows onto
+//! `<temp_dir>/sutura-conformance/<table>.csv` - a purpose and no key - and the argument beside it
+//! was *the bytes are identical either side of the rename*, which is true per TREE and not per
+//! machine.
 //!
 //! Measured 2026-09-07 with two worktrees of this repository, each running its own `corpus::
 //! on_disk`, one row differing by one cent: the `DuckDB` binding failed
@@ -60,32 +61,53 @@ use scan::{Keyed, Language, Taking};
 
 use crate::{Verdict, repo};
 
-/// Evidence that every taking this scan FOUND was also adjudicated.
+/// Evidence that every taking this scan FOUND was also adjudicated, over every file in scope.
 ///
 /// **A count in a message is not a witness**, which is the shape `telekom/sutura#405` names as
-/// property 3 and which this repository has measured going wrong four times. So the numbers the
+/// property 3 and which this repository has measured going wrong five times. So the numbers the
 /// verdict prints come out of a value whose fields are private to this module and whose only
 /// constructor refuses a mismatch: `inspected == discovered` is a precondition of the type
 /// existing, not a sentence beside it.
 ///
-/// The two sides are computed by DIFFERENT expressions on purpose - `scan::offered` counts
-/// occurrences of a root spelling and knows nothing about narrowing, statements or adjudication,
-/// while `scan::takings` is the loop. A floor computed off the loop's own filter is the defect
-/// `check-docs` shipped, where `.take(1)` satisfied both sides.
+/// # TWO conservation laws, at two levels, and the second is the one that is easy to omit
 ///
-/// The pattern is `crate::causality::isolation::Isolated` and
-/// `crate::conformance::Reconciled`, for the same reason: an invariant a caller has to remember is
-/// one the compiler is not holding.
+/// **Per taking**, `scan::offered` counts occurrences of a root spelling and knows nothing about
+/// narrowing, statements or adjudication, while `scan::takings` is the loop. So a `.take(n)` inside
+/// the loop moves one side and not the other.
+///
+/// **Per file**, and this is the level a single law cannot see. A floor computed off the same
+/// traversal the loop uses moves WITH the loop: measured on a sibling gate the night this landed, a
+/// guard of `lines > files * 4` gave a floor of 624 against a control of 115088, so `.take(100)`
+/// dropped 99.46% of the walk at exit 0 with 1030 of 1030 tests green. So `offered_files` is
+/// counted over the CALLER's whole list by its own expression, before the in-scope vector is built
+/// at all, and `read_files` is incremented inside the loop. The repository's own words:
+/// *"counting both off one filter is how a walk narrowed to one directory passed at exit 0 with a
+/// real defect outside it."*
+///
+/// The pattern is `crate::causality::isolation::Isolated` and `crate::conformance::Reconciled`, for
+/// the same reason: an invariant a caller has to remember is one the compiler is not holding.
 struct Inspected {
-    /// What the independent count offered.
+    /// Files the caller's own list offered, counted before the loop's list existed.
+    offered_files: usize,
+    /// Files the loop actually read.
+    read_files: usize,
+    /// What the independent per-taking count offered.
     discovered: usize,
     /// One answer per taking, in file and line order.
     adjudicated: Vec<(Taking, Keyed)>,
 }
 
 impl Inspected {
-    /// The only constructor. Refuses unless every offered taking has exactly one answer.
-    fn of(discovered: usize, adjudicated: Vec<(Taking, Keyed)>) -> Result<Self, String> {
+    /// The only constructor. Refuses unless the walk reached every file and every taking has
+    /// exactly one answer.
+    fn of(offered_files: usize, read_files: usize, discovered: usize, adjudicated: Vec<(Taking, Keyed)>) -> Result<Self, String> {
+        if offered_files != read_files {
+            return Err(format!(
+                "{offered_files} file(s) are in this gate's scope and the walk read {read_files}. \
+                 A narrowed walk is a verdict about a tree the message names and the scan never \
+                 reached"
+            ));
+        }
         if discovered != adjudicated.len() {
             return Err(format!(
                 "the scan offered {discovered} taking(s) of a machine-shared root and adjudicated \
@@ -95,6 +117,8 @@ impl Inspected {
             ));
         }
         Ok(Self {
+            offered_files,
+            read_files,
             discovered,
             adjudicated,
         })
@@ -105,10 +129,16 @@ impl Inspected {
         self.discovered
     }
 
+    /// How many files were offered, and how many the walk read - equal by construction, printed
+    /// as a pair for the same reason the taking counts are.
+    const fn files(&self) -> (usize, usize) {
+        (self.read_files, self.offered_files)
+    }
+
     /// How many were adjudicated. Equal to [`Inspected::discovered`] by construction, and printed
     /// beside it anyway: a reader of a verdict should be able to see the conservation rather than
     /// take it on trust.
-    fn inspected(&self) -> usize {
+    const fn inspected(&self) -> usize {
         self.adjudicated.len()
     }
 
@@ -143,6 +173,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
+    // THE FILE FLOOR IS COUNTED OVER THE CALLER'S OWN LIST, before the loop's list exists - see
+    // `Inspected`'s header for the measurement that makes this a separate expression rather than
+    // `in_scope.len()`.
+    let offered_files = files.iter().filter(|rel| scan::language_of(rel).is_some()).count();
+
     let in_scope: Vec<(String, Language)> = files
         .iter()
         .filter_map(|rel| scan::language_of(rel).map(|language| (rel.clone(), language)))
@@ -158,6 +193,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     let mut offered = 0_usize;
+    let mut read_files = 0_usize;
     let mut adjudicated: Vec<(Taking, Keyed)> = Vec::new();
     let mut languages: Vec<(&'static str, usize)> = Vec::new();
     for (rel, language) in &in_scope {
@@ -169,6 +205,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             eprintln!("  A file in scope that this gate cannot open is a verdict over a subset.");
             return Verdict::Fail;
         };
+        read_files = read_files.saturating_add(1);
         offered = offered.saturating_add(scan::offered(*language, &text));
         adjudicated.extend(scan::takings(rel, *language, &text));
         let label = language.label();
@@ -191,7 +228,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let inspected = match Inspected::of(offered, adjudicated) {
+    let inspected = match Inspected::of(offered_files, read_files, offered, adjudicated) {
         Ok(witness) => witness,
         Err(why) => {
             eprintln!("xtask check-worktree-state: FAILED - {why}");
@@ -211,12 +248,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .collect();
 
     if shared.is_empty() {
+        let (read, offered_files) = inspected.files();
         println!(
-            "xtask check-worktree-state: ok - inspected {} of {} taking(s) ({}) over {} file(s) ({})",
+            "xtask check-worktree-state: ok - inspected {} of {} taking(s) ({}) over {read} of \
+             {offered_files} file(s) ({})",
             inspected.inspected(),
             inspected.discovered(),
             holders.join(", "),
-            in_scope.len(),
             scanned.join(", ")
         );
         return Verdict::Pass;
@@ -284,15 +322,29 @@ mod tests {
         // offered taking has exactly one answer, so `inspected N of N` is a precondition of the
         // type rather than a sentence beside it.
         let one = vec![(taking(1), Keyed::Process)];
-        assert!(Inspected::of(2, one).is_err(), "a subset must not mint a witness");
+        assert!(Inspected::of(1, 1, 2, one).is_err(), "a subset must not mint a witness");
+    }
+
+    #[test]
+    fn the_witness_refuses_a_walk_that_read_fewer_files_than_the_scope_offered() {
+        // THE SECOND LAW, at the level a single one cannot see. Measured on a sibling gate: a floor
+        // computed off the loop's own traversal moved WITH a `.take(100)` and 99.46% of the walk
+        // was dropped at exit 0. Both takings here are adjudicated, so the per-taking law is
+        // satisfied and only this one can refuse.
+        let one = vec![(taking(1), Keyed::Process)];
+        assert!(
+            Inspected::of(156, 100, 1, one).is_err(),
+            "a narrowed walk must not mint a witness"
+        );
     }
 
     #[test]
     fn the_witness_prints_the_numbers_its_scan_reached() {
         let two = vec![(taking(1), Keyed::Process), (taking(9), Keyed::Worktree)];
-        let witness = Inspected::of(2, two).expect("two offered, two adjudicated");
+        let witness = Inspected::of(7, 7, 2, two).expect("two offered, two adjudicated");
         assert_eq!(witness.discovered(), 2);
         assert_eq!(witness.inspected(), 2);
+        assert_eq!(witness.files(), (7, 7));
         assert!(witness.shared().is_empty());
         assert_eq!(witness.by_holder(), vec![("process", 1), ("worktree", 1)]);
     }
@@ -304,7 +356,7 @@ mod tests {
             (taking(4), Keyed::Unwritten),
             (taking(7), Keyed::Shared),
         ];
-        let witness = Inspected::of(3, mixed).expect("three offered, three adjudicated");
+        let witness = Inspected::of(2, 2, 3, mixed).expect("three offered, three adjudicated");
         let shared = witness.shared();
         assert_eq!(shared.len(), 2);
         assert_eq!(shared.iter().map(|t| t.line).collect::<Vec<usize>>(), vec![1, 7]);
@@ -318,7 +370,7 @@ mod tests {
         // would still be a hole, so this walks the whole set and asserts each one lands somewhere
         // a reader sees: either in the violation list or in the holder breakdown.
         for keyed in [Keyed::Worktree, Keyed::Process, Keyed::Unwritten, Keyed::Shared] {
-            let witness = Inspected::of(1, vec![(taking(1), keyed)]).expect("one and one");
+            let witness = Inspected::of(1, 1, 1, vec![(taking(1), keyed)]).expect("one and one");
             assert_eq!(
                 witness.shared().len(),
                 usize::from(keyed.is_shared()),

@@ -236,6 +236,54 @@ fn a_source() -> Fixture<Fake<false>> {
     Fixture::standing(Fake::<false>::faithful())
 }
 
+// Its own `#[cfg(test)]` module, because `clippy::tests_outside_test_module` asks for one and
+// the strict lints exempt what is inside it - the same reason the three modules below have one.
+#[cfg(test)]
+mod location {
+    use sutura_conformance::corpus;
+    use sutura_dev::scope::Scope;
+
+    /// **The corpus this harness materialises is THIS WORKTREE'S state, through the type that owns
+    /// that answer.**
+    ///
+    /// `telekom/sutura#405`'s first instance: the corpus landed on
+    /// `<temp_dir>/sutura-conformance/<table>.csv`, a name carrying no worktree and no key, so
+    /// every checkout of this repository on the machine was a writer of one file. Reproduced with
+    /// two worktrees and one differing row - the `DuckDB` binding failed two cases as content
+    /// faults while the run that overwrote the file was green.
+    ///
+    /// **Why this cell is in `tests/` and not in `corpus.rs`.** `sutura-conformance` may reach
+    /// `sutura-dev` only as a DEV-dependency - `xtask/src/boundaries/harness.rs` holds the packs to
+    /// the interior - so `corpus.rs` spells the state directory a second time and this is where the
+    /// two spellings are COMPARED, through `Scope` itself rather than against a literal. Exactly
+    /// the arrangement `the_requirement_this_harness_reads_is_the_one_the_provisioner_writes` is in,
+    /// for the same boundary and the same reason.
+    ///
+    /// The root is derived here independently, from this test's own manifest directory, so what is
+    /// compared is two answers rather than one answer twice.
+    #[test]
+    fn the_corpus_is_this_worktrees_own_state_and_not_a_machine_shared_path() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest
+            .ancestors()
+            .find(|dir| dir.join("flake.nix").is_file() && dir.join("Cargo.lock").is_file())
+            .expect("this crate is inside a checkout of this repository");
+        let scope = Scope::from_root(root).expect("the checkout root resolves");
+
+        let corpus_path = corpus::on_disk();
+        let written = std::fs::canonicalize(&corpus_path).expect("the corpus was written");
+        let state = std::fs::canonicalize(scope.state_dir()).expect("materialising the corpus created it");
+
+        assert!(
+            written.starts_with(&state),
+            "the corpus is at {} and this worktree's state is {} - a path outside it is reachable \
+             from every other checkout on this machine",
+            written.display(),
+            state.display()
+        );
+    }
+}
+
 // The fault half, in its own `#[cfg(test)]` module because `clippy::tests_outside_test_module`
 // asks for one and the strict lints exempt what is inside it.
 #[cfg(test)]
@@ -594,46 +642,6 @@ mod venue {
     #[should_panic(expected = "so it provisioned a tier and an absent one is not possible here")]
     fn a_fabricated_absence_fails_the_census_where_a_venue_provisioned_a_tier() {
         sutura_conformance::census::<Fake<false>>("fabricated", Behaviour::EVERY, Some("1"), absent);
-    }
-
-    /// **The corpus this harness materialises is THIS WORKTREE'S state, through the type that owns
-    /// that answer.**
-    ///
-    /// `telekom/sutura#405`'s first instance: the corpus landed on
-    /// `<temp_dir>/sutura-conformance/<table>.csv`, a name carrying no worktree and no key, so
-    /// every checkout of this repository on the machine was a writer of one file. Reproduced with
-    /// two worktrees and one differing row - the `DuckDB` binding failed two cases as content
-    /// faults while the run that overwrote the file was green.
-    ///
-    /// **Why this cell is in `tests/` and not in `corpus.rs`.** `sutura-conformance` may reach
-    /// `sutura-dev` only as a DEV-dependency - `xtask/src/boundaries/harness.rs` holds the packs to
-    /// the interior - so `corpus.rs` spells the state directory a second time and this is where the
-    /// two spellings are COMPARED, through `Scope` itself rather than against a literal. Exactly
-    /// the arrangement `the_requirement_this_harness_reads_is_the_one_the_provisioner_writes` is in,
-    /// for the same boundary and the same reason.
-    ///
-    /// The root is derived here independently, from this test's own manifest directory, so what is
-    /// compared is two answers rather than one answer twice.
-    #[test]
-    fn the_corpus_is_this_worktrees_own_state_and_not_a_machine_shared_path() {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let root = manifest
-            .ancestors()
-            .find(|dir| dir.join("flake.nix").is_file() && dir.join("Cargo.lock").is_file())
-            .expect("this crate is inside a checkout of this repository");
-        let scope = sutura_dev::scope::Scope::from_root(root).expect("the checkout root resolves");
-
-        let corpus_path = corpus::on_disk();
-        let written = std::fs::canonicalize(&corpus_path).expect("the corpus was written");
-        let state = std::fs::canonicalize(scope.state_dir()).expect("materialising the corpus created it");
-
-        assert!(
-            written.starts_with(&state),
-            "the corpus is at {} and this worktree's state is {} - a path outside it is reachable \
-             from every other checkout on this machine",
-            written.display(),
-            state.display()
-        );
     }
 
     /// The two variants answer [`Fixture::missing`] apart, which is what `census` branches on.

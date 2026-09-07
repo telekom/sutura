@@ -54,6 +54,7 @@ mod unused_deps;
 mod venues;
 mod warm_start;
 mod workflows;
+mod worktree_state;
 
 use std::process::ExitCode;
 
@@ -335,6 +336,18 @@ const TASKS: &[Task] = &[
         description: "one place in the compose tier can be blocked by a child process",
         kind: Kind::Hygiene(Reads::Code),
         run: bounded_wait::run,
+    },
+    Task {
+        // `telekom/sutura#405`, and it belongs with the two above rather than with the naming gates:
+        // the rule is about a DIRECTORY two things reach and neither may assume, which is
+        // `check-warm-start`'s subject one level up. Six collisions were measured in one day and
+        // nothing held any of them - a path with no key in it is one path for every checkout on the
+        // machine, and the failure is a confident wrong verdict rather than an error. It starts
+        // GREEN, over a tree whose one live instance this change fixes.
+        name: "check-worktree-state",
+        description: "no test or gate writes to a path a second worktree also reaches",
+        kind: Kind::Hygiene(Reads::Code),
+        run: worktree_state::run,
     },
     Task {
         // Beside `check-bounded-wait` because it is the fourth of that shape: a rule the code
