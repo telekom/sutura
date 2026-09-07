@@ -635,15 +635,32 @@ bullets down:
   still clean, the accounted listing that still names an absence, and the precedence between a
   definite absence in one dataset and a gap in another.
 
-  **What the decision does NOT reach, stated where the claim is.** Only `Short` is read: a service
-  that re-spells the count as well leaves `Unreported` or `Unreadable`, and a dataset every id of
-  which `usable_table_id` drops is `Accounted` beside no ids - both still answer *absent*, exactly as
-  before. A gap is not a diagnosis, so a document whose shape changed and a table created or dropped
-  mid-listing are one answer. A definite absence outranks a gap, so where a bundle has both the gap
-  waits for the next boot - both refuse, so nothing serves that would not have. And the case has
-  still **never been seen live** and cannot be provoked from the acceptance environment: what holds
-  its meaning is the hermetic suite over documents, and the live leg establishes only that the field
-  arrives.
+  **Two things review broke before this was believable, and both are why the shape changed.** The
+  first: `ListingTotal::Short`'s fields were public and `HeldTables::of` is a `pub const fn`, so a
+  `Short` whose reported total sat BELOW its identified count was constructible - the pre-flight then
+  saturated the subtraction to zero and **fell back to reporting the bundle's tables absent**, the
+  defect itself, reached through the public API without mutating anything. `reported > identified`
+  was held by an `if` one module away. It is `transport::Shortfall`'s now - `identified` plus a
+  `NonZeroU64` gap, one fallible `parse`, no public fields - and the fallback that needed it is
+  deleted rather than documented. **A type that forecloses a zero is worth nothing while a
+  constructor can route around it.** The second: a gap of one was printed beside three unnamed
+  tables, as though the set and the shortfall were one quantity. They are not - the gap BOUNDS how
+  many of the set it can explain, so two of those three really were missing - and both roots say *at
+  most N of these M* for that reason.
+
+  **What the decision does NOT reach, stated where the claim is.** Only `Short` is read. A service
+  that re-spells the count as well leaves `Unreadable`, which by this crate's own words is *itself a
+  shape change*, and it still answers *absent* - that is `telekom/sutura#443`, and it is out of reach
+  here rather than overlooked: `Unaccounted` carries a `NonZeroU64` shortfall and `Unreadable` has no
+  number to put in it, so covering it changes the answer's shape. `Unreported` beside no ids is an
+  empty dataset and is deliberately not in that issue; a dataset every id of which `usable_table_id`
+  drops is `Accounted` beside no ids and is an ordinary dataset. A gap is not a diagnosis, so a
+  document whose shape changed and a table created or dropped mid-listing are one answer. A definite
+  absence outranks a gap ACROSS datasets, so where a bundle has both the gap waits for the next boot;
+  within one dataset the two numbers are carried side by side instead. Both refuse, so nothing serves
+  that would not have. And the case has still **never been seen live** and cannot be provoked from
+  the acceptance environment: what holds its meaning is the hermetic suite over documents, and the
+  live leg establishes only that the field arrives.
 
   **The correction worth recording rather than quietly making:** the version of this bullet before
   #263 deferred the question to *the live run above*, and that run could not make the measurement in

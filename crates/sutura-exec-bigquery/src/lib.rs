@@ -706,12 +706,16 @@ where
     /// for it - a dataset answering with no readable id beside a non-zero total refused the boot
     /// saying every table it names is missing. `telekom/sutura#275`.
     ///
-    /// **What that does NOT cover, next to the claim.** Only [`ListingTotal::Short`] is read: a
-    /// service that re-spelled the total as well leaves `Unreported` or `Unreadable`, which say
-    /// *nothing to compare*, and a dataset whose every id `usable_table_id` drops is `Accounted`
-    /// beside no ids - both still answer *absent*. And a gap explains a table's absence without
-    /// establishing it: this adapter cannot tell a document whose shape changed from a table created
-    /// or dropped while the listing was being read, and does not pretend to.
+    /// **What that does NOT cover, next to the claim.** Only [`ListingTotal::Short`] is read.
+    /// [`ListingTotal::Unreadable`] is *itself a shape change* by that type's own words and still
+    /// answers *absent* - `telekom/sutura#443`, out of reach here rather than overlooked, since
+    /// [`TablesPresent::Unaccounted`] carries a shortfall and a total nothing could read has no
+    /// number. `Unreported` beside no ids is an empty dataset, and `Accounted` beside no NAMED ids
+    /// is a dataset every id of which `usable_table_id` drops. And a gap explains a table's absence
+    /// without establishing it: this adapter cannot tell a document whose shape changed from a table
+    /// created or dropped while the listing was being read, and does not pretend to. Within one
+    /// dataset the gap only BOUNDS the answer - a shortfall of one over three unnamed tables means
+    /// two of them really are missing, and nothing here can say which, so both numbers travel.
     ///
     /// # Errors
     ///
@@ -729,11 +733,13 @@ where
         }
         let mut grouped: ByDataset<'_> = BTreeMap::new();
         let mut absent: BTreeSet<QualifiedTable> = BTreeSet::new();
-        // The second set and the second number, because one of each cannot show a shortfall: a table
-        // a short listing did not name is not a table the dataset does not hold, and *how many the
-        // listing left out* is a fact about the listing rather than about the bundle.
-        let mut unaccounted_for: BTreeSet<QualifiedTable> = BTreeSet::new();
-        let mut shortfall: u64 = 0;
+        // **The gap: a set and a count in ONE binding, written together or not at all.** Two locals
+        // is how a shortfall of one comes to describe three tables, and it is also how a count
+        // computed by arithmetic gets to disagree with the set beside it - review found both shapes.
+        // A table a short listing did not name is not a table the dataset does not hold, and *how
+        // many the listing left out* is a fact about the listing rather than about the bundle, so
+        // neither number can be recovered from the other.
+        let mut gap: Option<(BTreeSet<QualifiedTable>, NonZeroU64)> = None;
         for table in tables {
             // Partitioned BEFORE anything is listed, so an unaddressable path can neither skip the
             // loop nor cost a call: it is already an answer.
@@ -756,15 +762,20 @@ where
                 // did not name may be sitting in that gap - so it is unaccounted for and NOT absent.
                 // `telekom/sutura#275` is the decision; `docs/adr/0018` carries why it is a value on
                 // the answer rather than an `Err`, which would have been the warning half.
-                ListingTotal::Short { reported, identified } => {
+                ListingTotal::Short(short) => {
                     let unnamed: BTreeSet<QualifiedTable> = unnamed.collect();
                     // A listing that fell short and still named everything the bundle asks about
                     // costs this deployment nothing: a short listing cannot un-name an entry it
                     // carried, so those tables really are there and this dataset contributes no
                     // shortfall to reason about.
                     if !unnamed.is_empty() {
-                        shortfall = shortfall.saturating_add(reported.saturating_sub(identified));
-                        unaccounted_for.extend(unnamed);
+                        gap = Some(match gap {
+                            None => (unnamed, short.unaccounted()),
+                            Some((mut named, so_far)) => {
+                                named.extend(unnamed);
+                                (named, so_far.saturating_add(short.unaccounted().get()))
+                            }
+                        });
                     }
                 }
                 // Every other reading is *nothing to compare*, and it leaves the pre-flight exactly
@@ -784,14 +795,17 @@ where
         if !absent.is_empty() {
             return Ok(TablesPresent::of(absent));
         }
-        Ok(match NonZeroU64::new(shortfall) {
-            // `map_or` for `TablesPresent::of`'s reason: an empty set is *nothing to report*, which
-            // here means every short listing still named what the bundle asks about.
-            Some(shortfall) => UnaccountedTables::parse(unaccounted_for)
-                .map_or(TablesPresent::All, |tables| TablesPresent::Unaccounted { tables, shortfall }),
-            // No listing fell short, so the set is empty and this is the answer it always was.
-            None => TablesPresent::of(unaccounted_for),
-        })
+        // **There is no route from here to `AllBut`, and that is the point.** The version review
+        // broke fell back to `TablesPresent::of(unaccounted_for)` when a count arrived as zero -
+        // the defect being fixed, reachable from the public API through a hand-built `Short`. The
+        // count is `Shortfall`'s now, so a zero cannot arrive; the only reading left for an absent
+        // gap is that no listing fell short, and `map_or` answers it the way `TablesPresent::of`
+        // answers an empty difference.
+        let Some((unaccounted_for, shortfall)) = gap else {
+            return Ok(TablesPresent::All);
+        };
+        Ok(UnaccountedTables::parse(unaccounted_for)
+            .map_or(TablesPresent::All, |tables| TablesPresent::Unaccounted { tables, shortfall }))
     }
 
     /// Whether the endpoint REFUSED to list a dataset, rather than failing to answer about one.

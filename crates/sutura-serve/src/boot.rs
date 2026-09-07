@@ -199,13 +199,20 @@ where
             // right. Sending an operator to fix a `table:` here is the defect `telekom/sutura#275`
             // is about; the WARN half is the worse direction still, because the one shape the
             // cross-check exists to catch would end in a deployment that serves.
+            //
+            // **Both numbers, and the word between them is load-bearing.** The gap BOUNDS how many
+            // of these tables it can explain - a shortfall of one beside three unnamed tables means
+            // two of them really are missing - so a sentence carrying the set and the gap as one
+            // quantity contradicts itself. Review reproduced exactly that.
             Verdict::Unaccounted { tables, shortfall } => {
                 return Err(format!(
-                    "{source} did not account for {shortfall} of the table(s) it says it holds, so this \
-                     deployment cannot tell whether it has {tables}. Refusing to serve, and NOT reporting \
-                     those tables absent - the catalog may be right and the listing was not whole. Start \
-                     again; if it persists, this deployment is not reading the data system's listing the \
-                     way the data system is writing it"
+                    "{source} did not account for {shortfall} of the table(s) it says it holds, so at most \
+                     {shortfall} of the {count} table(s) the catalog names here may be sitting in that gap \
+                     rather than missing: {tables}. Refusing to serve, and NOT reporting them absent - the \
+                     catalog may be right and the listing was not whole. Start again; if it persists, this \
+                     deployment is not reading the data system's listing the way the data system is \
+                     writing it",
+                    count = tables.len()
                 ));
             }
             Verdict::Present { asked: tables } => tracing::info!(
@@ -437,24 +444,24 @@ mod tests {
             // direction of the two).
             let engines = opened(|asked| {
                 Ok(TablesPresent::Unaccounted {
-                    tables: UnaccountedTables::parse(
-                        asked
-                            .iter()
-                            .filter(|table| table.name().as_str() == "fct_orders")
-                            .cloned()
-                            .collect(),
-                    )
-                    .expect("the bundle names fct_orders"),
-                    shortfall: NonZeroU64::new(4).expect("four is not zero"),
+                    tables: UnaccountedTables::parse(asked.clone()).expect("the bundle names two tables"),
+                    shortfall: NonZeroU64::new(1).expect("one is not zero"),
                 })
             });
             let error = refuse_absent_tables(&bundle(), &engines)
                 .expect_err("a data system that cannot account for its own tables has not verified this bundle");
             assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-            assert!(error.contains("fct_orders"), "and the table nothing was said about: {error}");
             assert!(
-                error.contains("did not account for 4 of the table(s)"),
-                "and how big the gap was, because one number cannot show a shortfall: {error}"
+                error.contains("fct_orders") && error.contains("dim_customer"),
+                "and both tables nothing was said about: {error}"
+            );
+            // **The two numbers, and the bound between them.** A gap of one over two unnamed tables
+            // means one of them really is missing; a sentence that read the set and the gap as one
+            // quantity would say two tables are unaccounted for beside a gap of one, which is a
+            // review finding on the first version of this arm.
+            assert!(
+                error.contains("did not account for 1 of the table(s)") && error.contains("at most 1 of the 2 table(s)"),
+                "the refusal states the gap and what it can explain, and they are different numbers: {error}"
             );
             // The two sentences this refusal must NOT be, asserted rather than assumed from the arm
             // it was written in: `does not hold` is the absent refusal an operator fixes a `table:`

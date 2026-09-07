@@ -18,6 +18,7 @@
 //! **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 //! this crate rendered from a plan, and there is no entry point a caller could hand SQL to.
 
+use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
 use sutura_domain::identity::Secret;
@@ -262,6 +263,11 @@ pub enum ListingTotal {
     /// said something this crate did not understand* are different findings, and the second is
     /// itself a shape change worth being able to see. Nothing of the value is kept - a foreign
     /// scalar is not something this crate carries around to print.
+    ///
+    /// **And nothing decides on it, which is a scope boundary rather than an omission.** Beside no
+    /// readable id it is the same evidence [`Self::Short`] carries, and the pre-flight still answers
+    /// *absent* there. `TablesPresent::Unaccounted` carries a shortfall and this reading has no
+    /// number, so covering it changes the answer's shape: `telekom/sutura#443`.
     Unreadable,
     /// It reported a total, and carried a readable table id for every table the total claims.
     ///
@@ -276,12 +282,12 @@ pub enum ListingTotal {
     /// **On a document that carried no readable id at all this is the shape change** - a dataset
     /// that answered with tables the listing did not name, or with entries this crate could read no
     /// id out of - which is exactly what an empty `tables` array cannot be told from an empty
-    /// dataset without. Where `identified` is non-zero it is weaker: a table created between the
-    /// total and the array, or a page contract this transport read differently than the service
-    /// meant it.
+    /// dataset without. Where [`Shortfall::identified`] is non-zero it is weaker: a table created
+    /// between the total and the array, or a page contract this transport read differently than the
+    /// service meant it.
     ///
-    /// **What it does not separate, so a decision does not read it as more:** an `identified` of
-    /// zero merges *the array was empty* with *no entry carried a readable id*, because the raw
+    /// **What it does not separate, so a decision does not read it as more:** an identified count
+    /// of zero merges *the array was empty* with *no entry carried a readable id*, because the raw
     /// entry count is not kept. Both are the same finding for the caller that has one - no ids
     /// beside a non-zero total - so nothing needs the third number today, and a decision that wants
     /// to tell those two apart has to add it rather than read this one harder.
@@ -293,12 +299,80 @@ pub enum ListingTotal {
     /// not a `401`/`403` in the warning half. `docs/adr/0018` carries the argument and
     /// `telekom/sutura#275` is where it was taken. The other three readings decide nothing: they
     /// say *nothing to compare*, and a dataset they describe still answers *this table is absent*.
-    Short {
+    Short(Shortfall),
+}
+
+/// How far a listing fell short of its own reported total.
+///
+/// **A parsed type and not two `u64` fields on the variant, because the variant's fields were
+/// PUBLIC and the invariant lived in an `if` one module away.** Review reproduced
+/// `telekom/sutura#275` through that door on an unmutated tree: `ListingTotal::Short { reported: 1,
+/// identified: 5 }` is constructible, [`HeldTables::of`] is a `pub const fn`, and the pre-flight's
+/// subtraction then saturated to a shortfall of zero and fell back to reporting the bundle's tables
+/// ABSENT - the exact defect being fixed, reachable through the public API. A type that forecloses a
+/// zero shortfall is worth nothing while a constructor can route around it, so the door is closed
+/// rather than documented.
+///
+/// Stored as `identified` plus a [`NonZeroU64`] gap rather than the two totals, so
+/// [`Self::unaccounted`] is a field read: the *count that decides* cannot be derived wrongly, and
+/// [`Self::reported`] reconstructs exactly because the sum is the number [`Self::parse`] was given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shortfall {
+    identified: u64,
+    unaccounted: NonZeroU64,
+}
+
+/// Why a pair of counts is not a shortfall.
+///
+/// One variant, an enum for the reason every other error in this crate is one: a second reason has
+/// somewhere to go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NotShort {
+    /// The total is not above the ids the same document accounted for, so nothing is missing.
+    #[error("a listing reporting {reported} table(s) beside {identified} readable id(s) is not short of its own total")]
+    Accounted {
         /// The total the document reported.
         reported: u64,
         /// How many entries of the same document carried a table id this crate could read.
         identified: u64,
     },
+}
+
+impl Shortfall {
+    /// Parses a reported total against the ids of the same document this crate could read.
+    ///
+    /// # Errors
+    ///
+    /// [`NotShort::Accounted`] where the total is not ABOVE the identified count - which is
+    /// [`ListingTotal::Accounted`]'s case and belongs in that variant, not this one.
+    pub fn parse(reported: u64, identified: u64) -> Result<Self, NotShort> {
+        reported
+            .checked_sub(identified)
+            .and_then(NonZeroU64::new)
+            .map(|unaccounted| Self { identified, unaccounted })
+            .ok_or(NotShort::Accounted { reported, identified })
+    }
+
+    /// The total the document reported.
+    #[inline]
+    #[must_use]
+    pub const fn reported(&self) -> u64 {
+        self.identified.saturating_add(self.unaccounted.get())
+    }
+
+    /// How many entries of the same document carried a table id this crate could read.
+    #[inline]
+    #[must_use]
+    pub const fn identified(&self) -> u64 {
+        self.identified
+    }
+
+    /// How many tables the total claims that no readable id accounted for. Never zero.
+    #[inline]
+    #[must_use]
+    pub const fn unaccounted(&self) -> NonZeroU64 {
+        self.unaccounted
+    }
 }
 
 impl HeldTables {

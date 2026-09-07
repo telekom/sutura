@@ -580,6 +580,81 @@ wrong number, and this one cannot, because a short listing is a boot warning.
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### `struct Shortfall`
+
+```rust
+pub struct Shortfall
+```
+
+How far a listing fell short of its own reported total.
+
+**A parsed type and not two `u64` fields on the variant, because the variant's fields were
+PUBLIC and the invariant lived in an `if` one module away.** Review reproduced
+`telekom/sutura#275` through that door on an unmutated tree: `ListingTotal::Short { reported: 1,
+identified: 5 }` is constructible, `HeldTables::of` is a `pub const fn`, and the pre-flight's
+subtraction then saturated to a shortfall of zero and fell back to reporting the bundle's tables
+ABSENT - the exact defect being fixed, reachable through the public API. A type that forecloses a
+zero shortfall is worth nothing while a constructor can route around it, so the door is closed
+rather than documented.
+
+Stored as `identified` plus a `NonZeroU64` gap rather than the two totals, so
+`Self::unaccounted` is a field read: the *count that decides* cannot be derived wrongly, and
+`Self::reported` reconstructs exactly because the sum is the number `Self::parse` was given.
+
+#### Methods
+
+```rust
+pub const fn identified(&self) -> u64
+```
+
+How many entries of the same document carried a table id this crate could read.
+
+```rust
+pub fn parse(reported: u64, identified: u64) -> Result<Self, NotShort>
+```
+
+Parses a reported total against the ids of the same document this crate could read.
+
+# Errors
+
+`NotShort::Accounted` where the total is not ABOVE the identified count - which is
+`ListingTotal::Accounted`'s case and belongs in that variant, not this one.
+
+```rust
+pub const fn reported(&self) -> u64
+```
+
+The total the document reported.
+
+```rust
+pub const fn unaccounted(&self) -> NonZeroU64
+```
+
+How many tables the total claims that no readable id accounted for. Never zero.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum NotShort`
+
+```rust
+pub enum NotShort
+```
+
+Why a pair of counts is not a shortfall.
+
+One variant, an enum for the reason every other error in this crate is one: a second reason has
+somewhere to go.
+
+#### Variants
+
+- `Accounted` - The total is not above the ids the same document accounted for, so nothing is missing.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `enum NamedResource`
 
 ```rust

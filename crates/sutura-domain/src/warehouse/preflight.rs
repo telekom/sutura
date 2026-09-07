@@ -117,6 +117,26 @@ impl UnaccountedTables {
     pub const fn named(&self) -> &BTreeSet<QualifiedTable> {
         &self.0
     }
+
+    /// How many tables the answer did not reach.
+    ///
+    /// Read beside the shortfall by both roots, because the two are different numbers and a sentence
+    /// carrying one of them reads as a claim about the other.
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Always `false`, and it exists because `clippy::len_without_is_empty` asks for it.
+    ///
+    /// The type is non-empty by construction, so this is a constant with a name rather than a
+    /// question worth asking - which is itself the honest reading of the invariant.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl fmt::Display for UnaccountedTables {
@@ -200,6 +220,13 @@ pub enum TablesPresent {
     /// at boot.
     Unaccounted {
         /// The tables this answer reached no conclusion about.
+        ///
+        /// **It is not a count of what is missing, and the shortfall beside it is the bound.** At
+        /// most `shortfall` of these can be sitting in the gap, so a set LARGER than the shortfall
+        /// says the rest really are absent - without saying which, because the data system named
+        /// none of them. A root that rendered the two numbers as one thing would print *three tables
+        /// unaccounted for* beside a gap of one, which is a review finding on the first version of
+        /// this variant; both roots say *at most N of these M* for that reason.
         tables: UnaccountedTables,
         /// How many tables the data system said it holds that its own answer did not account for.
         ///
@@ -228,10 +255,19 @@ impl TablesPresent {
     ///
     /// Read by a composition root's log line, which says a different thing for a deployment nobody
     /// verified than for one that was verified clean.
+    ///
+    /// **An exhaustive match and not `!matches!(NotAsked)`, which is a review finding rather than
+    /// style.** The negated form is a DEFAULTED arm: [`Self::absent`] and `sutura_app::preflight::ask`
+    /// both refuse a fifth variant at compile time, and this one would have compiled silently and
+    /// answered *it looked* about a variant nobody had classified. The compiler holds here what the
+    /// two matches beside it already held.
     #[inline]
     #[must_use]
     pub const fn was_asked(&self) -> bool {
-        !matches!(*self, Self::NotAsked)
+        match *self {
+            Self::NotAsked => false,
+            Self::All | Self::AllBut(_) | Self::Unaccounted { .. } => true,
+        }
     }
 
     /// The tables that are not there, if any were named.

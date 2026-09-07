@@ -7230,6 +7230,24 @@ answer DID name is one the answer accounted for whatever its total said.
 ##### Methods
 
 ```rust
+pub fn is_empty(&self) -> bool
+```
+
+Always `false`, and it exists because `clippy::len_without_is_empty` asks for it.
+
+The type is non-empty by construction, so this is a constant with a name rather than a
+question worth asking - which is itself the honest reading of the invariant.
+
+```rust
+pub fn len(&self) -> usize
+```
+
+How many tables the answer did not reach.
+
+Read beside the shortfall by both roots, because the two are different numbers and a sentence
+carrying one of them reads as a claim about the other.
+
+```rust
 pub const fn named(&self) -> &BTreeSet<QualifiedTable>
 ```
 
@@ -7351,6 +7369,12 @@ Whether the adapter looked at all.
 
 Read by a composition root's log line, which says a different thing for a deployment nobody
 verified than for one that was verified clean.
+
+**An exhaustive match and not `!matches!(NotAsked)`, which is a review finding rather than
+style.** The negated form is a DEFAULTED arm: `Self::absent` and `sutura_app::preflight::ask`
+both refuse a fifth variant at compile time, and this one would have compiled silently and
+answered *it looked* about a variant nobody had classified. The compiler holds here what the
+two matches beside it already held.
 
 ##### Implements
 

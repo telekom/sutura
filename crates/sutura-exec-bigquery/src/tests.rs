@@ -22,7 +22,7 @@ use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
 
-use crate::transport::{Cell, Field, FieldType, JobRows, ListingTotal};
+use crate::transport::{Cell, Field, FieldType, JobRows, ListingTotal, NotShort, Shortfall};
 use crate::{BigQueryError, BigQueryWarehouse};
 
 /// The transports and fixtures these assertions are written against.
@@ -516,6 +516,11 @@ fn asked(paths: &[&str]) -> BTreeSet<QualifiedTable> {
         .collect()
 }
 
+/// A listing that reported more tables than it named, as the transport would have parsed one.
+fn short(reported: u64, identified: u64) -> ListingTotal {
+    ListingTotal::Short(Shortfall::parse(reported, identified).expect("the test means a shortfall"))
+}
+
 /// The names a pre-flight answer reported absent, for an assertion that reads.
 fn absent_names(answered: &TablesPresent) -> Vec<String> {
     answered
@@ -569,14 +574,7 @@ fn a_listing_short_of_its_own_total_does_not_report_the_table_it_never_named_as_
     // What the answer must NOT be is `AllBut`, and `absent()` is the accessor a root would have read
     // to build that sentence - so it is asserted rather than left to the variant's name.
     let warehouse = open(
-        Recording::empty().holding_with_total(
-            "acme-analytics/warehouse",
-            &[],
-            ListingTotal::Short {
-                reported: 3,
-                identified: 0,
-            },
-        ),
+        Recording::empty().holding_with_total("acme-analytics/warehouse", &[], short(3, 0)),
         shared_posture(),
     );
     let answered = warehouse
@@ -602,6 +600,64 @@ fn a_listing_short_of_its_own_total_does_not_report_the_table_it_never_named_as_
 }
 
 #[test]
+fn a_listing_that_is_not_short_of_its_own_total_cannot_be_called_short() {
+    // **The door review reproduced `telekom/sutura#275` through, on an UNMUTATED tree.** The
+    // variant's fields were public and `HeldTables::of` is a `pub const fn`, so a `Short` whose
+    // reported total sat BELOW its identified count was constructible; the pre-flight then computed
+    // a shortfall of zero by saturating subtraction and fell back to reporting the bundle's tables
+    // ABSENT - the exact defect being fixed, reached without touching a line of this crate. The
+    // invariant belongs to the type now, so the fallback that needed it is gone with it.
+    assert_eq!(
+        Shortfall::parse(1, 5),
+        Err(NotShort::Accounted {
+            reported: 1,
+            identified: 5
+        }),
+        "a total below the ids read is not a shortfall"
+    );
+    assert_eq!(
+        Shortfall::parse(3, 3),
+        Err(NotShort::Accounted {
+            reported: 3,
+            identified: 3
+        }),
+        "and neither is a total the ids read account for exactly"
+    );
+    let short = Shortfall::parse(4, 1).expect("four claimed beside one read is a shortfall");
+    assert_eq!(short.unaccounted().get(), 3, "the gap is the count a decision reads");
+    assert_eq!(
+        (short.reported(), short.identified()),
+        (4, 1),
+        "and both totals survive the parse"
+    );
+}
+
+#[test]
+fn a_gap_of_one_does_not_claim_to_hide_three_tables() {
+    // **A gap BOUNDS how many of the unnamed tables it can explain**, and the first version of this
+    // decision printed the set and the shortfall as if they were one quantity - `shortfall: 1`
+    // beside three tables, which is a sentence contradicting itself. Two of those three really are
+    // missing; nothing here can say WHICH, because the listing named none of them. So the answer
+    // carries both numbers and each root says *at most N of these M*.
+    let warehouse = open(
+        Recording::empty().holding_with_total("acme-analytics/warehouse", &["dim_plan"], short(4, 3)),
+        shared_posture(),
+    );
+    let answered = warehouse
+        .preflight(&asked(&["dim_customer", "fct_orders", "dim_region"]))
+        .expect("the dataset answered");
+    let TablesPresent::Unaccounted { tables, shortfall } = &answered else {
+        panic!("a listing with a gap in it leaves the bundle's tables unaccounted for, and it said {answered:?}");
+    };
+    assert_eq!(tables.len(), 3, "three tables the listing never named: {tables}");
+    assert_eq!(
+        shortfall.get(),
+        1,
+        "and a gap of one, which is what bounds how many of them it explains"
+    );
+}
+
+#[test]
 fn a_listing_short_of_its_own_total_that_still_named_the_bundles_table_is_clean() {
     // **The half that keeps the decision narrow, and it is not symmetry.** A short listing cannot
     // un-name an entry it carried, so a table it DID name is a table the dataset really holds - and
@@ -609,14 +665,7 @@ fn a_listing_short_of_its_own_total_that_still_named_the_bundles_table_is_clean(
     // asked about. Refusing here would redden an ordinary boot for a total that moved while a
     // dataset was being written to.
     let warehouse = open(
-        Recording::empty().holding_with_total(
-            "acme-analytics/warehouse",
-            &["dim_customer"],
-            ListingTotal::Short {
-                reported: 5,
-                identified: 1,
-            },
-        ),
+        Recording::empty().holding_with_total("acme-analytics/warehouse", &["dim_customer"], short(5, 1)),
         shared_posture(),
     );
     let answered = warehouse.preflight(&asked(&["dim_customer"])).expect("the dataset answered");
@@ -658,14 +707,7 @@ fn a_table_a_whole_listing_does_not_hold_outranks_a_gap_in_another_dataset() {
     // behind the one that says *look at this*.
     let warehouse = open(
         Recording::empty()
-            .holding_with_total(
-                "acme-analytics/warehouse",
-                &[],
-                ListingTotal::Short {
-                    reported: 3,
-                    identified: 0,
-                },
-            )
+            .holding_with_total("acme-analytics/warehouse", &[], short(3, 0))
             .holding_with_total("acme-analytics/reference", &[], ListingTotal::Accounted { reported: 0 }),
         shared_posture(),
     );
