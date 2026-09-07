@@ -40,7 +40,7 @@
 
 use crate::calendar::TimeRange;
 use crate::model::{MetricName, QualifiedTable, SourceName, TableName};
-use crate::plan::{PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, StatementTables};
+use crate::plan::{PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StatementTables};
 use crate::warehouse::ParamValue;
 
 /// One number a leg computes, and the label it is projected under.
@@ -59,7 +59,7 @@ use crate::warehouse::ParamValue;
 ///
 /// ```compile_fail
 /// use sutura_domain::measure::ZeroDenominator;
-/// use sutura_domain::plan::{LegTerm, PlanMeasure, PlanTerm};
+/// use sutura_domain::plan::{InternalLabel, LegTerm, PlanMeasure, PlanTerm, ResultLabel};
 ///
 /// // `LegTerm::new` takes a term, and a ratio is not one.
 /// fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -> LegTerm {
@@ -69,7 +69,7 @@ use crate::warehouse::ParamValue;
 ///             denominator,
 ///             zero_denominator,
 ///         },
-///         String::from("ratio"),
+///         ResultLabel::internal(InternalLabel::Leaf(0)),
 ///     )
 /// }
 /// ```
@@ -78,24 +78,24 @@ use crate::warehouse::ParamValue;
 /// terms, and the division happens above every leg.
 ///
 /// ```
-/// use sutura_domain::plan::{LegTerm, PlanTerm};
+/// use sutura_domain::plan::{InternalLabel, LegTerm, PlanTerm, ResultLabel};
 ///
 /// fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
 ///     vec![
-///         LegTerm::new(numerator, String::from("numerator")),
-///         LegTerm::new(denominator, String::from("denominator")),
+///         LegTerm::new(numerator, ResultLabel::internal(InternalLabel::Leaf(0))),
+///         LegTerm::new(denominator, ResultLabel::internal(InternalLabel::Leaf(1))),
 ///     ]
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct LegTerm {
     term: PlanTerm,
-    label: String,
+    label: ResultLabel,
 }
 
 impl LegTerm {
     #[inline]
-    pub const fn new(term: PlanTerm, label: String) -> Self {
+    pub const fn new(term: PlanTerm, label: ResultLabel) -> Self {
         Self { term, label }
     }
 
@@ -104,9 +104,10 @@ impl LegTerm {
         &self.term
     }
 
+    /// The text this term is projected under.
     #[inline]
     pub fn label(&self) -> &str {
-        &self.label
+        self.label.as_str()
     }
 }
 

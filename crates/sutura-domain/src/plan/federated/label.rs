@@ -85,16 +85,16 @@ pub fn labels(federation: &Federation) -> Vec<InternalLabel> {
 /// nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
 /// is the property the test asserts, and the thing to re-establish if this spelling ever changes.
 ///
-/// **And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
-/// This half is a type. The public half is not: [`PlanKey`](crate::plan::PlanKey) and
-/// [`LegTerm`](crate::plan::LegTerm) carry their labels as `String`, so what keeps a public label out
-/// of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
-/// `DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
-/// test: the test above asks the four name parsers to refuse these spellings, which is a property of
-/// `parse_identifier`, not of any plan. A computed public label landing on `0_leaf_{n}` would be
-/// refused by `distinct_columns` as `DuplicateLabels`, so the failure direction is a refusal rather
-/// than a wrong number - which is why the `String`s are still here. `telekom/sutura#337` is the
-/// typed-label remedy that would make the comparison impossible rather than unnecessary.
+/// **Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+/// [`InternalLabel`]; the public half is [`ResultLabel`](crate::plan::ResultLabel), whose only
+/// constructors take a `DimensionName`, a `MetricName`, [`InternalLabel`] or nothing at all - so a
+/// computed string is not a label a plan can carry, and the derivation
+/// `sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+/// instead. What that changes about the paragraph above: the two namespaces are still disjoint
+/// *because* of the leading digit, and what the types add is that no producer can put a value in
+/// both. **The limit, next to the claim:** one carrier is not converted -
+/// [`PlanBucket`](crate::plan::PlanBucket)'s label is still a `String`, for the reason stated on
+/// that type.
 ///
 /// **Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
 /// is 63 characters because that is the tightest among the data systems targeted, and it is a

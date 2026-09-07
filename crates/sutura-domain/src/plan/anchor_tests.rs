@@ -15,13 +15,13 @@ use std::collections::BTreeSet;
 
 use super::{
     AnchorPlan, NotAnAnchorsPlan, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, StatementTables,
+    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
 use crate::knowledge::Knowledge;
 use crate::measure::{AggregatedColumn, Measure, Term};
-use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use crate::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
 fn metric() -> MetricName {
@@ -112,7 +112,7 @@ fn anchors_plan(range: TimeRange, grain: Grain, keys: Vec<PlanKey>, filters: Vec
                 column: column("mrr_amount"),
             },
         },
-        String::from("mrr"),
+        ResultLabel::measure(&metric()),
         filters,
         Vec::new(),
         range,
@@ -157,7 +157,10 @@ fn a_question_shaped_plan_is_not_an_anchors_plan() {
     let grouped = anchors_plan(
         certified(),
         Grain::Month,
-        vec![PlanKey::new(String::from("region"), column("region"))],
+        vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
+            column("region"),
+        )],
         Vec::new(),
     );
     assert_eq!(
@@ -265,7 +268,7 @@ fn a_metric_the_bundle_does_not_anchor_has_no_anchors_plan() {
                 column: column("mrr_amount"),
             },
         },
-        String::from("gross_margin"),
+        ResultLabel::measure(&absent),
         Vec::new(),
         Vec::new(),
         certified(),

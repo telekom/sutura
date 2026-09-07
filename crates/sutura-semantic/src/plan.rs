@@ -33,7 +33,7 @@ use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     FederatedPlan, InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, StatementTables, labels, plan_measure, plan_required_filter,
+    PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -136,7 +136,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
     let keys: Vec<PlanKey> = resolution
         .keys
         .iter()
-        .map(|key| PlanKey::new(String::from(key.dimension.name().as_str()), column_of(key, own_table)))
+        .map(|key| PlanKey::new(ResultLabel::dimension(key.dimension.name()), column_of(key, own_table)))
         .collect();
 
     let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
@@ -160,7 +160,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column),
         keys,
         measure,
-        String::from(metric.name().as_str()),
+        ResultLabel::measure(metric.name()),
         filters,
         params,
         resolution.range,
@@ -227,14 +227,14 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     // labels beside it - so a metric with a legal dimension named `customer_key`, backed by a
     // different column, produced two fact columns under one label and the combiner refused the
     // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
-    let link_label = InternalLabel::Link.label();
+    let link_label = ResultLabel::internal(InternalLabel::Link);
 
     // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
     // joined to it above.
     let mut fact_keys: Vec<PlanKey> = Vec::new();
     for key in resolution.keys.iter().filter(|key| !is_remote(key, model.source())) {
         fact_keys.push(PlanKey::new(
-            String::from(key.dimension.name().as_str()),
+            ResultLabel::dimension(key.dimension.name()),
             column_of(key, own_table),
         ));
     }
@@ -251,7 +251,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     ));
     for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
         lookup_keys.push(PlanKey::new(
-            String::from(key.dimension.name().as_str()),
+            ResultLabel::dimension(key.dimension.name()),
             PlanColumn::new(remote_table.clone(), key.dimension.column().clone()),
         ));
     }
@@ -276,9 +276,9 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
     // name too, and over a 63-character metric name it also crossed the identifier limit a data
     // system truncates silently.
-    let leaf_labels: Vec<String> = labels(&federation).into_iter().map(InternalLabel::label).collect();
+    let leaf_labels: Vec<InternalLabel> = labels(&federation);
     let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
-    for (leaf, label) in federation.carried().iter().zip(leaf_labels.iter()) {
+    for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
         let plan_term = match **leaf {
             Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
                 aggregate: pushed.push(),
@@ -295,7 +295,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
                 });
             }
         };
-        terms.push(LegTerm::new(plan_term, label.clone()));
+        terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
     }
 
     // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg.
@@ -363,7 +363,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         .keys
         .iter()
         .map(|key| {
-            let label = String::from(key.dimension.name().as_str());
+            let label = ResultLabel::dimension(key.dimension.name());
             if is_remote(key, model.source()) {
                 sutura_domain::plan::AnswerKey::lookup(label)
             } else {
@@ -374,7 +374,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
 
     FederatedPlan::new(
         metric.name().clone(),
-        String::from(metric.name().as_str()),
+        ResultLabel::measure(metric.name()),
         bucket,
         fact,
         lookup,

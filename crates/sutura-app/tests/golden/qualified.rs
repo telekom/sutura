@@ -38,12 +38,12 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::{
-    Aggregate, ColumnName, DatasetName, Grain, JoinType, MetricName, ProjectName, Qualification, QualifiedTable,
-    RelationshipName, SourceName, TableName, TableQualifier,
+    Aggregate, ColumnName, DatasetName, DimensionName, Grain, JoinType, MetricName, ProjectName, Qualification,
+    QualifiedTable, RelationshipName, SourceName, TableName, TableQualifier,
 };
 use sutura_domain::plan::{
     AmbiguousTables, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, StatementTables,
+    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::generate::GenerateError;
@@ -148,7 +148,10 @@ fn plan_over(path: QualifiedTable, joined: Option<QualifiedTable>) -> QueryPlan 
             column(FACT, "customer_id"),
             column(DIMENSION, "id"),
         ));
-        keys.push(PlanKey::new(String::from("region"), column(DIMENSION, "region_code")));
+        keys.push(PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a fixture dimension is one")),
+            column(DIMENSION, "region_code"),
+        ));
     }
     QueryPlan::new(
         source(),
@@ -164,7 +167,7 @@ fn plan_over(path: QualifiedTable, joined: Option<QualifiedTable>) -> QueryPlan 
                 column: column(FACT, "amount_cents"),
             },
         },
-        String::from("revenue"),
+        ResultLabel::measure(&MetricName::parse("revenue").expect("a fixture metric is a metric")),
         filters,
         params,
         june(),

@@ -23,10 +23,10 @@ use datafusion::arrow::array::{ArrayRef, Date32Array, Int64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-    StatementTables,
+    ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::{ParamValue, Warehouse as _};
 
@@ -87,14 +87,17 @@ fn question() -> QueryPlan {
         MetricName::parse("revenue").expect("a test metric is a metric"),
         StatementTables::only(orders()),
         PlanBucket::new(String::from("period"), Grain::Month, on("order_date")),
-        vec![PlanKey::new(String::from("region"), on("region"))],
+        vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
+            on("region"),
+        )],
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {
                 aggregate: Aggregate::Sum,
                 column: on("amount_cents"),
             },
         },
-        String::from("revenue"),
+        ResultLabel::measure(&MetricName::parse("revenue").expect("a test metric is a metric")),
         vec![
             PlanFilter::new(
                 PredicateOrigin::Definition,

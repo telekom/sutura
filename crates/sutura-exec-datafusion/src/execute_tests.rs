@@ -14,10 +14,10 @@ use datafusion::prelude::col;
 use std::sync::Arc;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::measure::ZeroDenominator;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-    StatementTables,
+    ResultLabel, StatementTables,
 };
 // `Warehouse as _`: the trait is imported for `dry_run` and `execute`, and never named.
 use sutura_domain::warehouse::{ParamValue, Real, Value, Warehouse as _};
@@ -69,7 +69,7 @@ fn plan(measure: PlanMeasure, label: &str, keys: Vec<PlanKey>) -> QueryPlan {
         PlanBucket::new(String::from("period"), Grain::Month, on("order_date")),
         keys,
         measure,
-        String::from(label),
+        ResultLabel::measure(&MetricName::parse(label).expect("a test measure label is a metric name")),
         vec![
             PlanFilter::new(
                 PredicateOrigin::Definition,
@@ -128,7 +128,10 @@ fn date_column() -> ArrayRef {
 }
 
 fn region_key() -> Vec<PlanKey> {
-    vec![PlanKey::new(String::from("region"), on("region"))]
+    vec![PlanKey::new(
+        ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
+        on("region"),
+    )]
 }
 
 #[test]

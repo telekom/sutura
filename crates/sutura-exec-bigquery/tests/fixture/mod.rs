@@ -17,7 +17,8 @@ use sutura_domain::model::{
 };
 use sutura_domain::plan::federated::InternalLabel;
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, StatementTables,
+    PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel,
+    StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 
@@ -128,7 +129,11 @@ pub(crate) fn absent_table() -> QualifiedTable {
 /// unbounded form, so every real plan carries them and the generator refuses one with no
 /// predicate.
 pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
-    labelled_plan(table, String::from("period"), String::from("total_amount"))
+    labelled_plan(
+        table,
+        String::from("period"),
+        ResultLabel::measure(&MetricName::parse("total_amount").expect("a metric name parses")),
+    )
 }
 
 /// The same plan, with its two projected labels taken from the internal federation namespace.
@@ -144,10 +149,14 @@ pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
 /// (`EXECUTES_LEGS` is defaulted-`false`), and the alias is rendered by the same `aliased` either
 /// way - so this asks the service the alias question without pretending to execute federation.
 pub(crate) fn plan_in_the_internal_namespace(table: &QualifiedTable) -> QueryPlan {
-    labelled_plan(table, InternalLabel::Link.label(), InternalLabel::Leaf(0).label())
+    labelled_plan(
+        table,
+        InternalLabel::Link.label(),
+        ResultLabel::internal(InternalLabel::Leaf(0)),
+    )
 }
 
-fn labelled_plan(table: &QualifiedTable, bucket_label: String, measure_label: String) -> QueryPlan {
+fn labelled_plan(table: &QualifiedTable, bucket_label: String, measure_label: ResultLabel) -> QueryPlan {
     // Every column is qualified by the table's BARE name, because `FROM a.b.c` gives the reference
     // an implicit alias of `c`. That is a claim about GoogleSQL that no local test can check, and
     // `the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers` is what checks it.

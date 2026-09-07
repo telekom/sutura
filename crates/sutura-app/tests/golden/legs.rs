@@ -30,10 +30,12 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName,
+};
 use sutura_domain::plan::{
     InternalLabel, LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm,
-    PredicateOrigin, StatementTables,
+    PredicateOrigin, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
@@ -65,7 +67,10 @@ fn column(table_name: &str, column_name: &str) -> PlanColumn {
 }
 
 fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
-    PlanKey::new(String::from(label), column(table_name, column_name))
+    PlanKey::new(
+        ResultLabel::dimension(&DimensionName::parse(label).expect("a fixture dimension is a dimension")),
+        column(table_name, column_name),
+    )
 }
 
 /// The key the two legs are joined on, under the label the splitter gives it.
@@ -87,7 +92,7 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// restricts a column NAME to a letter or an underscore first. `label.rs` carries the table of what
 /// each venue establishes, and which two targets are still parser-only.
 fn link_key(table_name: &str) -> PlanKey {
-    PlanKey::new(InternalLabel::Link.label(), column(table_name, "customer_key"))
+    PlanKey::new(ResultLabel::internal(InternalLabel::Link), column(table_name, "customer_key"))
 }
 
 fn june() -> TimeRange {
@@ -157,7 +162,7 @@ fn term(aggregate: Aggregate, column_name: &str, position: usize) -> LegTerm {
             aggregate,
             column: column(FACT_TABLE, column_name),
         },
-        InternalLabel::Leaf(position).label(),
+        ResultLabel::internal(InternalLabel::Leaf(position)),
     )
 }
 

@@ -53,8 +53,8 @@ use std::collections::BTreeMap;
 
 use crate::federation::Federation;
 use crate::model::{Aggregate, MetricName, SourceName};
-use crate::plan::PlanBucket;
 use crate::plan::leg::LegPlan;
+use crate::plan::{PlanBucket, ResultLabel};
 use crate::warehouse::{RowSet, Value};
 
 pub use label::{InternalLabel, labels};
@@ -78,7 +78,7 @@ use reaggregate::{Leaves, reaggregates};
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct FederatedPlan {
     metric: MetricName,
-    measure_label: String,
+    measure_label: ResultLabel,
     bucket: PlanBucket,
     /// The metric's own share of the question: the same-source rows and leaves.
     fact: LegPlan,
@@ -113,13 +113,13 @@ pub enum LegSide {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct AnswerKey {
     side: LegSide,
-    label: String,
+    label: ResultLabel,
 }
 
 impl AnswerKey {
     /// A key read from the fact leg's result, under `label`.
     #[inline]
-    pub const fn fact(label: String) -> Self {
+    pub const fn fact(label: ResultLabel) -> Self {
         Self {
             side: LegSide::Fact,
             label,
@@ -128,7 +128,7 @@ impl AnswerKey {
 
     /// A key read from the lookup leg's result, under `label`.
     #[inline]
-    pub const fn lookup(label: String) -> Self {
+    pub const fn lookup(label: ResultLabel) -> Self {
         Self {
             side: LegSide::Lookup,
             label,
@@ -141,10 +141,10 @@ impl AnswerKey {
         self.side
     }
 
-    /// The label this key carries in its leg's result.
+    /// The text this key carries in its leg's result.
     #[inline]
     pub fn label(&self) -> &str {
-        &self.label
+        self.label.as_str()
     }
 }
 
@@ -166,7 +166,7 @@ impl FederatedPlan {
     // instantiations it exists to forbid.
     pub fn new(
         metric: MetricName,
-        measure_label: String,
+        measure_label: ResultLabel,
         bucket: PlanBucket,
         fact: LegPlan,
         lookup: LegPlan,
@@ -193,11 +193,11 @@ impl FederatedPlan {
         }
         for key in &keys {
             match key.side() {
-                LegSide::Fact => leg_has_key(&fact, &key.label).map_err(|label| FederatedPlanError::KeyNotOnLeg {
+                LegSide::Fact => leg_has_key(&fact, key.label()).map_err(|label| FederatedPlanError::KeyNotOnLeg {
                     side: LegSide::Fact,
                     label: String::from(label),
                 })?,
-                LegSide::Lookup => leg_has_key(&lookup, &key.label).map_err(|label| FederatedPlanError::KeyNotOnLeg {
+                LegSide::Lookup => leg_has_key(&lookup, key.label()).map_err(|label| FederatedPlanError::KeyNotOnLeg {
                     side: LegSide::Lookup,
                     label: String::from(label),
                 })?,
@@ -550,7 +550,7 @@ impl FederatedPlan {
         let mut budget = ByteBudget::new(byte_budget);
         let column_bytes: u64 = self.keys.iter().map(|key| key.label().len() as u64).sum::<u64>()
             + self.bucket.label().len() as u64
-            + self.measure_label.len() as u64;
+            + self.measure_label.as_str().len() as u64;
         budget.add(column_bytes, byte_budget)?;
 
         let groups = self.group_facts(&facts, &lookup_by_link, &indexes, &mut budget, byte_budget)?;
@@ -569,7 +569,7 @@ impl FederatedPlan {
 
         let mut columns: Vec<String> = self.keys.iter().map(|key| String::from(key.label())).collect();
         columns.push(String::from(self.bucket.label()));
-        columns.push(self.measure_label.clone());
+        columns.push(String::from(self.measure_label.as_str()));
 
         // The mono path's ordered-result contract, applied above the legs: ascending by each key
         // cell **typed**, nulls last, in key order. Not by rendered text, so an integer key `10`
