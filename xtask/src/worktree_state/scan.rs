@@ -528,9 +528,29 @@ fn truncated(value: &str) -> String {
 /// formatter - and bounded, because an unbalanced delimiter must not turn a statement read into a
 /// whole-file one.
 fn statement_at_line(code: &str, line: usize) -> String {
+    let lines: Vec<&str> = code.lines().collect();
+    let here = line.saturating_sub(1);
+    // BACKWARDS FIRST, and this is the half the first version was missing: the formatter routinely
+    // breaks a call so that the OPENING - `std::fs::write(` - is above the argument. Reading only
+    // forwards from the literal's own line answered `Unwritten` over a statement that writes, which
+    // is a false negative in the direction that matters. The walk stops at the previous line that
+    // ENDS something (`;`, `{` or `}`), so the window is the statement rather than a fixed number
+    // of lines either way.
+    let mut first = here;
+    while first > 0 {
+        let above = lines.get(first.saturating_sub(1)).copied().unwrap_or_default().trim_end();
+        if above.ends_with(';') || above.ends_with('{') || above.ends_with('}') || above.is_empty() {
+            break;
+        }
+        if here.saturating_sub(first) >= STATEMENT_LINES {
+            break;
+        }
+        first = first.saturating_sub(1);
+    }
+
     let mut depth = 0_i32;
     let mut out: Vec<&str> = Vec::new();
-    for text in code.lines().skip(line.saturating_sub(1)).take(STATEMENT_LINES) {
+    for text in lines.iter().skip(first).take(STATEMENT_LINES) {
         out.push(text);
         let mut ends_here = false;
         for character in text.chars() {
@@ -541,7 +561,7 @@ fn statement_at_line(code: &str, line: usize) -> String {
                 _ => {}
             }
         }
-        if ends_here {
+        if ends_here && out.len() > here.saturating_sub(first) {
             break;
         }
     }
@@ -759,6 +779,34 @@ fn go() {
 }
 "#;
         assert_eq!(only(Language::Rust, read), Keyed::Unwritten);
+    }
+
+    #[test]
+    fn a_mutation_ABOVE_the_literal_is_still_a_mutation() {
+        // THE FALSE NEGATIVE THE STATEMENT WINDOW EXISTS FOR. The formatter breaks a call so the
+        // opening sits above its argument, and reading forwards from the literal's own line answered
+        // `Unwritten` over a statement that writes - the wrong direction for this gate. Both
+        // spellings here, so a window that only looked one way fails one of them.
+        let opening_above = r#"
+fn go() {
+    std::fs::write(
+        "/tmp/sutura-shared/rows.csv",
+        ROWS,
+    )
+    .unwrap();
+}
+"#;
+        assert_eq!(only(Language::Rust, opening_above), Keyed::Shared);
+
+        let mutation_below = r#"
+fn go() {
+    let path = "/tmp/sutura-shared/rows.csv";
+    std::fs::write(path, ROWS).unwrap();
+}
+"#;
+        // The mutation is a SEPARATE statement here, so it is outside the window - which is the
+        // limit `Keyed::Unwritten` states about itself rather than a surprise.
+        assert_eq!(only(Language::Rust, mutation_below), Keyed::Unwritten);
     }
 
     #[test]
