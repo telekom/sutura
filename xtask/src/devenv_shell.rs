@@ -818,47 +818,6 @@ in
     }
 
     #[test]
-    fn an_import_this_gate_cannot_read_is_a_refusal() {
-        let followed =
-            crate::devenv_shell::modules::imports("devenv.nix", &scan::assignments("{ imports = [ ./nix/dev-scripts.nix ]; }"))
-                .expect("a path");
-        assert_eq!(followed, vec![String::from("nix/dev-scripts.nix")]);
-        let nested =
-            crate::devenv_shell::modules::imports("nix/a.nix", &scan::assignments("{ imports = [ ./b.nix ]; }")).expect("a path");
-        assert_eq!(nested, vec![String::from("nix/b.nix")]);
-        let refused =
-            crate::devenv_shell::modules::imports("devenv.nix", &scan::assignments("{ imports = [ inputs.x.modules.y ]; }"))
-                .expect_err("an unreadable import refuses");
-        assert!(refused.contains("cannot read"), "{refused}");
-    }
-
-    #[test]
-    fn a_yaml_import_this_gate_cannot_read_is_a_refusal() {
-        // MUTATION OF THE MODULE-SET READER. devenv 2.2.2 loads `devenv.yaml`'s `imports:` beside
-        // the Nix attribute, and reading only the Nix one left a bare body in such a module at
-        // `20 of 20 ... in 1 module(s)`, exit 0 - the module count the only tell, compared to
-        // nothing.
-        let root = crate::repo::root().expect("the repo root");
-        let refusal =
-            crate::devenv_shell::modules::resolved("nixpkgs-python", &root, 3).expect_err("an input name is not a module");
-        assert!(refusal.contains("not a relative path"), "{refusal}");
-        let missing =
-            crate::devenv_shell::modules::resolved("./nowhere", &root, 3).expect_err("a directory with no devenv.nix refuses");
-        assert!(missing.contains("nowhere/devenv.nix"), "{missing}");
-        // A relative `.nix` path resolves without touching the filesystem.
-        assert_eq!(
-            crate::devenv_shell::modules::resolved("./nix/x.nix", &root, 3).expect("a path"),
-            "nix/x.nix"
-        );
-        // And the real file declares no imports, so the queue it contributes is empty.
-        assert!(
-            crate::devenv_shell::modules::yaml_imports(&root)
-                .expect("devenv.yaml reads")
-                .is_empty()
-        );
-    }
-
-    #[test]
     fn a_body_in_an_imported_module_is_held_the_same_way() {
         let read = vec![
             Module {

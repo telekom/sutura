@@ -78,3 +78,31 @@ pub(super) const SURFACES: &[Surface] = &[
         reached_by: "devenv-linter",
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::SURFACES;
+
+    // A `#[test]` OF ITS OWN, for `xtask/src/falsifier.rs`'s reason: a moved file that adds none is
+    // revertible, the parent declaring `mod surfaces;` is held at HEAD for ITS tests, and `E0583`
+    // then turns a real causal verdict into `INCONCLUSIVE`.
+
+    #[test]
+    fn the_table_can_answer_the_questions_its_readers_ask_of_it() {
+        // Three properties every reader in `super` assumes and none of them checks, because each
+        // is about the TABLE rather than about a run. A duplicate label makes two rows of the
+        // coverage report indistinguishable; a row with no path is matched by `touched` never, so
+        // it is a claim over nothing; and a row with no `reached_by` leaves `--surface-tasks` with
+        // nothing to print for the empty-hook case, which is the whole point of an empty hook set.
+        assert!(!SURFACES.is_empty(), "an empty table makes every reader vacuous");
+        let mut labels: Vec<&str> = SURFACES.iter().map(|surface| surface.label).collect();
+        let count = labels.len();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(labels.len(), count, "two rows share a label: {labels:?}");
+        for surface in SURFACES {
+            assert!(!surface.paths.is_empty(), "`{}` matches nothing", surface.label);
+            assert!(!surface.reached_by.is_empty(), "`{}` names no task", surface.label);
+        }
+    }
+}

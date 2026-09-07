@@ -170,3 +170,49 @@ pub(super) fn imports(rel: &str, assignments: &[Assignment]) -> Result<Vec<Strin
     }
     Ok(found)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{imports, resolved, yaml_imports};
+
+    // THE HARNESS MOVED, THE ASSERTIONS DID NOT. `xtask/src/falsifier.rs`'s header records why a
+    // moved file needs a `#[test]` of its own: a file adding none is revertible, the parent that
+    // declares `mod modules;` is held at HEAD for ITS tests, and `E0583` then turns a real causal
+    // verdict into `INCONCLUSIVE`. These two were in `super`'s test module before the 1000-line
+    // cap forced this split.
+
+    #[test]
+    fn an_import_this_gate_cannot_read_is_a_refusal() {
+        let followed = imports(
+            "devenv.nix",
+            &super::super::scan::assignments("{ imports = [ ./nix/dev-scripts.nix ]; }"),
+        )
+        .expect("a path");
+        assert_eq!(followed, vec![String::from("nix/dev-scripts.nix")]);
+        let nested = imports("nix/a.nix", &super::super::scan::assignments("{ imports = [ ./b.nix ]; }")).expect("a path");
+        assert_eq!(nested, vec![String::from("nix/b.nix")]);
+        let refused = imports(
+            "devenv.nix",
+            &super::super::scan::assignments("{ imports = [ inputs.x.modules.y ]; }"),
+        )
+        .expect_err("an unreadable import refuses");
+        assert!(refused.contains("cannot read"), "{refused}");
+    }
+
+    #[test]
+    fn a_yaml_import_this_gate_cannot_read_is_a_refusal() {
+        // MUTATION OF THE MODULE-SET READER. devenv 2.2.2 loads `devenv.yaml`'s `imports:` beside
+        // the Nix attribute, and reading only the Nix one left a bare body in such a module at
+        // `20 of 20 ... in 1 module(s)`, exit 0 - the module count the only tell, compared to
+        // nothing.
+        let root = crate::repo::root().expect("the repo root");
+        let refusal = resolved("nixpkgs-python", &root, 3).expect_err("an input name is not a module");
+        assert!(refusal.contains("not a relative path"), "{refusal}");
+        let missing = resolved("./nowhere", &root, 3).expect_err("a directory with no devenv.nix refuses");
+        assert!(missing.contains("nowhere/devenv.nix"), "{missing}");
+        // A relative `.nix` path resolves without touching the filesystem.
+        assert_eq!(resolved("./nix/x.nix", &root, 3).expect("a path"), "nix/x.nix");
+        // And the real file declares no imports, so the queue it contributes is empty.
+        assert!(yaml_imports(&root).expect("devenv.yaml reads").is_empty());
+    }
+}
