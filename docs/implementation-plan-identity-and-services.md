@@ -952,7 +952,7 @@ economise.
    | --- | --- |
    | `check-boundaries` | the domain crate's manifest and the Rust under `crates/` |
    | `check-pins` | `flake.nix` and `pixi.toml` |
-   | `check-warm-start` | `nix/cargo-env.nix`, `flake.nix`, `xtask/src/causality.rs` |
+   | `check-warm-start` | `xtask/src/causality.rs`, `nix/purge-baked-out-dirs.sh`, every `.nix` file |
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
    | `check-shared-client` | `Cargo.lock` |
@@ -971,6 +971,7 @@ economise.
    | `check-scope` | the `justfile`, which no other gate reads |
    | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
+   | `check-devenv-shell` | `devenv.nix` and every module its `imports` reach - which attributes assign a shell body, and whether the value goes through the wrapper ShellCheck reads |
    | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares |
 
    **Reads prose.** Each of these reads at least one file such a diff CAN change, so skipping one

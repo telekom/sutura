@@ -40,8 +40,34 @@ resolves nowhere and a THIRD-PARTY crate fails to compile in a check that change
 `inheritedArtifacts` pairs every `cargoArtifacts` with `nix/purge-baked-out-dirs.sh`, which
 regenerates exactly the output naming a directory it no longer sits in: one crate of 138 measured,
 so the reuse the checks exist on survives. **What it does not reach:** a generated file naming some
-OTHER absolute directory, or a path written into a compiled artifact rather than into the bytes of
-the output directory. Both fail the same loud way.
+OTHER absolute directory, a path written into a compiled artifact rather than into the bytes of the
+output directory, and - narrower than that paragraph used to admit - a path in `$unitDir/output`,
+cargo's record of the `cargo::` directives the script PRINTED, which is a sibling of `out/` and not
+inside it, so the search never reads it. All three fail the same loud way. Widening to `output` was
+refused rather than costed: a build script that publishes its own output directory as a link path
+names it there as a matter of course, so purging on that record reaches every such crate, and how
+many of the 138 that is has not been counted. The limit is ASSERTED rather than merely stated - the
+sweep's own test builds four synthetic unit directories, one per branch of its decision, and checks
+`try_exists` on the unit AND its fingerprint; the `output`-only unit is the one it proves SURVIVES.
+
+**And that pairing was a SHAPE rather than a mechanism for as long as nobody asked.** One attrset
+makes it hard to separate by accident and holds nothing against `//`, which updates one level deep:
+a consumer binding `preBuild` after the pairing keeps the artifacts and loses the sweep, silently.
+`check-warm-start` holds it now, and the unit it counts is the transferable part - a **taking**, one
+binding of crane's own `cargoArtifacts`, not a line, a file or an occurrence of the word `purge`.
+Measured on the tree that added it: 13 occurrences of that identifier across the `.nix` files and
+**2 takings**, and two takings written on ONE line still count as two. Each is attributed to what
+receives it (the constructor, or an `import`ed module that inlines the sweep itself), an
+unattributed one is a refusal - `inherit cargoArtifacts;` included, which has no `=` for a binding
+scan to find - and `preBuild` may be bound nowhere else **inside the artifact flow**, a scope
+derived as the files naming either identifier rather than the whole tree, because an unrelated
+module's legitimate `preBuild` is not this rule's business. **The warm start was the
+route that never called the constructor at all**, and its own fix is by construction rather than by
+gate: the sweep lives in `cargoWarmStart` after the export it resolves, so all five consumers get
+it from one owner instead of three of them inheriting a purge from whichever ran first. **An
+ordering is not a mechanism** - and neither is a position, so the gate reads the ORDER (the sweep
+below the export) and the NAMES (the variable the sweep resolves against the variable the warmer
+exports) rather than trusting either.
 
 **`flake.nix` cannot be fully modularised.** `apps.<name>`, the `packages = ` block and the
 `checks = {` block must stay in it, because two xtask gates scan that file for them **textually**
@@ -208,6 +234,35 @@ therefore does not see.
   job. `check-docs` holds that one now, with a fail-closed count of the links it read, so the rule
   here is the general one: a new mkdocs behaviour is unproven until you have read the log AND the
   exit status, because half of what it notices it notices at a level `--strict` ignores.
+- **A gate that names ONE input reports over the set that input used to be, and a line cap is what
+  splits it.** `check-workflows` refused a literal release build by reading
+  `.github/workflows/ci.yml` by name; the unexemptable cap then moved a job into `cross-link.yml`,
+  and the refusal covered one file of the six ordinary CI runs. The SAME blind spot ran through the
+  other half of that gate: it classified the jobs of workflows whose own `on:` block gates a merge,
+  and a called workflow's `on:` is `workflow_call`, so four legs were classified by nothing while
+  the verdict read *every gating job classified*. **The fix is a walk, not a second name** -
+  `xtask/src/workflows/reach.rs` follows the local `uses:` graph and fails closed on a call it
+  cannot open. Two things it deliberately does not reach, both stated at the code: a step that moved
+  into `nix/*.sh` (a shared script is reached by a `just` task and by the release path too, so
+  *ordinary CI* is not its venue), and a `uses:` behind a YAML anchor.
+  **And removing a name from one side leaves it on the other:** the same commit derived the CALL
+  side and still rooted the walk at `ci.yml`, so `docs.yml` and `security-audit.yml` - both
+  `pull_request`-triggered, neither called by anything - stayed outside it. Caught in review, by
+  planting the release build one file over. **A verdict that names no set cannot be told from one
+  over a smaller set**, which is why that green line now prints the files it walked.
+- **Two readers over one text - and the classes they must NOT share are the whole design.** The
+  floor against a key reader going blind is a second, position-blind predicate over the same lines:
+  it is what catches a key matched at the head of a trimmed line missing `- uses:` in a sequence or
+  a `{ uses: ... }` flow mapping. But run both over the same EXAMINED lines and the block-scalar
+  boundary becomes a shape one mistake blinds both to - a `uses:` inside a `run: |` body must be a
+  floor for neither, or a correct workflow is refused. So that one class needs fixtures, and here is
+  the part that was learned the expensive way: **it needs one per DIRECTION.** The boundary had a
+  fixture for the correctly-bounded side only, while the scalar was recorded at the *dash's* column
+  rather than the *key's* - so `- if: >` followed by a sibling `uses:` lost its edge silently, at
+  exit 0, with the workflow linters green over it because the YAML is valid and GitHub runs the
+  step. A fixture over one direction of a two-directional boundary is not the assertion its header
+  claims for it. **A second reader is a floor only where the two can disagree**, and saying which
+  class is which is the transferable part.
 - **The file a gate reads is not always the file that ships, and that defeated the rule the gate
   was added for.** `docs/contributing.md` and `docs/changelog.md` are `pymdownx.snippets` stubs -
   their published body is `CONTRIBUTING.md` / `CHANGELOG.md` at the repo root - so `check-docs`
@@ -369,6 +424,34 @@ therefore does not see.
   predicate answers at, and whether it is the granularity the claim is made at** - and expect the
   verdict to hide the difference, because this one stated the SCAN's size (`one of 223 test
   file(s)`) where the evidence was 16 files for one variant and exactly 1 for the other.
+- **"Does a run here reach this line" has THREE parts a per-line rule gets wrong separately**, all
+  three measured in `check-examples` at exit 0 after the first two levels were already built
+  (`telekom/sutura#400`). (1) The region must come from the attribute **BLOCK**, not from the
+  declaring attribute: `#[ignore]` is legal above `#[test]`, so a region anchored at `#[test]` left
+  the `#[ignore = ".."]` line one line above itself and a path named in the ignore's own REASON
+  STRING counted as a reach from a running test - rustfmt-stable, so nothing else moved it.
+  (2) "A run here" has a **scope**, and it is `[workspace] members`: vendored source that
+  `[workspace] exclude` keeps out of every venue still carries `#[test]`s, and a variant whose only
+  reach was `vendor/mimalloc_rust/src/lib.rs:73` passed. (3) A run-deciding attribute the scan
+  cannot evaluate - any `#[cfg(..)]` but the exact `#[cfg(test)]`, any `#[cfg_attr(..)]` - read as
+  running. **And the obvious remedy for (3) is wrong:** routing it to the gate's existing
+  fail-closed *unresolvable* arm turns the gate RED on the healthy tree, because eight cells in this
+  workspace are legitimately written under `#[cfg(feature = "bigquery")]` or its negation. Fail
+  closed for the **claim** instead - the cell is not evidence, and a variant whose only reach sits
+  in one fails on the variant - and the same attribute over a `mod` CONTAINING the cell is still
+  invisible. Transferable: when a rule is fail-closed, ask whether it fails closed on the *file* or
+  on the *claim*, because only the second one survives contact with a legitimate tree.
+- **Two counting guards, and each has an escape the other cannot see - measured as a pair.**
+  `check-examples` now compares (a) every path git publishes against the verdict each one got and
+  (b) the corpus's own length against its scan loop's counter. Both were needed: a silent
+  `continue` over 8 of 1170 paths gave `gave a verdict to 1162 of the 1170` with (a) on and
+  **exit 0 with the sentence still claiming all 1170** with (a) off; a `.take(60)` on the evidence
+  loop over 250 corpus files gave `looked at 60 of the 250` with (b) on and **exit 0** with (b)
+  off, and no other arm saw it because both variants' evidence sat inside the first 60. The third
+  instrument is the one a pair of counts cannot replace: a **set of names**, the manifest's member
+  list against the members the scan reached, which is what catches a SCOPE predicate that stopped
+  matching - `is_rust` narrowed to `lib.rs` leaves both counts equal and names two barren members.
+  See `telekom/sutura#414` for the class.
 - **`nix eval` is the authority for a flake's outputs and cannot be the mechanism here.** Weighed
   and rejected once, so it does not need weighing again: `check-workflows` runs inside
   `checks.hygiene`, a derivation with no nix and no network, and evaluating `checks` needs the
@@ -402,6 +485,111 @@ therefore does not see.
   permitted a verdict over zero steps. What the widening cannot reach is a read laundered into a
   helper that inherits the variable from the step `env:`, which at least moves the code somewhere
   `just lint-workflows` looks.
+- **A PREDICATE'S `false` BRANCH IS A BUCKET, and this one dropped its input on the floor.** The
+  same gate's literal rule asked *is this a literal set* and skipped everything that said no - so a
+  value it could not compare was neither compared nor reported, and the only thing that could move
+  was the printed count. **Four shapes, each mutated one at a time into a clean tree and measured
+  against the gate as it stood** (2026-09-06, #329), and the interesting part is that the count
+  said something different about each: a null `default:` under an action's `binaries:` input and a
+  literal replaced by `${{ env.SHIPPED }}` each printed **`ok - 3 literal(s)` at exit 0** where 4
+  is right; a `with:` passing the key with nothing under it printed **`ok - 4` at exit 0**, the
+  declaration invisible rather than subtracted, so even the count did not move; and a null
+  `BINARIES:` in a workflow `env` was **red at exit 1 - from the sibling LOOP rule**, while the
+  literal rule went on dropping it in silence behind that verdict. **So a moving count is the
+  LOUDEST of the four failure modes, not the quiet one.** The expression shape is the one no
+  empty-set rule could ever have caught, being empty nowhere. The answer is a classification
+  rather than a predicate: a set (compared, and **ZERO NAMES IS A SET**, so a null disagrees with
+  `nix/shipped.nix` through the comparison that was already there), a reference naming this same
+  set (named in the verdict), or a refusal. **Two transferable halves.** *For every predicate a
+  scan filters on, ask what happens to the inputs it rejects* - if the answer is nothing, then a
+  count is the only witness there is, and a shape that was never counted does not even move that.
+  And **a refusing arm has to be preceded by a lexer**: the refusal fails the gate, and
+  `BINARIES: "sutura sutura-serve"` and a trailing `# comment` are legal YAML for this set, so a
+  quote and a comment come off before the classification - or the gate reddens a correct tree and
+  gets disabled. **The rows are still not a floor**, so the verdict names TWO numbers from two
+  places - the files the finder found and the files the walk read - and the second is a LIST of
+  names, because a count can be satisfied by assigning the first one to it.
+- **THAT PAIR THEN FAILED TWICE, AND BOTH ARE THE SAME MISTAKE: A WITNESS WRITTEN BEFORE THE WORK
+  IT ATTESTS TO.** Found by mutating the fix, not the original. (1) The name was pushed to the
+  *inspected* list BEFORE and independently of the parse, so a `continue` between the two - one
+  line, `if name.contains("/actions/") { continue; }` - left BOTH composite actions unread while
+  the verdict still read `ok - 2 literal(s) across 12 file(s)`, exit 0, whole suite green. The list
+  was complete because it was populated unconditionally: it witnessed that a file had been OFFERED
+  to the walk, never that anything was read out of it. The name went in *after* the parse returned
+  - **which bought that mutation and not its class**; see the next entry for what it cost. (2) Its only floor over the result was `literals >= 2` on a tree that has 4, so losing half
+  sat INSIDE the assertion - *at least one row defends nothing about WHICH row* for the third time
+  in this file, in a gate whose own sibling doc states that rule. The test pins the exact
+  `file:line` of every literal and every reference now. **The transferable pair of questions: does
+  the witness get written before or after the work, and what does the floor let you lose without
+  moving?**
+- **AND THE CONSUMER OF A CLASSIFICATION IS A SECOND PLACE THE SAME DEFECT LIVES.** All seven tests
+  the fix added asserted on the classifier; nothing asserted on the function that turns a
+  classification into a mismatch, a row and an exit code. Measured: one match arm,
+  `Carried::Set(names) if names.is_empty() => {}`, restored the pre-fix silent green **byte for
+  byte** - `ok - 3 literal(s)`, exit 0 - with all 878 tests passing. A mutation table is only worth
+  the layer it was applied at: *an empty set is skipped again* was red at the classifier and
+  invisible three lines further on, where the exit code is actually decided. **Ask which function
+  the exit code comes out of, and test THAT one.**
+- **The same review's three cheaper findings, kept because each is a shape rather than an
+  instance.** A file the FINDER drops never reaches the walk, so `inspected == files.keys()` holds
+  trivially over it: a non-UTF-8 action gave `ok - 3 literal(s) across 11 file(s)`, exit 0, and the
+  sibling loop rule's `8 step(s)` quietly became `7` - the unreadable-input shape this file already
+  records twice, now fail-closed at the read, with *absent* and *unreadable* told apart because an
+  action legitimately has only one of `action.yml` / `action.yaml`. **A reference still lets the
+  count drop** (`${{ steps.x.outputs.binaries }}` for a literal is `ok - 3`, exit 0) and no gate
+  can resolve one, so that is held by a test pinning every row rather than by a rule that would
+  redden a correct tree. And ONE YAML null was read THREE ways - `""` as the empty set, `null` as a
+  binary named *null*, `~` as a refusal - which is what a value-shaped `const` list is for.
+- **THE ORDERING FIX WAS THE WRONG KIND OF FIX, AND THE THIRD ROUND ON ONE PAIR IS THE LESSON.**
+  *After the parse returns* is a statement ORDER, so the push is still an independent statement: a
+  skip that carries it walks through in two lines - `walk.inspected.push(name); continue;` -
+  measured back at `ok - 2 literal(s) across 12 file(s)`, exit 0. What buys the CLASS is a **data
+  dependency**: collect once with a `map` over the caller's whole list and derive both halves from
+  that collection, so a name cannot enter the witness without a `Vec<Spelled>` behind it and a
+  `filter` drops a file out of both sides. **A fix that closes a mutation without closing its class
+  is this repository's single most repeated defect** - `github.com/telekom/sutura#414` collects
+  four more instances - and *make the mutation impossible to write* is the only version of it that
+  survives a second review.
+- **AND THE MODEL EVERYONE REACHES FOR - `read` AGAINST `offered` - DOES NOT COVER A NARROWED
+  DISCOVERY.** `guidance::pages` counts both off the SAME `files` slice, so it holds a narrowed
+  LOOP and nothing else. Measured on the shipped-set gate with `chmod 000 .github/actions`:
+  `ok - 4 step(s)` from the sibling loop rule and `ok - 2 literal(s) across 8 file(s)` from this
+  one, exit 0 - **the denominator moved with the numerator**, so the verdict agreed with itself
+  over a tree it never looked at, and the two composite actions #111 was about left the scan in
+  silence. The cause was `if let Ok(entries) = read_dir(..)` plus `.flatten()` on the `ReadDir`:
+  two silent drops in the DOOR into the tree, one level below every count. **Ask which arm
+  DISCOVERS the subject, and read that one before believing any pair of numbers above it.** The
+  same shape is live in `repo.rs`' three shared walkers (`all_files`, `collect_files`,
+  `collect_text_files`, 25 production call sites), where `chmod 000 docs/adr` - the directory
+  holding the ADR this gate's own remedies cite - is still exit 0 and silent.
+- **A FLOOR COMPUTED INSIDE THE THING IT POLICES IS NOT A FLOOR.** The same gate grew a substring
+  sighting of its key, subtracted from the lines its parser accounted for, so a spelling the
+  parser does not recognise is a verdict rather than a silence - which is what reached
+  `- binaries: sutura-serve sutura extra`, a shipped set in the wrong order with a third name in
+  it that was neither compared, reported **nor counted**, and therefore out of reach of the row
+  floor too: the verdict was byte-identical to a clean tree's at exit 0. The first version
+  computed that subtraction INSIDE the parse function, and a mutation handing that function an
+  empty result took the floor away with it - back to `ok - 2 literal(s) across 12 file(s)`, exit
+  0. Moving the subtraction to the CALL SITE, off the same `text`, is what made it survive.
+  **A floor has to be reachable without the code it polices.** Its price is that the sighting must
+  be measured against the real tree first: a bare `contains` would have reddened seven prose
+  mentions of the word under `.github`, and a gate that reddens a correct tree gets disabled.
+- **A `bool` FIELD AND A `matches!` ARE WHERE A NEW STATE ARRIVES ALREADY EXEMPT.** Two arms of the
+  same fix, both held by the compiler rather than by a test: an open block's body became an
+  `enum { Nothing, Deeper }` so its closing decision is an exhaustive `match`, and the
+  classification gained a fourth class so an input declaring the set and no default is a refusal
+  instead of a `None` - the one place #329's symptom survived its own fix, and a *named row* was
+  measured saying WHICH while still letting the release path lose a comparison at exit 0. Proof, rather than an assertion: adding a fifth class gives
+  `error[E0004]: non-exhaustive patterns` in **both** consumers, and collapsing the fourth back
+  into the empty set gives `error: variant ... is never constructed` under `-D warnings`.
+  **A `_ =>` arm on an *is this comparable* decision is the same defect as the predicate that
+  preceded it.**
+- **A GATE THAT RETURNS ON ITS FIRST BROKEN RULE REPORTS HALF OF WHAT IT KNOWS.** Same gate, and it
+  is `max-lines`' finding a few bullets up arriving in a second place. With one file spelling the
+  shipped set empty and another drifted, only the loop rule printed - exit code right, the drift
+  invisible until the first was fixed, one round trip per rule. The rules are collected into a
+  `Vec` of an enum and all of them printed before any of them returns; the enum's `match` is
+  exhaustive, so a rule added later cannot arrive silent.
 - **A single unreadable input dropped in silence, twice more, and the floor did not save it.** Two
   new gates read every workflow with `.ok()` / `else continue` and failed closed only when EVERY
   file was unreadable - so one dropped file was a gating job classified by nothing, or a
@@ -570,6 +758,22 @@ When a file with tests hits the 1000-line cap, move the **harness** - fakes, fix
 anything with no `#[test]` - and keep every assertion where it is. Orphaning now reports itself -
 *the tests this diff added did not run on base* - rather than passing as green, because nextest
 fails a filter that matches nothing.
+
+**AND THAT SAME RULE DECIDES WHETHER THE RUN EXITS 0 OR 1, WHICH DECIDES WHETHER A PULL REQUEST CAN
+MERGE.** `plan` only reaches *NOT MECHANICALLY SEPARABLE* - `Verdict::Pass`, **exit 0**, measured -
+when NO changed test file is separable; one pure-test file in the diff is enough to make it
+*Separable*, revert the implementation, and try to measure. So a **new file whose only `#[test]`
+characterizes behaviour the diff does not change** is the worst thing to put in a diff: it cannot be
+red against base whatever happens, and it converts that pass into `FAILED - the tests this diff
+added did not run on base` at exit 1. CI turns exit 3 - `Verdict::Inconclusive`, a different arm -
+into a warning and returns exit 1 as red, so that shape blocks the merge queue over a test that was
+never measurable. Measured on the branch that added
+`check-warm-start`'s pairing reader, where the retry's own hint blamed orphaning and the real cause
+was different: the modules held at HEAD called a `pub(crate)` lexer the same diff added, so the base
+tree did not compile at all, and the retry then dropped those modules and orphaned the file it was
+trying to measure. **The fix is the rule above, read the right way round: the characterization
+`#[test]` belongs in a file that changes behaviour and adds tests together, and the new file keeps
+only the harness.**
 
 **AND THE SECOND HALF OF THAT RULE DECIDES WHICH FILE IS MEASURED: a comment-only change holds
 nothing back.** `has_non_test_additions` treats a blank line, a comment and an attribute as carrying
@@ -761,14 +965,33 @@ module this diff does not contain is its own refusal with its own remedy (state 
 extractor is not at fault). **The tell to look for: a printed sentence containing a fact, and no
 code that reads it.**
 
-**AND ITS INVERSE IS STILL UNREPORTED, which is the shape of the refusal's own limit.** That refusal
-reads a `.rs` diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only**
-diff turns on compiles the same whole module of tests into the build with **zero added `.rs` lines** -
-so the plan finds no changed test file, answers `no changed tests - nothing to prove`, and passes.
-Reproduced through `plan`. **Strictly asymmetric: a `.rs` diff ADDING that `mod` refuses; a manifest
-diff ENABLING it passes.** Nothing in the gate reads a manifest, so this is stated rather than held -
-#343 carries the shapes - and the general question it stands for is which *inputs a gate does not read
-at all* can change what the tree compiles.
+**ITS INVERSE PASSED IN SILENCE UNTIL #343, and the general question it stands for is which
+*inputs a gate does not read at all* can change what the tree compiles.** That refusal reads a `.rs`
+diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only** diff
+declares compiles the same whole module of tests with **zero added `.rs` lines** - so the plan found
+no changed test file, answered `no changed tests - nothing to prove`, and passed. Strictly
+asymmetric, and it is the same refusal now: `causality::features` reads the feature TABLE on each
+side of the base commit and subtracts, so the two causes are one verdict carrying a `Because`.
+
+**WHY DECLARING IS THE WHOLE PREDICATE, which is the non-obvious step and the one to check if this
+ever fires wrongly.** Both runs are `--all-features`, so a feature that EXISTS is on - which means
+the only way a `cfg(feature)` gate can flip from off to on is for the manifest to declare a name it
+did not declare before. A default set, a dependent's feature list and a workspace dependency's were
+all already on in both trees. That collapses the feature graph to a set difference, and it makes the
+predicate depend on a FLAG rather than on the code: a wiring assertion in `features`' own tests reads
+`--all-features` out of `causality::runner` for that reason.
+
+**Frequency measured before it was taken, over the last 80 first-parent commits on `main`**
+(squash-merged, so one commit is one branch - which holds for the 210 first-parent commits and not
+for the 318 an all-commits scan covers, so scanning all of them over-scans): 16 touched a member
+`Cargo.toml`, **2** declared a new feature name (`agreement` in `sutura-domain`, `bigquery` in
+`sutura-cli`), and **0** would have been refused - both added the gated module in the same diff,
+which is the shape that does not fire. Over the whole history there are **8** declarers and **0**
+would have been refused. Review replicated the predicate independently and reached the same two
+names and the same zero. What the scan still does not read, each in the silent direction: an
+implicit feature from `optional = true`, an INLINE gated `mod tests { .. }`,
+`#[cfg(all(feature = "x", ..))]`, and a test in a SUBMODULE of the enabled module. That module's
+header carries the table and the reason each one fails the way it does.
 
 **A GATE THAT SCANS A LANGUAGE MUST LEX IT, and this one read an attribute as ONE line.** A
 continuation line starts with neither `#[` nor anything else the search skipped, so the downward
@@ -826,11 +1049,42 @@ through while `ship-check` and `ci.yml` each resolved a merge base first, which 
 answer in the venue a person runs by hand. The gate resolves `git merge-base <ref> HEAD` itself now
 and PRINTS the commit beside the ref; `causality::provenance::Commit` is the type every consumer
 takes, so a moving tip does not typecheck. Idempotent for a commit already behind HEAD, so
-`just causality <a commit>` still scopes per commit. **What that does NOT fix, and it is the
-default:** on the second PR of a stack the merge base with `origin/main` is the fork point of the
-WHOLE stack, so the diff still carries the parent branch's implementation and the gate pairs this
-branch's tests with it. `SHIP_CHECK_BASE_REF` or a commit argument is the lever, and nothing asks
-whether a test's package could depend on what was reverted.
+`just causality <a commit>` still scopes per commit.
+
+**AND THE DEFAULT ON A STACK WAS THE FAILING DIRECTION, closed by #358.** On the second PR of a
+stack the merge base with `origin/main` is the fork point of the WHOLE stack, so the diff carried the
+branch below's implementation and the gate reported `FAILED - green against base behaviour` about two
+halves that do not read each other. `causality::stack` derives the base from the parent branch the
+branch tool records at `refs/branch-metadata/<branch>`, and the guard is the part worth knowing:
+metadata can be stale or retargeted by hand, so the parent's fork point is taken **only when its
+merge base with the named one EQUALS the named one** - which is exactly *the named base is an
+ancestor of it*, so the diff can only SHRINK and can never move off this branch's history. Every
+other answer (detached HEAD, untracked branch, unparseable blob, unrelated parent) falls back to the
+named ref, which is what CI gets and what CI needs. The printed line names the derived commit, the
+branch, and the commit it replaced, out of one value - so it cannot claim a narrowing that did not
+happen.
+
+**AND *CAN ONLY SHRINK* INCLUDES SHRINKING TO EMPTY, which is the limit that belongs next to that
+claim, because the true half is not the half a reader needs.** Off-history is genuinely unreachable -
+review tried a stale parent, a deleted one, a self-naming one, a three-deep chain, a parent merged
+into the trunk, malformed JSON and a missing key, and `forked` is always `merge-base(x, HEAD)` and
+therefore always an ancestor of HEAD. The reachable failure is the degenerate endpoint INSIDE
+history: **a recorded parent whose commit CONTAINS this branch forks at HEAD**, a base equal to HEAD
+makes the diff the uncommitted working tree alone, and the gate answers *no changed tests - nothing
+to prove* at **exit 0 over every file the branch changed**. Reproduced twice, and the trigger is this
+repository's own house style rather than a corner - merge-forward-never-rebase means a parent with
+your branch merged into it is an ordinary thing to have locally, as is metadata retargeted at the
+branch above. It is `causality::stack::Origin::Contains` now, refused AHEAD of the equality because
+the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of
+HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT that compares
+NAMES enumerates one spelling of one input** - the first version did exactly that, and it was
+untested glue, which is what let the enumeration stand.
+
+**What is STILL not asked, and a correct base does not rule it out:** whether the reverted
+implementation is something the measured test could even read. #293's pairing was wrong in that
+second way too - a `-cli` page test against an `xtask` change - and #358's second candidate shape
+(refuse a pairing across packages that do not depend on each other, from `cargo metadata`) is
+untaken, because it needs the frequency measurement over real branch diffs first.
 
 **A MOVED TEST USED TO READ AS AN ADDED ONE, which made the failing direction reachable from the
 refactor this file recommends.** Move a test into a new file and its subject is unchanged: green on
@@ -849,8 +1103,9 @@ makes a documentation-driven suite provable at all; it used to read as *tests ch
 implementation did*, a pass that proved nothing. **A build input is the exception and is named
 rather than reverted** (`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`): reverting a
 manifest changes what cargo RESOLVES, and a test file held at HEAD needing a dependency this branch
-added would stop compiling. So a manifest-only implementation change still gets no verdict - which
-is #343's territory, now stated in the output instead of nowhere.
+added would stop compiling. So a manifest-only implementation change still gets no red-before-green
+verdict - it is named as `not reverted:` on whichever arm the run lands on. What it no longer does is
+pass in silence over a module of tests it put into the build: see the feature-table paragraph above.
 
 **THE SHARED TARGET DIRECTORY WAS A HOLE, and the fix for it is worth reading for the trap rather
 than the hole.** Both runs share `CARGO_TARGET_DIR`; cargo sees ONE unit - same package names, same

@@ -27,13 +27,13 @@ cargo run -p sutura-cli -- \
 
 ```
 -- definitions local-working-tree 8042ba92eaddce5e96e055cc43a635a64161d54ec21bd4f3367e7a1f58f5b4c5
-period  recurring_revenue
-2026-01-01      237320
-2026-02-01      232822
-2026-03-01      216700
-2026-04-01      206160
-2026-05-01      202994
-2026-06-01      202121
+period	recurring_revenue
+2026-01-01	237320
+2026-02-01	232822
+2026-03-01	216700
+2026-04-01	206160
+2026-05-01	202994
+2026-06-01	202121
 ```
 
 Four things happened before that table appeared. The catalog was read and hashed, so the

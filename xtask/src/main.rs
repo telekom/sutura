@@ -24,8 +24,12 @@ mod conformance;
 mod crap;
 mod default_feature_tests;
 mod default_features;
+mod devenv_linter;
+mod devenv_shell;
 mod docs;
 mod examples;
+#[cfg(test)]
+mod falsifier;
 mod feature_remedies;
 mod fmt;
 mod gate_classification;
@@ -184,7 +188,7 @@ const TASKS: &[Task] = &[
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
         // rather than evaluated, one value that has to be the same in both.
         name: "check-warm-start",
-        description: "the warm start's directory, stamp and profile agree with what reads them",
+        description: "the warm start's directory, stamp, profile and sweep agree with what reads them",
         kind: Kind::Hygiene(Reads::Code),
         run: warm_start::run,
     },
@@ -339,8 +343,10 @@ const TASKS: &[Task] = &[
         // cannot state about itself, read as text. What it holds is the half `telekom/sutura#116`
         // could not - the packs are bound from an adapter's own crate, so WHICH adapters are held
         // was a reading of which crates carry a `tests/conformance.rs`, and deleting one left
-        // `just validate` green. It starts with ONE declared exemption, because
-        // `docs/adr/0012`'s *one registration, not two* is violated as built.
+        // `just validate` green. It shipped with ONE declared exemption, because
+        // `docs/adr/0012`'s *one registration, not two* was violated as built; that entry was
+        // `postgres` and `telekom/sutura#348` deleted it by binding the adapter, so the list is
+        // empty and an exemption is now an architecture decision with nothing to hide behind.
         name: "check-conformance-bindings",
         description: "every registered data system is bound to the conformance packs, or declared unbound",
         kind: Kind::Hygiene(Reads::Code),
@@ -393,6 +399,18 @@ const TASKS: &[Task] = &[
         description: "the push stage compiles, with the commit stage's own invocation",
         kind: Kind::Hygiene(Reads::Code),
         run: hooks::run,
+    },
+    Task {
+        // The third of that shape, over the one remaining file: `devenv.nix` and every module its
+        // `imports` reach. What it holds is that a shell body there goes through the wrapper
+        // ShellCheck reads - and it replaces two forbidden LITERALS that
+        // `github.com/telekom/sutura#402` walked past six ways, because a needle enumerates one
+        // spelling of one attribute in one file. `Reads::Code`: a `docs/*.md` diff can change
+        // nothing it reads.
+        name: "check-devenv-shell",
+        description: "every devenv script body goes through the wrapper ShellCheck reads",
+        kind: Kind::Hygiene(Reads::Code),
+        run: devenv_shell::run,
     },
     Task {
         name: "check-guidance",
@@ -573,6 +591,18 @@ const TASKS: &[Task] = &[
         description: "extract every composite action's shell into a directory, for shellcheck",
         kind: Kind::Standalone,
         run: action_shell::run,
+    },
+    Task {
+        // The other half of `check-devenv-shell`, and standalone for `action-shell`'s reason plus
+        // one of its own: it takes an ARGUMENT - the store path of a body the wrapper produced,
+        // interpolated by nix at the call site - and it reads a derivation, which needs a store
+        // the cheap sweep has no nix to query. That gate holds the STRUCTURE; this one reads what
+        // the wrapper actually emitted, which is the half `github.com/telekom/sutura#402`'s
+        // seventh escape defeated with one line and every textual gate green.
+        name: "check-devenv-linter",
+        description: "the devenv wrapper's checkPhase still runs bash -n and a store shellcheck; <store-path>",
+        kind: Kind::Standalone,
+        run: devenv_linter::run,
     },
     Task {
         name: "fmt",
@@ -802,6 +832,9 @@ mod tests {
             "test-causality",
             "commit-msg",
             "changed-packages",
+            // Its argument is a store path nix interpolates at the call site, so an
+            // argument-free invocation has nothing to read - and the sweep would call it that way.
+            "check-devenv-linter",
         ];
         for name in needs_args {
             let task = TASKS.iter().find(|t| t.name == name).expect("task is registered");
@@ -880,6 +913,87 @@ mod tests {
             packages
                 .iter()
                 .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("xtask"))
+        );
+    }
+
+    #[test]
+    fn every_registered_hygiene_gate_refuses_a_tree_it_cannot_attest() {
+        use std::process::ExitCode;
+
+        // EVERY GATE IN THE TABLE, EXECUTED AGAINST A TREE IT MUST REFUSE -
+        // `github.com/telekom/sutura#371`. `crate::falsifier` carries the tree and the argument
+        // for its shape; what this adds is that the gates are reached through the FN POINTER out
+        // of `TASKS` and judged by the EXIT CODE. Membership is the table, so nothing opts out.
+        //
+        // HELD, NOT WISHED - the first version got that wrong in the change whose subject it is.
+        // `set_current_dir` is process-global: measured, `cargo test -p xtask --bin xtask` went
+        // from `917 passed` to `907 passed; 11 failed`, the eleven every real-tree anchor
+        // resolving through `repo::root`, whose walk reads the current directory first.
+        // `AGENTS.md` bans a bare `cargo clippy` and `cargo nextest`, NOT `cargo test`, so
+        // "correct under nextest" was a sentence. nextest gives each test its own process and sets
+        // `NEXTEST`; refusing without it fails before the directory moves.
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this test moves the process's current directory, so it must have the process to \
+             itself: run it under `just test`, which is cargo-nextest and one process per test. \
+             Under `cargo test`'s threads it breaks every sibling resolving a path through \
+             `repo::root` - 11 of them, measured."
+        );
+
+        let tree = crate::falsifier::falsifier_tree();
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&tree).expect("point the process at the falsifier tree");
+
+        let mut executed: Vec<&str> = Vec::new();
+        let mut attested: Vec<&str> = Vec::new();
+        for task in TASKS {
+            if !matches!(task.kind, super::Kind::Hygiene(_)) {
+                continue;
+            }
+            let verdict = (task.run)(&[]);
+            executed.push(task.name);
+            // `Fail`'s code, not merely "not SUCCESS": `Usage` is 2 and `Inconclusive` is 3, and
+            // the second exists here precisely because *could not measure* is not a clean bill.
+            // All 31 answer `Fail` today, so the stricter form is live rather than aspirational.
+            if format!("{:?}", verdict.exit_code()) != format!("{:?}", ExitCode::FAILURE) {
+                attested.push(task.name);
+            }
+        }
+
+        // Restored before any assertion, so a failure cannot leave a wrong directory behind.
+        std::env::set_current_dir(&original).expect("restore the current directory");
+        drop(std::fs::remove_dir_all(&tree));
+
+        // THE FLOOR IS A SET OF NAMES AND ITS OTHER SIDE IS `hygiene_gates`. Two counts off two
+        // spellings of one expression are two enforcers of one key: measured, `.take(18)` on BOTH
+        // left the previous version green with 13 gates unexecuted. `hygiene_gates` is the
+        // registry's other reader - `check-gate-classification` reconciles it against the
+        // implementation plan's two tables, both directions - so narrowing it to hide a narrowed
+        // loop reddens that gate instead. The hand-written anchor list this replaces was #371's
+        // own defect 8: red when a name joins the list, green when one is left out of it.
+        let registered: Vec<&str> = super::hygiene_gates().map(|(name, _)| name).collect();
+        assert!(
+            !registered.is_empty(),
+            "the sweep registers no gate - this test judged nothing"
+        );
+        assert_eq!(
+            executed, registered,
+            "the gates this test executed are not the gates the sweep registers - one it skipped \
+             is one it says nothing about"
+        );
+
+        assert_eq!(
+            attested,
+            Vec::<&str>::new(),
+            "{} of {} gate(s) did not FAIL over a tree that is not this repository. A gate that \
+             cannot be made to fail is a gate whose green says nothing - `github.com/telekom/\
+             sutura#371`. WHICH REMEDY IS RIGHT DEPENDS ON THE GATE'S SUBJECT. If that subject is \
+             every text file in the tree, absence is a legitimate pass and nothing is wrong with \
+             the gate: seed a violation into `falsifier_tree`, whose doc carries the argument. \
+             Otherwise the gate needs a floor over what it actually read, or a refusal on the input \
+             whose absence makes its other rules vacuous.",
+            attested.len(),
+            registered.len()
         );
     }
 }

@@ -75,10 +75,15 @@ use std::path::Path;
 use crate::Verdict;
 use crate::repo;
 
-mod attributes;
+// `pub(crate)` for the reason `regions` below is: `crate::examples` asks which of a file's tests
+// a run in this venue reaches, and the attribute vocabulary that answers it already lives here.
+// A second copy of "what declares a test, and what makes one `#[ignore]`d" is a second thing to
+// keep true, and this module's own header is about what one such disagreement already cost.
+pub(crate) mod attributes;
 mod base;
 mod coverage;
 mod diff;
+mod features;
 #[cfg(test)]
 mod fixtures;
 mod isolation;
@@ -93,21 +98,24 @@ pub(crate) mod regions;
 mod remedies;
 mod runner;
 mod scoped;
+mod stack;
 mod worktree;
 
 use base::{BaseOutcome, classify_base, report_base, tail};
 use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
+use features::{Activation, BaseText, Trees};
 use place::AddedTest;
 use plan::{Plan, Separable, plan};
 use provenance::{Commit, Moved, Reach};
 use remedies::{
     report_enabled_tests, report_head_failure, report_moved, report_no_base_behaviour, report_not_separable,
-    report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unreadable,
-    report_unreverted,
+    report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unread_manifests,
+    report_unreadable, report_unreverted,
 };
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
+use stack::{Base, Parent};
 use worktree::{BaseState, add_worktree, apply, base_state, remove_worktree};
 
 /// Is this a Rust source path THIS workspace compiles?
@@ -301,6 +309,76 @@ const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bo
     matches!(outcome, BaseOutcome::DidNotCompile) && !held.is_empty()
 }
 
+/// The three git reads `stack::parent_of` needs, bound to this repository.
+///
+/// GLUE AND NO DECISION, and it is now glue with nothing in it to get wrong: the composition and
+/// every fallback moved into `stack::parent_of`, where fakes can drive them, and the choice is
+/// `stack::Base::of`. **Review found why that mattered.** This function used to carry the guard
+/// against a parent that is really this branch, spelled `parent == branch` - a NAME comparison for
+/// a hazard that is a COMMIT - and being untested is what let one spelling stand in for the input.
+/// It is `stack::Origin::Contains` now, keyed on HEAD's commit.
+fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
+    let metadata = |branch: &stack::BranchRef| worktree::branch_metadata(root, branch);
+    let merge_base = |earlier: &str, later: &str| worktree::merge_base(root, earlier, later);
+    stack::parent_of(
+        asked_for,
+        &stack::Reads {
+            branch: worktree::head_branch(root),
+            metadata: &metadata,
+            merge_base: &merge_base,
+        },
+    )
+}
+
+/// What the diff's manifest changes put into the build, asked of the two trees.
+///
+/// The three readers [`features::Trees`] wants, and the pairing that matters is the first: a path
+/// the base does not HAVE is a new package whose base feature table is legitimately empty, while a
+/// path the base has and whose content did not come back is a refusal. `cat-file -e` and `show` are
+/// separate calls so those two are separate answers.
+///
+/// The source listing is behind a `OnceCell` because most runs never need it: it is consulted only
+/// for a manifest that declares a feature name the base did not, which is rare, and
+/// `repo::all_files` shells out to git twice.
+fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], read: &regions::PostImage<'_>) -> Activation {
+    let base = |path: &str| {
+        if worktree::base_has(root, at, path) {
+            worktree::at_base(root, at, path).map_or(BaseText::Unreadable, BaseText::Text)
+        } else {
+            BaseText::Absent
+        }
+    };
+    let listing: std::cell::OnceCell<Vec<String>> = std::cell::OnceCell::new();
+    let sources = |dir: &str| {
+        listing
+            // FAIL OPEN, unchanged and now visible: a refusal yields an EMPTY listing and the
+            // feature-activation walk proceeds over nothing. Narrow - this is consulted only for a
+            // manifest declaring a feature name the base did not - and it is
+            // `github.com/telekom/sutura#414`'s own finding on this file, left to the PR that owns
+            // this gate rather than folded into a mechanical one.
+            .get_or_init(|| {
+                repo::all_files()
+                    .and_then(|census| census.into_listing(repo::Unmigrated::Causality))
+                    .map(|(_root, files)| files)
+                    .unwrap_or_default()
+            })
+            .iter()
+            // `is_compiled_rust` rather than an extension test, so the one rule that decides
+            // what this workspace compiles decides here too - a vendored path is excluded by it.
+            .filter(|path| is_compiled_rust(path) && (dir.is_empty() || path.starts_with(&format!("{dir}/"))))
+            .cloned()
+            .collect()
+    };
+    Activation::of(
+        files,
+        &Trees {
+            head: read,
+            base: &base,
+            sources: &sources,
+        },
+    )
+}
+
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
 pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(base) = base_ref(args) else {
@@ -319,11 +397,24 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // other venues resolved a merge base before calling; this recipe passed the ref through, so
     // the one venue a person runs by hand was the one that could measure the wrong commits.
     // Idempotent for a commit already behind HEAD, which is how scoping the gate per commit works.
-    let Some(at) = Commit::parse(&worktree::merge_base(&root, &base)) else {
+    let Some(asked_for) = Commit::parse(&worktree::merge_base(&root, &base, "HEAD")) else {
         eprintln!("xtask test-causality: could not resolve a merge base between `{base}` and HEAD");
         eprintln!("  Fetch that ref, or name a commit this branch descends from.");
         return Verdict::Fail;
     };
+    // HEAD'S OWN COMMIT, for the guard that needs it and for nothing else. A recorded parent that
+    // already CONTAINS this branch forks at HEAD, and a base equal to HEAD makes the diff the
+    // uncommitted working tree alone - an exit-0 pass over every file the branch changed, which
+    // review reproduced twice here. `merge_base` above already resolved HEAD, so this cannot
+    // realistically fail; refusing is the fail-closed direction if it ever does, because the
+    // alternative is deriving a base with the one guard that matters unable to run.
+    let Some(head) = Commit::parse(&worktree::head_commit(&root)) else {
+        eprintln!("xtask test-causality: could not resolve HEAD to one commit");
+        return Verdict::Fail;
+    };
+    let parent = stack_parent(&root, &asked_for);
+    let measured = Base::of(asked_for, &head, parent);
+    let at = measured.at().clone();
 
     let Some(files) = changed_with_additions(&at) else {
         // Same rule as classify: an unusable base ref is not evidence of nothing to do.
@@ -331,21 +422,33 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // NAMED BEFORE ANY BRANCH RUNS, so every verdict below is qualified by it - both the ref asked
-    // for and the commit it resolved to, because they are different facts and only the second one
-    // is what was measured. One way this can still be wrong is not visible in the output: on the
-    // second branch of a stack the merge base with `origin/main` is the fork point of the WHOLE
-    // stack, so the diff carries the parent branch's implementation, and the gate pairs this
-    // branch's tests with it. `SHIP_CHECK_BASE_REF` or a commit argument is the lever.
-    println!(
-        "xtask test-causality: measuring the diff against `{base}` (merge base {})",
-        at.short()
-    );
+    // NAMED BEFORE ANY BRANCH RUNS, so every verdict below is qualified by it - the ref asked for,
+    // the commit it resolved to, and which of those two the derivation chose. `stack` owns why the
+    // ref's own merge base is the WRONG default on the second branch of a stack, and the sentence
+    // comes out of the same value the commit does, so it cannot claim a narrowing that did not
+    // happen.
+    println!("{}", measured.measured(&base));
 
     // The POST-IMAGE of a changed file is what says which of its lines are test code, and
     // `git diff <base> --` compares base against the WORKING TREE - so the working tree is the
     // post-image, and reading it needs no second git call.
     let working_tree = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+
+    // WHAT A MANIFEST DIFF PUT INTO THE BUILD, asked before the plan because the plan cannot see
+    // it: a `Cargo.toml`-only diff has no changed test file, so `Plan::NotRequired` used to pass
+    // with *nothing to prove* over a feature declaration that compiled a whole module of
+    // pre-existing tests. `features` reads the tables on both sides rather than the diff's lines.
+    //
+    // BEFORE the plan is a DECISION, so it is stated: `Scan::Unreadable` refuses ahead of every
+    // other `.rs` answer for its own reason, and this now sits ahead of that. Both are
+    // `Verdict::Fail` and each prints its own cause, so the order decides which cause an author is
+    // shown and not the verdict. It goes first because a `Cargo.toml`-only diff reaches no other
+    // refusal at all, which is the finding.
+    match feature_activation(&root, &at, &files, &working_tree) {
+        Activation::Nothing => {}
+        Activation::Enables(refused) => return report_enabled_tests(&refused),
+        Activation::Unread(unread) => return report_unread_manifests(&unread),
+    }
 
     match plan(&files, &working_tree) {
         Plan::NotRequired => {

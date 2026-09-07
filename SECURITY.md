@@ -133,6 +133,16 @@ is the state of the repository, recorded in `.agents/skills/sutura/invariants` a
   on it, which is a lint rather than a type: it reaches this workspace and an `#[allow]` walks past
   it. A report that the *type* can be constructed outside the boot path is the state of the
   repository, recorded here and on the type
+- **a declared cardinality holding continuously, or on every data system.** A relationship whose
+  join type says its target column identifies at most one row is counted against its distinct values
+  once, at startup, and a bundle the data contradicts does not validate - so both plan shapes refuse
+  rather than answering two different numbers for one question. Three things that does not reach: a
+  duplicate introduced *after* startup - which reaches every caller from then on as a number, for the
+  whole life of the process, because there is no reload and the answer path is unchanged - a data
+  system whose adapter cannot count at all (it answers *not asked* and nothing prints that; a probe
+  that FAILS does refuse the boot and names the data system's own complaint), and the origin half of a
+  `one_to_one`, which nothing asks about. A report that a row inserted after boot changes an answer is
+  the state of the repository
 - a **row**-level entitlement between callers. Scopes narrow which operations a caller may invoke and
   decide nothing about which rows an answer contains
 - **binding a gateway identity assertion to a request.** The replay window is bounded by this

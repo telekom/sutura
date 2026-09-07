@@ -239,11 +239,20 @@ fn referenced(text: &str, kind: &str, prefix: &str) -> BTreeSet<String> {
 /// is which file was not read at all**, because the answer this scan gives is over the tree and a
 /// dropped file makes it over a subset.
 fn workflow_text(root: &Path) -> (String, Vec<String>) {
-    let mut paths = Vec::new();
-    repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"], &mut paths);
+    let mut unreadable = Vec::new();
+    // The walk's own finding lands in the channel this function already publishes, rather than
+    // being dropped: an unreachable workflow directory makes the answer below over a subset.
+    let mut paths = match repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"])
+        .into_listing(repo::Unmigrated::Venues)
+    {
+        Ok((_root, found)) => found,
+        Err(why) => {
+            unreadable.push(why.describe());
+            Vec::new()
+        }
+    };
     paths.sort();
     let mut text = Vec::new();
-    let mut unreadable = Vec::new();
     for rel in &paths {
         match std::fs::read_to_string(root.join(rel)) {
             Ok(read) => text.push(read),

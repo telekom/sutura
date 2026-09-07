@@ -23,8 +23,9 @@ use duckdb::types::Value as DuckValue;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
-use sutura_sql::generate::{generate, generate_leg};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 /// Why this data system could not answer.
@@ -86,6 +87,17 @@ pub enum DuckDbError {
     Shape {
         #[source]
         cause: MalformedRowSet,
+    },
+    /// A key probe's result was not the pair of counts its statement projects.
+    ///
+    /// A defect in the rendering or in this adapter's value mapping, never anything about the data:
+    /// the probe projects two aggregates over no group, so one row of two integers is the only shape
+    /// it can have. It travels as an `Err` from the port, which the boot path reads as *this
+    /// declaration went unchecked* rather than as a violated one.
+    #[error("the key probe did not come back as two counts")]
+    KeyCounts {
+        #[source]
+        cause: CountsNotRead,
     },
     /// The driver handed back a result set with no statement behind it, so there are no column
     /// labels to read.
@@ -491,6 +503,21 @@ impl Warehouse for DuckDbWarehouse {
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let query = generate(plan.plan(), Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })?;
         self.run(&query).map(AnchorRows::of)
+    }
+
+    /// Counts a declared join key's values and its distinct values, in one statement.
+    ///
+    /// **This adapter overrides the default because it can**: the driver is a library in this
+    /// process and the probe is one aggregate scan with no group, so there is no round trip to trade
+    /// against. Taking the default would leave the declaration unchecked on the one vehicle the
+    /// federated differential runs both legs on, which is where the two disagreeing answers were
+    /// measured in the first place.
+    ///
+    /// No credential, for [`Warehouse::verify_anchor`]'s reason: there is no caller at boot.
+    fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
+        let query = generate_key_probe(&key, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })?;
+        let rows = self.run(&query)?;
+        KeyUniqueness::read(&rows).map_err(|cause| DuckDbError::KeyCounts { cause })
     }
 
     // `result_did_not_fit` is deliberately NOT overridden, and the reason is a property of this

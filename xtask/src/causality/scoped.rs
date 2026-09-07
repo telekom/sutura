@@ -65,6 +65,7 @@
 
 use crate::causality::attributes::{attached, declares_a_test, item_below};
 use crate::causality::diff::ChangedFile;
+use crate::causality::features::{Because, Enabled};
 use crate::causality::names::Ident;
 use crate::causality::place::{AddedTest, Declares, accounted_for, place};
 use crate::causality::regions::{AddedLine, PostImage};
@@ -82,16 +83,6 @@ pub(crate) struct Silent {
     /// or `None` for an INLINE module, whose body is in this same file and whose lines were
     /// already compiled, so nothing arrived for this to name.
     pub(crate) module: Option<String>,
-}
-
-/// A provable file whose added declaration puts a module of tests into the build that this diff
-/// does not contain.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Enabled {
-    /// The file carrying the declaration.
-    pub(crate) path: String,
-    /// Where cargo will look for the module's source. Not in this diff, which is the finding.
-    pub(crate) module: String,
 }
 
 /// The tests a diff added: at least one, by construction.
@@ -152,16 +143,16 @@ pub(crate) enum Scan {
     /// pre-existing tests becomes compiled and no added line names any of them. Refuses - the
     /// remedy is stated evidence, not an extractor fix, which is why it is its own answer.
     ///
-    /// **ITS INVERSE IS UNREPORTED, and the asymmetry is strict.** This refusal reads a `.rs`
-    /// diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a **`Cargo.toml`-only**
-    /// diff turns on compiles the same whole module of tests into the build with ZERO added `.rs`
-    /// lines - so `super::plan` finds no changed test file at all, answers `Plan::NotRequired`, and
-    /// the gate passes with *no changed tests - nothing to prove*. Reproduced through `plan`, and
-    /// recorded rather than fixed: nothing here reads a manifest, and resolving which `cfg`
-    /// declarations a feature change activates is a different scan from this one.
-    /// `github.com/telekom/sutura#343` carries the three candidate shapes; the honest statement
-    /// until then is that a manifest-only diff is outside this gate's reach, the same way a
-    /// markdown-only one is.
+    /// **ITS INVERSE IS THE SAME REFUSAL NOW, and the asymmetry was strict until it was.** This
+    /// arm reads a `.rs` diff. A pre-existing `#[cfg(feature = "x")] mod tests;` whose `x` a
+    /// **`Cargo.toml`-only** diff declares compiles the same whole module of tests with ZERO added
+    /// `.rs` lines, so `super::plan` found no changed test file, answered `Plan::NotRequired`, and
+    /// the gate passed with *no changed tests - nothing to prove*. That input asks for the same
+    /// evidence and had no answer, which is why it is one verdict with two causes rather than two
+    /// verdicts: `super::features` reads the feature table on each side of the base commit and
+    /// contributes an [`Enabled`] carrying `Because::Feature`, and this arm's own findings carry
+    /// `Because::Declared`. `github.com/telekom/sutura#343` is the record; that module's header
+    /// carries what the feature scan still does not read.
     Enabled(Vec<Enabled>),
     /// Every test the diff added is `#[ignore]`d. Named, and unreachable by any run here.
     OnlyIgnored(Vec<Ident>),
@@ -240,6 +231,7 @@ impl Scan {
                         None => enabled.push(Enabled {
                             path: file.path.clone(),
                             module: candidates.into_iter().next().unwrap_or_default(),
+                            because: Because::Declared,
                         }),
                     }
                 }
@@ -311,7 +303,9 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
 /// direction of missing one is the `no tests to run` failure this dropping exists to prevent,
 /// which is loud.
 fn is_ignored(lines: &[&str], index: usize) -> bool {
-    attached(lines, index).iter().any(|opening| opening.starts_with("#[ignore"))
+    attached(lines, index)
+        .iter()
+        .any(|(_, opening)| opening.starts_with("#[ignore"))
 }
 
 /// The name in `fn NAME(`, if this line declares a function.
@@ -324,19 +318,20 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// visibility in front of either. What is genuinely out of reach is an added line that is not a
 /// signature's first line: a body-only or def-interior edit.
 ///
-/// **Recorded rather than asserted, and the reason is this gate's own rule.** The measurement above
-/// was driven through `Scan::of` over a wrapped `async fn` with a return type, and it named the
-/// function - but a test pinning behaviour this branch did not change passes against base too, which
-/// `AGENTS.md` calls worse than none because it looks like coverage. The gate said so out loud when
-/// one was tried here: *FAILED - green against base behaviour*.
+/// **ASSERTED NOW, by the two tests below rather than by this paragraph**
+/// (`github.com/telekom/sutura#347`): `a_signature_the_formatter_wrapped_after_the_paren_is_still_named`
+/// drives a wrapped `async fn` with a return type through [`Scan::of`] and pins the name that comes
+/// out, and `an_added_line_inside_a_signature_this_diff_did_not_open_names_nothing` pins
+/// the limit - the extractor does not walk UP from an interior line to the signature above it, so
+/// such an edit is refused rather than credited with a test it did not add.
 ///
-/// **`github.com/telekom/sutura#347` owns it**, because a promised follow-up with no issue is the
-/// same shape of claim this module is about. Two honest shapes for it, and the issue carries both:
-/// a **tests-only change**, where *tests changed but no implementation did* is an honest verdict
-/// over a test for existing behaviour; or the test module of a file that ALSO carries an
-/// implementation change - [`Scan::of`] is `pub(crate)`, so the assertion can live there, `plan`
-/// holds such a file back, and the test then appears under `not measured:` in the verdict rather
-/// than becoming the verdict.
+/// **Why it took an issue to land two assertions**, because the constraint is this gate's own rule
+/// and it applies to anything pinning behaviour a branch did not change: such a test passes against
+/// base too, which `AGENTS.md` calls worse than none. The gate said so out loud when one was first
+/// tried here - *FAILED - green against base behaviour* - and the shape that lands it honestly is
+/// the second of the two the issue carries: the test module of a file that ALSO carries an
+/// implementation change. `plan` holds such a file back, so these two appear under `not measured:`
+/// in the verdict instead of becoming the verdict.
 fn function_name(line: &str) -> Option<Ident> {
     let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)
@@ -832,6 +827,65 @@ mod tests {
                 assert_eq!(names.iter().map(Ident::as_str).collect::<Vec<&str>>(), vec!["acceptance"]);
             }
             other => panic!("an ignored test is named, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_signature_the_formatter_wrapped_after_the_paren_is_still_named() {
+        // WHAT `function_name` ACTUALLY REACHES, which its doc used to record as a measurement and
+        // nothing executable held. rustfmt breaks a signature too long for one line AFTER the `(`,
+        // never before the name, so the first line of a wrapped `async fn` still carries
+        // `fn <name>(` - and a rename of the extractor or a narrowing of its split characters
+        // would have taken that claim with it in silence.
+        let file = concat!(
+            "#[tokio::test]\n",                                                    // 1
+            "async fn the_exchange_chain_joined_through_the_transport_answers(\n", // 2
+            "    provisioned: &Provisioned,\n",                                    // 3
+            ") -> Result<(), Box<dyn std::error::Error>> {\n",                     // 4
+            "    Ok(())\n",                                                        // 5
+            "}\n",                                                                 // 6
+        );
+        let files = vec![changed(
+            "crates/x/tests/t.rs",
+            1,
+            &[
+                "#[tokio::test]",
+                "async fn the_exchange_chain_joined_through_the_transport_answers(",
+                "    provisioned: &Provisioned,",
+                ") -> Result<(), Box<dyn std::error::Error>> {",
+                "    Ok(())",
+                "}",
+            ],
+        )];
+        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
+        assert_eq!(
+            runnable(&files, &["crates/x/tests/t.rs"], &read),
+            Some(vec![String::from("the_exchange_chain_joined_through_the_transport_answers")])
+        );
+    }
+
+    #[test]
+    fn an_added_line_inside_a_signature_this_diff_did_not_open_names_nothing() {
+        // THE STATED LIMIT, and it is the half a wider extractor would get wrong. The same wrapped
+        // signature, with only its PARAMETER line added - a def-interior edit. The name is two
+        // lines up and in reach of anything that walked upward, which is exactly what must not
+        // happen: crediting this diff with a test it did not add would put a test that is green in
+        // both trees into the proof. So no name comes out, the file's only added line declares no
+        // test, and the answer is a refusal naming the file rather than that test's name.
+        let file = concat!(
+            "#[tokio::test]\n",                                                    // 1
+            "async fn the_exchange_chain_joined_through_the_transport_answers(\n", // 2
+            "    provisioned: &Provisioned,\n",                                    // 3
+            ") -> Result<(), Box<dyn std::error::Error>> {\n",                     // 4
+            "    Ok(())\n",                                                        // 5
+            "}\n",                                                                 // 6
+        );
+        let files = vec![changed("crates/x/tests/t.rs", 3, &["    provisioned: &Provisioned,"])];
+        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
+        assert_eq!(runnable(&files, &["crates/x/tests/t.rs"], &read), None);
+        match Scan::of(&files, &[String::from("crates/x/tests/t.rs")], &read) {
+            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("crates/x/tests/t.rs")]),
+            other => panic!("a def-interior edit names no test, got {other:?}"),
         }
     }
 

@@ -21,7 +21,7 @@
 // test code as far as clippy is concerned.
 #[cfg(test)]
 mod conformance {
-    use sutura_conformance::corpus;
+    use sutura_conformance::{Fixture, corpus};
     use sutura_exec_duckdb::DuckDbWarehouse;
 
     /// An in-memory `DuckDB` with the conformance corpus attached.
@@ -30,12 +30,18 @@ mod conformance {
     /// opened, the corpus is attached as a view over its CSV, and it is dropped with the test. A
     /// corpus read every run cannot drift from the bytes the pack states, which is the same argument
     /// the golden suite's fixture makes for the example corpus.
-    fn open() -> DuckDbWarehouse {
+    ///
+    /// **`Fixture::standing` unconditionally, and that is a claim rather than a wrapper:** this
+    /// adapter is in-process over a file this crate writes, so there is no venue in which it cannot
+    /// stand up. An adapter that reaches a service answers the other variant - see
+    /// `sutura-exec-postgres`, and `sutura_conformance::Fixture` for why the question is a return
+    /// type.
+    fn open() -> Fixture<DuckDbWarehouse> {
         let warehouse = DuckDbWarehouse::in_memory(corpus::source(), corpus::posture()).expect("an in-memory database opens");
         warehouse
             .attach_csv(&corpus::table(), &corpus::on_disk())
             .expect("duckdb attaches the conformance corpus");
-        warehouse
+        Fixture::standing(warehouse)
     }
 
     // `executes_legs`, because this adapter declares `EXECUTES_LEGS`. The tag and the constant are

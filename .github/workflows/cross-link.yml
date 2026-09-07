@@ -22,23 +22,31 @@
 # WHAT IT COSTS: the four legs are reported as `cross / link (<triple>)` rather than
 # `cross (<triple>)`. None of them is a required context - `ci` is the only one in the `main`
 # ruleset - so no ruleset changes with this file. THE OTHER HALF OF THAT SENTENCE, which went
-# unstated: none of them ever WAS required, so a red leg has never blocked a merge either, and this
-# job's coverage is advisory. `devco/required-contexts` is the record - the API response, the date,
-# and the organisation-level scope that could not be read - and `cargo xtask check-workflows` is
-# what keeps it in step with the jobs. `cargo xtask check-workflows`'s REFERENCE scan
+# unstated: none of them is required as read on 2026-09-05, so a red leg does not block a merge,
+# and this job's coverage is advisory. Present tense on purpose - *has never blocked one* is a claim
+# about the past that nothing read, and `devco/required-contexts`' header says why a ruleset's
+# representation cannot answer it. That file is the record - the API response, the date, and the
+# organisation-level scope that could not be read - it carries the DECISION to leave this coverage
+# advisory and the two options refused to get there, and `cargo xtask check-workflows` is what keeps
+# it in step with the jobs, THIS FILE'S JOB INCLUDED: a workflow a gating one calls is read for its
+# jobs too, so adding a second job here fails that gate until somebody classifies it.
+# `cargo xtask check-workflows`'s REFERENCE scan
 # reads every file in `.github/workflows`, and `cargo xtask check-shipped-binaries` reads that
 # directory and `.github/actions`, so the `nix run` / `nix build` references and the `BINARIES`
 # literal below are checked exactly where they were - measured through `just hygiene`, 64
 # references in 18 files before and 64 in 19 after.
 #
-# AND ONE HALF OF ONE GATE DID NOT FOLLOW, which is the limit that belongs beside that claim. The
-# same gate's REFUSAL of a literal release build in ordinary CI reads the single name
-# `.github/workflows/ci.yml`, so a literal `nix build .#sutura-serve` written in THIS file would not
-# be refused. It costs nothing today and that is measured rather than assumed: all three builds
-# below are interpolated or the probe manifest, and `literal_release_builds` exempts both
-# deliberately. `github.com/telekom/sutura#290` carries the widening and why it is not in this
-# commit - `xtask/src/workflows.rs` is 981 lines of the same unexemptable 1000-line cap, and the
-# change plus its tests measured 1115.
+# AND THE HALF OF THAT GATE THAT DID NOT FOLLOW HAS FOLLOWED. Its REFUSAL of a literal release
+# build in ordinary CI read the single name `.github/workflows/ci.yml`, so a literal
+# `nix build .#sutura-serve` written in THIS file was refused by nothing. It now walks the local
+# `uses:` call graph out of `ci.yml` and refuses over every file that walk opens, this one included,
+# failing closed on a call it cannot open - `xtask/src/workflows/reach.rs`, which also carries the
+# YAML shapes it reads and the ones it does not. All three builds below stay exempt for the reasons
+# they always were, which is measured rather than assumed: interpolated, or the probe manifest.
+#
+# WHAT THAT WALK STILL DOES NOT FOLLOW is the shell. A step that moves into a `nix/*.sh` script is
+# reached by a `just` task and by the release path as well, so *ordinary CI* is not that file's
+# venue and the refusal has no meaning there. The REFERENCE scan above does read those scripts.
 #
 # PULL REQUESTS: every target, `ci` profile, no image. A branch proves every arch still COMPILES
 # AND LINKS; the tag-triggered release workflow alone builds and proves what ships.

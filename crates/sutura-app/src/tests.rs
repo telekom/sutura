@@ -64,7 +64,7 @@ pub(crate) fn metric() -> MetricName {
     MetricName::parse("revenue").expect("a test metric name is a name")
 }
 
-fn source() -> SourceName {
+pub(crate) fn source() -> SourceName {
     SourceName::parse("local").expect("a test source is a source")
 }
 
@@ -89,7 +89,7 @@ pub(crate) fn june() -> TimeRange {
 }
 
 /// The certified number, in the shape the anchor check and a question both read it.
-fn certified() -> RowSet {
+pub(crate) fn certified() -> RowSet {
     RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("one column and one cell is rectangular")
 }

@@ -30,9 +30,10 @@
 //! the counting, and note that the resulting parse is now cross-checked against the tree by a unit
 //! test rather than trusted.
 //!
-//! Literal package builds and the two release-profile assertions are also refused in `ci.yml`.
-//! Pull requests use interpolated `-ci` packages for their link matrix; the tag-triggered release
-//! workflow owns everything that is published.
+//! Literal package builds and the two release-profile assertions are also refused in ordinary CI -
+//! `ci.yml` AND every local workflow or composite action it calls, transitively, which is
+//! [`reach`]'s walk and not one file name. Pull requests use interpolated `-ci` packages for their
+//! link matrix; the tag-triggered release workflow owns everything that is published.
 
 use crate::Verdict;
 use crate::repo;
@@ -51,6 +52,12 @@ pub(crate) mod step;
 // `shipped::refusal` is: this one is against the unexemptable 1000-line cap. It reads a different
 // authority - `devco/required-contexts`, a record of an API answer - and its fixtures come with it.
 mod contexts;
+
+// WHICH FILES ORDINARY CI ACTUALLY RUNS. One walk of the local `uses:` call graph, read by both
+// halves of this gate: the release-output refusal below, which used to read one file name while a
+// line cap moved a job into a second, and `contexts`, which classified the jobs of the workflows
+// whose own `on:` block gates and therefore classified none of a CALLED workflow's.
+mod reach;
 
 /// Which output namespace a reference points into.
 ///
@@ -86,20 +93,39 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    let ci = match std::fs::read_to_string(root.join(".github/workflows/ci.yml")) {
-        Ok(text) => text,
-        Err(error) => {
-            eprintln!("xtask check-workflows: could not read ci.yml: {error}");
-            return Verdict::Fail;
+    // ORDINARY CI IS PLURAL, and NAMING one file is how the refusal below stopped covering it:
+    // `cross-link.yml` was lifted out of `ci.yml` at 999 lines against the 1000-line cap, and a
+    // literal release build written there was refused by nothing. The root set is DERIVED - every
+    // workflow whose `on:` block names a gating event - because rooting the walk at `ci.yml` left
+    // `docs.yml` and `security-audit.yml` outside it, which is the same defect one file over.
+    let ordinary = contexts::OrdinaryCi::read(&root);
+    let unreachable = ordinary.unreachable();
+    if !unreachable.is_empty() {
+        eprintln!("xtask check-workflows: FAILED - ordinary CI is not fully readable from here\n");
+        for problem in &unreachable {
+            eprintln!("  {problem}");
         }
-    };
-    let release_builds = literal_release_builds(&ci);
+        eprintln!();
+        eprintln!("A call this gate cannot open is a step it cannot refuse, so it fails closed. The");
+        eprintln!("release-output refusal is over the files the walk opened, and that has to be all");
+        eprintln!("of them - see the header of xtask/src/workflows/reach.rs for its arms.");
+        return Verdict::Fail;
+    }
+    let walked = reach::walked(ordinary.closure());
+    if walked.is_empty() {
+        eprintln!("xtask check-workflows: no workflow runs on a pull request - the scan is broken");
+        eprintln!("  rather than the workflows, and every rule below would pass over nothing");
+        return Verdict::Fail;
+    }
+    let release_builds = reach::release_outputs(ordinary.closure());
     if !release_builds.is_empty() {
-        eprintln!("xtask check-workflows: ci.yml builds release outputs");
-        for (line, output) in release_builds {
-            eprintln!("  ci.yml:{line}  {output}");
+        eprintln!("xtask check-workflows: ordinary CI builds release outputs");
+        for found in &release_builds {
+            eprintln!("  {found}");
         }
-        eprintln!("Release outputs belong to the tag-triggered release workflow, not ordinary CI.");
+        eprintln!("Release outputs belong to the tag-triggered release workflow, not ordinary CI -");
+        eprintln!("and ordinary CI is every pull-request workflow plus everything they call:");
+        eprintln!("  {}", walked.join(", "));
         return Verdict::Fail;
     }
 
@@ -135,7 +161,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
     // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
     // readers and checked by nothing - and it was false.
-    let unclassified = contexts::problems(&root);
+    let unclassified = contexts::problems(&root, &ordinary);
     if !unclassified.is_empty() {
         eprintln!(
             "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
@@ -164,9 +190,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .collect();
 
     if missing.is_empty() {
+        // TWO NUMBERS, because they are two scans. `files` is the REFERENCE scan's - every file
+        // under the three places CI invokes from - and nothing in it distinguished a release
+        // refusal that walked four files from one that walked one. So the walked set is printed
+        // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified",
-            references.len()
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, no release output in the {} file(s) ordinary CI runs: {}",
+            references.len(),
+            walked.len(),
+            walked.join(", ")
         );
         return Verdict::Pass;
     }
@@ -187,46 +219,6 @@ fn joined(names: &BTreeSet<String>) -> String {
     names.iter().cloned().collect::<Vec<_>>().join(", ")
 }
 
-/// The one literal `nix build` prefix ordinary CI may name, and why it is safe to name.
-///
-/// A `feature-probes-<triple>` output is a `writeText` listing which feature-on link probes exist
-/// for that triple - `nix/shipped.nix`'s `probeManifests`. It installs no `bin/`, so it cannot be
-/// a published asset, and the `cross` jobs read it to learn which probes to build. It has to be
-/// LITERAL for the same reason it exists: the step used to reconstruct that set from a naming
-/// pattern, which went silently empty when the pattern changed, so a fixed name is what makes a
-/// missing manifest a failed `nix build` rather than a green run over nothing.
-const PROBE_MANIFEST: &str = "feature-probes-";
-
-fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
-    let mut found = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
-        let Some((_, after)) = line.split_once("nix build ") else {
-            continue;
-        };
-        let after = after.trim_start().trim_start_matches('"');
-        let Some(after) = after.strip_prefix(".#") else {
-            continue;
-        };
-        let output: String = after
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
-            .collect();
-        if output.is_empty() || output.starts_with(PROBE_MANIFEST) {
-            continue;
-        }
-        // Anything not a `checks.` output is a release PACKAGE; a `checks.` one is ordinary
-        // CI's to build, except the two the release path owns.
-        let release_check = output.ends_with(".one-binary") || output.ends_with(".shipped-features");
-        if !output.starts_with("checks.") || release_check {
-            found.push((index.saturating_add(1), output));
-        }
-    }
-    found
-}
-
 /// Every `apps.<name>` declaration. Read off the CODE half of the file, so a comment or a
 /// string naming an output in prose is not a declaration.
 fn declared_apps(text: &str) -> BTreeSet<String> {
@@ -244,13 +236,29 @@ fn declared_apps(text: &str) -> BTreeSet<String> {
 
 /// One line of a Nix file with everything that is not code blanked out, and the `let` depth it
 /// starts at.
-struct CodeLine {
+///
+/// `pub(crate)` rather than private, for [`declared_block`]'s reason one layer down:
+/// `crate::devenv_shell` asks a different question of the same projection - which attributes does
+/// a devenv module ASSIGN, and did the value go through a wrapper - and a second Nix reader would
+/// be a second thing to keep in step with the three shapes [`code_lines`] records. **The blanking
+/// is what that gate keys on**: a value whose code projection is empty was a string literal, which
+/// is how it tells a wrapped body from a bare one without a second parse.
+pub(crate) struct CodeLine {
     /// The line, with every character inside a comment or a string literal replaced by a space.
     /// Interpolations are kept, because `${...}` is code and its braces balance.
-    code: String,
+    pub(crate) code: String,
     /// How many `let`s are open at the START of this line. A binding inside `let ... in` is not
     /// an attribute of the enclosing set, and at brace depth alone the two are indistinguishable.
-    lets: u32,
+    pub(crate) lets: u32,
+    /// Does this line START inside a `''...''` literal?
+    ///
+    /// The blanking above is what makes a literal invisible, and for one caller that is the wrong
+    /// answer: `crate::devenv_shell` has to find a MULTI-LINE indented literal - a shell body's
+    /// shape - wherever it appears, including as an argument to something that is not a wrapper.
+    /// `pkgs.writeShellScriptBin "x" ''...''` projects to an application, not to a literal, so the
+    /// code alone cannot see the body in it. True on the body lines only: a literal that opens and
+    /// closes on one line sets this nowhere, which is exactly the one-liner/block discriminator.
+    pub(crate) in_indented: bool,
 }
 
 /// Which construct the scanner is inside.
@@ -291,7 +299,7 @@ enum Frame {
 /// So this is a small lexer instead: comments, both string forms with their escapes, `${...}`
 /// interpolation as nested code, and `let ... in` as a scope. Nothing else about Nix is modelled,
 /// and nothing else is needed to answer "which attributes does this block declare".
-fn code_lines(text: &str) -> Vec<CodeLine> {
+pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
     let chars: Vec<char> = text.chars().collect();
     let at = |index: usize| chars.get(index).copied().unwrap_or('\0');
     let word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '\'');
@@ -305,6 +313,8 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
     // Only a line that STARTS outside every `let` can declare an attribute. Inside a string
     // literal the answer is "not a declaration", which is what a non-zero depth says.
     let mut lets = 0_u32;
+    // Whether the line being built starts inside a `''...''` literal. See `CodeLine::in_indented`.
+    let mut in_indented = false;
     let mut index = 0_usize;
     while index < chars.len() {
         let current = at(index);
@@ -312,6 +322,7 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
             lines.push(CodeLine {
                 code: std::mem::take(&mut code),
                 lets,
+                in_indented,
             });
             if matches!(stack.last(), Some(Frame::Line)) {
                 stack.pop();
@@ -320,6 +331,10 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
                 Some(&Frame::Code { lets: open, .. }) => open,
                 _ => 1,
             };
+            // The frame the NEXT line starts in. A `${...}` inside the literal pushes a code
+            // frame, so the test is whether an `Indented` frame is open anywhere below the top -
+            // otherwise an interpolation spanning a newline would read as ordinary code.
+            in_indented = stack.iter().any(|frame| matches!(frame, Frame::Indented));
             index = index.saturating_add(1);
             continue;
         }
@@ -441,8 +456,20 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
             None => break,
         }
     }
-    lines.push(CodeLine { code, lets });
+    lines.push(CodeLine { code, lets, in_indented });
     lines
+}
+
+/// The code half of a Nix file, one `String` per line, comments and string interiors blanked.
+///
+/// `pub(crate)` for the reason [`block_attributes`] gives one screen down: `crate::warm_start`
+/// asks a different question of the same files - which of them bind `cargoArtifacts`, and which
+/// bind `preBuild` - and a second Nix reader for it would be a second reader to get wrong, three
+/// times over, since this one's own doc comment lists the three shapes that fooled the brace
+/// count it replaced. The `lets` depth stays private: it answers *is this line an attribute of
+/// the enclosing set*, which nothing outside this module asks.
+pub(crate) fn nix_code_lines(text: &str) -> Vec<String> {
+    code_lines(text).into_iter().map(|line| line.code).collect()
 }
 
 /// Every attribute at the top level of an output block.
@@ -659,39 +686,6 @@ mod tests {
         let mut found = Vec::new();
         super::collect("          nix build .#sutura -L\n", "release.yml", &mut found);
         assert!(found.is_empty());
-    }
-
-    #[test]
-    fn literal_release_outputs_are_kept_out_of_ordinary_ci() {
-        let found = super::literal_release_builds(concat!(
-            "          nix build .#checks.x86_64-linux.hygiene -L\n",
-            "          nix build .#checks.x86_64-linux.one-binary -L\n",
-            "          nix build .#sutura-serve -L\n",
-            "          nix build \".#oci\" -L\n",
-            "          nix build \".#${bin}-${TARGET}-ci\" -L\n",
-        ));
-        assert_eq!(
-            found,
-            vec![
-                (2, String::from("checks.x86_64-linux.one-binary")),
-                (3, String::from("sutura-serve")),
-                (4, String::from("oci")),
-            ]
-        );
-    }
-
-    #[test]
-    fn the_probe_manifest_is_the_one_literal_ordinary_ci_may_build() {
-        // The `cross` jobs must name it literally - that is what makes a missing manifest a failed
-        // build instead of a green run over an empty set - and it installs no `bin/`, so it cannot
-        // become a published asset. Everything else keeps failing, including a literal that merely
-        // starts the same way.
-        let found = super::literal_release_builds(concat!(
-            "          nix build \".#feature-probes-${TARGET}\" --no-link\n",
-            "          nix build .#feature-probes-x86_64-unknown-linux-musl\n",
-            "          nix build .#feature-probesque -L\n",
-        ));
-        assert_eq!(found, vec![(3, String::from("feature-probesque"))]);
     }
 
     #[test]

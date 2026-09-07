@@ -728,7 +728,7 @@ impl Capability {
     /// Every capability there is, in declaration order.
     ///
     /// Derived from [`Self::next`] rather than listed, and seeded by the one variant
-    /// [`Self::previous`] answers `None` for - which is asserted where this enum is declared rather
+    /// `previous` answers `None` for - which is asserted where this enum is declared rather
     /// than assumed by whoever reads the line.
     pub fn every() -> impl Iterator<Item = Self> {
         core::iter::successors(Some(Self::Glossary), |current| current.next())

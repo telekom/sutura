@@ -218,9 +218,12 @@ type Offender = (String, Vec<Finding>);
 pub(crate) fn run(args: &[String]) -> Verdict {
     let fix = args.iter().any(|a| a == "--fix");
 
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask text-hygiene: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::TextHygiene)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask text-hygiene: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
 
     let mut offenders: Vec<Offender> = Vec::new();

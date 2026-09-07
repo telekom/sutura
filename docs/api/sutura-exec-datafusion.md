@@ -78,6 +78,7 @@ map" send a reader to three different places.
 - `NotADate` - A day number came back that is not a date this build can represent.
 - `Shape`
 - `SchemaMismatch` - The result schema is not the one the plan's labels describe.
+- `KeyCounts` - A key probe's result was not the pair of counts its aggregate projects.
 - `MissingParam` - A predicate named a parameter index the plan does not have.
 - `NoPredicate` - A plan with no predicate at all.
 - `LegWithoutCombiner` - One leg of a federated answer, which this adapter has nothing to assemble above.
@@ -235,12 +236,13 @@ says so rather than letting this one be read as wider than it is.
 
 # Greedy, and never spilling
 
-`GreedyMemoryPool` rather than `FairSpillPool`: first come, first served, and a reservation over
-the ceiling fails immediately. `docs/adr/0009` Decision 3 decides the policy and the second of its
-two reasons is what settles it - spilling writes the **asking subject's rows** to the pod's local
-disk, a data-at-rest surface nothing in this design governs, on the one path whose whole purpose
-is that a query executes as the person who asked. A bound that protects memory by making an
-ungoverned copy of the data has not protected anything.
+`GreedyMemoryPool` rather than
+`FairSpillPool`: first come, first served, and a reservation over the ceiling fails immediately.
+`docs/adr/0009` Decision 3 decides the policy and the second of its two reasons is what settles
+it - spilling writes the **asking subject's rows** to the pod's local disk, a data-at-rest
+surface nothing in this design governs, on the one path whose whole purpose is that a query
+executes as the person who asked. A bound that protects memory by making an ungoverned copy of
+the data has not protected anything.
 
 So temporary files are **disabled** rather than left at the engine's default of an OS temporary
 directory. That is belt and braces on purpose: the pool alone would still let a spilling operator

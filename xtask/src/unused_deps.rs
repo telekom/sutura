@@ -52,7 +52,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         let Some(crate_dir) = Path::new(manifest).parent() else {
             continue;
         };
-        let identifiers = rust_identifiers_in(&root, crate_dir);
+        let identifiers = match rust_identifiers_in(&root, crate_dir) {
+            Ok(identifiers) => identifiers,
+            Err(why) => {
+                eprintln!("xtask unused-deps: FAILED - {name}: {why}");
+                return Verdict::Fail;
+            }
+        };
         let dependencies = package.get("dependencies").and_then(|d| d.as_array());
         for dependency in dependencies.into_iter().flatten() {
             let Some(dep_name) = dependency.get("name").and_then(|n| n.as_str()) else {
@@ -80,6 +86,18 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 fn report(checked: usize, findings: &[Unused]) -> Verdict {
+    // FAIL CLOSED ON AN EMPTY SCAN. `ok - 0 dependency declarations, all referenced` is a
+    // verdict about nothing, and it is the shape `github.com/telekom/sutura#371` collects: the
+    // count lived in the success line and no floor read it, so a resolver that answered with an
+    // empty package set - the wrong tree, a `--no-deps` that stopped naming dependencies - read
+    // as a clean bill. Every member of this workspace declares dependencies, so zero is the scan
+    // being broken rather than the manifests being tidy.
+    if checked == 0 {
+        eprintln!("xtask unused-deps: FAILED - cargo metadata named no dependency declaration at all");
+        eprintln!("  Nothing was judged, so nothing is attested. Check that this is the workspace root");
+        eprintln!("  and that `cargo metadata --no-deps` still reports a `dependencies` array per package.");
+        return Verdict::Fail;
+    }
     if findings.is_empty() {
         println!("xtask unused-deps: ok - {checked} dependency declarations, all referenced");
         return Verdict::Pass;
@@ -138,16 +156,22 @@ fn workspace_dependency_keys(manifest: &str) -> Vec<String> {
 /// Comments count as source, so naming a real dependency anywhere in a crate - including in
 /// a doc comment like this one - is enough to make it look used. That is why the names in
 /// this module's prose and fixtures are fictional.
-fn rust_identifiers_in(root: &Path, crate_dir: &Path) -> BTreeSet<String> {
-    let mut files = Vec::new();
-    repo::collect_files(root, crate_dir, &["rs"], &mut files);
+///
+/// Fails rather than returning a short set: this gate's whole answer is *no source names this
+/// dependency*, so a crate whose sources it could not enumerate reports every dependency as
+/// unused, and a crate it enumerated only PART of reports the rest as unused. Either way the
+/// verdict is about a tree it did not read.
+fn rust_identifiers_in(root: &Path, crate_dir: &Path) -> Result<BTreeSet<String>, String> {
+    let (_root, files) = repo::collect_files(root, crate_dir, &["rs"])
+        .into_listing(repo::Unmigrated::UnusedDeps)
+        .map_err(|why| why.describe())?;
     let mut identifiers = BTreeSet::new();
     for rel in &files {
         if let Ok(text) = std::fs::read_to_string(root.join(rel)) {
             identifiers.extend(tokenize(&text));
         }
     }
-    identifiers
+    Ok(identifiers)
 }
 
 /// Split text into maximal runs of `[A-Za-z0-9_]`.

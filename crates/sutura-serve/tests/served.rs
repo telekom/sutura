@@ -63,16 +63,56 @@ mod harness;
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc::channel;
+    use std::sync::{Arc, Barrier};
+    use std::time::Duration;
+
     use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
 
     // The harness, next door. It holds no assertion - see its own module documentation for why the
     // split moved this direction and not the other.
     use crate::harness::{
-        RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, example_root, position, question, recurring_revenue_june,
-        refused_to_start, settings_declaring_inbound, start, start_configured, v1,
+        RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, drained, example_root, position, question,
+        recurring_revenue_june, refused_to_start, settings_declaring_inbound, start, start_configured, v1,
     };
 
     // ------------------------------------------------------------------- the harness itself ---
+
+    #[test]
+    fn a_finished_process_log_is_collected_after_its_readers_finish_and_not_before() {
+        // `github.com/telekom/sutura#387` as an interleaving rather than as a rate, and it is the
+        // HARNESS under test here, not the deployment. The defect: both handles were dropped at the spawn
+        // and the channel was swept with `try_recv` once the child had been reaped. A reaped child
+        // has exited; it has not thereby been READ, and the last thing a refusing deployment writes
+        // is its refusal. So the sweep returned the log minus the one line the assertion was about
+        // and the test failed as *the deployment did not refuse the declaration it cannot serve* -
+        // a false report of leg 1 being unarmed, which is the worst wrong answer this suite has.
+        //
+        // The barrier removes the other order: the reader cannot have sent before the collection
+        // begins, because it is released on the line above the call.
+        //
+        // **The limit, next to the claim.** What separates the two behaviours after the barrier is
+        // an INJECTED DELAY, not an ordering a type holds: a collector that joins waits the 250ms
+        // out, one that drains what is already there returns empty in microseconds. Five orders of
+        // magnitude is evidence, not impossibility, and the honest way to red the old shape is the
+        // mutation - put the `drop`-and-sweep back into `drained` and this test fails every run.
+        let last = "the inbound identity declared by this deployment is not usable";
+        let (sender, lines) = channel::<String>();
+        let released = Arc::new(Barrier::new(2));
+        let waiting = Arc::clone(&released);
+        let reader = std::thread::spawn(move || {
+            waiting.wait();
+            std::thread::sleep(Duration::from_millis(250));
+            drop(sender.send(String::from(last)));
+        });
+
+        released.wait();
+        assert_eq!(
+            drained(vec![reader], &lines),
+            vec![String::from(last)],
+            "the collector swept the channel before the reader had written the process's last line"
+        );
+    }
 
     #[test]
     fn the_liveness_probe_answers_only_once_the_catalog_has_loaded() {

@@ -18,39 +18,39 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 
     **`unrun` and `wired` are tokens and not caveats, and the difference is the point.** A written
     test is not a green run, and neither is a job that will run one, so a venue in either state may
-    not be cited - and `cargo xtask check-venues` holds five things: only `yes` and `can` count as
-    answering, neither token may be used by a venue nothing reaches, the venue's own section has to
-    use whichever word its cell states, **a venue whose `Reached by` task CI invokes may not say
+    not be cited. `cargo xtask check-venues` holds it: only `yes` and `can` count as answering,
+    neither token may be used by a venue nothing reaches, the venue's own section has to use
+    whichever word its cell states, **a venue whose `Reached by` task CI invokes may not say
     `unrun`**, and **a venue whose `Reached by` task CI does not invoke may not say `wired`**. The
-    last two are one rule pointing both ways, so exactly one of the two tokens is available for any
-    given tree.
+    last two are one rule pointing both ways, so exactly one of the two is available for any tree.
 
-    **Three more, each added because review found a rule above reachable by spelling.** A venue
-    whose own `Where it runs` cell says it runs **nowhere** may not say `yes`, `can` or `wired`:
-    the two columns of a row are read together, because a `Reached by` that merely named a task was
-    otherwise enough to earn a citation for a venue that runs nowhere - and that is the row
-    carrying leg 2. A **built** venue whose `Reached by` names no `just <task>` or
-    `nix run .#<app>` in backticks is refused, because dropping that prefix made the cell resolve
-    to nothing and its verdict permanent. And *CI invokes it* reads a **command** rather than a
-    substring, because a task named inside an `echo` was resolving as an invocation.
+    **Why there are two of them rather than one.** The change that wires a leg into a job cannot
+    also produce that leg's first green run - the run happens after the push. So for one commit the
+    only moves were a cell the gate refuses and a `yes` nobody had earned, which is a gate
+    satisfiable only by an overstatement. `wired` is that commit's honest state, and it is still not
+    evidence. **Nothing expires it:** a cell can sit in `wired` for as long as nobody looks, exactly
+    as `can` could before `unrun` existed. What is mechanical is the pair of transitions around it.
 
-    **And the one that is REVIEW's, named rather than left to be discovered.** Nothing checks that
-    the task a `Reached by` cell names is the task that runs *this* venue. Measured: pointing the
-    two-keys row at `` `nix run .#actionlint` `` - a real, CI-invoked, entirely unrelated lint -
-    and leaving that cell at `wired` passes at exit 0. What the gate holds is that a venue's state
-    is consistent with what CI runs; that a row describes the thing it names is read by a person.
+    **Three more rules, each added because review found one of the above reachable by spelling.** A
+    venue whose own `Where it runs` cell says it runs **nowhere** may not say `yes`, `can` or
+    `wired`: the two columns of a row are read together, because a `Reached by` that merely named a
+    task was otherwise enough to earn a citation for a venue that runs nowhere - and that is the row
+    carrying leg 2. A **built** venue whose `Reached by` names no `just <task>` or `nix run .#<app>`
+    in backticks is refused, because dropping that prefix made the cell resolve to nothing and its
+    verdict permanent. And *CI invokes it* reads a **command** rather than a substring, because a
+    task named inside an `echo` was resolving as an invocation.
 
-    **Why there are two of them rather than one, which is a defect the fourth rule had:** the change
-    that wires a leg into a job cannot also produce that leg's first green run - the run happens
-    after the push. So for one commit the only moves were a cell the gate refuses and a `yes` nobody
-    had earned, which is a gate satisfiable only by an overstatement. `wired` is that commit's
-    honest state, and it is still not evidence.
+    **What none of it reaches, said next to it.** What is read is an *invocation* in a workflow, a
+    local composite action or the shared `nix/` shell - never a green run. A wired job that always
+    skips reads the same as one that passes, and a hand-run is invisible to both. So *`unrun` has
+    stopped being honest* and *`wired` is not yet earned* are mechanical; *`yes` is earned* is
+    review's, with the run named beside it.
 
-    **What those two rules do not reach, said next to them:** what is read is an *invocation* in a
-    workflow, a local composite action or the shared `nix/` shell - not a green run. A wired job
-    that always skips reads the same as one that passes, and a run somebody did by hand is invisible
-    to both. So *`unrun` has stopped being honest* and *`wired` is not yet earned* are mechanical;
-    *`yes` is earned* is review's, with the run named beside it.
+    **And the one that is REVIEW's alone, named rather than left to be discovered.** Nothing checks
+    that the task a `Reached by` cell names is the task that runs *this* venue. Measured: pointing
+    the two-keys row at `` `nix run .#actionlint` `` - a real, CI-invoked, entirely unrelated lint -
+    passes at exit 0. What the gate holds is that a venue's state is consistent with what CI runs;
+    that a row describes the thing it names is read by a person.
 
 ## The venues
 

@@ -20,8 +20,9 @@ use futures_util::SinkExt as _;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
-use sutura_sql::generate::generate;
+use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 use tokio_postgres::Row;
 use tokio_postgres::types::{FromSql, IsNull, ToSql, Type};
@@ -79,6 +80,16 @@ pub enum PostgresError {
     Shape {
         #[source]
         cause: MalformedRowSet,
+    },
+    /// A key probe's result was not the pair of counts its statement projects.
+    ///
+    /// A defect in the rendering or in this adapter's value mapping rather than anything about the
+    /// data - two aggregates over no group produce one row of two integers - and it travels as an
+    /// `Err` from the port, which the boot path reads as *this declaration went unchecked*.
+    #[error("the key probe did not come back as two counts")]
+    KeyCounts {
+        #[source]
+        cause: CountsNotRead,
     },
     #[error("the plan could not be rendered for Postgres")]
     Render {
@@ -583,9 +594,18 @@ impl<'a> FromSql<'a> for PgNumeric {
 /// width as `NUMERIC` either way.
 ///
 /// Limit: Postgres's `AVG` over an INTEGER column returns a fractional `NUMERIC` and so takes the
-/// text branch, where the engine reaches a float. The fix is `sutura-sql` casting a Postgres `AVG`
-/// to `float8`; no metric in the corpus averages an integer column today, so the differential can't
-/// see it.
+/// text branch, where the engine reaches a float. The fix is in `sutura-sql`, which casts a
+/// Postgres `AVG` to `DOUBLE` (`generate::avg_for_postgres`).
+///
+/// **The sentence that used to end this paragraph was stale, and it is corrected rather than
+/// deleted because the wrong version is the trap.** It read *no metric in the corpus averages an
+/// integer column today, so the differential can't see it*. Both halves are now false, and both
+/// were measured on 2026-09-06 by deleting that cast: `sutura-app::differential
+/// tests::postgres::it_agrees_with_the_engine_on_every_question` reddens on
+/// `mean-subscription-mrr-june` - *one side answered a row 1 time(s) and the other 0* - and so does
+/// `conformance::postgres::the_rows_are_the_reference_rows` on the packs' own `mean-by-day`. So the
+/// cast is held by two suites, and the class of comment worth distrusting is one that says another
+/// test cannot see something.
 fn numeric_cell(value: &PgNumeric, label: &str) -> Result<Value, PostgresError> {
     if value.is_not_finite() {
         return Err(PostgresError::NotFinite {
@@ -762,6 +782,18 @@ impl Warehouse for PostgresWarehouse {
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let query = generate(plan.plan(), Dialect::Postgres).map_err(|cause| PostgresError::Render { cause })?;
         self.run(&query).map(AnchorRows::of)
+    }
+
+    /// Counts a declared join key's values and its distinct values, in one statement.
+    ///
+    /// Overridden rather than defaulted because this adapter can ask: one aggregate scan over the
+    /// dimension table, no group, no parameter. It takes no credential, for
+    /// [`Warehouse::verify_anchor`]'s reason - there is no caller at boot - so what it establishes is
+    /// what the identity this connection was opened with can see.
+    fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
+        let query = generate_key_probe(&key, Dialect::Postgres).map_err(|cause| PostgresError::Render { cause })?;
+        let rows = self.run(&query)?;
+        KeyUniqueness::read(&rows).map_err(|cause| PostgresError::KeyCounts { cause })
     }
 }
 
