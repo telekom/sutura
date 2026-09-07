@@ -424,6 +424,29 @@ therefore does not see.
   predicate answers at, and whether it is the granularity the claim is made at** - and expect the
   verdict to hide the difference, because this one stated the SCAN's size (`one of 223 test
   file(s)`) where the evidence was 16 files for one variant and exactly 1 for the other.
+- **The UNKNOWN arm of a scan has two fail-closed spellings, and the loud one is usually wrong.**
+  Same gate, one round later. It counted a test behind an attribute it cannot evaluate -
+  `#[cfg(..)]`, `#[cfg_attr(.., ignore)]` - as RUNNING, and both spellings left its verdict
+  byte-identical to the healthy one at exit 0. The obvious remedy, routing them to that gate's
+  existing `unresolved` REFUSAL, was measured and **does not work**: such cells are live in this
+  workspace (`#[cfg(feature = "bigquery")]` and its `not(..)`), so it reddens `main`. What
+  works is the quiet arm - treat the unknown as NOT RUNNING, which removes the evidence without
+  refusing the tree. It buys that with a FALSE RED direction, since `just test` is `--all-features`
+  and such a cell does run there; that is the cheap error, and it is stated beside the claim.
+- **A gate about *what a run reaches* has to know what the run IS, and a region has to start at
+  the block.** Two more from the same round, both measured at exit 0. It read every `*.rs` git
+  publishes, including the `vendor/` tree `[workspace] exclude` keeps out of
+  `cargo nextest run --workspace`: a reach planted there was a variant's sole evidence, and the
+  vendored allocator put 10 declarations and 2 files into the counts the verdict printed - so
+  scope comes from `cargo metadata`, the way `xtask/src/fmt.rs` already derives member NAMES. And
+  its `#[ignore]`d line range started at `#[test]`, so an `#[ignore = "needs .."]` written ABOVE it
+  fell outside, and a path named in that reason read as the evidence that the test runs.
+  `#[ignore]` is legal on either side and rustfmt does not reorder attributes.
+- **A walk needs its pair at EVERY level it has one.** Third from that round: the outer loop that
+  fills the map and the inner loop over it are two walks, and a floor on the first says nothing
+  about the second. Truncating only the inner one printed `33 file(s) of test code declaring 156
+  test(s)`, both subjects reached, exit 0. Both denominators now come off the listing rather than
+  off the walk that consumes it.
 - **`nix eval` is the authority for a flake's outputs and cannot be the mechanism here.** Weighed
   and rejected once, so it does not need weighing again: `check-workflows` runs inside
   `checks.hygiene`, a derivation with no nix and no network, and evaluating `checks` needs the

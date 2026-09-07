@@ -172,7 +172,8 @@ pub(super) fn item_below<'l>(lines: &[&'l str], from: usize) -> Option<(usize, &
     }
 }
 
-/// The attributes attached to the item at 0-based `index`, as their opening lines, trimmed.
+/// The attributes attached to the item at 0-based `index`: WHERE THE BLOCK STARTS, and its
+/// opening lines, trimmed.
 ///
 /// Read TOP-DOWN over the file rather than upward from the item, which is the change: `#[ignore]`
 /// is legal on either side of `#[test]`, so both sides have to be seen - and an upward walk that
@@ -185,10 +186,17 @@ pub(super) fn item_below<'l>(lines: &[&'l str], from: usize) -> Option<(usize, &
 /// functions with no blank line between them must not share the first one's `#[ignore]`.
 /// Comments do not end a block: a doc comment between an attribute and its item is ordinary here.
 ///
+/// THE START INDEX IS RETURNED because a caller turning a block into a LINE RANGE cannot
+/// reconstruct it. The block is whatever survived the last clear, which sits ABOVE the declaring
+/// attribute whenever `#[ignore]` is written first, and a range anchored on the declaring
+/// attribute leaves every line above it outside - a measured fail-open, recorded on [`cells`].
+/// `index` itself when the block is empty, so a range built on it is never wider than the item.
+///
 /// Empty for an attribute that never closes, which is [`attribute_end`]'s refusal reaching this
 /// far: nothing is claimed about a file that does not compile.
-pub(super) fn attached<'l>(lines: &[&'l str], index: usize) -> Vec<&'l str> {
-    let mut block: Vec<&'l str> = Vec::new();
+pub(super) fn block<'l>(lines: &[&'l str], index: usize) -> (usize, Vec<&'l str>) {
+    let mut attached: Vec<&'l str> = Vec::new();
+    let mut start = index;
     let mut cursor = 0_usize;
     while cursor < index {
         let Some(trimmed) = lines.get(cursor).map(|line| line.trim()) else {
@@ -197,19 +205,49 @@ pub(super) fn attached<'l>(lines: &[&'l str], index: usize) -> Vec<&'l str> {
         if trimmed.starts_with("//") {
             cursor += 1;
         } else if trimmed.starts_with("#[") {
-            block.push(trimmed);
+            if attached.is_empty() {
+                start = cursor;
+            }
+            attached.push(trimmed);
             match attribute_end(lines, cursor) {
                 Some(last) => cursor = last + 1,
-                None => return Vec::new(),
+                None => return (index, Vec::new()),
             }
         } else {
             // A blank line or an item of its own: whatever preceded it is not attached to
             // `index`.
-            block.clear();
+            attached.clear();
+            start = index;
             cursor += 1;
         }
     }
-    block
+    (start, attached)
+}
+
+/// The attached attributes alone, for the callers that ask what a block SAYS rather than where it
+/// begins.
+pub(super) fn attached<'l>(lines: &[&'l str], index: usize) -> Vec<&'l str> {
+    block(lines, index).1
+}
+
+/// Does this attribute decide whether the item under it runs, in a way this scan cannot evaluate?
+///
+/// `#[cfg(..)]` and `#[cfg_attr(..)]` are the two, and neither is a hypothetical: this workspace
+/// writes `#[cfg(not(feature = ".."))]` and `#[cfg(feature = "..")]` directly on test cells, and
+/// the vendored allocator writes `#[cfg(all(feature = "..", target_vendor = ".."))]` on one.
+/// Evaluating them needs the feature resolution and the target of the run being asked about, and
+/// this module has neither - so the honest answer is *unknown*, and [`cells`] spends it in the
+/// direction where unknown costs a false red rather than a silent pass.
+///
+/// `#[cfg(test)]` is the one exact spelling that IS evaluable: every venue that runs a `#[test]`
+/// runs it with `cfg(test)` on, so the attribute cannot be what stops the cell. Only that
+/// spelling - `#[cfg(all(test, ..))]` is a conjunction whose other arms are unknown, which is the
+/// same limit `super::regions` states for the same reason.
+fn undecidable(opening: &str) -> bool {
+    if opening.starts_with("#[cfg_attr(") {
+        return true;
+    }
+    opening.starts_with("#[cfg(") && opening != "#[cfg(test)]"
 }
 
 /// The tests a file declares, split by whether a run in this venue reaches them.
@@ -222,9 +260,14 @@ pub(super) fn attached<'l>(lines: &[&'l str], index: usize) -> Vec<&'l str> {
 /// is what a gate scanning whole files needs and what `crate::examples` had no way to ask.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Cells {
-    /// 1-based, half-open line ranges, one per `#[ignore]`d test: the declaring attribute through
-    /// the last line of the function under it.
-    ignored: Vec<Range<usize>>,
+    /// 1-based, half-open line ranges, one per test no run here is known to reach: the first line
+    /// of its ATTRIBUTE BLOCK through the last line of the function under it.
+    ///
+    /// From the block rather than from the declaring attribute, and the difference was measured
+    /// through `crate::examples`: with `#[ignore = ".."]` written above `#[test]`, a range
+    /// anchored on the declaring attribute leaves the `#[ignore]` line itself outside, and the
+    /// gate reported the reach from the very attribute that stops the test running - exit 0.
+    unreached: Vec<Range<usize>>,
     /// Tests declared here that a run in this venue reaches.
     runs: usize,
     /// Test-declaring attributes whose item this could not resolve, so nothing may be claimed
@@ -233,21 +276,21 @@ pub(crate) struct Cells {
 }
 
 impl Cells {
-    /// Is the line at 1-based `number` inside a test no run here reaches?
-    pub(crate) fn ignores(&self, number: usize) -> bool {
-        self.ignored.iter().any(|region| region.contains(&number))
+    /// Is the line at 1-based `number` inside a test no run here is known to reach?
+    pub(crate) fn unreached(&self, number: usize) -> bool {
+        self.unreached.iter().any(|region| region.contains(&number))
     }
 
     /// Does this file declare tests of which NONE runs here?
     ///
-    /// The coarser of the two answers, and it is needed BESIDE [`Self::ignores`] rather than
+    /// The coarser of the two answers, and it is needed BESIDE [`Self::unreached`] rather than
     /// instead of it, because the two catch different halves and this repository's own evidence
     /// is the sharp case: the only line reaching `examples/multi-player` sits in a HELPER the
     /// tests call, not in a test body, so a per-line rule alone leaves `#[ignore]` on every test
     /// in that file with the reach still standing. A helper in a file where nothing runs is
     /// unreachable from this venue THROUGH THAT FILE, which is what this says.
     pub(crate) const fn nothing_runs(&self) -> bool {
-        self.runs == 0 && !self.ignored.is_empty()
+        self.runs == 0 && !self.unreached.is_empty()
     }
 
     /// Tests declared here that a run reaches - the number a caller states beside its own count.
@@ -275,16 +318,28 @@ impl Cells {
 /// comment into a blank line, which ENDS an attribute block and would lose the `#[ignore]` of any
 /// test with a doc comment under its attributes.
 ///
-/// `#[cfg_attr(.., ignore)]` IS NOT RECOGNISED, and the argument `super::scoped::is_ignored`
-/// gives for tolerating that does NOT transfer here - importing it would be the overstated
-/// control `AGENTS.md` calls a defect in itself. There, missing an `#[ignore]` puts an ignored
-/// test into a filterset and nextest exits 4 with *no tests to run*: loud. Here, missing one
-/// leaves a cell counted as running, and the caller's verdict is a silent exit 0. Measured:
-/// `#[cfg_attr(all(), ignore)]` on both cells of the one file reaching a variant leaves the
-/// verdict byte-identical to the healthy one. So the honest statement is that this form is a
-/// live hole in the direction that fails OPEN, held by review and by nothing else, and the only
-/// thing keeping it narrow is that no such spelling exists in this tree - which
-/// `git grep -n "cfg_attr" -- "*.rs"` answers and this file does not.
+/// AN UNEVALUABLE RUN-DECIDING ATTRIBUTE IS NOT RUNNING, which is the direction the caller's
+/// failure mode chooses. [`undecidable`] says which those are; the argument
+/// `super::scoped::is_ignored` gives for tolerating them does NOT transfer here, and importing it
+/// would be the overstated control `AGENTS.md` calls a defect in itself. There, missing an
+/// `#[ignore]` puts an ignored test into a filterset and nextest exits 4 with *no tests to run*:
+/// loud. Here, missing one leaves a cell counted as running and the caller's verdict is a silent
+/// exit 0. Both spellings were measured through that gate: `#[cfg_attr(all(), ignore)]` on both
+/// cells of the one file reaching a variant, and `#[cfg(feature = "..")]` on the same two, each
+/// left the verdict BYTE-IDENTICAL to the healthy one.
+///
+/// WHAT THAT COSTS, stated because it is the price and not a footnote: `just test` runs
+/// `--all-features`, so a `#[cfg(feature = "x")]` cell DOES run there and this calls it
+/// unreached. The error is a false RED - the gate asks for a reach from a test that runs
+/// unconditionally - and never a green one. Cells written that way ARE live in this workspace
+/// (`#[cfg(feature = "bigquery")]` and its `not(..)`), and none of them reaches `examples/`, so
+/// today the whole cost is a smaller declaration count in that gate's verdict. No figure here:
+/// the verdict prints the number and a copy of it rots first.
+///
+/// WHAT IT STILL DOES NOT READ: a `cfg` on an ANCESTOR. `#[cfg(feature = "x")] mod tests { .. }`
+/// puts the attribute on the module, an item resets the block, and every `#[test]` inside is
+/// counted as running. The block is a line scan, not a scope walk; closing it needs the enclosing
+/// item, which is `super::regions`' question rather than this one's.
 pub(crate) fn cells(text: &str, code: &str) -> Cells {
     let lines: Vec<&str> = text.lines().collect();
     let blanked: Vec<&str> = code.lines().collect();
@@ -313,12 +368,20 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
             found.unresolved = found.unresolved.saturating_add(1);
             continue;
         };
-        if attached(&lines, at).iter().any(|opening| opening.starts_with("#[ignore")) {
-            // From the DECLARING attribute rather than from the item, so a reach written on one of
-            // the test's own attribute lines is inside the region too.
+        let (top, attrs) = block(&lines, at);
+        if attrs
+            .iter()
+            .any(|opening| opening.starts_with("#[ignore") || undecidable(opening))
+        {
+            // FROM THE TOP OF THE BLOCK, not from the declaring attribute: `#[ignore]` is legal
+            // above `#[test]`, and every attribute line above the declaring one is then outside a
+            // region anchored on it. Measured through `crate::examples` on this tree, with the
+            // reason text naming the variant - `reached from 1 file - ..:95`, where line 95 IS the
+            // `#[ignore = ".."]` line, exit 0. `top` is the declaring attribute's own index when
+            // there is no block, so the region never widens past the item.
             found
-                .ignored
-                .push(index.saturating_add(1)..item_end(&lines, at).saturating_add(2));
+                .unreached
+                .push(top.saturating_add(1)..item_end(&lines, at).saturating_add(2));
         } else {
             found.runs = found.runs.saturating_add(1);
         }
@@ -407,7 +470,7 @@ mod tests {
             assert!(found.nothing_runs(), "{source}");
             assert_eq!(found.runs(), 0, "{source}");
             assert_eq!(found.unresolved(), 0, "{source}");
-            assert!(found.ignores(5), "a line inside the wrapped, ignored cell: {source}");
+            assert!(found.unreached(5), "a line inside the wrapped, ignored cell: {source}");
         }
         // The wrapped attribute over a cell that RUNS is still named, so the fix is the item
         // resolution rather than a rule that wrapped attributes are ignored.
@@ -420,12 +483,60 @@ mod tests {
     fn the_ignored_region_is_the_test_and_stops_at_its_closing_brace() {
         let source = "#[test]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n#[test]\nfn u() {\n    let q = 2;\n}\n";
         let found = of_file(source);
-        assert!(found.ignores(1), "the declaring attribute");
-        assert!(found.ignores(4), "the body of the ignored test");
-        assert!(found.ignores(5), "its closing brace");
-        assert!(!found.ignores(8), "the body of the one that runs");
+        assert!(found.unreached(1), "the declaring attribute");
+        assert!(found.unreached(4), "the body of the ignored test");
+        assert!(found.unreached(5), "its closing brace");
+        assert!(!found.unreached(8), "the body of the one that runs");
         assert_eq!(found.runs(), 1, "and the neighbour is still counted");
         assert!(!found.nothing_runs());
+    }
+
+    #[test]
+    fn the_region_starts_at_the_top_of_the_block_not_at_the_declaring_attribute() {
+        // MEASURED THROUGH `crate::examples` AT EXIT 0: `#[ignore]` is legal above `#[test]`, and
+        // a region anchored on the declaring attribute leaves every line above it outside - so a
+        // reach written into the `#[ignore = ".."]` reason was reported as the evidence that the
+        // test runs.
+        let above = of_file("#[ignore = \"needs a deployment\"]\n#[test]\nfn t() {\n    let p = 1;\n}\n");
+        assert!(above.unreached(1), "the `#[ignore]` line is inside the cell it describes");
+        assert!(above.unreached(2), "and so is the declaring attribute under it");
+        assert!(above.unreached(4), "and the body");
+        assert!(!above.unreached(6), "and nothing past the closing brace");
+        // A block with something ELSE at the top pulls the region up to that line too, because
+        // what the region is about is the cell, not the `#[ignore]`.
+        let decorated = of_file("#[allow(dead_code)]\n#[test]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n");
+        assert!(decorated.unreached(1), "{decorated:?}");
+        // A cell with NO block above the declaring attribute is unchanged: the region may never
+        // widen past its own item.
+        let bare = of_file("fn a() {\n    let p = 1;\n}\n#[test]\n#[ignore]\nfn t() {}\n");
+        assert!(!bare.unreached(1), "the neighbour above is not part of the cell: {bare:?}");
+        assert!(bare.unreached(4), "{bare:?}");
+    }
+
+    #[test]
+    fn an_attribute_this_cannot_evaluate_leaves_the_cell_unreached() {
+        // Both spellings were measured as a fail-OPEN through `crate::examples`, each leaving that
+        // gate's verdict byte-identical to the healthy one at exit 0. Evaluating either needs the
+        // feature resolution and the target of the run, which this module has not got, so the
+        // answer is *unknown* - spent here in the direction where unknown costs a false red.
+        for source in [
+            "#[cfg_attr(all(), ignore)]\n#[test]\nfn t() {\n    let p = 1;\n}\n",
+            "#[test]\n#[cfg_attr(unix, ignore)]\nfn t() {\n    let p = 1;\n}\n",
+            "#[cfg(feature = \"off\")]\n#[test]\nfn t() {\n    let p = 1;\n}\n",
+            "#[test]\n#[cfg(not(feature = \"on\"))]\nfn t() {\n    let p = 1;\n}\n",
+            "#[test]\n#[cfg(all(test, unix))]\nfn t() {\n    let p = 1;\n}\n",
+        ] {
+            let found = of_file(source);
+            assert!(found.nothing_runs(), "{source}");
+            assert_eq!(found.runs(), 0, "{source}");
+            assert_eq!(found.unresolved(), 0, "{source} - it resolved; it is not known to run");
+            assert!(found.unreached(4), "the body is inside the cell: {source}");
+        }
+        // The one spelling that IS evaluable: every venue that runs a `#[test]` runs it with
+        // `cfg(test)` on, so this attribute cannot be what stops the cell.
+        let evaluable = of_file("#[cfg(test)]\n#[test]\nfn t() {\n    let p = 1;\n}\n");
+        assert_eq!(evaluable.runs(), 1, "{evaluable:?}");
+        assert!(!evaluable.nothing_runs(), "{evaluable:?}");
     }
 
     #[test]
