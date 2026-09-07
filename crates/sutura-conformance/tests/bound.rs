@@ -270,10 +270,20 @@ mod location {
             .expect("this crate is inside a checkout of this repository");
         let scope = Scope::from_root(root).expect("the checkout root resolves");
 
-        let corpus_path = corpus::on_disk();
-        let written = std::fs::canonicalize(&corpus_path).expect("the corpus was written");
-        let state = std::fs::canonicalize(scope.state_dir()).expect("materialising the corpus created it");
-
+        let written = std::fs::canonicalize(corpus::on_disk()).expect("the corpus was written");
+        let declared = scope.state_dir();
+        // EXISTENCE FIRST, and with the corpus's real location in the message: materialising the
+        // corpus is what creates this directory, so an absent one means the rows went somewhere
+        // else - and `canonicalize` on a missing path reports only `NotFound`, which sends a reader
+        // looking for a filesystem problem instead of at the path they got.
+        assert!(
+            declared.is_dir(),
+            "the corpus landed at {} and this worktree's state directory {} was never created - so \
+             the rows are not under this checkout at all",
+            written.display(),
+            declared.display()
+        );
+        let state = std::fs::canonicalize(&declared).expect("it is a directory");
         assert!(
             written.starts_with(&state),
             "the corpus is at {} and this worktree's state is {} - a path outside it is reachable \

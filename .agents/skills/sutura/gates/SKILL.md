@@ -611,6 +611,34 @@ therefore does not see.
   they buy is that a commented-OUT line is not one - which is the whole property a wiring assertion
   needs, and nothing more.
 
+**A PATH WITH NO KEY IN IT IS ONE PATH FOR EVERY CHECKOUT ON THE MACHINE, and the failure is a
+confident wrong verdict rather than an error.** `telekom/sutura#405` collected six collisions
+measured in one day; the transferable part is the shape of the argument that hid the live one.
+`sutura-conformance` renamed its corpus onto `<temp_dir>/sutura-conformance/<table>.csv` and the
+comment beside it said *the bytes are identical either side of the rename* - **true per tree, false
+per machine**. Reproduced 2026-09-07 with two worktrees, each running its own `on_disk`, one row
+differing by one cent: the `DuckDB` binding failed two cases as CONTENT faults naming this
+repository's own corpus, while the run that overwrote the file was green. The window is wide because
+`attach_csv` builds a VIEW over `read_csv_auto`, so the bytes are read at QUERY time and the view
+holds only the path.
+
+Three things worth carrying:
+
+- **The default is under the worktree, not keyed under a shared root.** `Scope::state_dir()` needs no
+  key because the tree IS the key. `Scope::scratch(purpose)` exists for one reason - a unix socket
+  path caps around 100 bytes, so a server cannot sit under a deep worktree - and it is a NAME rather
+  than an allocation, the same asymmetry `dev/src/scope.rs` argues for naming over ports.
+- **The first segment below the root is the question.** That corpus DID carry the process id, in the
+  staged file it renamed away from, so a rule asking *is a key anywhere near this* would have passed
+  the very defect it was written for. `cargo xtask check-worktree-state` reads the first `.join`
+  argument and nothing deeper.
+- **A `/tmp/` literal cannot be judged from a line, and the measurement is why the gate does not
+  try.** Every rooted literal in this workspace is a fixture value that never reaches a filesystem
+  - `cargo xtask check-worktree-state` prints the count, so no figure is copied here;
+  a rule reddening them would redden correct work, so the gate reads the STATEMENT for a filesystem
+  mutation and answers `Unwritten` where there is none. What that does not reach is a mutation
+  laundered into a helper - stated at the variant rather than left to be found.
+
 ## The causality gate, and how it can lie
 
 `just causality` proves red-before-green by reverting changed files that **added no test** and

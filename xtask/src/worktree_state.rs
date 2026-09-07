@@ -302,7 +302,7 @@ fn explain() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Inspected, Keyed, Taking};
+    use super::{Inspected, Keyed, Taking, scan};
 
     /// A taking, as a value, so the witness can be tested without a tree.
     fn taking(line: usize) -> Taking {
@@ -361,6 +361,59 @@ mod tests {
         assert_eq!(shared.len(), 2);
         assert_eq!(shared.iter().map(|t| t.line).collect::<Vec<usize>>(), vec![1, 7]);
         assert_eq!(witness.by_holder(), vec![("nothing", 2), ("unwritten", 1)]);
+    }
+
+    #[test]
+    fn the_falsifier_tree_violates_this_gate_s_own_rule() {
+        // PROPERTY 4 OF `telekom/sutura#405`, AND THE HALF THE FALSIFIER TEST CANNOT SEE. That test
+        // reads an EXIT CODE, so it cannot tell a gate refusing because it found a violation from
+        // one refusing because its input was missing - and over that tree only three of the
+        // thirty-three manage the first. Delete `nix/shared-scratch.sh` from
+        // `crate::falsifier::falsifier_tree` and this gate still exits 1, on the empty-scope arm,
+        // with the falsifier test green: measured, and that is the mutation this cell reddens.
+        //
+        // It reads the seed through the constructor rather than naming the path a second time, so a
+        // renamed seed is still this cell's subject. No `set_current_dir` - that is process-global,
+        // and the falsifier test's own header records eleven siblings breaking on it.
+        let tree = crate::falsifier::falsifier_tree();
+        let mut found = Vec::new();
+        let mut in_scope = 0_usize;
+        for entry in walk(&tree) {
+            let Some(rel) = entry.strip_prefix(&tree).ok().and_then(|p| p.to_str()) else {
+                continue;
+            };
+            let Some(language) = scan::language_of(rel) else {
+                continue;
+            };
+            in_scope = in_scope.saturating_add(1);
+            let text = std::fs::read_to_string(&entry).expect("the seed is readable");
+            found.extend(scan::takings(rel, language, &text));
+        }
+        drop(std::fs::remove_dir_all(&tree));
+
+        assert!(in_scope > 0, "the falsifier tree holds no file in this gate's scope");
+        assert!(
+            found.iter().any(|(_, keyed)| keyed.is_shared()),
+            "the falsifier tree carries no violation of this gate's own rule, so its refusal there \
+             would come from a missing input: {found:?}"
+        );
+    }
+
+    /// Every file under `dir`, recursively. Small on purpose: the falsifier tree is four files.
+    fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return out;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(walk(&path));
+            } else {
+                out.push(path);
+            }
+        }
+        out
     }
 
     #[test]

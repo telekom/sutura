@@ -27,10 +27,12 @@
 //! directory, so whatever it is narrowed by is the whole of what separates two checkouts.
 //!
 //! A **literal taking** - a path spelled `/tmp/...` - is not, and the difference was measured
-//! before this gate was written: of the 19 such literals in this workspace, every single one is a
-//! FIXTURE VALUE that never reaches a filesystem (`Isolated::for_a_wiring_test(Path::new("/tmp/
-//! root"), ..)`, `CredentialFile::at(..)`, two `Principals::of(..)` arguments). A rule that
-//! reddened those would redden correct work, and a gate that reddens correct work gets disabled. So
+//! before this gate was written: every one of the rooted literals in this workspace is a FIXTURE
+//! VALUE that never reaches a filesystem (`Isolated::for_a_wiring_test(Path::new("/tmp/root"), ..)`,
+//! `CredentialFile::at(..)`, two `Principals::of(..)` arguments, and this module's own root list).
+//! The gate's own verdict is the count, so no number is written here - `cargo xtask
+//! check-worktree-state` prints it beside the other holders. A rule that reddened all of them would
+//! redden correct work, and a gate that reddens correct work gets disabled. So
 //! the literal class is READ rather than assumed: [`Keyed::Unwritten`] is the answer for a literal
 //! whose statement names no filesystem mutation, and it is a reading of the statement rather than a
 //! declaration somebody wrote. What it does not reach is a mutation laundered into a helper, which
@@ -330,34 +332,61 @@ fn balanced(inside: &str) -> Option<String> {
     None
 }
 
-/// Whose key a segment names, resolving a bare identifier through its binding ONE hop.
+/// How far a name is followed to the value that keys it.
 ///
-/// One hop and not a fixpoint: `let unique = format!("..{}", process::id()); temp_dir().join(unique)`
-/// is the shape this workspace writes, and a chain longer than that is a shape nobody writes here.
-/// A deeper chain reads as unkeyed, which is the safe direction - it asks for the key to be moved
-/// next to the taking rather than reporting a green over a path nothing narrows.
+/// **Bounded, and the bound is what the tree needs plus one.** The Rust shape is one hop -
+/// `let unique = format!("..{}", process::id()); temp_dir().join(unique)` - and the shell shape is
+/// two, because a tier derives `key` from `root` and `root` from `pwd -P`. A chain longer than this
+/// reads as UNKEYED, which is the safe direction: it asks for the key to be moved nearer the taking
+/// rather than reporting a green over a path nothing visibly narrows.
+const MAX_HOPS: usize = 4;
+
+/// Whose key a segment names, following a name to its binding up to [`MAX_HOPS`] times.
+///
+/// A visited set as well as a bound, because `a=$b; b=$a` is a cycle a text scan can be handed and
+/// a gate that loops on it is a gate that hangs - which `sutura/gates` records as the most
+/// expensive failure mode a check has.
 fn adjudicate(language: Language, segment: &str, at: usize, bindings: &Bindings) -> Keyed {
     if segment.trim().is_empty() {
         return Keyed::Shared;
     }
-    if let Some(direct) = keyed_by(segment) {
-        return direct;
+    let mut current = String::from(segment);
+    let mut seen: Vec<String> = Vec::new();
+    for _ in 0..MAX_HOPS {
+        if let Some(direct) = keyed_by(&current) {
+            return direct;
+        }
+        let Some(name) = referenced_name(language, &current) else {
+            return Keyed::Shared;
+        };
+        if seen.contains(&name) {
+            return Keyed::Shared;
+        }
+        let Some(value) = bindings.resolve(&name, at) else {
+            return Keyed::Shared;
+        };
+        seen.push(name);
+        current = value;
     }
-    let Some(name) = referenced_name(language, segment) else {
-        return Keyed::Shared;
-    };
-    bindings
-        .resolve(&name, at)
-        .and_then(|value| keyed_by(&value))
-        .unwrap_or(Keyed::Shared)
+    Keyed::Shared
 }
 
 /// What a piece of text names outright, with no binding to follow.
 fn keyed_by(text: &str) -> Option<Keyed> {
-    /// The spellings that name the worktree's own key. `Scope` and its two derivations, and the
-    /// digest itself - deliberately NOT the bare word `scope`, which appears in
-    /// `sutura-scope-<pid>` and would have reported a process key as a worktree one.
-    const WORKTREE: &[&str] = &["digest", "Scope::", "state_dir", "scratch", "STATE_DIR"];
+    /// The spellings that name the worktree's own key, in either language. `Scope` and its two
+    /// derivations plus the digest for Rust - deliberately NOT the bare word `scope`, which appears
+    /// in `sutura-scope-<pid>` and would have reported a process key as a worktree one - and, for
+    /// shell, the two ways a script can learn where it is: `pwd -P` and `git rev-parse
+    /// --show-toplevel`. Those two are what the tiers already derive their key from.
+    const WORKTREE: &[&str] = &[
+        "digest",
+        "Scope::",
+        "state_dir",
+        "scratch",
+        "STATE_DIR",
+        "pwd -P",
+        "show-toplevel",
+    ];
     /// The spellings that name this process. `mktemp` and a scoped temporary directory allocate
     /// rather than derive, which is a stronger answer than a key and reads as this one.
     const PROCESS: &[&str] = &["process::id", "mktemp", "TempDir", "tempdir", "$$"];
@@ -393,13 +422,20 @@ fn referenced_name(language: Language, segment: &str) -> Option<String> {
             is_ident.then(|| String::from(ident))
         }
         Language::Shell => {
-            let rest = segment.split_once('$')?.1;
-            let name: String = rest
-                .trim_start_matches('{')
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                .collect();
-            (!name.is_empty()).then_some(name)
+            // THE FIRST `$` IS NOT ALWAYS A VARIABLE, and getting that wrong is what made the real
+            // tier's shape read as unkeyed: `key="$(printf '%s' "$root" | cksum ..)"` opens with a
+            // command substitution, so `$(` yielded an empty name and the chain stopped one hop
+            // short of `pwd -P`. Every `$` is tried, in order, and the first that names something
+            // wins.
+            segment.match_indices('$').find_map(|(at, _)| {
+                let rest = segment.get(at.saturating_add(1)..)?;
+                let name: String = rest
+                    .trim_start_matches('{')
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                (!name.is_empty()).then_some(name)
+            })
         }
     }
 }
@@ -543,28 +579,257 @@ fn rooted_literals(text: &str) -> Vec<RootedLiteral> {
 mod tests {
     use super::{Keyed, Language, language_of, offered, takings};
 
-    /// Rust source, as a MULTI-LINE literal.
-    ///
-    /// **The shape is the point, not decoration.** `crate::serde_parse::scan::code_lines` blanks
-    /// the interior of a string that spans lines, so a fixture written this way is invisible to the
-    /// gate scanning its own source - which is what lets this module hold its own needle without
-    /// reporting itself. `sutura/gates` records the inverse for all three of this workspace's
-    /// lexers: a needle inside a SINGLE-line string on a live line IS a live anchor.
-    fn rust(lines: &[&str]) -> String {
-        let mut text = String::new();
-        for line in lines {
-            text.push_str(line);
-            text.push('\n');
-        }
-        text
-    }
-
     /// The one answer for a fixture with exactly one taking.
+    ///
+    /// It asserts the two sides of the per-taking conservation law agree on the fixture as well,
+    /// so a fixture that the loop and the count read differently is a failure here rather than a
+    /// surprise in the verdict.
     fn only(language: Language, text: &str) -> Keyed {
         let found = takings("crates/x/src/lib.rs", language, text);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(offered(language, text), 1, "the two sides disagree: {found:?}");
         found.first().map(|(_, keyed)| *keyed).expect("one taking")
+    }
+
+    /// EVERY FIXTURE BELOW IS ONE MULTI-LINE RAW STRING, AND THAT IS LOAD-BEARING RATHER THAN
+    /// STYLE. `crate::serde_parse::scan::code_lines` blanks the interior of a string that spans
+    /// lines, so a fixture written this way is invisible to the gate scanning its own source -
+    /// which is what lets this module hold its own needle without reporting itself. Measured on the
+    /// way in: with these fixtures written as arrays of single-line literals, the gate reported 8
+    /// violations in this file, because `sutura/gates` states for all three of this workspace's
+    /// lexers that a needle inside a SINGLE-line string on a live line IS a live anchor.
+    #[test]
+    fn a_purpose_with_no_key_is_the_defect_this_gate_was_written_for() {
+        // `telekom/sutura#405`'s instance 1, verbatim in shape: a directory named for what it holds
+        // and for nothing that says WHOSE it is. Reproduced with two worktrees on 2026-09-07 - see
+        // `super`'s header.
+        let text = r#"
+fn materialise() -> PathBuf {
+    let dir = std::env::temp_dir().join("sutura-conformance");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn a_key_in_the_leaf_does_not_key_the_directory() {
+        // THE HALF THAT WOULD HAVE MISSED THE INSTANCE. `materialise` DID carry the process id - in
+        // the staged file it renamed away from - so a rule that asked *is a key anywhere near this*
+        // would have passed the very defect. The first segment below the root is the whole question,
+        // because that segment is one directory for every checkout on the machine.
+        let text = r#"
+fn materialise() -> PathBuf {
+    let dir = std::env::temp_dir().join("sutura-conformance");
+    let staged = dir.join(format!("rows.{}.csv", std::process::id()));
+    std::fs::write(&staged, ROWS).unwrap();
+    staged
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn a_taking_narrowed_by_nothing_is_shared() {
+        // `let at = std::env::temp_dir();` with the `join` ten lines down, which is the shape
+        // `xtask/src/compose/docker/bounded.rs` had. The gate does not guess: it reports the taking
+        // and the remedy says to put the key in the same statement.
+        let text = r#"
+fn new() -> Self {
+    let at = std::env::temp_dir();
+    Self { stdout: at.join(format!("{unique}.out")) }
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn the_process_id_in_the_first_segment_keys_it() {
+        let text = r#"
+fn scratch() -> PathBuf {
+    std::env::temp_dir().join(format!("sutura-x-{}", std::process::id()))
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Process);
+    }
+
+    #[test]
+    fn the_worktree_digest_in_the_first_segment_keys_it() {
+        let text = r#"
+pub fn scratch(&self, purpose: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("sutura-{}-{purpose}", self.digest))
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Worktree);
+    }
+
+    #[test]
+    fn a_key_bound_through_a_chain_is_followed_as_far_as_the_bound_and_no_further() {
+        // One hop is the Rust shape - `let unique = format!(..id()); ..join(unique)` - and two is
+        // the shell one, so the bound is what the tree needs plus one. Both directions, because a
+        // resolver with no bound is a resolver that can be handed a cycle.
+        let one_hop = r#"
+fn new() -> Self {
+    let unique = format!("sutura-compose-{}", std::process::id());
+    let at = std::env::temp_dir().join(unique);
+    Self { at }
+}
+"#;
+        assert_eq!(only(Language::Rust, one_hop), Keyed::Process);
+
+        // Past the bound: five names between the taking and the key.
+        let too_far = r#"
+fn new() -> Self {
+    let e = format!("sutura-{}", std::process::id());
+    let d = e;
+    let c = d;
+    let b = c;
+    let a = b;
+    let at = std::env::temp_dir().join(a);
+    Self { at }
+}
+"#;
+        assert_eq!(only(Language::Rust, too_far), Keyed::Shared);
+    }
+
+    #[test]
+    fn a_cyclic_binding_answers_rather_than_looping() {
+        // A text scan can be handed `a = b; b = a`. A gate that loops on it hangs, which
+        // `sutura/gates` records as the most expensive failure mode a check has - so the resolver
+        // carries a visited set as well as a bound, and this is the cell that would hang without it.
+        // A plain string rather than a raw one, because it holds no quote - and still MULTI-LINE,
+        // which is the property that keeps it invisible to the gate scanning this file.
+        let text = "
+fn new() -> Self {
+    let a = b;
+    let b = a;
+    let at = std::env::temp_dir().join(a);
+    Self { at }
+}
+";
+        assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn a_binding_written_after_the_taking_does_not_key_it() {
+        // `Bindings::resolve` takes the most recent binding BEFORE the taking, because a later one
+        // cannot have keyed an earlier path - and *any binding of that name anywhere* is the
+        // permissive answer that would pass this fixture.
+        let text = r#"
+fn new() -> Self {
+    let at = std::env::temp_dir().join(unique);
+    let unique = format!("sutura-{}", std::process::id());
+    Self { at }
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn a_comment_is_not_a_taking() {
+        // `dev/src/discovery.rs` and `dev/src/provisioned.rs` each hand the shared root to
+        // `Scope::from_root` inside a DOCTEST, to prove nothing is provisioned there. Those are
+        // prose, and this is the assertion that they are - it is also the limit, stated at the
+        // module header: a doctest that really wrote to a shared path is invisible here.
+        let text = r#"
+/// let dir = std::env::temp_dir().join("whatever");
+fn nothing() {}
+"#;
+        assert!(takings("dev/src/discovery.rs", Language::Rust, text).is_empty());
+        assert_eq!(offered(Language::Rust, text), 0);
+    }
+
+    #[test]
+    fn a_path_literal_in_a_statement_that_writes_is_shared_and_one_that_does_not_is_read() {
+        // THE MEASURED SPLIT. Every rooted literal in this workspace is a fixture value that never
+        // reaches a filesystem, so a rule reddening all of them would redden correct work - and a
+        // gate that reddens correct work gets disabled. Both directions here, because either alone
+        // is satisfied by a gate that answers one way always.
+        let written = r#"
+fn go() {
+    std::fs::create_dir_all("/tmp/sutura-shared").unwrap();
+}
+"#;
+        assert_eq!(only(Language::Rust, written), Keyed::Shared);
+
+        let read = r#"
+fn go() {
+    assert_eq!(one.dir(), Path::new("/tmp/tree"));
+}
+"#;
+        assert_eq!(only(Language::Rust, read), Keyed::Unwritten);
+    }
+
+    #[test]
+    fn an_escaped_literal_inside_a_literal_is_not_a_taking() {
+        // `xtask/src/examples.rs` carries exactly this: an outer fixture string whose body contains
+        // an escaped inner path. There is no inner literal for the compiler and there is none here
+        // either - which a `contains` would have got wrong, and which the workspace's own literal
+        // lexer gets right.
+        let text = "fn go() {\n    let fixture = \"let p = \\\"/tmp/s/x.json\\\";\";\n}\n";
+        assert!(takings("xtask/src/examples.rs", Language::Rust, text).is_empty());
+        assert_eq!(offered(Language::Rust, text), 0);
+    }
+
+    #[test]
+    fn a_shell_path_with_no_key_is_shared_and_one_derived_from_the_worktree_is_not() {
+        // `nix/*.sh` runs on the developer's own machine, so a path one of them writes is exactly as
+        // shared as a Rust one. `telekom/sutura#405`'s instance 2 is a log path of this shape.
+        let bare = r#"
+#!/usr/bin/env bash
+log="/tmp/shipcheck.log"
+echo hi >"$log"
+"#;
+        assert_eq!(only(Language::Shell, bare), Keyed::Shared);
+
+        // The real tier's shape: two hops from the path to `pwd -P`. A word that names the root
+        // TWICE - `${TMPDIR:-/tmp}`, the variable and its default - is two takings, because the unit
+        // is an ACT and that word performs the acquisition two ways; both are adjudicated, and the
+        // conservation law counts acts rather than lines for exactly this reason.
+        let keyed = r#"
+root="$(pwd -P)"
+key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
+pg="${TMPDIR:-/tmp}/sutura-pg-$key"
+"#;
+        let found = takings("nix/postgres.sh", Language::Shell, keyed);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(offered(Language::Shell, keyed), 2);
+        assert!(
+            found.iter().all(|(_, answer)| !answer.is_shared()),
+            "a worktree-derived key must not read as shared: {found:?}"
+        );
+        assert!(found.iter().any(|(_, answer)| *answer == Keyed::Worktree), "{found:?}");
+
+        let by_process = r#"
+scratch="$TMPDIR/sutura-$$"
+"#;
+        assert_eq!(only(Language::Shell, by_process), Keyed::Process);
+    }
+
+    #[test]
+    fn a_commented_out_shell_line_is_not_a_taking() {
+        let text = r#"
+# log="/tmp/shipcheck.log"
+echo hi
+"#;
+        assert!(takings("nix/run-gate.sh", Language::Shell, text).is_empty());
+        assert_eq!(offered(Language::Shell, text), 0);
+    }
+
+    #[test]
+    fn two_takings_on_one_line_are_two() {
+        // The unit is a TAKING, so a line holding two is two - `crate::warm_start::pairing`'s rule
+        // one directory over, and the reason the conservation law counts occurrences rather than
+        // lines.
+        let text = r#"
+fn go() {
+    let pair = (std::env::temp_dir().join("a"), std::env::temp_dir().join("b"));
+}
+"#;
+        let found = takings("crates/x/src/lib.rs", Language::Rust, text);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(offered(Language::Rust, text), 2);
     }
 
     #[test]
@@ -574,189 +839,10 @@ mod tests {
         assert_eq!(language_of("dev/src/scope.rs"), Some(Language::Rust));
         assert_eq!(language_of("nix/with-tier.sh"), Some(Language::Shell));
         // OUT of scope, each for its own reason: a `.nix` file cannot be told apart from a
-        // derivation's private `$TMPDIR` by text (the gate's stated limit), a script outside
-        // `nix/` is not a gate, and a page is prose.
+        // derivation's private temporary directory by text (the gate's stated limit), a script
+        // outside `nix/` is not a gate, and a page is prose.
         assert_eq!(language_of("nix/postgres-tier.nix"), None);
         assert_eq!(language_of("docs/publish.sh"), None);
         assert_eq!(language_of("AGENTS.md"), None);
-    }
-
-    #[test]
-    fn a_purpose_with_no_key_is_the_defect_this_gate_was_written_for() {
-        // `telekom/sutura#405`'s instance 1, verbatim in shape: a directory named for what it
-        // holds and for nothing that says WHOSE it is. Reproduced with two worktrees on
-        // 2026-09-07 - see `super`'s header.
-        let text = rust(&[
-            "fn materialise() {",
-            "    let dir = std::env::temp_dir().join(\"sutura-conformance\");",
-            "    std::fs::create_dir_all(&dir).unwrap();",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &text), Keyed::Shared);
-    }
-
-    #[test]
-    fn a_key_in_the_leaf_does_not_key_the_directory() {
-        // THE HALF THAT WOULD HAVE MISSED THE INSTANCE. `materialise` DID carry the process id -
-        // in the staged file it renamed away from - so a rule that asked "is a key anywhere near
-        // this" would have passed the very defect. The first segment below the root is the whole
-        // question, because that segment is one directory for every checkout on the machine.
-        let text = rust(&[
-            "fn materialise() {",
-            "    let dir = std::env::temp_dir().join(\"sutura-conformance\");",
-            "    let staged = dir.join(format!(\"rows.{}.csv\", std::process::id()));",
-            "    std::fs::write(&staged, ROWS).unwrap();",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &text), Keyed::Shared);
-    }
-
-    #[test]
-    fn a_taking_narrowed_by_nothing_is_shared() {
-        // `let at = std::env::temp_dir();` with the `join` ten lines down. The gate does not guess:
-        // it reports the taking and the remedy says to put the key in the same statement.
-        let text = rust(&["fn new() {", "    let at = std::env::temp_dir();", "}"]);
-        assert_eq!(only(Language::Rust, &text), Keyed::Shared);
-    }
-
-    #[test]
-    fn the_process_id_in_the_first_segment_keys_it() {
-        let text = rust(&[
-            "fn scratch() {",
-            "    let dir = std::env::temp_dir().join(format!(\"sutura-x-{}\", std::process::id()));",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &text), Keyed::Process);
-    }
-
-    #[test]
-    fn the_worktree_digest_in_the_first_segment_keys_it() {
-        let text = rust(&[
-            "fn scratch(&self, purpose: &str) -> PathBuf {",
-            "    std::env::temp_dir().join(format!(\"sutura-{}-{purpose}\", self.digest))",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &text), Keyed::Worktree);
-    }
-
-    #[test]
-    fn a_key_bound_one_hop_away_is_followed_and_two_hops_is_not() {
-        // One hop is the shape this workspace writes - `let unique = format!(..id()); ..join(unique)`
-        // - and a longer chain reads as unkeyed, which is the safe direction: it asks for the key
-        // to move next to the taking rather than reporting green over a path nothing narrows.
-        let one_hop = rust(&[
-            "fn new() {",
-            "    let unique = format!(\"sutura-compose-{}\", std::process::id());",
-            "    let at = std::env::temp_dir().join(unique);",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &one_hop), Keyed::Process);
-
-        let two_hops = rust(&[
-            "fn new() {",
-            "    let inner = format!(\"sutura-compose-{}\", std::process::id());",
-            "    let unique = inner;",
-            "    let at = std::env::temp_dir().join(unique);",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &two_hops), Keyed::Shared);
-    }
-
-    #[test]
-    fn a_binding_written_after_the_taking_does_not_key_it() {
-        // `Bindings::resolve` takes the most recent binding BEFORE the taking, because a later one
-        // cannot have keyed an earlier path - and *any binding of that name anywhere* is the
-        // permissive answer that would pass this fixture.
-        let text = rust(&[
-            "fn new() {",
-            "    let at = std::env::temp_dir().join(unique);",
-            "    let unique = format!(\"sutura-{}\", std::process::id());",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &text), Keyed::Shared);
-    }
-
-    #[test]
-    fn a_comment_is_not_a_taking() {
-        // `dev/src/discovery.rs` and `dev/src/provisioned.rs` each hand the shared root to
-        // `Scope::from_root` inside a DOCTEST, to prove nothing is provisioned there. Those are
-        // prose, and this is the assertion that they are - it is also the limit, stated at the
-        // module header: a doctest that really wrote to a shared path is invisible here.
-        let text = rust(&["/// let dir = std::env::temp_dir().join(\"whatever\");", "fn nothing() {}"]);
-        assert!(takings("dev/src/discovery.rs", Language::Rust, &text).is_empty());
-        assert_eq!(offered(Language::Rust, &text), 0);
-    }
-
-    #[test]
-    fn a_path_literal_in_a_statement_that_writes_is_shared_and_one_that_does_not_is_read() {
-        // THE MEASURED SPLIT. All 19 rooted literals in this workspace are fixture values that
-        // never reach a filesystem, so a rule reddening every one of them would redden correct
-        // work - and a gate that reddens correct work gets disabled. Both directions here, because
-        // either alone is satisfied by a gate that answers one way always.
-        let written = rust(&[
-            "fn go() {",
-            "    std::fs::create_dir_all(\"/tmp/sutura-shared\").unwrap();",
-            "}",
-        ]);
-        assert_eq!(only(Language::Rust, &written), Keyed::Shared);
-
-        let read = rust(&["fn go() {", "    assert_eq!(one.dir(), Path::new(\"/tmp/tree\"));", "}"]);
-        assert_eq!(only(Language::Rust, &read), Keyed::Unwritten);
-    }
-
-    #[test]
-    fn an_escaped_literal_inside_a_literal_is_not_a_taking() {
-        // `xtask/src/examples.rs` carries exactly this: an outer fixture string whose body contains
-        // an escaped `\"/tmp/..\"`. There is no inner literal for the compiler and there is none
-        // here either - which a `contains` would have got wrong, and which the workspace's own
-        // literal lexer gets right.
-        let text = rust(&["fn go() {", "    let fixture = \"let p = \\\"/tmp/s/x.json\\\";\";", "}"]);
-        assert!(takings("xtask/src/examples.rs", Language::Rust, &text).is_empty());
-        assert_eq!(offered(Language::Rust, &text), 0);
-    }
-
-    #[test]
-    fn a_shell_path_with_no_key_is_shared_and_one_derived_from_the_worktree_is_not() {
-        // `nix/*.sh` runs on the developer's own machine, so a path one of them writes is exactly
-        // as shared as a Rust one. `telekom/sutura#405`'s instance 2 is a log path of this shape.
-        let bare = rust(&["#!/usr/bin/env bash", "log=\"/tmp/shipcheck.log\""]);
-        assert_eq!(only(Language::Shell, &bare), Keyed::Shared);
-
-        let keyed = rust(&[
-            "root=\"$(pwd -P)\"",
-            "key=\"$(printf '%s' \"$root\" | cksum | cut -d' ' -f1)\"",
-            "pg=\"${TMPDIR:-/tmp}/sutura-pg-$key\"",
-        ]);
-        let found = takings("nix/postgres.sh", Language::Shell, &keyed);
-        assert!(
-            found.iter().all(|(_, answer)| !answer.is_shared()),
-            "a worktree-derived key must not read as shared: {found:?}"
-        );
-        assert!(found.iter().any(|(_, answer)| *answer == Keyed::Worktree), "{found:?}");
-
-        let by_process = rust(&["scratch=\"$TMPDIR/sutura-$$\""]);
-        assert_eq!(only(Language::Shell, &by_process), Keyed::Process);
-    }
-
-    #[test]
-    fn a_commented_out_shell_line_is_not_a_taking() {
-        let text = rust(&["# log=\"/tmp/shipcheck.log\"", "echo hi"]);
-        assert!(takings("nix/run-gate.sh", Language::Shell, &text).is_empty());
-        assert_eq!(offered(Language::Shell, &text), 0);
-    }
-
-    #[test]
-    fn two_takings_on_one_line_are_two() {
-        // The unit is a TAKING, so a line holding two is two - `crate::warm_start::pairing`'s rule
-        // one directory over, and the reason the conservation law counts occurrences rather than
-        // lines.
-        let text = rust(&[
-            "fn go() {",
-            "    let pair = (std::env::temp_dir().join(\"a\"), std::env::temp_dir().join(\"b\"));",
-            "}",
-        ]);
-        let found = takings("crates/x/src/lib.rs", Language::Rust, &text);
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert_eq!(offered(Language::Rust, &text), 2);
     }
 }
