@@ -2754,9 +2754,24 @@ An adapter that compares the two witnesses fails here if a fixture opened it any
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">on_disk</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
 </span></code></pre></div>
 <p>The corpus on a filesystem, written once per process, as the path a fixture attaches.</p>
-<p>Written under a per-process temporary name and RENAMED onto the shared one, so two adapters'
-fixtures running in one process cannot read a half-written file. The bytes are identical either
-side of the rename, so a reader that saw the old file saw the same corpus.</p>
+<p><strong>Inside THIS WORKTREE, and that is the whole of <code>telekom/sutura#405</code>'s first instance.</strong> It
+used to land on <code>&lt;temp_dir&gt;/sutura-conformance/&lt;table&gt;.csv</code> - a purpose and no key - and the
+argument for the rename below was <em>the bytes are identical either side</em>, which is true per TREE
+and not per machine. Reproduced on 2026-09-07 with two worktrees of this repository, each
+running its own <code>on_disk</code>, one row differing: the <code>DuckDB</code> binding failed
+<code>total-by-region-and-day</code> and <code>total-by-region-and-day-as-a-leg</code> as content faults naming this
+corpus's own cases, while the run that overwrote the file was green. The window is wide because
+<code>attach_csv</code> makes a VIEW over <code>read_csv_auto</code>, so the file is read at QUERY time; the Postgres
+binding reads it seven times per binding at LOAD time.</p>
+<p>A path under the worktree needs no key, because the worktree is the key - the same answer
+<code>sutura_dev::scope::Scope::state_dir</code> gives, and <code>tests/bound.rs</code> pins the two spellings
+together against that type rather than leaving a comment claiming they agree. This crate may not
+reach <code>sutura-dev</code> through a normal dependency (<code>xtask/src/boundaries/harness.rs</code>), so the
+SPELLING is duplicated and the AGREEMENT is mechanical.</p>
+<p>Written under a per-process temporary name and RENAMED onto the shared one, which is still
+needed and now means something narrower: <code>nextest</code> gives each test its own process, so several
+processes of THIS worktree write this path at once, and a reader must not see a half-written
+file. Those processes write identical bytes - which is the claim the old path could not make.</p>
 <h3 id="fn-cases"><code>fn cases</code><a class="headerlink" href="#fn-cases" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cases</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Case</span><span class="o">&gt;</span>
 </span></code></pre></div>

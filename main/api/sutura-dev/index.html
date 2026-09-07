@@ -3007,13 +3007,30 @@ teardown contract on <code>SERVICES</code> is about the two of them agreeing.</p
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The canonical worktree root.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-80-1"><a id="__codelineno-80-1" name="__codelineno-80-1" href="#__codelineno-80-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-80-1"><a id="__codelineno-80-1" name="__codelineno-80-1" href="#__codelineno-80-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scratch</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">purpose</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+</span></code></pre></div>
+<p>This worktree's own subtree of the machine-shared temporary root, for one <code>purpose</code>.</p>
+<p><strong>The one derivation of a keyed path under a shared root</strong>, and the only reason it exists
+beside <code>Scope::state_dir</code> is LENGTH: a unix socket path caps around 100 bytes on macOS, so
+a server cannot sit under an arbitrarily deep worktree. Everything that does not have that
+constraint belongs under the worktree, where the tree is the key and there is nothing to
+derive.</p>
+<p><code>purpose</code> namespaces two writers in one worktree from each other; the digest namespaces two
+worktrees from one another. Both are needed and neither substitutes: a purpose alone is the
+defect <code>telekom/sutura#405</code> collects - <code>&lt;temp_dir&gt;/sutura-conformance/&lt;table&gt;.csv</code> carried a
+purpose and no key, so a second checkout of this repository was a second WRITER of it.</p>
+<p><strong>What this does NOT give you.</strong> It is a NAME, not an allocation - the same asymmetry this
+module's header states for ports. Two worktrees whose canonical paths collide in four bytes
+of SHA-256 get one directory, which is a startup error somebody reads rather than a test
+that passes against the wrong fixture. And it makes no directory: a caller creates it, so a
+path this returns is not evidence that anything is there.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
 </span></code></pre></div>
 <p>Where provisioning keeps this worktree's state. Under the worktree, never shared.</p>
 <h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-profiles"><code>fn profiles</code><a class="headerlink" href="#fn-profiles" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every profile any service declares, in declaration order and without repeats.</p>
 <p>Teardown enables all of them, and that is the reason this exists: <code>docker compose down</code> only
