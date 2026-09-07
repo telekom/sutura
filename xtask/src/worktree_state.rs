@@ -1,0 +1,331 @@
+//! A worktree's state is its own: nothing this repository writes may land on a machine-shared path.
+//!
+//! `github.com/telekom/sutura#405`. Several worktrees of this repository are open at once - that is
+//! what stacked branches are for - and a second session works it from another machine. **Every
+//! place a test, a gate or a tier writes to a path a second checkout also reaches is a
+//! cross-worktree collision, and each one produces a confident wrong verdict rather than an
+//! error.**
+//!
+//! # The instance this was written for, reproduced rather than argued
+//!
+//! `sutura-conformance`'s corpus renamed its rows onto `<temp_dir>/sutura-conformance/<table>.csv`
+//! - a purpose and no key - and the argument beside it was *the bytes are identical either side of
+//! the rename*, which is true per TREE and not per machine.
+//!
+//! Measured 2026-09-07 with two worktrees of this repository, each running its own `corpus::
+//! on_disk`, one row differing by one cent: the `DuckDB` binding failed
+//! `total-by-region-and-day` and `total-by-region-and-day-as-a-leg` as CONTENT faults naming this
+//! repository's own cases, while the run that overwrote the file was green. The window is wide
+//! because `attach_csv` makes a VIEW over `read_csv_auto`, so the file is read at QUERY time; the
+//! Postgres binding reads it seven times per binding at LOAD time.
+//!
+//! # What holds it, and what does not
+//!
+//! The DEFAULT answer is that state lives under the worktree, where the tree is the key and there
+//! is nothing to derive - `sutura_dev::scope::Scope::state_dir`, and the corpus now. The EXCEPTION
+//! is a writer that needs a short path, because a unix socket caps around 100 bytes: that one takes
+//! the machine-shared root and keys it with `Scope::scratch`, which is the one derivation of such a
+//! path.
+//!
+//! This gate is the rule over both. It reads every acquisition of a shared root in first-party
+//! Rust and in the shell scripts that run on a developer's own machine, and refuses one that
+//! nothing keys. `super::scan` carries the lexing argument and the two classes.
+//!
+//! # Limits, stated next to the claim
+//!
+//! * **`.nix` files are out of scope, and that is the largest gap.** `$TMPDIR` inside a nix
+//!   DERIVATION is the build directory - private per build - while `$TMPDIR` inside a
+//!   `writeShellApplication` a developer runs is the machine's. Nothing in the text of a `.nix`
+//!   file distinguishes those two, and both are in `flake.nix` today: two derivation uses, and two
+//!   tier scripts. Measured on the tree this gate landed on, both tiers are already keyed - the
+//!   Postgres tier's data directory, socket directory and endpoint file are all per-worktree, and
+//!   it listens on no TCP port at all - so `telekom/sutura#405`'s instance 5 is not reproducible as
+//!   stated. What is unheld is a THIRD tier inventing its own key.
+//! * **A log path an agent chooses is outside every gate.** `telekom/sutura#405`'s instance 2 is a
+//!   `shipcheck.log` in a shared scratchpad, which is not a file in this repository. What this gate
+//!   reaches is the shell that IS: `nix/*.sh`, where such a path would be written if it were
+//!   committed. That scope holds nothing today - measured, zero takings - which is what a refusal
+//!   over a shape nobody writes should do.
+//! * **It reads text, not a program.** A shared root reached through a helper, an alias, or a
+//!   binding two hops away reads as unkeyed, which is the safe direction; a MUTATION laundered into
+//!   a helper makes a literal read as `Unwritten`, which is not.
+//! * **`Scope::scratch` is a NAME, not an allocation.** Two worktrees whose canonical paths collide
+//!   in four bytes of SHA-256 get one directory. That is a startup error somebody reads rather than
+//!   a test that passes against the wrong fixture, and it is the same asymmetry
+//!   `dev/src/scope.rs`'s header argues for naming over ports.
+
+mod scan;
+
+use scan::{Keyed, Language, Taking};
+
+use crate::{Verdict, repo};
+
+/// Evidence that every taking this scan FOUND was also adjudicated.
+///
+/// **A count in a message is not a witness**, which is the shape `telekom/sutura#405` names as
+/// property 3 and which this repository has measured going wrong four times. So the numbers the
+/// verdict prints come out of a value whose fields are private to this module and whose only
+/// constructor refuses a mismatch: `inspected == discovered` is a precondition of the type
+/// existing, not a sentence beside it.
+///
+/// The two sides are computed by DIFFERENT expressions on purpose - `scan::offered` counts
+/// occurrences of a root spelling and knows nothing about narrowing, statements or adjudication,
+/// while `scan::takings` is the loop. A floor computed off the loop's own filter is the defect
+/// `check-docs` shipped, where `.take(1)` satisfied both sides.
+///
+/// The pattern is `crate::causality::isolation::Isolated` and
+/// `crate::conformance::Reconciled`, for the same reason: an invariant a caller has to remember is
+/// one the compiler is not holding.
+struct Inspected {
+    /// What the independent count offered.
+    discovered: usize,
+    /// One answer per taking, in file and line order.
+    adjudicated: Vec<(Taking, Keyed)>,
+}
+
+impl Inspected {
+    /// The only constructor. Refuses unless every offered taking has exactly one answer.
+    fn of(discovered: usize, adjudicated: Vec<(Taking, Keyed)>) -> Result<Self, String> {
+        if discovered != adjudicated.len() {
+            return Err(format!(
+                "the scan offered {discovered} taking(s) of a machine-shared root and adjudicated \
+                 {}. A verdict over a subset is the defect this witness exists to make \
+                 unrepresentable",
+                adjudicated.len()
+            ));
+        }
+        Ok(Self {
+            discovered,
+            adjudicated,
+        })
+    }
+
+    /// How many takings were offered.
+    const fn discovered(&self) -> usize {
+        self.discovered
+    }
+
+    /// How many were adjudicated. Equal to [`Inspected::discovered`] by construction, and printed
+    /// beside it anyway: a reader of a verdict should be able to see the conservation rather than
+    /// take it on trust.
+    fn inspected(&self) -> usize {
+        self.adjudicated.len()
+    }
+
+    /// Every taking nothing keys.
+    fn shared(&self) -> Vec<&Taking> {
+        self.adjudicated
+            .iter()
+            .filter(|(_, keyed)| keyed.is_shared())
+            .map(|(taking, _)| taking)
+            .collect()
+    }
+
+    /// How many takings each holder accounts for, in the order the verdict prints them.
+    fn by_holder(&self) -> Vec<(&'static str, usize)> {
+        let mut counted: Vec<(&'static str, usize)> = Vec::new();
+        for (_, keyed) in &self.adjudicated {
+            let holder = keyed.holder();
+            match counted.iter_mut().find(|(name, _)| *name == holder) {
+                Some((_, count)) => *count = count.saturating_add(1),
+                None => counted.push((holder, 1)),
+            }
+        }
+        counted.sort_unstable_by(|left, right| left.0.cmp(right.0));
+        counted
+    }
+}
+
+/// The gate.
+pub(crate) fn run(_args: &[String]) -> Verdict {
+    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
+        eprintln!("xtask check-worktree-state: could not determine the repo root");
+        return Verdict::Fail;
+    };
+
+    let in_scope: Vec<(String, Language)> = files
+        .iter()
+        .filter_map(|rel| scan::language_of(rel).map(|language| (rel.clone(), language)))
+        .collect();
+
+    // FAIL CLOSED ON AN EMPTY SCOPE. This gate's subject is first-party Rust and the shell that
+    // gates it; a tree holding neither is not a clean tree, it is a tree this gate has not read.
+    if in_scope.is_empty() {
+        eprintln!("xtask check-worktree-state: FAILED - no file in this gate's scope");
+        eprintln!("  It reads `.rs` under crates/, xtask/ and dev/, and `.sh` under nix/.");
+        eprintln!("  A scan that opened none of those attests nothing. Check the workspace root.");
+        return Verdict::Fail;
+    }
+
+    let mut offered = 0_usize;
+    let mut adjudicated: Vec<(Taking, Keyed)> = Vec::new();
+    let mut languages: Vec<(&'static str, usize)> = Vec::new();
+    for (rel, language) in &in_scope {
+        // FAIL CLOSED ON ONE UNREADABLE FILE, not only on every file being unreadable.
+        // `sutura/gates` records that exact difference three times: *cannot say which* closed and
+        // *cannot look at all* left open, with the floor satisfied by the files that did read.
+        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+            eprintln!("xtask check-worktree-state: FAILED - could not read {rel}");
+            eprintln!("  A file in scope that this gate cannot open is a verdict over a subset.");
+            return Verdict::Fail;
+        };
+        offered = offered.saturating_add(scan::offered(*language, &text));
+        adjudicated.extend(scan::takings(rel, *language, &text));
+        let label = language.label();
+        match languages.iter_mut().find(|(name, _)| *name == label) {
+            Some((_, count)) => *count = count.saturating_add(1),
+            None => languages.push((label, 1)),
+        }
+    }
+
+    // FAIL CLOSED ON AN EMPTY SCAN. Measured on the tree this landed on: 36 root takings and 19
+    // rooted literals. A run that found none read something other than this repository, and
+    // `ok - 0 taking(s)` is a sentence about a tree it never saw.
+    if offered == 0 {
+        eprintln!(
+            "xtask check-worktree-state: FAILED - no taking of a machine-shared root in {} file(s)",
+            in_scope.len()
+        );
+        eprintln!("  This workspace has dozens. A scan that found none is a broken scan, not a");
+        eprintln!("  clean tree - the rule would then be checking nothing at all.");
+        return Verdict::Fail;
+    }
+
+    let inspected = match Inspected::of(offered, adjudicated) {
+        Ok(witness) => witness,
+        Err(why) => {
+            eprintln!("xtask check-worktree-state: FAILED - {why}");
+            return Verdict::Fail;
+        }
+    };
+
+    let shared = inspected.shared();
+    let holders: Vec<String> = inspected
+        .by_holder()
+        .into_iter()
+        .map(|(holder, count)| format!("{count} {holder}"))
+        .collect();
+    let scanned: Vec<String> = languages
+        .into_iter()
+        .map(|(label, count)| format!("{count} {label}"))
+        .collect();
+
+    if shared.is_empty() {
+        println!(
+            "xtask check-worktree-state: ok - inspected {} of {} taking(s) ({}) over {} file(s) ({})",
+            inspected.inspected(),
+            inspected.discovered(),
+            holders.join(", "),
+            in_scope.len(),
+            scanned.join(", ")
+        );
+        return Verdict::Pass;
+    }
+
+    eprintln!(
+        "xtask check-worktree-state: FAILED - {} of {} taking(s) reach a machine-shared path",
+        shared.len(),
+        inspected.discovered()
+    );
+    for taking in &shared {
+        let narrowed = if taking.segment.trim().is_empty() {
+            String::from("nothing narrows it")
+        } else {
+            format!("narrowed to `{}`", taking.segment.trim())
+        };
+        eprintln!("  {}:{}: takes `{}`, {narrowed}", taking.path, taking.line, taking.root);
+    }
+    explain();
+    Verdict::Fail
+}
+
+/// What to do about it. Printed, because a gate that only says no gets worked around.
+fn explain() {
+    eprintln!();
+    eprintln!("Several worktrees of this repository are open at once, and a second session works it");
+    eprintln!("from another machine. A path with no key in it is one path for all of them, and the");
+    eprintln!("failure is a confident wrong verdict rather than an error: reproduced 2026-09-07,");
+    eprintln!("two worktrees writing one corpus file, and the `DuckDB` conformance binding failed");
+    eprintln!("two cases as content faults while the run that overwrote the file was green.");
+    eprintln!();
+    eprintln!("Three ways out, in order of preference:");
+    eprintln!("  * put it under the worktree. `sutura_dev::scope::Scope::state_dir` is that answer,");
+    eprintln!("    and it needs no key at all - the tree IS the key. Most state belongs here.");
+    eprintln!("  * key it with the worktree. `Scope::scratch(<purpose>)` is the ONE derivation of a");
+    eprintln!("    path under a machine-shared root, and it exists for one reason: a unix socket");
+    eprintln!("    caps around 100 bytes, so a server cannot sit under a deep worktree.");
+    eprintln!("  * key it with the process, `std::process::id()`, for a scratch directory no second");
+    eprintln!("    run needs to find. Put the key in the SAME statement as the taking: a `join` ten");
+    eprintln!("    lines away is a taking this gate cannot attribute, and it says so rather than");
+    eprintln!("    guessing.");
+    eprintln!();
+    eprintln!("  `github.com/telekom/sutura#405` carries the six measured collisions.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Inspected, Keyed, Taking};
+
+    /// A taking, as a value, so the witness can be tested without a tree.
+    fn taking(line: usize) -> Taking {
+        Taking {
+            path: String::from("crates/x/src/lib.rs"),
+            line,
+            root: String::from("a root"),
+            segment: String::from("a segment"),
+        }
+    }
+
+    #[test]
+    fn the_witness_refuses_a_verdict_over_a_subset() {
+        // PROPERTY 3 OF `telekom/sutura#405`, held by the constructor rather than by the loop: a
+        // count in a message is not a witness, and this repository has measured four gates
+        // printing a number over a scan that reached less. `Inspected` cannot exist unless every
+        // offered taking has exactly one answer, so `inspected N of N` is a precondition of the
+        // type rather than a sentence beside it.
+        let one = vec![(taking(1), Keyed::Process)];
+        assert!(Inspected::of(2, one).is_err(), "a subset must not mint a witness");
+    }
+
+    #[test]
+    fn the_witness_prints_the_numbers_its_scan_reached() {
+        let two = vec![(taking(1), Keyed::Process), (taking(9), Keyed::Worktree)];
+        let witness = Inspected::of(2, two).expect("two offered, two adjudicated");
+        assert_eq!(witness.discovered(), 2);
+        assert_eq!(witness.inspected(), 2);
+        assert!(witness.shared().is_empty());
+        assert_eq!(witness.by_holder(), vec![("process", 1), ("worktree", 1)]);
+    }
+
+    #[test]
+    fn a_shared_taking_is_reported_and_the_rest_are_counted() {
+        let mixed = vec![
+            (taking(1), Keyed::Shared),
+            (taking(4), Keyed::Unwritten),
+            (taking(7), Keyed::Shared),
+        ];
+        let witness = Inspected::of(3, mixed).expect("three offered, three adjudicated");
+        let shared = witness.shared();
+        assert_eq!(shared.len(), 2);
+        assert_eq!(shared.iter().map(|t| t.line).collect::<Vec<usize>>(), vec![1, 7]);
+        assert_eq!(witness.by_holder(), vec![("nothing", 2), ("unwritten", 1)]);
+    }
+
+    #[test]
+    fn every_answer_the_scan_can_give_is_accounted_for_by_the_verdict() {
+        // The other half of property 5. `Keyed::is_shared` and `Keyed::holder` are exhaustive
+        // matches, so a fifth answer does not compile - but a variant nothing ever CLASSIFIES
+        // would still be a hole, so this walks the whole set and asserts each one lands somewhere
+        // a reader sees: either in the violation list or in the holder breakdown.
+        for keyed in [Keyed::Worktree, Keyed::Process, Keyed::Unwritten, Keyed::Shared] {
+            let witness = Inspected::of(1, vec![(taking(1), keyed)]).expect("one and one");
+            assert_eq!(
+                witness.shared().len(),
+                usize::from(keyed.is_shared()),
+                "{keyed:?} is not reported the way it classifies"
+            );
+            assert_eq!(witness.by_holder(), vec![(keyed.holder(), 1)], "{keyed:?}");
+            assert!(!keyed.holder().is_empty(), "{keyed:?} has no word in the verdict");
+        }
+    }
+}

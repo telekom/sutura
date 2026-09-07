@@ -678,7 +678,7 @@ fn a_deployment_on_embedded_defaults_says_so_and_a_wrong_directory_looks_the_sam
     assert_eq!(no_directory.layers().to_string(), "embedded defaults only");
 
     let mistyped = Settings::load(
-        &Sources::defaults(Environment::Development).with_directory(std::env::temp_dir().join("sutura-config-no-such-dir")),
+        &Sources::defaults(Environment::Development).with_directory(std::env::temp_dir().join(format!("sutura-config-no-such-dir-{}", std::process::id()))),
     )
     .expect("a directory that is not there is not an error - that is the posture being reported");
     assert_eq!(mistyped.layers(), no_directory.layers());

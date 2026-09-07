@@ -462,7 +462,6 @@ impl Captured {
     /// claimed - the guarantee is [`Self::handles`]'s, not this name's.
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let at = std::env::temp_dir();
         let since_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
@@ -472,9 +471,15 @@ impl Captured {
             since_epoch.as_nanos(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         );
+        // THE KEY IS IN THE SAME STATEMENT AS THE TAKING, deliberately: `cargo xtask
+        // check-worktree-state` reads a shared-root taking and the segment it narrows to, and a
+        // bare `let at = std::env::temp_dir();` narrowed by a `join` ten lines away is a taking it
+        // cannot attribute. Nothing about the paths changed - `unique` carries no dot, so the two
+        // extensions land exactly where the two `join`s put them.
+        let at = std::env::temp_dir().join(unique);
         Self {
-            stdout: at.join(format!("{unique}.out")),
-            stderr: at.join(format!("{unique}.err")),
+            stdout: at.with_extension("out"),
+            stderr: at.with_extension("err"),
         }
     }
 

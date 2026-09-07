@@ -190,7 +190,17 @@ pub const SERVICES: &[Service] = &[
 ];
 
 /// The directory, under the worktree, where provisioning keeps its state. Gitignored.
+///
+/// **The DEFAULT answer to "where does this worktree's state live", and the reason it is a
+/// directory under the tree rather than a keyed one under `$TMPDIR`:** a path inside the worktree
+/// needs no key, because the worktree IS the key. Nothing can collide with it that is not in the
+/// same tree. [`Scope::scratch`] is the exception and says why one is needed.
 const STATE_DIR: &str = ".sutura-dev";
+
+/// The prefix every keyed directory under the machine-shared temporary root carries.
+///
+/// Prefixed so a stray directory is identifiable as ours, the way [`Scope::project`] is.
+const SCRATCH_PREFIX: &str = "sutura-";
 
 /// Why a worktree root could not become a scope.
 #[derive(Debug)]
@@ -303,6 +313,29 @@ impl Scope {
     pub fn state_dir(&self) -> PathBuf {
         self.root.join(STATE_DIR)
     }
+
+    /// This worktree's own subtree of the machine-shared temporary root, for one `purpose`.
+    ///
+    /// **The one derivation of a keyed path under a shared root**, and the only reason it exists
+    /// beside [`Scope::state_dir`] is LENGTH: a unix socket path caps around 100 bytes on macOS, so
+    /// a server cannot sit under an arbitrarily deep worktree. Everything that does not have that
+    /// constraint belongs under the worktree, where the tree is the key and there is nothing to
+    /// derive.
+    ///
+    /// `purpose` namespaces two writers in one worktree from each other; the digest namespaces two
+    /// worktrees from one another. Both are needed and neither substitutes: a purpose alone is the
+    /// defect `telekom/sutura#405` collects - `<temp_dir>/sutura-conformance/<table>.csv` carried a
+    /// purpose and no key, so a second checkout of this repository was a second WRITER of it.
+    ///
+    /// **What this does NOT give you.** It is a NAME, not an allocation - the same asymmetry this
+    /// module's header states for ports. Two worktrees whose canonical paths collide in four bytes
+    /// of SHA-256 get one directory, which is a startup error somebody reads rather than a test
+    /// that passes against the wrong fixture. And it makes no directory: a caller creates it, so a
+    /// path this returns is not evidence that anything is there.
+    #[must_use]
+    pub fn scratch(&self, purpose: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("{SCRATCH_PREFIX}{}-{purpose}", self.digest))
+    }
 }
 
 #[cfg(test)]
@@ -374,7 +407,7 @@ mod tests {
     fn an_unresolvable_root_is_refused_rather_than_hashed() {
         // A scope over a path that does not exist would namespace containers by a spelling nothing
         // resolved, which is the whole failure canonicalisation removes.
-        let missing = std::env::temp_dir().join("sutura-scope-definitely-not-here");
+        let missing = std::env::temp_dir().join(format!("sutura-scope-not-here-{}", std::process::id()));
         assert!(matches!(
             Scope::from_root(&missing),
             Err(super::ScopeError::NotResolvable { .. })
@@ -506,5 +539,43 @@ mod tests {
     fn state_lives_under_the_worktree() {
         let scope = Scope::from_canonical(Path::new("/home/x/sutura"));
         assert!(scope.state_dir().starts_with(scope.root()));
+    }
+
+    #[test]
+    fn a_scratch_path_under_the_shared_root_carries_this_worktree_s_key() {
+        // THE PROPERTY `telekom/sutura#405` IS ABOUT. A path under the machine's temporary root is
+        // reachable from every checkout on the machine, so the only thing that makes one this
+        // worktree's own is the key in it. `<temp_dir>/sutura-conformance/<table>.csv` carried a
+        // purpose and no key, and two worktrees were two writers of it.
+        let one = Scope::from_canonical(Path::new("/home/x/sutura"));
+        let other = Scope::from_canonical(Path::new("/home/x/sutura-feature"));
+        assert!(one.scratch("pg").starts_with(std::env::temp_dir()));
+        assert!(
+            one.scratch("pg").to_string_lossy().contains(one.digest()),
+            "{}",
+            one.scratch("pg").display()
+        );
+        assert_ne!(
+            one.scratch("pg"),
+            other.scratch("pg"),
+            "two worktrees asking for one purpose must not get one directory"
+        );
+    }
+
+    #[test]
+    fn two_purposes_in_one_worktree_are_two_directories() {
+        // The other half, and it is not symmetry: the digest separates trees, the purpose separates
+        // writers. A derivation carrying only the digest would put two writers in one worktree into
+        // one directory, which is the same collision one level down.
+        let scope = Scope::from_canonical(Path::new("/home/x/sutura"));
+        assert_ne!(scope.scratch("pg"), scope.scratch("keycloak"));
+    }
+
+    #[test]
+    fn a_scratch_path_is_a_name_and_not_a_directory() {
+        // Stated as a test because the doc states it as a limit: the derivation creates nothing, so
+        // a caller that treated the return value as evidence of a directory would be wrong.
+        let scope = Scope::from_canonical(Path::new("/home/x/sutura"));
+        assert!(!scope.scratch("nothing-makes-this").exists());
     }
 }
