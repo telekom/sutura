@@ -96,8 +96,12 @@ placed somewhere new. Telling a copy from a rewrite in general remains the revie
 ### So what the badge asserts, exactly
 
 * **It does assert** that every file's licence is *declared* - REUSE compliance, held by
-  `checks.reuse` inside the required `ci` job - and, now, that no tree under `vendor/` is unnarrowed
-  or unrecorded.
+  `checks.reuse` inside the required `ci` job - and, now, that no immediate child of `vendor/` lacks
+  its own covering `[[annotations]]` block or is missing from `VENDOR.md`. **Narrowed in review from
+  "no tree under `vendor/` is unnarrowed", which read stronger than the rule holds:** a block merely
+  *under* a child used to satisfy it, so one file's block marked a whole tree narrowed while its
+  siblings resolved to us. The rule now requires the child itself or its whole subtree; it still
+  says nothing about a file deeper inside a covered child.
 * **It does not assert per-file provenance.** A first-party file with no header still passes, by
   design; the catch-all answers for it. It says nothing about a file *inside* a narrowed tree, and
   nothing about a copy placed outside `vendor/`.
