@@ -149,7 +149,9 @@ struct Counted {
 /// One `Result` rather than a print-and-return block per failure, so the task name and the
 /// paragraph under it are written once - `boot_order`'s shape, for the reason it gives.
 fn check() -> Result<Counted, String> {
-    let (root, files) = repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::OneBound)).map_err(|why| why.describe())?;
+    let (root, files) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::OneBound))
+        .map_err(|why| why.describe())?;
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
     door_is_still_defined(&read)?;
     let scanned = scan(&files, &read)?;
@@ -566,8 +568,8 @@ fn run() -> Result<(), String> {
         // Over the REAL files, for the reason `check-boot-order`'s own suite gives: a reader that
         // matches nothing makes its gate pass vacuously. Non-vacuous by construction - more files
         // read than sites found, and every rule asserted rather than the summary.
-        let Ok((root, files)) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::OneBound))
+        let Ok((root, files)) =
+            crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::OneBound))
         else {
             return;
         };

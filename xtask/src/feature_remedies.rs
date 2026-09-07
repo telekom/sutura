@@ -330,7 +330,9 @@ fn unresolved(root: &std::path::Path, found: &[Subject]) -> Result<Vec<String>, 
 }
 
 fn check() -> Result<Vec<String>, String> {
-    let (root, files) = repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::FeatureRemedies)).map_err(|why| why.describe())?;
+    let (root, files) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::FeatureRemedies))
+        .map_err(|why| why.describe())?;
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
     // The denominator, built from the LISTING rather than from the walk - the two cannot agree by
     // construction, which is the only reason comparing them proves anything.
@@ -609,8 +611,8 @@ mod tests {
     fn the_tree_this_gate_ships_on_has_subjects_and_they_all_resolve() {
         // Not a restatement of the gate: it is the FAIL-CLOSED half, and the count is the witness.
         // A scan that finds nothing is a reader that stopped reading, and it would pass everything.
-        let Ok((root, files)) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::FeatureRemedies))
+        let Ok((root, files)) =
+            crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::FeatureRemedies))
         else {
             return;
         };

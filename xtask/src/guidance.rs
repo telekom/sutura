@@ -642,7 +642,9 @@ mod tests {
         // RED when it was written: the pin was `1.98.0`, six pages named the pin file, and none of
         // them said what the pin was.
         let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance)).expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not list the repo");
         for pin in super::PINS {
             let value = super::pinned_value(&root, pin).expect("the pin value");
             let stated = files

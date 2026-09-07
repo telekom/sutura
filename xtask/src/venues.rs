@@ -934,7 +934,9 @@ Not built.
         // The gate over the tree rather than over a fixture: the assertion that goes red when
         // somebody edits the page, which the fixtures above cannot do.
         let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Venues)).expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Venues))
+            .expect("could not list the repo");
         let page = std::fs::read_to_string(root.join(PAGE)).expect(PAGE);
         let tests = super::test_names(&root, &files);
         let invoked = super::invoked(&root).expect("the CI scan reads .github/workflows");

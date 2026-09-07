@@ -593,7 +593,9 @@ mod tests {
     /// both declarations were found: one registry, one packs macro, and bindings under `tests/`.
     #[test]
     fn the_declarations_in_this_tree_are_found_by_the_needles_this_gate_keys_on() {
-        let (root, files) = repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Conformance)).expect("the tests run inside the repo");
+        let (root, files) = repo::all_files()
+            .and_then(|census| census.into_listing(repo::Unmigrated::Conformance))
+            .expect("the tests run inside the repo");
         let sources = super::collect(&root, &files).expect("this tree is in scope");
         let found: Vec<&str> = sources.registries.iter().map(|site| site.path.as_str()).collect();
         assert_eq!(found.len(), 1, "{found:?}");
@@ -626,7 +628,9 @@ mod tests {
     /// cell and not a manual experiment.
     #[test]
     fn a_scan_that_read_no_rust_is_a_failure_and_not_a_clean_tree() {
-        let (root, _files) = repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Conformance)).expect("the tests run inside the repo");
+        let (root, _files) = repo::all_files()
+            .and_then(|census| census.into_listing(repo::Unmigrated::Conformance))
+            .expect("the tests run inside the repo");
         let Err(why) = super::collect(&root, &[]) else {
             panic!("a scan that read nothing is not a verdict")
         };

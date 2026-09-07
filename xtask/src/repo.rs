@@ -566,7 +566,10 @@ mod tests {
         let took_effect = std::fs::read_dir(root.join("shut")).is_err();
         let refused = super::collect_files(&root, &root, &["rs"]).inspect(&[], |_| super::Looked::Judged);
 
-        drop(std::fs::set_permissions(root.join("shut"), std::fs::Permissions::from_mode(0o755)));
+        drop(std::fs::set_permissions(
+            root.join("shut"),
+            std::fs::Permissions::from_mode(0o755),
+        ));
         let _swept = std::fs::remove_dir_all(&root);
 
         if !took_effect {

@@ -202,11 +202,7 @@ impl Census {
     /// an empty discovery, an unreachable subject from the caller's own read, a scope predicate
     /// that judged nothing, and an anchor that was never judged. [`Refusal::NoRoot`] is
     /// `repo::all_files`' and cannot reach here.
-    pub(crate) fn inspect(
-        self,
-        must_judge: &[&str],
-        mut look: impl FnMut(&str) -> Looked,
-    ) -> Result<Inspected, Refusal> {
+    pub(crate) fn inspect(self, must_judge: &[&str], mut look: impl FnMut(&str) -> Looked) -> Result<Inspected, Refusal> {
         // BEFORE the loop: a partial tree makes every number below a number about a subset, so
         // there is nothing worth inspecting yet.
         if !self.unreachable.is_empty() {
@@ -426,8 +422,14 @@ mod tests {
     fn an_empty_discovery_is_a_failure_rather_than_a_pass() {
         // `repo::root`'s own comment records `ok - 0 text file(s) checked` at exit 0 from a store
         // path. Both doors out of a census refuse it now.
-        assert!(matches!(census(&[], &[]).inspect(&[], |_| Looked::Judged), Err(Refusal::Empty)));
-        assert!(matches!(census(&[], &[]).into_listing(Unmigrated::MaxLines), Err(Refusal::Empty)));
+        assert!(matches!(
+            census(&[], &[]).inspect(&[], |_| Looked::Judged),
+            Err(Refusal::Empty)
+        ));
+        assert!(matches!(
+            census(&[], &[]).into_listing(Unmigrated::MaxLines),
+            Err(Refusal::Empty)
+        ));
     }
 
     #[test]

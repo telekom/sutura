@@ -259,7 +259,9 @@ mod tests {
         // recipe" said no. Two hand-parsers of one file had disagreed about that prefix, which is
         // the second-thing-to-keep-true this gate's own existence argues against.
         let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance)).expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not list the repo");
         let (problems, found) = advice_problems(&root, &files);
         assert!(
             found > 0,
@@ -273,7 +275,9 @@ mod tests {
         // Upstream source makes claims about ITS repo, the reason `run` already keeps
         // `.agents/skill-library/` out of the prose scan. Asserted against the tree rather than a
         // fixture, so vendoring a second crate does not quietly widen this.
-        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance)).expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not list the repo");
         let scope = in_scope(&files);
         assert!(
             scope.contains("dev/src/provisioned.rs"),
