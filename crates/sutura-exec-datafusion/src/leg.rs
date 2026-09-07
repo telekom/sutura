@@ -53,6 +53,37 @@ pub(crate) fn joins(leg: &LegPlan) -> &[PlanJoin] {
     }
 }
 
+/// One same-source dimension hop, joined - **the one definition BOTH plan shapes use.**
+///
+/// LEFT, always, and matched exhaustively: an INNER join drops every fact row whose same-source
+/// dimension row is missing, so a grouped answer totals less than the ungrouped one with nothing
+/// raising an error - and there it was a bug before it was a decision. `OneToMany` never reaches
+/// here (a join that can duplicate the metric's rows is refused when the definitions are
+/// assembled), and it is matched anyway so a fourth cardinality is a compile error rather than a
+/// silently wrong plan.
+///
+/// **Shared rather than restated, and that was MEASURED rather than assumed.** With the join type
+/// chosen separately in this module, `EngineJoin::Left` -> `EngineJoin::Inner` here reddened
+/// NOTHING: the differential corpus has no fact row missing a same-source dimension row, and the
+/// orphan it does carry is a REMOTE key the combiner left-joins above the legs. A second corpus
+/// case would have been one answer; one definition is the better one, because
+/// `a_dimension_join_does_not_change_the_measure`
+/// (`crates/sutura-app/tests/golden/data_systems.rs`) already fails on an inner join and now fails
+/// for both shapes. It lives beside the leg path because that is the path that arrived second and
+/// would otherwise have been the copy.
+pub(crate) fn dimension_join(
+    builder: LogicalPlanBuilder,
+    right: LogicalPlan,
+    join: &PlanJoin,
+) -> Result<LogicalPlanBuilder, DataFusionError> {
+    let on = column(join.origin()).eq(column(join.target()));
+    match join.join_type() {
+        JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => builder
+            .join_on(right, EngineJoin::Left, [on])
+            .map_err(|cause| DataFusionError::Build { cause }),
+    }
+}
+
 /// One leg, as a logical plan: scan, joins, optional filter, aggregate, projection, sort.
 ///
 /// The scans arrive already resolved because a table lookup needs the session and this function
@@ -65,16 +96,7 @@ pub(crate) fn logical(
 ) -> Result<LogicalPlan, DataFusionError> {
     let mut builder = LogicalPlanBuilder::from(from);
     for (join, right) in joined {
-        let on = column(join.origin()).eq(column(join.target()));
-        // LEFT, and matched exhaustively, for the whole-plan path's reasons unchanged: an INNER join
-        // drops every fact row whose same-source dimension row is missing, so a grouped leg totals
-        // less than an ungrouped one with nothing raising an error, and a fourth cardinality is a
-        // compile error rather than a silently wrong plan.
-        builder = match join.join_type() {
-            JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => builder
-                .join_on(right, EngineJoin::Left, [on])
-                .map_err(|cause| DataFusionError::Build { cause })?,
-        };
+        builder = dimension_join(builder, right, join)?;
     }
 
     // Folded in leg order, which is parameter order - `predicate` resolves each value by the index
@@ -118,8 +140,16 @@ pub(crate) fn logical(
     let labels = leg.result_labels();
     let (projection, ordering) = outputs(builder.schema(), &labels, group_count)?;
     // Sorted by what it groups by and NOT limited, which is the fourth difference above. `sort_by`
-    // is ascending nulls-last, which is what `generate_leg`'s `ordered_nulls_last` renders - the
-    // ordering the combiner above reads two legs back in.
+    // is ascending nulls-last, which is what `generate_leg`'s `ordered_nulls_last` renders.
+    //
+    // **NOTHING OBSERVES THIS ORDER, and it is measured rather than suspected.** Reversing the sort
+    // keys here reddens no test in the workspace: the combiner above the legs orders the ANSWER, so
+    // a leg's own row order does not reach any assertion, and the conformance pack's leg behaviour
+    // is content-only by design (see `sutura_conformance::execute`'s header). For the RENDERER the
+    // equivalent decision is pinned - a golden holds `generate_leg`'s `ORDER BY` text per dialect -
+    // and this path has no golden because it emits no SQL, so the two are not equally held. It is
+    // kept for `generate_leg`'s stated reason, determinism, and as the one place the two leg paths
+    // could drift without a gate saying so.
     builder
         .project(projection)
         .and_then(|projected| projected.sort_by(ordering))

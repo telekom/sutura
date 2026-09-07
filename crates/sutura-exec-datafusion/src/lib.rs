@@ -45,12 +45,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use datafusion::common::JoinType as EngineJoin;
 use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::{JoinType, QualifiedTable, SourceName, TableName};
+use sutura_domain::model::{QualifiedTable, SourceName, TableName};
 use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
@@ -525,22 +524,12 @@ impl DataFusionWarehouse {
 
         for join in plan.joins() {
             let right = self.scan(join.table()).await?;
-            let on = column(join.origin()).eq(column(join.target()));
-            // A LEFT join, always, matching the SQL path - and there it was a bug before it was a
-            // decision. An INNER join drops every fact row whose dimension row is missing, so a
-            // grouped answer totals less than the ungrouped one with nothing raising an error. The
-            // catalog`s duplication check cannot see it: that guard is about fan-out, not about
-            // elimination. `a_dimension_join_does_not_change_the_measure` asserts the reconciliation
-            // over real data, and it fails on an inner join.
-            //
-            // `OneToMany` never reaches here: a join that can duplicate the metric's rows is refused
-            // when the definitions are assembled. Matched exhaustively anyway, so a fourth
-            // cardinality is a compile error rather than a silently wrong plan.
-            builder = match join.join_type() {
-                JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => builder
-                    .join_on(right, EngineJoin::Left, [on])
-                    .map_err(|cause| DataFusionError::Build { cause })?,
-            };
+            // The SHARED decision, in `leg::dimension_join`: a LEFT join, always, matching the SQL
+            // path. Both plan shapes call it, so the join kind cannot be one thing for a whole
+            // answer and another for one source's share of one - `a_dimension_join_does_not_change_the_measure`
+            // fails on an inner join and now fails for either. That module documents what was
+            // measured before the two were shared.
+            builder = leg::dimension_join(builder, right, join)?;
         }
 
         let mut conjuncts = Vec::with_capacity(plan.filters().len());

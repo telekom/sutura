@@ -310,7 +310,10 @@ mod tests {
             .cloned()
             .unwrap_or_default()
             .iter()
-            .filter_map(|row| row[2].as_str().and_then(|cell| cell.parse::<i64>().ok()))
+            .filter_map(|row| {
+                let cell = row[2].as_str()?;
+                cell.parse::<i64>().ok()
+            })
             .sum();
         assert_eq!(
             total, 202_121,
