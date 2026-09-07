@@ -2291,12 +2291,13 @@ decisions the dialect layer does not make for us; <code>generate</code> turns a 
 its bind parameters; <code>expression</code> compiles the one thing a catalog is allowed to author as SQL,
 at load, for every dialect at once. <code>GeneratedQuery</code> is what <code>generate</code> returns, and it is at
 the crate root because it is this crate's output rather than any one module's detail.</p>
-<p><strong>Two entry points, one output type.</strong> <code>generate</code> renders a whole answer from a <code>QueryPlan</code>;
-<code>generate_leg</code> renders one leg of a federated question from a <code>LegPlan</code>. They share every
-decision that could drift - the quoting, the placeholder style, the bucket, the joins, how a term
-renders - and differ in the four ways <code>generate_leg</code>'s own documentation lists. Nothing in a
-binary calls the second one yet: there is no splitter, so <code>.agents/skills/sutura/query-surface</code>'s built-and-not-wired
-section is where its state is recorded.</p>
+<p><strong>Two entry points, one output type.</strong> <code>generate</code> renders a whole answer
+from a <code>QueryPlan</code>; <code>generate_leg</code> renders one leg of a federated question from a <code>LegPlan</code>.
+They share every decision that could drift - the quoting, the placeholder style, the bucket, the
+joins, how a term renders - and differ in the four ways <code>generate_leg</code>'s own documentation
+lists. Nothing in a binary calls the second one yet: there is no splitter, so
+<code>.agents/skills/sutura/query-surface</code>'s built-and-not-wired section is where its state is
+recorded.</p>
 <h1 id="why-this-is-its-own-crate-and-not-the-compilers-last-stage">Why this is its own crate and not the compiler's last stage<a class="headerlink" href="#why-this-is-its-own-crate-and-not-the-compilers-last-stage" title="Permanent link">&para;</a></h1>
 <p>It used to be <code>sutura_semantic::generate</code> and <code>sutura_semantic::dialect</code>, and rendering was
 already off the compile path - <code>sutura_semantic::compile</code> stops at a plan, because the

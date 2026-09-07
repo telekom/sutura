@@ -3487,12 +3487,12 @@ it.</p>
 to. Nothing asked. That was survivable while the token gate sat <em>outside</em> the limiter, because
 an unauthenticated request was refused before it could create a bucket - so the only
 unauthenticated path into a limiter was liveness.</p>
-<p><code>crate::router</code> now puts the limiter outside the gate, which is the point of the reordering:
-a wrong-token attempt has to cost a cell or it is an unlimited guessing loop. That makes every
-reachable path a path an unauthenticated caller can create a bucket on, and with the header
-keying above it is one bucket per real client rather than one per ingress. <strong>So the reordering
-and <code>spawn_reaper</code> are one change and must not be separated:</strong> either alone is worse than
-neither.</p>
+<p><code>crate::router</code> now puts the limiter outside the gate, which is the point
+of the reordering: a wrong-token attempt has to cost a cell or it is an unlimited guessing loop.
+That makes every reachable path a path an unauthenticated caller can create a bucket on, and
+with the header keying above it is one bucket per real client rather than one per ingress. <strong>So
+the reordering and <code>spawn_reaper</code> are one change and must not be separated:</strong> either alone is
+worse than neither.</p>
 <h3 id="struct-limiterhandle"><code>struct LimiterHandle</code><a class="headerlink" href="#struct-limiterhandle" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LimiterHandle</span>
 </span></code></pre></div>
@@ -4062,7 +4062,7 @@ is bound.</p>
 </span></code></pre></div>
 <p>A validated TLS configuration, and the means to keep it current.</p>
 <p><strong>Two values because they have two owners</strong>, the way <code>crate::router::Assembled</code> is two: the
-configuration goes to the listener, and the renewal goes to whatever will poll it. <code>prepare</code>
+configuration goes to the listener, and the renewal goes to whatever will poll it. <code>Self::prepare</code>
 hands both back rather than starting the poll itself, so a test can drive a rotation a step at a
 time instead of waiting on a wall clock.</p>
 <h4 id="methods_15">Methods<a class="headerlink" href="#methods_15" title="Permanent link">&para;</a></h4>
@@ -4126,7 +4126,7 @@ handshake there is a denial of service: <code>accept</code> is called in a loop 
 that opens a connection and never sends a <code>ClientHello</code> stalls <strong>every</strong> subsequent accept for as
 long as it likes. One socket would be the outage.</p>
 <p>So the shape here is a task that owns the <code>TcpListener</code>, spawns each handshake, and sends the
-ones that complete down a bounded channel. <code>TlsListener::accept</code> pops from that channel and
+ones that complete down a bounded channel. <code>TlsListener</code>'s <code>accept</code> pops from that channel and
 does no work. Handshakes are therefore concurrent, capped by a semaphore so a flood cannot spawn
 without bound, and each one has its own deadline.</p>
 <p>A connection still mid-handshake when shutdown arrives is dropped rather than drained. That is

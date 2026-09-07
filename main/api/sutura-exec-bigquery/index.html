@@ -2514,10 +2514,11 @@ the nth value with the nth <code>?</code>. A transport that reordered this would
 </span></code></pre></div>
 <p>The asking subject's own credential, where the leg carried one.</p>
 <p><strong>This is the half that makes a <code>BigQuery</code> source execute as the asker.</strong> A
-<code>Presented::SubjectToken</code> carries the credential a broker minted for the asking subject - an
-exchanged Google access token scoped to that subject - and the transport sends it as its bearer
-for THIS job, so the endpoint evaluates the statement under whoever the token says. <code>None</code> for
-the shared posture, whose leg runs under the identity the transport itself already holds.</p>
+<code>Presented::SubjectToken</code> carries the
+credential a broker minted for the asking subject - an exchanged Google access token scoped
+to that subject - and the transport sends it as its bearer for THIS job, so the endpoint
+evaluates the statement under whoever the token says. <code>None</code> for the shared posture, whose
+leg runs under the identity the transport itself already holds.</p>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="struct-projectid"><code>struct ProjectId</code><a class="headerlink" href="#struct-projectid" title="Permanent link">&para;</a></h3>

@@ -4324,7 +4324,7 @@ both are that source's declaration rather than this process's guess. See <code>d
 issue that wired the adapter that presents one.</p>
 <p>The two newtypes are declared here, in the settings tree that owns the value, and the broker that
 performs the exchange holds its own copies in the adapter that links it - the same reason
-<code>super::placement::BillingProject</code> is checked both here and in the transport that interpolates
+<code>BillingProject</code> is checked both here and in the transport that interpolates
 it: an adapter may not depend on the settings tree, so the format is checked where it is declared
 AND where it is sent.</p>
 <h4 id="struct-wifaudience"><code>struct WifAudience</code><a class="headerlink" href="#struct-wifaudience" title="Permanent link">&para;</a></h4>

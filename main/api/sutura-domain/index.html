@@ -4231,7 +4231,7 @@ doing, and this one says what the thing is.</p>
 </span></code></pre></div>
 <p>Every capability there is, in declaration order.</p>
 <p>Derived from <code>Self::next</code> rather than listed, and seeded by the one variant
-<code>Self::previous</code> answers <code>None</code> for - which is asserted where this enum is declared rather
+<code>previous</code> answers <code>None</code> for - which is asserted where this enum is declared rather
 than assumed by whoever reads the line.</p>
 <h4 id="implements_41">Implements<a class="headerlink" href="#implements_41" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code>, <code>Serialize</code></p>
@@ -5198,11 +5198,11 @@ the two is the declaration:</p>
 <h3 id="use-none_47"><code>use None</code><a class="headerlink" href="#use-none_47" title="Permanent link">&para;</a></h3>
 <h3 id="module-manifest">Module <code>manifest</code><a class="headerlink" href="#module-manifest" title="Permanent link">&para;</a></h3>
 <p>The contribution manifest: which metadata sources composed a bundle, and what each declared.</p>
-<p><code>PinnedDefinitions</code>' digest is taken over a canonical form of the definitions, the knowledge
-and this manifest, so the digest covers the <strong>composition</strong> and not only the assembly -
-<code>docs/adr/0011</code>'s "two different compositions that assemble identically are indistinguishable"
-is the gap this closes. Decision and serialized form: <code>docs/adr/0011</code>, <em>The contribution
-manifest is built, and its serialized form is decided</em>.</p>
+<p><code>PinnedDefinitions</code>' digest is taken over a canonical form
+of the definitions, the knowledge and this manifest, so the digest covers the <strong>composition</strong>
+and not only the assembly - <code>docs/adr/0011</code>'s "two different compositions that assemble
+identically are indistinguishable" is the gap this closes. Decision and serialized form:
+<code>docs/adr/0011</code>, <em>The contribution manifest is built, and its serialized form is decided</em>.</p>
 <p><strong>The manifest says what was configured and reached, not what a source returned.</strong> Each entry is
 the source's own declared capability list, its required-or-optional declaration, and whether it
 was reached for this bundle - no host, no credential, no URL. Fidelity between the declaration
@@ -6221,7 +6221,7 @@ question rather than a style one.</p>
 <h1 id="the-defect-this-type-exists-for">The defect this type exists for<a class="headerlink" href="#the-defect-this-type-exists-for" title="Permanent link">&para;</a></h1>
 <p>A column in a plan is qualified by a table's BARE name - <code>PlanColumn</code> holds a <code>TableName</code> - and
 the reason is that <code>FROM a.b.orders</code> gives the reference an implicit alias of <code>orders</code> in every
-target this workspace renders for. <code>crate::model::qualified</code> argues that at length and it is
+target this workspace renders for. <code>crate::model::QualifiedTable</code> argues that at length and it is
 right; what it does not do is say what happens when TWO of the tables in one statement end their
 paths with the same name.</p>
 <p>What happened was this, and it was reproduced rather than reasoned about: a fact table at
@@ -6351,7 +6351,7 @@ request side wanted it too. It does, for four reasons, and the last one is the d
   one field held to a laxer rule was the asymmetry, not the fix.</li>
 <li><strong>It bounds what a request may carry before anything allocates it.</strong> A ten-megabyte filter value
   used to be compared against the allowlist and refused, having been read, cloned into
-  <code>Self::literals</code> and rendered into whatever an audit sink keeps.</li>
+  <code>Query::literals</code> and rendered into whatever an audit sink keeps.</li>
 <li><strong>A second character rule is a rule nothing compares against the first.</strong> <code>crate::text</code> exists
   because one such rule was written down twice and the copies drifted. A request-side value type
   with its own idea of what a value may hold would be that mistake, deliberately, in a place where
@@ -6819,10 +6819,16 @@ error instead of whichever value was written last.</p>
 </span></code></pre></div>
 <p>A second leg, for a federated answer.</p>
 <p>Consumes and returns, so a record is built in one expression and there is no half-built state
-for something else to read. Nothing constructs a second leg today - there is no combiner - and
-the method is here because the shape of the record is what decides whether it can be added
-without moving the digest, and that is cheaper to settle now than after an answer format
-ships.</p>
+for something else to read. The federated answer path constructs the second leg here and
+groups the two in <code>crate::plan::federated::FederatedPlan::combine</code>, so the shape of this
+record is what decides whether a leg can be added without moving the digest - which is why it
+was settled before an answer format shipped rather than after.</p>
+<p><strong>What stood here denied both</strong>, was true the day it was written, and stayed on the method the
+answer path calls until somebody read the caller - republished on a page in the nav the whole
+time, because <code>just api</code> regenerates a doc comment faithfully and regeneration is not
+verification. <code>check-guidance</code> registers that wording now, and
+<code>xtask/src/guidance/absences.rs</code> is the reader for the direction a registered wording cannot
+hold: an absence nobody has got wrong yet.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-426-1"><a id="__codelineno-426-1" name="__codelineno-426-1" href="#__codelineno-426-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">legs</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every leg, by source, in source order.</p>

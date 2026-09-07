@@ -2478,12 +2478,13 @@ the process on one of those paths still ends it. <code>docs/adr/0009</code> puts
 - a byte budget applied as rows are converted - with the execution boundary rather than here, and
 says so rather than letting this one be read as wider than it is.</p>
 <h1 id="greedy-and-never-spilling">Greedy, and never spilling<a class="headerlink" href="#greedy-and-never-spilling" title="Permanent link">&para;</a></h1>
-<p><code>GreedyMemoryPool</code> rather than <code>FairSpillPool</code>: first come, first served, and a reservation over
-the ceiling fails immediately. <code>docs/adr/0009</code> Decision 3 decides the policy and the second of its
-two reasons is what settles it - spilling writes the <strong>asking subject's rows</strong> to the pod's local
-disk, a data-at-rest surface nothing in this design governs, on the one path whose whole purpose
-is that a query executes as the person who asked. A bound that protects memory by making an
-ungoverned copy of the data has not protected anything.</p>
+<p><code>GreedyMemoryPool</code> rather than
+<code>FairSpillPool</code>: first come, first served, and a reservation over the ceiling fails immediately.
+<code>docs/adr/0009</code> Decision 3 decides the policy and the second of its two reasons is what settles
+it - spilling writes the <strong>asking subject's rows</strong> to the pod's local disk, a data-at-rest
+surface nothing in this design governs, on the one path whose whole purpose is that a query
+executes as the person who asked. A bound that protects memory by making an ungoverned copy of
+the data has not protected anything.</p>
 <p>So temporary files are <strong>disabled</strong> rather than left at the engine's default of an OS temporary
 directory. That is belt and braces on purpose: the pool alone would still let a spilling operator
 react to a refused reservation by writing, and <code>DiskManagerMode::Disabled</code> is what makes there be

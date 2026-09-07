@@ -2854,12 +2854,12 @@ list of row ids and <code>deny_unknown_fields</code> makes an attempt an error n
 the guidance here would teach an agent to attempt something the surface refuses by construction,
 which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
 one short section saying the field does not exist and that there is no way to widen it.</p>
-<p><strong>No column, no table, no model and no measure expression.</strong> This is the same content
-<code>GET /v1/catalog</code> already returns and deliberately not one field more: a metric's name, its
-prose, its grains, its dimensions and their permitted values. A caller needs those to ask a valid
+<p><strong>No column, no table, no model and no measure expression.</strong> This is the same content <code>GET
+/v1/catalog</code> already returns and deliberately not one field more: a metric's name, its prose,
+its grains, its dimensions and their permitted values. A caller needs those to ask a valid
 question; it needs no column name to do it, and a column name in an agent's context is a name it
-will eventually try to use. <code>tests</code> asserts that no model name, table name or column name from
-the bundle appears in the output.</p>
+will eventually try to use. The <code>tests</code> module below asserts that no model name, table name or
+column name from the bundle appears in the output.</p>
 <p><strong>Nothing about identity.</strong> There is none - the deployment token authenticates the deployment and
 not the caller - and a prompt that mentioned per-caller scoping would describe a control that does
 not exist. <code>AGENTS.md</code> and <code>SECURITY.md</code> record why.</p>
