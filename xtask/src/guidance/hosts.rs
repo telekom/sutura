@@ -374,9 +374,9 @@ mod tests {
     /// to read and cannot, never on a file it was never going to read.
     #[test]
     fn every_entry_resolves_to_one_file_and_some_page_names_it() {
-        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
-            panic!("could not locate the repo");
-        };
+        let (root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not locate the repo");
         let text: Vec<String> = files
             .iter()
             .filter(|f| super::super::has_ext(f, &["md", "nix", "yml", "yaml", "toml", "sh"]))

@@ -443,9 +443,12 @@ fn report(variant: &str, from: &BTreeMap<String, usize>) -> String {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-examples: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Examples)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-examples: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
     let Some(crate_dir) = gate_crate() else {
         eprintln!("xtask check-examples: could not derive this gate's own crate directory");
