@@ -508,9 +508,17 @@ mod tests {
 
     #[test]
     fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
-        // The shipped binary's adapters declare `EXECUTES_LEGS = false`, and this is what `answer` does
-        // on that build: it refuses cleanly BEFORE minting or running a leg, rather than surfacing a
-        // typed leg refusal as a retryable 503.
+        // What `answer` does on a build whose adapter declares `EXECUTES_LEGS = false`: it refuses
+        // cleanly BEFORE minting or running a leg, rather than surfacing a typed leg refusal as a
+        // retryable 503. `FixedWarehouse` below takes the port's default, which is what puts this
+        // test on that branch.
+        //
+        // **Not the shipped binary any more, and the correction matters here of all places.**
+        // `sutura-exec-datafusion` declares the constant and is non-optional in both published
+        // binaries, so a release ANSWERS a two-source question - see
+        // `crates/sutura-serve/tests/served.rs`. This cell is about the gate, not about the shipped
+        // set: what still reaches it is `sutura-exec-bigquery`, any adapter taking the default, and
+        // this fake.
         let fact_source = SourceName::parse("facts").expect("facts");
         let lookup_source = SourceName::parse("geo").expect("geo");
         let shared = shared();
