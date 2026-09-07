@@ -36,11 +36,26 @@ impl Excused {
 /// `super::base`; this one's whole content is which excuse applied to which file, so an excuse and
 /// the words explaining it are one thing to keep true rather than two. It also kept that module
 /// under the unexemptable 1000-line cap, which is the honest second reason.
-pub(crate) fn explain(excused: &[Excused], measured: &str) -> Verdict {
+pub(crate) fn explain(excused: &[Excused], measured: &str, out: &mut Emit<'_>) -> Verdict {
     for line in unreachable_lines(excused, measured) {
-        println!("{line}");
+        out(&line);
     }
     Verdict::Inconclusive
+}
+
+/// Where a verdict's lines go: `println!` in the gate, a `Vec` in a test.
+///
+/// **PURE LINES WERE NOT ENOUGH, and review measured the gap rather than arguing it.** Replacing
+/// either emission with `let _unused = <the same pure call>;` left the suite at 1034 passed,
+/// exit 0: the decision was asserted, the CLAIM was asserted, and whether either ever reached a
+/// reader was not. That matters more here than for an ordinary remedy, because the contradiction
+/// line is the only mechanism able to reveal a reach rule that is wrong - a gate that detects one
+/// and says nothing is the failure this whole module exists to avoid, one level up.
+pub(crate) type Emit<'a> = dyn FnMut(&str) + 'a;
+
+/// Print to standard output, the gate's own sink.
+pub(crate) fn to_stdout(line: &str) {
+    println!("{line}");
 }
 
 /// Every line [`explain`] prints, in order.
@@ -97,6 +112,16 @@ pub(crate) fn contradiction(outcome: &BaseOutcome, reverted: &Reverted) -> Vec<S
         .collect()
 }
 
+/// Emit the falsifier's lines, if this outcome has any.
+///
+/// Separate from [`contradiction`] so the DECISION and the EMISSION are each reachable by an
+/// assertion: deleting this body used to redden nothing.
+pub(crate) fn emit_contradiction(outcome: &BaseOutcome, reverted: &Reverted, out: &mut Emit<'_>) {
+    for line in contradiction(outcome, reverted) {
+        out(&line);
+    }
+}
+
 /// #397's excused partition, for `super::base`'s tests.
 ///
 /// `#[cfg(test)]` and built through the real classifier: `Excused`'s fields are private to this
@@ -133,7 +158,8 @@ pub(crate) fn excused_for_tests() -> Reverted {
 #[cfg(test)]
 mod tests {
     use super::excused_for_tests;
-    use super::{contradiction, unreachable_lines};
+    use super::{contradiction, emit_contradiction, explain, unreachable_lines};
+    use crate::Verdict;
     use crate::causality::base::BaseOutcome;
     use crate::causality::reverted::Reverted;
 
@@ -180,6 +206,39 @@ mod tests {
         let lines = contradiction(&red(), &excused_for_tests());
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(lines.iter().all(|line| line.contains("CONTRADICTED")), "{lines:?}");
+    }
+
+    /// Every line a call emitted, so "it reached a reader" is a thing an assertion can read.
+    fn captured(run: impl FnOnce(&mut super::Emit<'_>)) -> Vec<String> {
+        let mut lines = Vec::new();
+        run(&mut |line: &str| lines.push(String::from(line)));
+        lines
+    }
+
+    #[test]
+    fn the_verdict_and_the_falsifier_are_emitted_and_not_merely_computed() {
+        // MEASURED BY REVIEW: with the lines pure and the printing a bare loop, replacing either
+        // emission with `let _unused = <the same pure call>;` left the suite green. The decision
+        // was held, the wording was held, and whether either ever reached a reader was not - which
+        // matters most for the contradiction line, the only mechanism able to surface a reach rule
+        // that is wrong.
+        let excused = excused_for_tests();
+        let said = captured(|out| {
+            let verdict = explain(excused.out_of_reach(), "1 of 1 added tests measured", out);
+            assert_eq!(verdict, Verdict::Inconclusive);
+        });
+        assert!(
+            said.iter().any(|line| line.contains("crates/other/src/prompt/tests.rs")),
+            "the verdict names its excused files where somebody can read them: {said:?}"
+        );
+        assert!(said.iter().any(|line| line.contains("INCONCLUSIVE")), "{said:?}");
+
+        let shouted = captured(|out| emit_contradiction(&red(), &excused, out));
+        assert_eq!(shouted.len(), 3, "one per excused file: {shouted:?}");
+        assert!(shouted.iter().all(|line| line.contains("CONTRADICTED")), "{shouted:?}");
+
+        // And an outcome with nothing to contradict emits nothing at all.
+        assert!(captured(|out| emit_contradiction(&BaseOutcome::Green, &excused, out)).is_empty());
     }
 
     #[test]

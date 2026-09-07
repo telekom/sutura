@@ -73,6 +73,11 @@
 //!   **Both halves of that were measured against a first attempt that was wrong in each
 //!   direction**: a scan claiming eighteen, whose lexer had no case for the char literal `'"'`
 //!   and swallowed whole files, and a report that every occurrence was outside a string.
+//! * **A DELETED FILE IS NOT IN THE SET THIS SPEAKS ABOUT.** `super::diff` opens no entry for one
+//!   (its `+++` is `/dev/null`), so it never reaches the revert set and is never restored - which
+//!   is correct, and means *every file this run put back at base* is a claim over a set that
+//!   silently omits deletions. Not a door: a file the reconstruction does not restore cannot
+//!   redden anything either. Written down because the sentence reads wider than the set.
 //! * **Cross-package reachability itself.** Nothing here asks whether the scoped tests' package
 //!   even depends on the reverted one, which is the `cargo metadata` question
 //!   `github.com/telekom/sutura#358` left open. A production change in an unrelated package is
@@ -86,19 +91,26 @@
 //!   `super::diff::RemovedLine` carries its pre-image number now and this reads the base tree, so
 //!   the question is exact rather than approximated - and the limit that paragraph asserted was
 //!   the reverse of the truth, which is the defect this repository names before the code one.
-//! * **`super::regions` DECIDES THE ANSWER FOR BOTH IMAGES NOW, and the two hazards above compose.**
-//!   `item_end` extends a region to the end of the file when braces never balance, so an
-//!   unbalanced `#[cfg(test)] mod demo {` inside a base-image fixture string would put every
-//!   production line below it inside a region - and every removal below it would be excused. Each
-//!   ingredient is stated on its own above; what is new here is that this module feeds one to the
-//!   other, in a gate where the output is whether a FAILED is suppressed.
-//! * **A `/tests/` PATH IS WHOLLY TEST CODE BY PREDICATE, not by inspection.**
-//!   `regions::is_dedicated_test_target` answers `WholeFile` for any path containing `/tests/`,
-//!   which is right for a cargo integration target and is a guess for a `src/**/tests/` module.
-//!   All four such module roots in this tree are `#[cfg(test)]`-gated today; an ungated one would
-//!   be excused wholesale. This module promoted that predicate from deciding separability to
-//!   deciding whether a FAILED is suppressed, which is the same promotion the paragraph above
-//!   records for `regions` generally.
+//! * **`super::regions` DECIDES THE ANSWER FOR BOTH IMAGES NOW, and an over-extended region is
+//!   therefore an excuse rather than a misfiling.** The version of this paragraph that review
+//!   falsified named the wrong mechanism: it said `item_end` over-extends *when braces never
+//!   balance*, with an unbalanced `#[cfg(test)] mod demo {` in a fixture string as the ingredient.
+//!   The reachable shape had balanced braces, no literal and no warning - a
+//!   `#[cfg(test)] mod probe; // why`, whose `;` the terminator test could not see because it read
+//!   the raw line instead of asking the lexer. Two workspaces differing only in that comment gave
+//!   `FAILED` exit 1 and `INCONCLUSIVE` exit 3. `regions::item_end` asks the scanner now, and a
+//!   paragraph that sends a reader looking for an unbalanced brace is why the limit is written as
+//!   the CONSEQUENCE - any over-extended region is an excuse here - rather than as one cause.
+//! * **A `/tests/` PATH IS WHOLLY TEST CODE BY PREDICATE, not by inspection, and it answers BEFORE
+//!   either image is read** - so the base-vs-head distinction this module is named for has no
+//!   effect on any such path. `regions::is_dedicated_test_target` is right by construction for a
+//!   cargo integration target and a guess for a `src/**/tests/` module. Measured on 2026-09-07:
+//!   SIX such module roots, all six `#[cfg(test)]`-gated where they are declared - and ELEVEN leaf
+//!   files under them, every one of which `declared_under_cfg_test` answers `false` for, because
+//!   that lookup is one level and their immediate parent declares them plainly. **The gating
+//!   protects the roots; the path guess is the only thing protecting the leaves.** An ungated root
+//!   would be excused wholesale. This module promoted that predicate from deciding separability to
+//!   deciding whether a FAILED is suppressed.
 //!
 //! **AND IT HAS A FALSIFIER RATHER THAN ONLY AN ARGUMENT.** *Out of reach* and *a red base run*
 //! are contradictory answers about one run: this module says the revert restores nothing a test can

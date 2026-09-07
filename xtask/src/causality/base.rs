@@ -351,9 +351,7 @@ pub(crate) fn report_base(
     // which outcomes contradict is now [`contradicts`] and has its own assertions; the `println!`
     // itself is still uncovered, which is true of every printed line here and is why `remedies`
     // keeps its wording in pure functions.
-    for one in reverted::verdict::contradiction(outcome, reverted) {
-        println!("{one}");
-    }
+    reverted::verdict::emit_contradiction(outcome, reverted, &mut reverted::verdict::to_stdout);
     match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
@@ -389,7 +387,9 @@ pub(crate) fn report_base(
         }
         // The SENTENCE is `super::reverted`'s, beside the rule that decides it: an excuse and the
         // words that explain it are one thing to keep true rather than two.
-        BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => reverted::verdict::explain(excused, &measured),
+        BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => {
+            reverted::verdict::explain(excused, &measured, &mut reverted::verdict::to_stdout)
+        }
         BaseOutcome::RedByAssertion { ref failed } => {
             println!("  base: red by assertion, as required");
             for one in failed {
