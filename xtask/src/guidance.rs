@@ -189,42 +189,20 @@ const FORBIDDEN: &[Forbidden] = &[
         only: &[],
         except: &[],
     },
-    Forbidden {
-        // TWO NEEDLES FOR ONE RULE, and the pair is the rule: a devenv script body assigned as a
-        // literal - a `"` string here, a `''` block below - is shell that went nowhere near
-        // `devenv.nix`'s `linted` wrapper, so ShellCheck never read it. The wrapper is what makes a
-        // body unrunnable until it passes; nothing made a NEW body go through the wrapper, which is
-        // `github.com/telekom/sutura#320`'s own fail-closed requirement and the half a reviewer
-        // measured as still open: a plain-string body added beside the wrapped ones built and ran
-        // with two findings in it and said nothing.
-        //
-        // A needle rather than a parser, because the failure direction is inverted from
-        // `xtask/src/action_shell.rs`: that one has to EXTRACT and so fails open on a bad read,
-        // while this one fails on what it FINDS. What it gives up is stated below.
-        needle: ".exec = \"",
-        instead: "onStable \"<name>\" \"<body>\" for a gate, or runs \"<name>\" \"<body>\" - both \
-                  go through `linted`, whose checkPhase is `bash -n` plus ShellCheck",
-        why: "a literal body is shell nothing reads: `nix/lint-workflows.sh` globs tracked `*.sh` \
-              files, `nix/lint-action-shell.sh` reads composite actions, and the `shellcheck` hook \
-              is `files: \\.sh$` - a Nix string is none of those. Measured: the derivation devenv \
-              built for `ship-check` carried an EMPTY checkPhase, so those fifty lines had neither \
-              ShellCheck nor a syntax check, and the first ShellCheck run over them found a live \
-              command substitution inside an error message",
-        only: &["devenv.nix"],
-        except: &[],
-    },
-    Forbidden {
-        // The block half of the pair above. Its own entry rather than a cleverer single needle,
-        // because a substring rule is the whole mechanism here and two literals are cheaper to
-        // read - and to keep true - than one pattern that has to mean both.
-        needle: ".exec = ''",
-        instead: "onStable \"<name>\" ''<body>'' for a gate, or runs \"<name>\" ''<body>''",
-        why: "same as the entry above, and this is the shape that carried the defect: `ship-check` \
-              is fifty lines of bash in a `''` block",
-        only: &["devenv.nix"],
-        except: &[],
-    },
 ];
+
+// A DEVENV SCRIPT BODY IS NOT HELD HERE ANY MORE, and the deletion is the fix rather than a
+// relaxation. Two entries used to forbid the literals `.exec = "` and `.exec = ''` in
+// `devenv.nix`. `github.com/telekom/sutura#402` measured six spellings that walked past them with
+// a three-finding body in the tree and every gate green: no leading dot, two spaces, a newline
+// after the `=`, the `''` form, any attribute that is not `exec` - `enterTest`, and `enterShell`
+// itself - and the same literal in a module `imports` reaches, since a slash-less `only:` pattern
+// matches a bare basename and nothing else.
+//
+// `crate::devenv_shell` keys on the `=` and on the attribute NAME instead, so all six are one
+// case, and it also holds the wrapper's own argument set - which no phrase rule could. Kept
+// alongside, the needles would have enumerated one input of a rule that subsumes them, which is
+// the shape `github.com/telekom/sutura#384`'s fix deleted rather than kept.
 
 /// A version that must agree wherever it is written.
 struct Pin {
