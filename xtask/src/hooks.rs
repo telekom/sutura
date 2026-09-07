@@ -78,9 +78,31 @@ pub(crate) struct Hook {
     /// entry is where that decision is written.
     pub(crate) entry: String,
     pub(crate) stages: Vec<String>,
+    /// `always_run: true` - it runs whatever the diff contains.
+    ///
+    /// `pub(crate)` because `crate::hook_coverage` needs it to answer a question this file does
+    /// not ask: whether a SURFACE claiming this hook could ever report a gap. It cannot, and
+    /// `github.com/telekom/sutura#402` measured a row that did exactly that - the coverage line
+    /// printed on every diff, so the claim asserted nothing.
+    pub(crate) always_run: bool,
+    /// Does it declare a `files:` or `types:` filter?
+    ///
+    /// The OTHER spelling of the same hazard, and holding only `always_run` was holding one
+    /// spelling of it: a hook with no filter matches every path, so prek runs it on every diff and
+    /// a surface claiming it can never report a gap either. Two such hooks are in this config and
+    /// both were claimed by a row, so the rule that reads only `always_run` passed over the same
+    /// defect written the other way.
+    pub(crate) filtered: bool,
 }
 
 impl Hook {
+    /// Does this hook run whatever the diff contains?
+    ///
+    /// The two spellings as one question, so a caller cannot hold half of it.
+    pub(crate) const fn unconditional(&self) -> bool {
+        self.always_run || !self.filtered
+    }
+
     /// Does this hook's entry compile first-party code?
     fn compiles(&self) -> bool {
         COMPILES.iter().any(|needle| self.entry.contains(needle))
@@ -201,6 +223,8 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
                 line: index.saturating_add(1),
                 entry: String::new(),
                 stages: defaults.clone(),
+                always_run: false,
+                filtered: false,
             });
             continue;
         }
@@ -209,6 +233,14 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
         };
         if let Some(list) = trimmed.strip_prefix("stages:") {
             hook.stages = stages(list);
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("always_run:") {
+            hook.always_run = value.trim() == "true";
+            continue;
+        }
+        if trimmed.starts_with("files:") || trimmed.starts_with("types:") {
+            hook.filtered = true;
             continue;
         }
         // The DISPLAY name, which is what prek prints and therefore the only thing a line of its

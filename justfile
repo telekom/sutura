@@ -575,6 +575,24 @@ lint-actions:
 lint-workflows:
     bash nix/lint-workflows.sh
 
+# The shell the line above cannot reach: the script bodies inside `devenv.nix`. They are Nix
+# strings, so the `*.sh` glob, zizmor and the composite-action reader all filter them out - and
+# `xtask/src/hook_coverage.rs` carries that as a surface with an EMPTY hook set, which is what
+# makes `just ship-check` run this recipe when a diff touches the file.
+#
+# What it asserts is the EMISSION rather than a spelling: `devenv.nix`'s `linted` wraps each body
+# in `writeShellApplication`, and this reads the resulting derivation's `checkPhase` out of the
+# store and requires `bash -n` plus a store-path shellcheck in it. `checkPhase = "true";` in that
+# wrapper removes both from every body, and it left every other gate in this repository green -
+# `github.com/telekom/sutura#402`. `cargo xtask check-devenv-shell`, inside `hygiene`, is the
+# structural half and the one CI runs.
+#
+# THROUGH `devenv shell`, because the store path is interpolated by nix at the call site: a
+# justfile cannot name one, and a hand-written path would be a gate over a path rather than over
+# this tree's wrapper.
+devenv-linter:
+    devenv shell devenv-linter
+
 # Regenerate the committed attribution document from `cargo metadata`. `ATTRIBUTION.md` is the
 # statement a distributor hands on - every third-party crate this workspace resolves and the licence
 # it declares - and `cargo xtask check-attribution` is the gate that fails when it falls behind the

@@ -236,13 +236,29 @@ fn declared_apps(text: &str) -> BTreeSet<String> {
 
 /// One line of a Nix file with everything that is not code blanked out, and the `let` depth it
 /// starts at.
-struct CodeLine {
+///
+/// `pub(crate)` rather than private, for [`declared_block`]'s reason one layer down:
+/// `crate::devenv_shell` asks a different question of the same projection - which attributes does
+/// a devenv module ASSIGN, and did the value go through a wrapper - and a second Nix reader would
+/// be a second thing to keep in step with the three shapes [`code_lines`] records. **The blanking
+/// is what that gate keys on**: a value whose code projection is empty was a string literal, which
+/// is how it tells a wrapped body from a bare one without a second parse.
+pub(crate) struct CodeLine {
     /// The line, with every character inside a comment or a string literal replaced by a space.
     /// Interpolations are kept, because `${...}` is code and its braces balance.
-    code: String,
+    pub(crate) code: String,
     /// How many `let`s are open at the START of this line. A binding inside `let ... in` is not
     /// an attribute of the enclosing set, and at brace depth alone the two are indistinguishable.
-    lets: u32,
+    pub(crate) lets: u32,
+    /// Does this line START inside a `''...''` literal?
+    ///
+    /// The blanking above is what makes a literal invisible, and for one caller that is the wrong
+    /// answer: `crate::devenv_shell` has to find a MULTI-LINE indented literal - a shell body's
+    /// shape - wherever it appears, including as an argument to something that is not a wrapper.
+    /// `pkgs.writeShellScriptBin "x" ''...''` projects to an application, not to a literal, so the
+    /// code alone cannot see the body in it. True on the body lines only: a literal that opens and
+    /// closes on one line sets this nowhere, which is exactly the one-liner/block discriminator.
+    pub(crate) in_indented: bool,
 }
 
 /// Which construct the scanner is inside.
@@ -283,7 +299,7 @@ enum Frame {
 /// So this is a small lexer instead: comments, both string forms with their escapes, `${...}`
 /// interpolation as nested code, and `let ... in` as a scope. Nothing else about Nix is modelled,
 /// and nothing else is needed to answer "which attributes does this block declare".
-fn code_lines(text: &str) -> Vec<CodeLine> {
+pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
     let chars: Vec<char> = text.chars().collect();
     let at = |index: usize| chars.get(index).copied().unwrap_or('\0');
     let word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '\'');
@@ -297,6 +313,8 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
     // Only a line that STARTS outside every `let` can declare an attribute. Inside a string
     // literal the answer is "not a declaration", which is what a non-zero depth says.
     let mut lets = 0_u32;
+    // Whether the line being built starts inside a `''...''` literal. See `CodeLine::in_indented`.
+    let mut in_indented = false;
     let mut index = 0_usize;
     while index < chars.len() {
         let current = at(index);
@@ -304,6 +322,7 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
             lines.push(CodeLine {
                 code: std::mem::take(&mut code),
                 lets,
+                in_indented,
             });
             if matches!(stack.last(), Some(Frame::Line)) {
                 stack.pop();
@@ -312,6 +331,10 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
                 Some(&Frame::Code { lets: open, .. }) => open,
                 _ => 1,
             };
+            // The frame the NEXT line starts in. A `${...}` inside the literal pushes a code
+            // frame, so the test is whether an `Indented` frame is open anywhere below the top -
+            // otherwise an interpolation spanning a newline would read as ordinary code.
+            in_indented = stack.iter().any(|frame| matches!(frame, Frame::Indented));
             index = index.saturating_add(1);
             continue;
         }
@@ -433,7 +456,7 @@ fn code_lines(text: &str) -> Vec<CodeLine> {
             None => break,
         }
     }
-    lines.push(CodeLine { code, lets });
+    lines.push(CodeLine { code, lets, in_indented });
     lines
 }
 
