@@ -457,6 +457,111 @@ therefore does not see.
   permitted a verdict over zero steps. What the widening cannot reach is a read laundered into a
   helper that inherits the variable from the step `env:`, which at least moves the code somewhere
   `just lint-workflows` looks.
+- **A PREDICATE'S `false` BRANCH IS A BUCKET, and this one dropped its input on the floor.** The
+  same gate's literal rule asked *is this a literal set* and skipped everything that said no - so a
+  value it could not compare was neither compared nor reported, and the only thing that could move
+  was the printed count. **Four shapes, each mutated one at a time into a clean tree and measured
+  against the gate as it stood** (2026-09-06, #329), and the interesting part is that the count
+  said something different about each: a null `default:` under an action's `binaries:` input and a
+  literal replaced by `${{ env.SHIPPED }}` each printed **`ok - 3 literal(s)` at exit 0** where 4
+  is right; a `with:` passing the key with nothing under it printed **`ok - 4` at exit 0**, the
+  declaration invisible rather than subtracted, so even the count did not move; and a null
+  `BINARIES:` in a workflow `env` was **red at exit 1 - from the sibling LOOP rule**, while the
+  literal rule went on dropping it in silence behind that verdict. **So a moving count is the
+  LOUDEST of the four failure modes, not the quiet one.** The expression shape is the one no
+  empty-set rule could ever have caught, being empty nowhere. The answer is a classification
+  rather than a predicate: a set (compared, and **ZERO NAMES IS A SET**, so a null disagrees with
+  `nix/shipped.nix` through the comparison that was already there), a reference naming this same
+  set (named in the verdict), or a refusal. **Two transferable halves.** *For every predicate a
+  scan filters on, ask what happens to the inputs it rejects* - if the answer is nothing, then a
+  count is the only witness there is, and a shape that was never counted does not even move that.
+  And **a refusing arm has to be preceded by a lexer**: the refusal fails the gate, and
+  `BINARIES: "sutura sutura-serve"` and a trailing `# comment` are legal YAML for this set, so a
+  quote and a comment come off before the classification - or the gate reddens a correct tree and
+  gets disabled. **The rows are still not a floor**, so the verdict names TWO numbers from two
+  places - the files the finder found and the files the walk read - and the second is a LIST of
+  names, because a count can be satisfied by assigning the first one to it.
+- **THAT PAIR THEN FAILED TWICE, AND BOTH ARE THE SAME MISTAKE: A WITNESS WRITTEN BEFORE THE WORK
+  IT ATTESTS TO.** Found by mutating the fix, not the original. (1) The name was pushed to the
+  *inspected* list BEFORE and independently of the parse, so a `continue` between the two - one
+  line, `if name.contains("/actions/") { continue; }` - left BOTH composite actions unread while
+  the verdict still read `ok - 2 literal(s) across 12 file(s)`, exit 0, whole suite green. The list
+  was complete because it was populated unconditionally: it witnessed that a file had been OFFERED
+  to the walk, never that anything was read out of it. The name went in *after* the parse returned
+  - **which bought that mutation and not its class**; see the next entry for what it cost. (2) Its only floor over the result was `literals >= 2` on a tree that has 4, so losing half
+  sat INSIDE the assertion - *at least one row defends nothing about WHICH row* for the third time
+  in this file, in a gate whose own sibling doc states that rule. The test pins the exact
+  `file:line` of every literal and every reference now. **The transferable pair of questions: does
+  the witness get written before or after the work, and what does the floor let you lose without
+  moving?**
+- **AND THE CONSUMER OF A CLASSIFICATION IS A SECOND PLACE THE SAME DEFECT LIVES.** All seven tests
+  the fix added asserted on the classifier; nothing asserted on the function that turns a
+  classification into a mismatch, a row and an exit code. Measured: one match arm,
+  `Carried::Set(names) if names.is_empty() => {}`, restored the pre-fix silent green **byte for
+  byte** - `ok - 3 literal(s)`, exit 0 - with all 878 tests passing. A mutation table is only worth
+  the layer it was applied at: *an empty set is skipped again* was red at the classifier and
+  invisible three lines further on, where the exit code is actually decided. **Ask which function
+  the exit code comes out of, and test THAT one.**
+- **The same review's three cheaper findings, kept because each is a shape rather than an
+  instance.** A file the FINDER drops never reaches the walk, so `inspected == files.keys()` holds
+  trivially over it: a non-UTF-8 action gave `ok - 3 literal(s) across 11 file(s)`, exit 0, and the
+  sibling loop rule's `8 step(s)` quietly became `7` - the unreadable-input shape this file already
+  records twice, now fail-closed at the read, with *absent* and *unreadable* told apart because an
+  action legitimately has only one of `action.yml` / `action.yaml`. **A reference still lets the
+  count drop** (`${{ steps.x.outputs.binaries }}` for a literal is `ok - 3`, exit 0) and no gate
+  can resolve one, so that is held by a test pinning every row rather than by a rule that would
+  redden a correct tree. And ONE YAML null was read THREE ways - `""` as the empty set, `null` as a
+  binary named *null*, `~` as a refusal - which is what a value-shaped `const` list is for.
+- **THE ORDERING FIX WAS THE WRONG KIND OF FIX, AND THE THIRD ROUND ON ONE PAIR IS THE LESSON.**
+  *After the parse returns* is a statement ORDER, so the push is still an independent statement: a
+  skip that carries it walks through in two lines - `walk.inspected.push(name); continue;` -
+  measured back at `ok - 2 literal(s) across 12 file(s)`, exit 0. What buys the CLASS is a **data
+  dependency**: collect once with a `map` over the caller's whole list and derive both halves from
+  that collection, so a name cannot enter the witness without a `Vec<Spelled>` behind it and a
+  `filter` drops a file out of both sides. **A fix that closes a mutation without closing its class
+  is this repository's single most repeated defect** - `github.com/telekom/sutura#414` collects
+  four more instances - and *make the mutation impossible to write* is the only version of it that
+  survives a second review.
+- **AND THE MODEL EVERYONE REACHES FOR - `read` AGAINST `offered` - DOES NOT COVER A NARROWED
+  DISCOVERY.** `guidance::pages` counts both off the SAME `files` slice, so it holds a narrowed
+  LOOP and nothing else. Measured on the shipped-set gate with `chmod 000 .github/actions`:
+  `ok - 4 step(s)` from the sibling loop rule and `ok - 2 literal(s) across 8 file(s)` from this
+  one, exit 0 - **the denominator moved with the numerator**, so the verdict agreed with itself
+  over a tree it never looked at, and the two composite actions #111 was about left the scan in
+  silence. The cause was `if let Ok(entries) = read_dir(..)` plus `.flatten()` on the `ReadDir`:
+  two silent drops in the DOOR into the tree, one level below every count. **Ask which arm
+  DISCOVERS the subject, and read that one before believing any pair of numbers above it.** The
+  same shape is live in `repo.rs`' three shared walkers (`all_files`, `collect_files`,
+  `collect_text_files`, 25 production call sites), where `chmod 000 docs/adr` - the directory
+  holding the ADR this gate's own remedies cite - is still exit 0 and silent.
+- **A FLOOR COMPUTED INSIDE THE THING IT POLICES IS NOT A FLOOR.** The same gate grew a substring
+  sighting of its key, subtracted from the lines its parser accounted for, so a spelling the
+  parser does not recognise is a verdict rather than a silence - which is what reached
+  `- binaries: sutura-serve sutura extra`, a shipped set in the wrong order with a third name in
+  it that was neither compared, reported **nor counted**, and therefore out of reach of the row
+  floor too: the verdict was byte-identical to a clean tree's at exit 0. The first version
+  computed that subtraction INSIDE the parse function, and a mutation handing that function an
+  empty result took the floor away with it - back to `ok - 2 literal(s) across 12 file(s)`, exit
+  0. Moving the subtraction to the CALL SITE, off the same `text`, is what made it survive.
+  **A floor has to be reachable without the code it polices.** Its price is that the sighting must
+  be measured against the real tree first: a bare `contains` would have reddened seven prose
+  mentions of the word under `.github`, and a gate that reddens a correct tree gets disabled.
+- **A `bool` FIELD AND A `matches!` ARE WHERE A NEW STATE ARRIVES ALREADY EXEMPT.** Two arms of the
+  same fix, both held by the compiler rather than by a test: an open block's body became an
+  `enum { Nothing, Deeper }` so its closing decision is an exhaustive `match`, and the
+  classification gained a fourth class so an input declaring the set and no default is a refusal
+  instead of a `None` - the one place #329's symptom survived its own fix, and a *named row* was
+  measured saying WHICH while still letting the release path lose a comparison at exit 0. Proof, rather than an assertion: adding a fifth class gives
+  `error[E0004]: non-exhaustive patterns` in **both** consumers, and collapsing the fourth back
+  into the empty set gives `error: variant ... is never constructed` under `-D warnings`.
+  **A `_ =>` arm on an *is this comparable* decision is the same defect as the predicate that
+  preceded it.**
+- **A GATE THAT RETURNS ON ITS FIRST BROKEN RULE REPORTS HALF OF WHAT IT KNOWS.** Same gate, and it
+  is `max-lines`' finding a few bullets up arriving in a second place. With one file spelling the
+  shipped set empty and another drifted, only the loop rule printed - exit code right, the drift
+  invisible until the first was fixed, one round trip per rule. The rules are collected into a
+  `Vec` of an enum and all of them printed before any of them returns; the enum's `match` is
+  exhaustive, so a rule added later cannot arrive silent.
 - **A single unreadable input dropped in silence, twice more, and the floor did not save it.** Two
   new gates read every workflow with `.ok()` / `else continue` and failed closed only when EVERY
   file was unreadable - so one dropped file was a gating job classified by nothing, or a

@@ -972,6 +972,7 @@ economise.
    | `check-scope` | the `justfile`, which no other gate reads |
    | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
+   | `check-devenv-shell` | `devenv.nix` and every module its `imports` reach - which attributes assign a shell body, and whether the value goes through the wrapper ShellCheck reads |
    | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares |
 
    **Reads prose.** Each of these reads at least one file such a diff CAN change, so skipping one

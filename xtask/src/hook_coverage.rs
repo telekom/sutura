@@ -29,10 +29,20 @@
 //! carries that, and `--surface-tasks` is how `ship-check` learns which extra task a diff needs
 //! BEFORE it can be judged - so the gap is closed rather than described.
 //!
-//! **There are TWO such surfaces, and the second one had no row here at all.** The shell inside
-//! `devenv.nix`'s script bodies is a Nix string, so the `*.sh` glob, `zizmor` and the
-//! composite-action reader all filter it out the same way - and a 74-line change to that file
-//! produced a surface list that mentioned none of it.
+//! **There are TWO such surfaces, and this sentence was false for one release.** The shell inside
+//! `devenv.nix`'s script bodies is a Nix string, so every row above filters it out the same way.
+//! Its first row claimed `hygiene`, which **could never report a gap** - that hook is
+//! `always_run: true`, so the coverage line printed whatever the diff was
+//! (`github.com/telekom/sutura#402`). Both rows declare an EMPTY hook set now.
+//!
+//! **And that hazard has TWO spellings, of which the first fix held one.** A hook with no `files:`
+//! and no `types:` filter matches every path, so prek runs it on every diff and a row claiming it
+//! prints `covered` unconditionally too - same property, different key. `rust-tests` and
+//! `rust-doctests` are both that, and both were claimed by the `Rust source` row, so the rule that
+//! read only `always_run` passed over the same defect written the other way.
+//! [`hooks::Hook::unconditional`] is both spellings, [`unknown_hook_ids`] refuses a row that claims
+//! one, and `every_surface_the_real_config_claims_still_exists` holds that the derived set contains
+//! an instance of each - or the rule would be over one of them.
 //!
 //! # Three ways a row said more than it knew, and all three printed a full house
 //!
@@ -132,71 +142,9 @@ const MEASURED_STAGES: &[&str] = &[hooks::COMMIT, hooks::PUSH];
 /// than writing a commit, so there is no message for it to run against.
 const UNMEASURED_STAGES: &[&str] = &["commit-msg"];
 
-/// A kind of file a change can touch, and what inspects it.
-struct Surface {
-    /// What a reader would call it.
-    label: &'static str,
-    /// Path globs, matched by [`repo::matches`].
-    paths: &'static [&'static str],
-    /// The hook IDs that claim it. **EMPTY is the sharp case**: nothing a diff-scoped hook run
-    /// invokes reaches this surface at all.
-    hooks: &'static [&'static str],
-    /// The `just` task that reaches it when no hook did.
-    reached_by: &'static str,
-}
+mod surfaces;
 
-/// Every surface, and the reason each row is where it is.
-const SURFACES: &[Surface] = &[
-    Surface {
-        // The extension, not a directory: `crates/`, `xtask/` and `examples/` all carry Rust, and
-        // a directory list here is a list to forget the day a fourth appears.
-        label: "Rust source",
-        paths: &["*.rs"],
-        hooks: &["rust-fmt", "rust-clippy", "rust-check-changed", "rust-tests", "rust-doctests"],
-        reached_by: "lint",
-    },
-    Surface {
-        label: "shell script",
-        paths: &["*.sh"],
-        hooks: &["shellcheck"],
-        reached_by: "lint-workflows",
-    },
-    Surface {
-        // `zizmor`'s own `files:` is `^\.github/workflows/.*\.ya?ml$`, so this row and that
-        // regex agree by construction rather than by coincidence.
-        label: "workflow YAML",
-        paths: &[".github/workflows/*.yml", ".github/workflows/*.yaml"],
-        hooks: &["zizmor"],
-        reached_by: "lint-workflows",
-    },
-    Surface {
-        // NO HOOK, and that is the finding rather than an omission here. `actionlint` cannot read
-        // a composite action at the pinned version, `zizmor` is pointed elsewhere, and a `run:`
-        // block is not a `.sh` file - so this surface is invisible to every hook in the config.
-        label: "composite-action shell",
-        paths: &[".github/actions/*/action.yml", ".github/actions/*/action.yaml"],
-        hooks: &[],
-        reached_by: "lint-workflows",
-    },
-    Surface {
-        // The same shape one file over, and it had no row at all: a 74-line change to `devenv.nix`
-        // used to produce a surface list that said nothing about it. The shell in this file is the
-        // `scripts.<name>.exec` bodies and `enterShell`, none of which is a tracked `*.sh` file, a
-        // workflow or a composite action - so every row above filters it out.
-        //
-        // `hooks` NAMES ONE, and the honesty is in which one. ShellCheck itself runs when the dev
-        // shell is BUILT - `linted` in `devenv.nix` wraps each body in `writeShellApplication`,
-        // whose checkPhase refuses a body it cannot read - and no hook builds a dev shell. What a
-        // diff-scoped run reaches is the STRUCTURAL half: `check-guidance`, inside `hygiene`,
-        // refuses a body assigned as a literal instead of through that wrapper. So this row claims
-        // the rule, not the linter, and `reached_by` is the task that carries the same rule.
-        label: "devenv script shell",
-        paths: &["devenv.nix"],
-        hooks: &["hygiene"],
-        reached_by: "hygiene",
-    },
-];
-
+use surfaces::{SURFACES, Surface};
 /// How this gate was invoked.
 struct Invocation {
     /// The base ref whose diff against `HEAD` is the change under judgement.
@@ -551,16 +499,27 @@ fn report_stage(stage: &str, per_hook: &[Inspected]) {
 /// regex, so what is held instead is that every ID this table leans on still exists. A renamed
 /// hook would otherwise quietly empty a surface's claim and turn its row into a permanent gap or a
 /// permanent pass, depending on which way the rename went.
+/// Plus the other direction of the same rot, and it is a rule rather than a test: a claim on a
+/// hook that runs whatever the diff contains can never report a gap, so it is not a claim.
+/// `hooks::Hook::unconditional` carries both spellings - `always_run: true`, and no `files:`/
+/// `types:` filter at all - because holding only the first passed over the second, which two hooks
+/// in this config are.
 fn unknown_hook_ids(declared: &[hooks::Hook]) -> Vec<String> {
     SURFACES
         .iter()
         .flat_map(|surface| surface.hooks.iter().map(move |id| (surface.label, *id)))
-        .filter(|(_, id)| !declared.iter().any(|hook| hook.id == *id))
-        .map(|(label, id)| {
-            format!(
+        .filter_map(|(label, id)| match declared.iter().find(|hook| hook.id == id) {
+            None => Some(format!(
                 "the `{label}` surface names hook `{id}`, which {} does not declare",
                 hooks::CONFIG
-            )
+            )),
+            Some(hook) if hook.unconditional() => Some(format!(
+                "the `{label}` surface names hook `{id}`, which {} runs whatever the diff \
+                 contains - so that claim prints `covered` on every diff and can never report a \
+                 gap. Claim a filtered hook, or leave the set empty and name a `reached_by` task",
+                hooks::CONFIG
+            )),
+            Some(_) => None,
         })
         .collect()
 }
@@ -953,14 +912,43 @@ mod tests {
         // Over the REAL file, because the fixtures above prove the reader and not the tree. This is
         // the assertion that reddens when a hook is renamed in `.pre-commit-config.yaml`.
         assert!(super::unknown_hook_ids(&declared()).is_empty());
-        // And the composite-action row still claims nothing, because the day a hook covers it this
-        // module's header stops being true.
+        // And the two rows that claim nothing are exactly the two the header says there are. The
+        // day a hook covers one of them this assertion is what says the header stopped being true
+        // - which is the direction that matters, because a row claiming a hook that cannot report
+        // a gap is what `github.com/telekom/sutura#402` measured on the second of these.
         let uncovered: Vec<&str> = super::SURFACES
             .iter()
             .filter(|s| s.hooks.is_empty())
             .map(|s| s.label)
             .collect();
-        assert_eq!(uncovered, vec!["composite-action shell"]);
+        assert_eq!(uncovered, vec!["composite-action shell", "devenv script shell"]);
+        // AND THE RULE ABOVE COVERS BOTH SPELLINGS OF "runs whatever the diff contains" -
+        // `always_run: true`, and no `files:`/`types:` filter at all, which prek runs on every
+        // diff for the same reason. This tree has one of each, so the derived set is asserted to
+        // hold both: with only the first spelling held, `rust-tests` and `rust-doctests` were
+        // claimed by the `Rust source` row and the rule passed over the same defect.
+        let unconditional: Vec<String> = declared()
+            .iter()
+            .filter(|hook| hook.unconditional())
+            .map(|hook| hook.id.clone())
+            .collect();
+        assert!(
+            unconditional.iter().any(|id| id == "hygiene"),
+            "always_run: {unconditional:?}"
+        );
+        assert!(
+            unconditional.iter().any(|id| id == "rust-tests"),
+            "unfiltered: {unconditional:?}"
+        );
+        // Which is what `unknown_hook_ids` above holds over the real table - asserted here so a
+        // row that claims one is a FAILED verdict rather than a passing test.
+        let claimed: Vec<&str> = super::SURFACES.iter().flat_map(|s| s.hooks.iter().copied()).collect();
+        for id in &claimed {
+            assert!(
+                !unconditional.iter().any(|declared| declared == id),
+                "a surface claims `{id}`, which runs on every diff"
+            );
+        }
     }
 
     /// The real hook config, parsed by the one parser of it.

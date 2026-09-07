@@ -24,6 +24,8 @@ mod conformance;
 mod crap;
 mod default_feature_tests;
 mod default_features;
+mod devenv_linter;
+mod devenv_shell;
 mod docs;
 mod examples;
 #[cfg(test)]
@@ -412,6 +414,18 @@ const TASKS: &[Task] = &[
         run: hooks::run,
     },
     Task {
+        // The third of that shape, over the one remaining file: `devenv.nix` and every module its
+        // `imports` reach. What it holds is that a shell body there goes through the wrapper
+        // ShellCheck reads - and it replaces two forbidden LITERALS that
+        // `github.com/telekom/sutura#402` walked past six ways, because a needle enumerates one
+        // spelling of one attribute in one file. `Reads::Code`: a `docs/*.md` diff can change
+        // nothing it reads.
+        name: "check-devenv-shell",
+        description: "every devenv script body goes through the wrapper ShellCheck reads",
+        kind: Kind::Hygiene(Reads::Code),
+        run: devenv_shell::run,
+    },
+    Task {
         name: "check-guidance",
         description: "docs and comments still describe this repo",
         kind: Kind::Hygiene(Reads::Prose),
@@ -590,6 +604,18 @@ const TASKS: &[Task] = &[
         description: "extract every composite action's shell into a directory, for shellcheck",
         kind: Kind::Standalone,
         run: action_shell::run,
+    },
+    Task {
+        // The other half of `check-devenv-shell`, and standalone for `action-shell`'s reason plus
+        // one of its own: it takes an ARGUMENT - the store path of a body the wrapper produced,
+        // interpolated by nix at the call site - and it reads a derivation, which needs a store
+        // the cheap sweep has no nix to query. That gate holds the STRUCTURE; this one reads what
+        // the wrapper actually emitted, which is the half `github.com/telekom/sutura#402`'s
+        // seventh escape defeated with one line and every textual gate green.
+        name: "check-devenv-linter",
+        description: "the devenv wrapper's checkPhase still runs bash -n and a store shellcheck; <store-path>",
+        kind: Kind::Standalone,
+        run: devenv_linter::run,
     },
     Task {
         name: "fmt",
@@ -819,6 +845,9 @@ mod tests {
             "test-causality",
             "commit-msg",
             "changed-packages",
+            // Its argument is a store path nix interpolates at the call site, so an
+            // argument-free invocation has nothing to read - and the sweep would call it that way.
+            "check-devenv-linter",
         ];
         for name in needs_args {
             let task = TASKS.iter().find(|t| t.name == name).expect("task is registered");
