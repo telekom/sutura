@@ -4,7 +4,7 @@
 //!
 //! A column in a plan is qualified by a table's BARE name - `PlanColumn` holds a [`TableName`] - and
 //! the reason is that `FROM a.b.orders` gives the reference an implicit alias of `orders` in every
-//! target this workspace renders for. [`crate::model::qualified`] argues that at length and it is
+//! target this workspace renders for. [`crate::model::QualifiedTable`] argues that at length and it is
 //! right; what it does not do is say what happens when TWO of the tables in one statement end their
 //! paths with the same name.
 //!

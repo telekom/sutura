@@ -112,7 +112,7 @@ fn unquote(value: &str) -> Option<&str> {
 /// `None` where the manifest declares no members or a member's name cannot be read, so the caller
 /// fails rather than proceeding with an empty set - which would attribute all seventeen of our own
 /// crates to somebody else.
-fn workspace_members(root: &Path, manifest: &str) -> Option<BTreeSet<String>> {
+pub(crate) fn workspace_members(root: &Path, manifest: &str) -> Option<BTreeSet<String>> {
     let start = manifest.find("members = [")?;
     let rest = manifest.get(start..)?;
     let end = rest.find("\n]")?;
