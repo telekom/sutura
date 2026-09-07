@@ -36,7 +36,7 @@
 //!
 //! # The answer is a classification, not a predicate
 //!
-//! Every in-scope value is one of three things and none of them is *nothing*:
+//! Every in-scope value is one of FOUR things and none of them is *nothing*:
 //!
 //! * a **[`Carried::Set`]** - compared. **Zero names is a set**, so a null and a `""` disagree with
 //!   `nix/shipped.nix` through the comparison that was already there, at the line they were
@@ -45,6 +45,27 @@
 //!   nothing here to compare, so it is NAMED in the verdict instead of dropped.
 //! * a **[`Carried::Opaque`]** - anything else. Refused, because a value the gate can neither
 //!   compare nor attribute is exactly the state that moved the count in silence.
+//! * a **[`Carried::Undefaulted`]** - an input declaring this key with a body and no `default:`.
+//!   There is nothing to compare, so it is a NAMED row: the fourth class exists because the
+//!   predicate it replaced returned `None`, and deleting a live `default:` therefore moved the
+//!   literal count with no line saying which comparison had stopped - #329's own symptom, one
+//!   function below the one that was rewritten.
+//!
+//! # And a class the reader has to SEE before it can classify it
+//!
+//! The four above are what happens to a value the key reader FOUND. It read the key only at the
+//! head of a trimmed line, so `- binaries: sutura-serve sutura extra` - how a `strategy.matrix`
+//! entry spells this set, and the shape `release.yml` names in prose - was neither compared,
+//! reported nor **counted**, which put it out of reach of the row floor as well: the verdict was
+//! byte-identical to a clean tree's, at exit 0. A sequence marker comes off before the key match
+//! now, with the block boundary at the KEY's column rather than the dash's, which is
+//! `super::loops::run_blocks`' correction two functions over.
+//!
+//! **And the class rather than that one shape:** [`sighted`] counts every line naming the key in
+//! key position, by a substring search taken before the reader gets the line and subtracted from
+//! the lines the reader accounted for - at the CALL SITE, off the same text, so a mutation that
+//! empties the parse cannot take the floor with it. A quoted key, a space before the colon, a
+//! nested sequence marker and an unexpected case are all verdicts rather than silences now.
 //!
 //! # Why the scalar is lexed before it is classified
 //!
@@ -66,6 +87,10 @@
 //!   and a rule that refused them would fail a correct tree. `shipped::tests`'
 //!   `the_real_tree_agrees_with_itself` pins the exact `file:line` of every literal AND every
 //!   reference, so a literal that becomes a reference moves a row and `just test` goes red.
+//! * **The four classes describe a value, not a PLACE.** Nothing asserts that a declaration
+//!   exists where one is needed: [`sighted`] holds every line that spells the key and is unread,
+//!   and a shipped set spelled under some third key, or in a file `super::yaml_files` does not
+//!   hand over, is reached by neither.
 //! * **A block scalar** (`BINARIES: |`) reads as an [`Carried::Opaque`] `|` rather than as the
 //!   lines below it, and [`spelled`] is line-oriented: a line inside a `run: |` body beginning
 //!   `BINARIES:` would read as a declaration, and a quoted value spanning two lines truncates to
@@ -89,6 +114,15 @@ pub(super) enum Carried {
     Reference(String),
     /// A value that is neither, as the scalar that was read.
     Opaque(String),
+    /// An input declaring this key with a body and NO `default:` in it.
+    ///
+    /// Nothing here can say what a caller must then pass, so there is genuinely nothing to
+    /// compare - but it is a ROW rather than a `None`, because **a predicate's `false` branch is
+    /// where a declaration goes to disappear** and #329's symptom was still reachable through
+    /// this one: deleting a live `default:` from an action printed `ok - 3 literal(s)` at exit 0,
+    /// the count moved, and no line said which comparison had stopped.
+    /// `github.com/telekom/sutura#414`.
+    Undefaulted,
 }
 
 /// The scalar half of a YAML value: one layer of matching quotes removed, or a trailing `#`
@@ -153,7 +187,12 @@ pub(super) fn carried(value: &str) -> Carried {
         // The LAST segment, so `env.BINARIES` and `inputs.binaries` are both this set and
         // `env.SHIPPED` is not. Case-insensitive because the two keys differ only in case.
         let named = expression.rsplit('.').next().unwrap_or(expression).trim();
-        return if named.eq_ignore_ascii_case(super::KEYS[0]) {
+        // ANY of the keys, read out of the SAME array the refusal's remedy prints. It was
+        // `KEYS[0]` alone while that remedy named `KEYS[1]` - harmless only while the two are
+        // case-variants of one word, and a remedy naming a key the code does not accept the moment
+        // `KEYS` gains a second NAME. Nothing reads a remedy's array index, so both sides read the
+        // whole array.
+        return if super::KEYS.iter().any(|key| named.eq_ignore_ascii_case(key)) {
             Carried::Reference(String::from(expression))
         } else {
             Carried::Opaque(String::from(value))
@@ -167,6 +206,50 @@ pub(super) fn carried(value: &str) -> Carried {
     } else {
         Carried::Opaque(String::from(value))
     }
+}
+
+/// Every line a substring search sees this set's key in KEY POSITION, 1-based.
+///
+/// **THE FLOOR, TAKEN BEFORE THE KEY READER GETS THE LINE**, which is `workflows::reach::scan`'s
+/// `sighted` list one gate over and exists for the same reason: a spelling the reader does not
+/// recognise has to COUNT, or it is invisible rather than uncounted - and a shape that was never
+/// counted is out of reach of the row floor as well. `github.com/telekom/sutura#414`.
+///
+/// BROADER than [`spelled`]'s own match in four ways, each of them a declaration that would
+/// otherwise be neither compared, reported nor counted: any number of `- ` sequence markers
+/// (`- binaries: ...` is how a `strategy.matrix` entry spells this set, the shape `release.yml`
+/// names in prose, and it was measured invisible at exit 0 with a verdict byte-identical to a
+/// clean tree's); a quoted key; whitespace before the colon; and any case.
+///
+/// NARROWER than a bare `contains`, and that is measured rather than cautious: `.github` holds
+/// seven prose mentions of the word today - `attest-and-sign/action.yml:16` and
+/// `release-performance.yml:19` among them - so a floor that sighted those would redden a correct
+/// tree, which is how a gate gets disabled. A comment line is not a declaration either.
+fn sighted(text: &str) -> Vec<usize> {
+    let mut out = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let mut head = line.trim();
+        if head.starts_with('#') {
+            continue;
+        }
+        // ANY number of markers: `- - binaries:` is a nested sequence item, and one strip is
+        // precisely what cannot see it.
+        while let Some(rest) = head.strip_prefix('-').and_then(|rest| rest.strip_prefix([' ', '\t'])) {
+            head = rest.trim_start();
+        }
+        let head = head.trim_start_matches(['"', '\'']);
+        let after = super::KEYS.iter().find_map(|key| {
+            let start = head.get(..key.len())?;
+            start.eq_ignore_ascii_case(key).then(|| head.get(key.len()..)).flatten()
+        });
+        let Some(after) = after else {
+            continue;
+        };
+        if after.trim_start_matches(['"', '\'']).trim_start().starts_with(':') {
+            out.push(index.saturating_add(1));
+        }
+    }
+    out
 }
 
 /// One declaration of the shipped set, with the line it was spelled on and what it carries.
@@ -195,12 +278,20 @@ pub(super) struct Spelled {
 /// and declares the empty set. A block that closes having contained no deeper line at all was a
 /// null argument rather than an input declaration, so it is the empty set too - `with:` passing
 /// `binaries:` and nothing else.
-pub(super) fn spelled(text: &str) -> Vec<Spelled> {
+pub(super) fn spelled(text: &str) -> Spellings {
     let mut found = Vec::new();
+    let mut accounted: Vec<usize> = Vec::new();
     let mut block: Option<Block> = None;
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
-        let indent = line.len().saturating_sub(line.trim_start().len());
+        let column = line.len().saturating_sub(line.trim_start().len());
+        // A SEQUENCE ITEM'S DASH IS NOT PART OF ITS FIRST KEY, and a key matched at the head of a
+        // trimmed line is precisely what cannot see one - see [`sighted`] for what that hid.
+        let keyed = trimmed.strip_prefix("- ").map_or(trimmed, str::trim_start);
+        // The KEY's column and not the dash's, which is `super::loops::run_blocks` two functions
+        // over and `workflows::reach::scan`'s same correction: every sibling of a sequence item's
+        // first key sits here, so this is what an input block's body is measured against.
+        let indent = column.saturating_add(trimmed.len().saturating_sub(keyed.len()));
         let at = index.saturating_add(1);
 
         if let Some(open) = &mut block {
@@ -208,33 +299,35 @@ pub(super) fn spelled(text: &str) -> Vec<Spelled> {
                 continue;
             }
             if indent > open.indent {
-                if let Some(value) = trimmed.strip_prefix("default:") {
+                if let Some(value) = keyed.strip_prefix("default:") {
                     found.push(Spelled {
                         line: at,
                         carries: carried(value),
                     });
+                    accounted.push(at);
                     block = None;
                 } else {
-                    open.nested = true;
+                    open.body = Body::Deeper;
                 }
                 continue;
             }
-            found.extend(open.closed());
+            found.push(open.closed());
             block = None;
         }
 
         for key in super::KEYS {
-            let Some(rest) = trimmed.strip_prefix(key) else {
+            let Some(rest) = keyed.strip_prefix(key) else {
                 continue;
             };
             let Some(value) = rest.strip_prefix(':') else {
                 continue;
             };
+            accounted.push(at);
             if key == super::KEYS[1] && is_null(value) {
                 block = Some(Block {
                     indent,
                     line: at,
-                    nested: false,
+                    body: Body::Nothing,
                 });
             } else {
                 found.push(Spelled {
@@ -245,9 +338,23 @@ pub(super) fn spelled(text: &str) -> Vec<Spelled> {
             break;
         }
     }
-    // A file ending inside the block declared nothing under it either.
-    found.extend(block.as_ref().and_then(Block::closed));
-    found
+    // A file ending inside the block closed it too - with a body or without one, both of which
+    // are a row since #414.
+    found.extend(block.as_ref().map(Block::closed));
+    Spellings { found, accounted }
+}
+
+/// What one pass over one file produced: its declarations, and the lines it ACCOUNTED for.
+///
+/// A named struct rather than a tuple, for [`Block`]'s reason. The second field is what
+/// [`sighted`] is subtracted from, and it is deliberately not the difference itself: the
+/// subtraction happens at the CALL SITE, from the same `text`, so a mutation that hands this
+/// parse an empty body cannot take the floor away with it. Measured with the floor computed in
+/// here instead - the gate printed `ok - 2 literal(s) across 12 file(s)`, exit 0.
+#[derive(Debug)]
+pub(super) struct Spellings {
+    pub(super) found: Vec<Spelled>,
+    pub(super) accounted: Vec<usize>,
 }
 
 /// Every declaration across a set of files, as `(file, what it carries)`, and the files the walk
@@ -262,28 +369,65 @@ pub(super) fn spelled(text: &str) -> Vec<Spelled> {
 /// NAMES rather than a count, so the caller can say WHICH file went unread and so the witness
 /// cannot be satisfied by assigning the finder's own number to a variable.
 ///
-/// **THE NAME IS RECORDED AFTER [`spelled`] RETURNS, and that ordering is the whole witness.**
-/// The first version pushed it first and independently of the parse, so the list said a file had
-/// been OFFERED to the walk rather than read out of - and a `continue` between the two left both
-/// composite actions unread while the verdict still said *across 12 file(s)*, at exit 0, with the
-/// whole suite green. Measured in review with `if name.contains("/actions/") { continue; }`:
-/// `ok - 2 literal(s) across 12 file(s)`. **A witness written before the work it attests to is not
-/// a witness**, which is `.agents/skills/sutura/gates/SKILL.md`'s *a readout under a comment
-/// claiming it is an assertion*, one shape over.
+/// **A DATA DEPENDENCY RATHER THAN A STATEMENT ORDER, and that is the whole witness.** The first
+/// version pushed the name independently of the parse, so the list said a file had been OFFERED to
+/// the walk rather than read out of; the second moved the push *after* the parse returned, which
+/// bought one mutation and not the class - a skip that carries the push walks through it in two
+/// lines. Both were measured green: `ok - 2 literal(s) across 12 file(s)` at exit 0 with both
+/// composite actions unread. Now one collection is built by a `map` over the caller's whole list
+/// and BOTH halves are derived from it, so a name cannot enter the witness without a
+/// `Vec<Spelled>` behind it and a `filter` that drops a file drops it out of `inspected` too,
+/// where the finder comparison catches it. `github.com/telekom/sutura#414`.
 ///
-/// What it still does not reach is the FINDER: a file `super::yaml_files` never handed over is not
-/// in `files` either, so this comparison holds trivially over it. That arm is fail-closed there.
+/// What the file-name pair alone still cannot reach is a walk that keeps the name and hands the
+/// parse an empty body. [`Spellings::unaccounted`] is the arm that does, from a predicate the
+/// parse cannot narrow.
 pub(super) fn declarations(files: &BTreeMap<String, String>) -> Walk<'_> {
-    let mut walk = Walk {
-        rows: Vec::new(),
-        inspected: Vec::new(),
-    };
-    for (name, text) in files {
-        let found = spelled(text);
-        walk.rows.extend(found.into_iter().map(|found| (name.as_str(), found)));
-        walk.inspected.push(name.as_str());
+    let read: Vec<Pass<'_>> = files
+        .iter()
+        .map(|(name, text)| {
+            let spellings = spelled(text);
+            // THE FLOOR, TAKEN FROM THE TEXT AND NOT FROM THE PARSE, at the same site and off the
+            // same `text`. Computing it inside `spelled` put it inside the thing it polices: a
+            // mutation handing that parse an empty body took the floor away with it and printed
+            // `ok - 2 literal(s) across 12 file(s)`, exit 0. Here the sighting survives it.
+            let unaccounted = sighted(text)
+                .into_iter()
+                .filter(|line| !spellings.accounted.contains(line))
+                .collect();
+            Pass {
+                name: name.as_str(),
+                spellings,
+                unaccounted,
+            }
+        })
+        .collect();
+    Walk {
+        inspected: read.iter().map(|pass| pass.name).collect(),
+        unaccounted: read
+            .iter()
+            .flat_map(|pass| pass.unaccounted.iter().map(move |line| format!("{}:{line}", pass.name)))
+            .collect(),
+        rows: read
+            .into_iter()
+            .flat_map(|pass| {
+                let name = pass.name;
+                pass.spellings.found.into_iter().map(move |one| (name, one))
+            })
+            .collect(),
     }
-    walk
+}
+
+/// One file, its declarations and the lines nothing classified - the collection both halves of
+/// [`Walk`] are derived from.
+///
+/// A named struct rather than the triple, because `clippy::type_complexity` refuses it and is
+/// right to: three positional fields say nothing about which is the witness and which is the
+/// floor. Its existence is the point - see [`declarations`].
+struct Pass<'a> {
+    name: &'a str,
+    spellings: Spellings,
+    unaccounted: Vec<usize>,
 }
 
 /// What one walk over the `.github` files produced. A named struct rather than a tuple, for
@@ -293,6 +437,8 @@ pub(super) struct Walk<'a> {
     pub(super) rows: Vec<(&'a str, Spelled)>,
     /// The files this walk actually read, in walk order.
     pub(super) inspected: Vec<&'a str>,
+    /// Every `file:line` a substring search saw this set's key on and the parse did not classify.
+    pub(super) unaccounted: Vec<String>,
 }
 
 /// An open `binaries:` block: where it started, and whether anything is nested under it.
@@ -303,20 +449,37 @@ pub(super) struct Walk<'a> {
 struct Block {
     indent: usize,
     line: usize,
-    nested: bool,
+    body: Body,
+}
+
+/// What has been seen under an open `binaries:` block so far.
+///
+/// **An enum rather than a `bool`, so [`Block::closed`] decides by an EXHAUSTIVE match**: a third
+/// body state fails to compile rather than arriving in whichever branch `false` already meant,
+/// which is where a declaration went to disappear. `github.com/telekom/sutura#414`.
+enum Body {
+    /// Nothing deeper than the key at all - `with:` passing the key and no value.
+    Nothing,
+    /// At least one deeper line, and none of them a `default:`.
+    Deeper,
 }
 
 impl Block {
     /// What this block declared, now that it has closed without a `default:`.
     ///
-    /// A block with a BODY is an input declaration that states no default, which is out of scope.
-    /// One with nothing under it was never a declaration at all - it is `with:` passing the key
-    /// and no value, so it declares the empty set at its own line.
-    fn closed(&self) -> Option<Spelled> {
-        (!self.nested).then(|| Spelled {
+    /// **A ROW EITHER WAY.** A block with a BODY is an input declaring this key and stating no
+    /// default, which nothing here can compare - reported as [`Carried::Undefaulted`] rather than
+    /// dropped, because the `false` branch of the predicate this used to be is how #329's symptom
+    /// stayed reachable. One with nothing under it was never a declaration at all - it is `with:`
+    /// passing the key and no value, so it declares the empty set at its own line.
+    const fn closed(&self) -> Spelled {
+        Spelled {
             line: self.line,
-            carries: Carried::Set(Vec::new()),
-        })
+            carries: match self.body {
+                Body::Nothing => Carried::Set(Vec::new()),
+                Body::Deeper => Carried::Undefaulted,
+            },
+        }
     }
 }
 
@@ -337,11 +500,37 @@ pub(super) struct Read {
     /// One row per reference to this same set. Compared to nothing by design, and NAMED so the
     /// count is not the only thing that moves when a declaration stops being compared.
     pub(super) references: Vec<String>,
+    /// One row per input declaring this key with a body and no `default:` in it. Compared to
+    /// nothing, for the reason [`Carried::Undefaulted`] states, and NAMED for the same reason the
+    /// references are.
+    pub(super) undefaulted: Vec<String>,
     /// The literal sets that disagree with `nix/shipped.nix`.
     pub(super) mismatches: Vec<Mismatch>,
-    /// How many files the walk read - the second half of the pair, see
-    /// [`declarations`].
-    pub(super) inspected: usize,
+    /// How many files were OFFERED - counted over the caller's whole map by [`in_scope`], which is
+    /// a different predicate from the walk's, and the printed denominator. See [`read`].
+    pub(super) offered: usize,
+}
+
+/// **THE SECOND PREDICATE OF THE PAIR, and its whole value is that it is not the walk's.** It
+/// counts over the caller's WHOLE map by the file NAME, so narrowing the walk moves one side and
+/// leaves this one where it was, and narrowing THIS one puts a file the finder handed over out of
+/// scope - which is its own refusal below.
+///
+/// **WHAT THIS PAIR DOES NOT DEFEND, stated here because a review copied the wrong model from
+/// `guidance::pages` and it would have left the finding open:** both sides are counted off the
+/// caller's `files` map, so it holds a narrowed LOOP and not a narrowed DISCOVERY. A directory
+/// `super::yaml_files` never listed is absent from `files`, so `offered` shrinks with `inspected`
+/// and the pair agrees over a tree nothing looked at - measured with `chmod 000 .github/actions`
+/// at `ok - 2 literal(s) across 8 file(s)`, exit 0. **Discovery is held one level down instead**,
+/// by `super::yaml_files` failing closed on a directory it cannot list and propagating a
+/// `DirEntry` that errors mid-walk, and by the whole-tree floor when both directories go.
+/// `github.com/telekom/sutura#414`.
+fn in_scope(name: &str) -> bool {
+    let yaml = std::path::Path::new(name)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml"));
+    name.starts_with(".github/") && yaml
 }
 
 /// Read and classify every declaration, or print the refusal that stops the verdict being about
@@ -350,24 +539,33 @@ pub(super) struct Read {
 /// Its own function because `run` is against `clippy::too_many_lines`, and this is the half of it
 /// `github.com/telekom/sutura#329` rewrote.
 pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Option<Read> {
-    // TWO NUMBERS FROM TWO PLACES: the walk reports which files it read and the file finder which
-    // it found, so a scan that stopped early is a verdict rather than a smaller count. A row total
-    // cannot stand in for it - a file declaring nothing contributes no row whether it was read or
-    // not - which is `check-api-links`' `scanned == pages.len()` one gate over.
+    // TWO SIDES, COUNTED BY DIFFERENT PREDICATES, and no `Read` exists while they disagree: the
+    // walk reports which files it read, [`in_scope`] counts the caller's whole map by the file
+    // NAME, and the rows below are unreachable until the two sets are equal. A row total cannot
+    // stand in for it - a file declaring nothing contributes no row whether it was read or not -
+    // which is `check-api-links`' `scanned == pages.len()` one gate over.
     let walk = declarations(files);
-    let unread: Vec<&str> = files
-        .keys()
-        .map(String::as_str)
+    let offered: Vec<&str> = files.keys().map(String::as_str).filter(|name| in_scope(name)).collect();
+    let unread: Vec<&str> = offered
+        .iter()
+        .copied()
         .filter(|name| !walk.inspected.contains(name))
         .collect();
-    if !unread.is_empty() {
+    // THE OTHER DIRECTION, which is what stops the two predicates being narrowed together: a name
+    // the finder handed over that this rule's scope does not describe is a verdict, so narrowing
+    // `in_scope` to shrink the denominator reddens here instead.
+    let out_of_scope: Vec<&str> = files.keys().map(String::as_str).filter(|name| !in_scope(name)).collect();
+    if !unread.is_empty() || !out_of_scope.is_empty() {
         eprintln!(
-            "xtask check-shipped-binaries: FAILED - the walk read {} of the {} file(s) under `.github`",
+            "xtask check-shipped-binaries: FAILED - the walk read {} of the {} in-scope file(s) under `.github`",
             walk.inspected.len(),
-            files.len()
+            offered.len()
         );
         for name in &unread {
             eprintln!("  {name} was found and not inspected");
+        }
+        for name in &out_of_scope {
+            eprintln!("  {name} was handed over and is outside the scope this rule counts");
         }
         eprintln!();
         eprintln!("  A verdict over a scan that stopped early reads exactly like one over the whole");
@@ -376,13 +574,41 @@ pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Opt
         return None;
     }
 
+    // THE FLOOR FROM A PREDICATE THE PARSE CANNOT NARROW. A substring sighting of the key in key
+    // position, taken before the key reader gets the line, against the lines the parse accounted
+    // for - so a spelling this reader does not recognise is a verdict rather than a silence. It is
+    // what reached `- binaries: sutura-serve sutura extra`, a shipped set in the wrong order with
+    // a third name in it, which was neither compared, reported nor COUNTED - and so out of reach
+    // of the row floor as well - at exit 0 with a verdict byte-identical to a clean tree's.
+    if !walk.unaccounted.is_empty() {
+        eprintln!(
+            "xtask check-shipped-binaries: FAILED - {} line(s) spell this set's key and were not classified",
+            walk.unaccounted.len()
+        );
+        for row in &walk.unaccounted {
+            eprintln!("  {row}");
+        }
+        eprintln!();
+        eprintln!(
+            "  Each names one of `{}` or `{}` in key position on a line this gate's",
+            super::KEYS[0],
+            super::KEYS[1]
+        );
+        eprintln!("  reader did not classify - a sequence item, a quoted key, a space before the colon");
+        eprintln!("  or an unexpected case. An unread declaration is invisible rather than uncounted,");
+        eprintln!("  which is what puts it out of reach of every count below. Spell it as one of the");
+        eprintln!("  two keys at the head of its line, or teach the reader the shape.");
+        return None;
+    }
+
     // ROWS RATHER THAN A COUNT: the count was the only thing #329's shapes could move, and one of
     // them did not move it either. Every declaration lands in exactly one of the three.
     let mut read = Read {
         literals: Vec::new(),
         references: Vec::new(),
+        undefaulted: Vec::new(),
         mismatches: Vec::new(),
-        inspected: walk.inspected.len(),
+        offered: offered.len(),
     };
     let mut opaque: Vec<String> = Vec::new();
     for (name, set) in walk.rows {
@@ -399,6 +625,7 @@ pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Opt
             }
             Carried::Reference(expression) => read.references.push(format!("{at} -> {expression}")),
             Carried::Opaque(value) => opaque.push(format!("{at} carries `{value}`")),
+            Carried::Undefaulted => read.undefaulted.push(at),
         }
     }
 
@@ -414,7 +641,7 @@ pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Opt
         eprintln!("  Neither a literal set nor one expression naming this same set, which used to be");
         eprintln!("  SKIPPED: the printed count moved and no line said which comparison had stopped -");
         eprintln!("  `github.com/telekom/sutura#329`. Spell the set out, or reference it under a name");
-        eprintln!("  whose last segment is `{}`.", super::KEYS[1]);
+        eprintln!("  whose last segment is one of: {}.", super::KEYS.join(" "));
         return None;
     }
 
@@ -539,8 +766,9 @@ mod tests {
             [".github/actions/build/action.yml:4", ".github/workflows/release.yml:2"]
         );
         assert!(read.mismatches.is_empty(), "{:?}", read.mismatches);
-        // Three files walked, two of which declare something: the pair, at the level `run` uses.
-        assert_eq!(read.inspected, 3);
+        // Three files OFFERED, two of which declare something: the pair, at the level `run` uses,
+        // and this side is counted by `in_scope` rather than by the walk.
+        assert_eq!(read.offered, 3);
     }
 
     #[test]
@@ -587,6 +815,145 @@ mod tests {
         assert_eq!(walk.rows.len(), 2, "{:?}", walk.rows);
         assert_eq!(walk.rows[0].0, "a.yml");
         assert_eq!(walk.rows[1].0, "c.yml");
+        assert!(walk.unaccounted.is_empty(), "{:?}", walk.unaccounted);
+    }
+
+    #[test]
+    fn a_walk_that_keeps_the_name_and_drops_the_parse_is_still_a_verdict() {
+        // WHAT THE FILE-NAME PAIR CANNOT REACH, and the reason a second predicate exists. The two
+        // sides of `inspected == offered` are both keyed on the NAME, so a mutation that keeps the
+        // name in the witness and hands the parse nothing satisfies both. The substring sighting
+        // does not: it reads the file's TEXT, so the key is seen whatever the parse did with it.
+        let files = std::collections::BTreeMap::from([(
+            String::from(".github/workflows/a.yml"),
+            String::from("env:\n  BINARIES: sutura\n"),
+        )]);
+        // The mutation, spelled here rather than described: the name enters, the parse returns
+        // nothing. The floor is subtracted at the call site from the same `text`, so it survives.
+        let text = &files[".github/workflows/a.yml"];
+        let dropped = super::Spellings {
+            found: Vec::new(),
+            accounted: Vec::new(),
+        };
+        assert!(dropped.found.is_empty());
+        let unaccounted: Vec<usize> = super::sighted(text)
+            .into_iter()
+            .filter(|line| !dropped.accounted.contains(line))
+            .collect();
+        assert_eq!(unaccounted, vec![2], "the sighting has to survive an emptied parse");
+        // And on the real walk there is nothing left over, because the parse read it.
+        let walk = super::declarations(&files);
+        assert_eq!(walk.rows.len(), 1, "{:?}", walk.rows);
+        assert!(walk.unaccounted.is_empty(), "{:?}", walk.unaccounted);
+    }
+
+    #[test]
+    fn a_sequence_item_spelling_of_the_key_is_a_declaration_and_not_a_silence() {
+        // MEASURED as the only route held by nothing: a `strategy.matrix` entry spells this set as
+        // `- binaries: ...`, and the key had to be the first thing on the trimmed line - so the set
+        // was not compared, not reported and NOT COUNTED, which put it out of reach of the row
+        // floor too. Appending it to `cross-link.yml` gave a verdict byte-identical to the clean
+        // tree's at exit 0, with a third name in it and the first two out of order.
+        let yaml = "        include:\n          - binaries: sutura-serve sutura extra\n";
+        let spellings = super::spelled(yaml);
+        assert_eq!(spellings.found.len(), 1, "{spellings:?}");
+        assert_eq!(spellings.found[0].line, 2);
+        assert_eq!(
+            spellings.found[0].carries,
+            Carried::Set(vec![
+                String::from("sutura-serve"),
+                String::from("sutura"),
+                String::from("extra")
+            ]),
+            "{spellings:?}"
+        );
+        // And it is accounted for, so the floor has nothing left to report about it.
+        assert_eq!(spellings.accounted, vec![2], "{spellings:?}");
+        assert_eq!(super::sighted(yaml), vec![2]);
+        // An expression classifies like any other, rather than becoming a set of one odd name.
+        let reference = super::spelled("          - binaries: ${{ env.BINARIES }}\n");
+        assert_eq!(
+            reference.found[0].carries,
+            Carried::Reference(String::from("env.BINARIES")),
+            "{reference:?}"
+        );
+    }
+
+    #[test]
+    fn a_key_the_reader_does_not_recognise_is_counted_rather_than_dropped() {
+        // THE FLOOR FROM THE OTHER PREDICATE. Each of these spells the key in key position and is
+        // a shape the reader does not classify, so each has to arrive as an unaccounted LINE - a
+        // declaration nobody compared is invisible rather than uncounted otherwise, which is what
+        // put the sequence-item shape out of reach of every count in the verdict.
+        for yaml in [
+            "  \"binaries\": sutura\n", // a quoted key
+            "  binaries : sutura\n",    // a space before the colon
+            "  - - binaries: sutura\n", // a nested sequence item
+            "  Binaries: sutura\n",     // a case neither key spells
+        ] {
+            let spellings = super::spelled(yaml);
+            assert!(spellings.found.is_empty(), "{yaml:?} was classified: {spellings:?}");
+            assert!(spellings.accounted.is_empty(), "{yaml:?}: {spellings:?}");
+            assert_eq!(super::sighted(yaml), vec![1], "{yaml:?} went uncounted");
+        }
+        // And prose is NOT sighted, because a floor that reddens a correct tree gets disabled:
+        // `.github` holds seven mentions of the word today and none of them declares anything.
+        for prose in [
+            "  # how many binaries ship. A `list`'s name is\n",
+            "      # many binaries ship: `release.yml` writes\n",
+            "            echo \"## Binaries\"\n",
+            "      - name: Say where the binaries went\n",
+        ] {
+            assert!(super::sighted(prose).is_empty(), "{prose:?} was sighted as a declaration");
+        }
+    }
+
+    #[test]
+    fn an_input_block_with_a_body_and_no_default_is_a_row_rather_than_a_drop() {
+        // The predicate's `false` branch, which was a bucket: `(!self.nested).then(...)` returned
+        // `None`, so deleting a live `default:` from an action moved the literal count with no
+        // line saying which comparison had stopped - #329's symptom, one function below the one
+        // that was rewritten. A fourth class now, printed beside `literal:` and `reference:`.
+        let yaml = "inputs:\n  binaries:\n    description: the shipped set\n    required: false\n";
+        let spellings = super::spelled(yaml);
+        assert_eq!(spellings.found.len(), 1, "{spellings:?}");
+        assert_eq!(spellings.found[0].line, 2, "the row is at the KEY, not at the body");
+        assert_eq!(spellings.found[0].carries, Carried::Undefaulted, "{spellings:?}");
+        // And the consumer turns it into a named row rather than into a shorter literal list. A
+        // workflow beside it, because a tree spelling the set NOWHERE is its own refusal - which
+        // is the floor, not this rule.
+        let expected = [String::from("sutura")];
+        let files = std::collections::BTreeMap::from([
+            (String::from(".github/actions/build/action.yml"), String::from(yaml)),
+            (
+                String::from(".github/workflows/release.yml"),
+                String::from("env:\n  BINARIES: sutura\n"),
+            ),
+        ]);
+        let read = super::read(&files, &expected).expect("an undefaulted input is not a refusal");
+        assert_eq!(read.undefaulted, [".github/actions/build/action.yml:2"]);
+        assert_eq!(read.literals, [".github/workflows/release.yml:2"]);
+        assert!(read.mismatches.is_empty(), "{:?}", read.mismatches);
+    }
+
+    #[test]
+    fn a_file_outside_this_rules_scope_is_a_verdict_and_not_a_smaller_denominator() {
+        // THE OTHER DIRECTION OF THE PAIR, which is what stops both predicates being narrowed
+        // together: `in_scope` counts the denominator, so narrowing it to shrink that number puts
+        // a file the finder handed over outside the scope, and this refuses instead.
+        assert!(super::in_scope(".github/workflows/release.yml"));
+        assert!(super::in_scope(".github/actions/build/action.yml"));
+        assert!(!super::in_scope("docs/release.yml"));
+        assert!(!super::in_scope(".github/dependabot.txt"));
+        let expected = [String::from("sutura")];
+        let literal = String::from("env:\n  BINARIES: sutura\n");
+        let mut files = std::collections::BTreeMap::from([(String::from(".github/workflows/release.yml"), literal.clone())]);
+        assert!(
+            super::read(&files, &expected).is_some(),
+            "an in-scope tree alone is not a refusal, or this test proves nothing"
+        );
+        files.insert(String::from("docs/a.yml"), literal);
+        assert!(super::read(&files, &expected).is_none());
     }
 
     #[test]

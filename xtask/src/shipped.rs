@@ -60,9 +60,13 @@
 //! `ok - 3 literal(s)` where 4 is right, and the third printed `ok - 4`, never counted at all -
 //! which is why the count could not have been the control. Every in-scope value is now a set
 //! (compared, and ZERO NAMES IS A SET), a reference naming this same set (named in the verdict),
-//! or a refusal, and the verdict prints the ROWS behind the count. **What it still does not
-//! reach:** whether a reference resolves to the literal it names, and a set spelled where neither
-//! key reaches.
+//! or a refusal, and the verdict prints the ROWS behind the count. A fourth class - an input
+//! declaring the key with a body and no `default:` - is a printed row rather than a `None` since
+//! `#414`, because the predicate's `false` branch was where #329's symptom survived. **What it
+//! still does not reach:** whether a reference resolves to the literal it names, and a set spelled
+//! under some third key. A set spelled where neither key reaches at the head of its line IS
+//! counted now - a sequence item, a quoted key, a space before the colon and an unexpected case
+//! are all refusals rather than silences, held by a substring floor the parse cannot narrow.
 //!
 //! # The second rule: a documented feature build is a probe, or it is unproven
 //!
@@ -87,8 +91,10 @@ use std::collections::BTreeMap;
 // workflow, `declaration` reads and classifies the YAML; none touches the nix parse below.
 mod declaration;
 mod documented;
+mod finder;
 mod loops;
 mod refusal;
+mod rules;
 
 use crate::Verdict;
 use crate::repo;
@@ -266,64 +272,6 @@ fn quoted_items(fragment: &str) -> Vec<String> {
 /// `Result<BTreeMap<..>, ..>` the fail-closed read below returns.
 type Yaml = BTreeMap<String, String>;
 
-/// Every workflow and every local composite action, as `(repo-relative path, contents)`.
-///
-/// The same two directories `check-workflows` reads, and for the same reason: since #111 a build
-/// step is a composite action, so a literal can live in either place.
-///
-/// **FAIL CLOSED ON A FILE IT CANNOT READ.** Both arms used to drop one in silence, which put the
-/// whole literal rule out of reach of its own floor: a file the FINDER never hands over is not in
-/// `files` either, so `inspected == files.keys()` holds trivially over it. Measured in review with
-/// `embedded-dependency-list/action.yml` made non-UTF-8: `ok - 3 literal(s) across 11 file(s)`,
-/// exit 0, and the loop rule's `8 step(s)` quietly became `7`. Same shape as the non-UTF-8 page
-/// `documented::pages` refuses, and `.agents/skills/sutura/gates/SKILL.md` records it twice.
-fn yaml_files(root: &std::path::Path) -> Result<Yaml, String> {
-    let mut files = BTreeMap::new();
-    let github = root.join(".github");
-    if let Ok(entries) = std::fs::read_dir(github.join("workflows")) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let yaml = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| e == "yml" || e == "yaml");
-            if !yaml {
-                continue;
-            }
-            let name = path
-                .file_name()
-                .map_or_else(String::new, |n| format!(".github/workflows/{}", n.to_string_lossy()));
-            let text = std::fs::read_to_string(&path).map_err(|error| format!("{name}: {error}"))?;
-            files.insert(name, text);
-        }
-    }
-    // One level deep, which is not an approximation: an action IS
-    // `.github/actions/<name>/action.yml` by GitHub's own resolution rules.
-    if let Ok(dirs) = std::fs::read_dir(github.join("actions")) {
-        for dir in dirs.flatten() {
-            for leaf in ["action.yml", "action.yaml"] {
-                let path = dir.path().join(leaf);
-                let name = dir
-                    .path()
-                    .file_name()
-                    .map_or_else(String::new, |n| format!(".github/actions/{}/{leaf}", n.to_string_lossy()));
-                // ABSENT IS NOT UNREADABLE, and only the first is legitimate: an action declares
-                // ONE of the two spellings, so the other is missing by construction. Anything else
-                // - a non-UTF-8 file, a permission - is a file this gate was meant to read and did
-                // not, and it fails closed rather than shrinking the denominator.
-                match std::fs::read_to_string(&path) {
-                    Ok(text) => {
-                        files.insert(name, text);
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(format!("{name}: {error}")),
-                }
-            }
-        }
-    }
-    Ok(files)
-}
-
 /// What reconciling `probeFeatures` against the documented builds found.
 ///
 /// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
@@ -399,131 +347,73 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let files = match yaml_files(&root) {
+    let files = match finder::yaml_files(&root) {
         Ok(found) => found,
         Err(why) => {
-            eprintln!("xtask check-shipped-binaries: FAILED - a file under `.github` could not be read");
+            eprintln!("xtask check-shipped-binaries: FAILED - a file or directory under `.github` could not be read");
             eprintln!("  {why}");
             eprintln!("  Dropping it would take it out of the denominator as well as out of the scan, so");
             eprintln!("  every count below would agree with itself over a tree this never looked at.");
             return Verdict::Fail;
         }
     };
+    let missing = finder::unanchored(&files);
+    if !missing.is_empty() {
+        eprintln!(
+            "xtask check-shipped-binaries: FAILED - {} file(s) this verdict is about were not read",
+            missing.len()
+        );
+        for name in &missing {
+            eprintln!("  {name} is not among the {} file(s) handed over", files.len());
+        }
+        eprintln!();
+        eprintln!("  These are the release path and the composite action #111 was about. A count of");
+        eprintln!("  what was judged cannot say THEY were judged - a walk that lost them satisfies it");
+        eprintln!("  by reading the workflows - so this asks for them by name. If one was renamed,");
+        eprintln!("  rename it here in the same commit.");
+        return Verdict::Fail;
+    }
     let Some(read) = declaration::read(&files, &expected) else {
         return Verdict::Fail;
     };
     let declaration::Read {
         literals,
         references,
+        undefaulted,
         mismatches,
-        inspected,
+        offered,
     } = read;
     let checked = literals.len();
 
-    // A LOOP OVER THE SET REFUSES AN EMPTY ONE, and no file spells the set empty. Separate from
-    // the literal rule above because the value reaches a composite action as
-    // `${{ inputs.binaries }}` - an expression, so no literal rule can say what it resolves to,
-    // and a zero-iteration loop is a green job that linked, audited and inventoried nothing. It
-    // prints its own verdict.
-    if loops::verdict(&files) == Verdict::Fail {
-        return Verdict::Fail;
-    }
-
-    // FAIL CLOSED ON THE POINTER AS WELL AS ON THE DATA, and the second half is the one that was
-    // missing. `docs/adr/0017` rests its *which features are probed* claim on a step that refuses
-    // an empty manifest, and the remedy below sends a reader to that step. Delete the refusal and
-    // `while read` loops over nothing: a green leg that measured no feature-on build at all, under
-    // a remedy naming a file with no refusal in it. So the file is derived rather than written
-    // down, and a tree where no single workflow holds it is a verdict.
-    let Some(probe_refusal) = refusal::hosting(&files, &refusal::PROBE_REFUSAL) else {
-        eprintln!("xtask check-shipped-binaries: FAILED - no single workflow refuses an EMPTY probe manifest");
-        eprintln!(
-            "  Looked under `.github` for `{}` and `{}` in one file, and found",
-            refusal::PROBE_REFUSAL[0],
-            refusal::PROBE_REFUSAL[1]
-        );
-        eprintln!("  either none or several. Without that refusal a probe set emptied by a rename is a");
-        eprintln!("  green link leg that measured nothing - the dead gate `{SOURCE}` records - and the");
-        eprintln!("  remedy below has no file left to name.");
-        return Verdict::Fail;
+    // EVERY RULE REPORTS BEFORE ANY OF THEM RETURNS, which is `rules`' whole reason: the loop rule
+    // used to return here, so a tree with an empty shipped set in one file and a drifted literal
+    // in another printed the first and hid the second. Each of the four is still fail-closed on
+    // its own subject - a zero-iteration loop is a green job that linked, audited and inventoried
+    // nothing; a `docs/adr/0017` claim resting on a refusal no workflow holds has no referent; a
+    // page this cannot read or lex goes unreconciled while the others keep the count non-empty -
+    // and now a reader learns about all of them in one run.
+    let reconciled = match documented::pages(&root) {
+        Ok(documented) => Ok(unprobed(&records(&source), &documented)),
+        Err(why) => Err(why),
     };
-
-    // FAIL CLOSED ON A PAGE IT CANNOT READ OR CANNOT LEX, and the two arms are one rule.
-    // `github.com/telekom/sutura#301`: the fence boundary this rule rests on used to be a parity
-    // toggle, so a nested fence inverted it for the rest of the page - losing a declaration and
-    // reading a mention below the block as one, both silently, because the other pages keep the
-    // reconciled count non-empty. Review of that change measured the READ half still open: a
-    // non-UTF-8 page documenting an unprobed feature left this at `ok` and exit 0.
-    let documented = match documented::pages(&root) {
-        Ok(found) => found,
-        Err(why) => {
-            eprintln!("xtask check-shipped-binaries: FAILED - a page under docs/ could not be reconciled");
-            eprintln!("  {why}");
-            eprintln!("  A page this cannot read, one whose block never closes, and one instructing in an");
-            eprintln!("  indented block are the same failure: the instructions on it go unreconciled while");
-            eprintln!("  the other pages keep the count non-empty, so the page nobody reconciled is the one");
-            eprintln!("  nobody hears about. The verdict is over the pages this names or it is nothing.");
-            return Verdict::Fail;
-        }
-    };
-    let reconciliation = unprobed(&records(&source), &documented);
-
-    if !mismatches.is_empty() {
-        eprintln!(
-            "xtask check-shipped-binaries: FAILED - {} literal(s) disagree with {SOURCE}",
-            mismatches.len()
-        );
-        eprintln!("  {SOURCE} ships: {}", expected.join(" "));
-        for row in &mismatches {
-            let spells = row.spells.join(" ");
-            let spells = if spells.is_empty() { "<nothing at all>" } else { &spells };
-            eprintln!("  {} spells: {spells}", row.at);
-        }
-        eprintln!();
-        eprintln!("  These are compared IN ORDER, because the order is read: `sutura` is what an");
-        eprintln!("  unqualified download and an unqualified `docker pull` mean, and it is the first");
-        eprintln!("  row of every table in the release notes.");
-        eprintln!();
-        eprintln!("  A binary added to {SOURCE} and not here is built by nothing and released as");
-        eprintln!("  nothing - which is what #111 was. A name here that {SOURCE} does not ship is a");
-        eprintln!("  `nix build` of an attribute that does not exist, minutes into a tagged run. And a");
-        eprintln!("  declaration carrying NOTHING is a set of zero names here rather than a row that");
-        eprintln!("  drops out of the comparison - `github.com/telekom/sutura#329`.");
+    let host = refusal::hosting(&files, &refusal::PROBE_REFUSAL);
+    let refused = rules::refusals(
+        loops::verdict(&files),
+        &expected,
+        &mismatches,
+        host.as_deref(),
+        reconciled.as_ref().map_err(String::as_str),
+    );
+    if rules::report(&refused) == Verdict::Fail {
         return Verdict::Fail;
     }
-
-    // FAIL CLOSED, and this is the half the `feature-probes-` step's own refusal cannot cover. If no
-    // page documents a feature build of a shipped package, `probeFeatures` is reconciled against
-    // nothing and `docs/adr/0017`'s claim that *the documented feature-on source build is linked*
-    // has no referent left. A page reworded out of existence is a verdict, not a pass.
-    if reconciliation.probed.is_empty() {
-        eprintln!("xtask check-shipped-binaries: FAILED - no page under docs/ documents a `cargo build`");
-        eprintln!("  with both a shipped package and `--features`, so {SOURCE}'s probeFeatures is");
-        eprintln!("  compared to nothing. docs/adr/0017 claims the documented feature-on build is");
-        eprintln!("  linked on every pull request; either a page states that build, or the claim goes.");
-        return Verdict::Fail;
-    }
-
-    if !reconciliation.problems.is_empty() {
-        eprintln!(
-            "xtask check-shipped-binaries: FAILED - {} documented feature build(s) are linked by nothing",
-            reconciliation.problems.len()
-        );
-        for problem in &reconciliation.problems {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("  `{probe_refusal}`'s probe step refuses an EMPTY manifest, which is not this:");
-        eprintln!("  with one binary still declaring a probe the manifest is non-empty, every");
-        eprintln!("  `cross / link` leg is green, and the build a reader is told to run is linked by");
-        eprintln!("  nothing. The row belongs in `{SOURCE}`'s probeFeatures.");
-        return Verdict::Fail;
-    }
+    drop(refused);
+    let probed = reconciled.map_or_else(|_| Vec::new(), |reconciliation| reconciliation.probed);
 
     println!(
         "xtask check-shipped-binaries: ok - {} literal(s) across {} file(s) agree with {SOURCE} ({})",
         checked,
-        inspected,
+        offered,
         expected.join(" ")
     );
     // NAMED rather than counted, for `unprobed`'s reason one function up: a count is not a witness
@@ -535,7 +425,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     for row in &references {
         println!("  reference: {row}");
     }
-    for row in &reconciliation.probed {
+    // The fourth bucket, and it is a row for the reason the other two are: a live `default:`
+    // deleted from an action's `binaries:` input used to move the literal count with no line
+    // saying which comparison had stopped. Nothing here reddens a correct tree - see
+    // `declaration::Carried::Undefaulted` for what it deliberately does not assert.
+    for row in &undefaulted {
+        println!("  undefaulted: {row}");
+    }
+    for row in &probed {
         println!("  probed: {row}");
     }
     Verdict::Pass
@@ -772,7 +669,7 @@ mod tests {
     #[test]
     fn a_workflow_env_literal_is_a_spelled_set() {
         let yaml = "env:\n  IMAGE: ghcr.io/x\n  BINARIES: sutura sutura-serve\n";
-        let found = spelled(yaml);
+        let found = spelled(yaml).found;
         assert_eq!(found.len(), 1, "got {found:?}");
         assert_eq!(set(&found[0]), vec![String::from("sutura"), String::from("sutura-serve")]);
         assert_eq!(found[0].line, 3);
@@ -792,7 +689,7 @@ mod tests {
             ("inputs:\n  binaries:\n    required: false\n    default:\n", 4),
             ("        with:\n          binaries:\n          target: x\n", 2),
         ] {
-            let found = spelled(yaml);
+            let found = spelled(yaml).found;
             assert_eq!(found.len(), 1, "{yaml:?} declared the empty set: {found:?}");
             assert_eq!(found[0].line, at, "{found:?}");
             assert!(set(&found[0]).is_empty(), "{found:?}");
@@ -803,7 +700,7 @@ mod tests {
     fn a_declaration_this_gate_cannot_compare_is_reported_rather_than_dropped() {
         // The fourth route: an expression naming a DIFFERENT set. Empty nowhere, so no empty-set
         // rule could have caught it, and the literal count moved from 4 to 3 at exit 0.
-        let found = spelled("env:\n  BINARIES: ${{ env.SHIPPED }}\n");
+        let found = spelled("env:\n  BINARIES: ${{ env.SHIPPED }}\n").found;
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(matches!(found[0].carries, Carried::Opaque(_)), "{found:?}");
     }
@@ -821,7 +718,7 @@ mod tests {
             "    required: false\n",
             "    default: sutura sutura-serve\n",
         );
-        let found = spelled(yaml);
+        let found = spelled(yaml).found;
         assert_eq!(found.len(), 1, "only the binaries input's default counts: {found:?}");
         assert_eq!(set(&found[0]), vec![String::from("sutura"), String::from("sutura-serve")]);
     }
@@ -834,7 +731,7 @@ mod tests {
         // this gate decides not to compare has to survive into the verdict, or the count is the
         // only thing that moves when one stops being compared.
         let yaml = "      - uses: ./.github/actions/build-artefacts\n        with:\n          binaries: ${{ env.BINARIES }}\n";
-        let found = spelled(yaml);
+        let found = spelled(yaml).found;
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(
             found[0].carries,
@@ -852,7 +749,7 @@ mod tests {
             "  binaries = [\n    { bin = \"sutura\"; }\n    { bin = \"sutura-serve\"; }\n    { bin = \"sutura-mcp\"; }\n  ];\n";
         let yaml = "env:\n  BINARIES: sutura sutura-serve\n";
         let expected = declared(nix);
-        let found = spelled(yaml);
+        let found = spelled(yaml).found;
         assert_eq!(expected.len(), 3);
         assert_eq!(found.len(), 1);
         assert_ne!(set(&found[0]), expected, "the drift must be visible");
@@ -862,7 +759,7 @@ mod tests {
     fn order_is_part_of_the_comparison() {
         let nix = "  binaries = [\n    { bin = \"sutura\"; }\n    { bin = \"sutura-serve\"; }\n  ];\n";
         let yaml = "env:\n  BINARIES: sutura-serve sutura\n";
-        assert_ne!(set(&spelled(yaml)[0]), declared(nix));
+        assert_ne!(set(&spelled(yaml).found[0]), declared(nix));
     }
 
     #[test]
@@ -877,7 +774,7 @@ mod tests {
         };
         let expected = declared(&nix);
         assert!(!expected.is_empty(), "nix/shipped.nix declares no binaries");
-        let files = super::yaml_files(&root).expect("a file under `.github` could not be read");
+        let files = super::finder::yaml_files(&root).expect("a file under `.github` could not be read");
         let walk = super::declaration::declarations(&files);
         // The production pair, over the real tree: the walk's own list against the finder's.
         let names: Vec<&str> = files.keys().map(String::as_str).collect();
@@ -889,16 +786,28 @@ mod tests {
         // skipping both composite actions - the files `github.com/telekom/sutura#111` was about -
         // left this test green. A row moving here is a deliberate edit to the release path, and
         // then this list moves with it.
+        // AND NOTHING WENT UNCOUNTED, from the predicate the parse cannot narrow. This is the
+        // arm that reaches a `- binaries:` sequence item, which moved no row and no count.
+        assert!(
+            walk.unaccounted.is_empty(),
+            "a line spells this set's key and was not classified: {:?}",
+            walk.unaccounted
+        );
+
         let mut literals: Vec<String> = Vec::new();
         let mut references: Vec<String> = Vec::new();
+        let mut undefaulted: Vec<String> = Vec::new();
         for (name, found) in walk.rows {
             let at = format!("{name}:{}", found.line);
+            // EXHAUSTIVE, with no `_` arm: a fifth class cannot arrive here already exempt - it is
+            // `error[E0004]` in this test and in `declaration::read` both. #414.
             match found.carries {
                 Carried::Set(names) => {
                     assert_eq!(names, expected, "{at} disagrees");
                     literals.push(at);
                 }
                 Carried::Reference(expression) => references.push(format!("{at} -> {expression}")),
+                Carried::Undefaulted => undefaulted.push(at),
                 // #329: this used to be the silent bucket, and it was `spelled` returning
                 // nothing rather than a bucket at all.
                 Carried::Opaque(value) => panic!("{at} carries `{value}`, which nothing compares"),
@@ -909,7 +818,7 @@ mod tests {
             [
                 ".github/actions/build-artefacts/action.yml:16",
                 ".github/actions/embedded-dependency-list/action.yml:15",
-                ".github/workflows/cross-link.yml:86",
+                ".github/workflows/cross-link.yml:94",
                 ".github/workflows/release.yml:82",
             ],
             "the set of files spelling the shipped set literally has changed"
@@ -924,10 +833,18 @@ mod tests {
                 ".github/actions/build-artefacts/action.yml:118 -> inputs.binaries",
                 ".github/actions/build-artefacts/action.yml:235 -> inputs.binaries",
                 ".github/actions/embedded-dependency-list/action.yml:83 -> inputs.binaries",
-                ".github/workflows/cross-link.yml:213 -> env.BINARIES",
+                ".github/workflows/cross-link.yml:221 -> env.BINARIES",
                 ".github/workflows/release.yml:236 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"
+        );
+        // AND THE FOURTH CLASS, pinned EMPTY. Every `binaries:` input under `.github` states a
+        // default today, so a live `default:` deleted from one makes a row appear here - the
+        // transition #329's symptom survived in, which is a row in the verdict now and a red test
+        // rather than a literal count quietly moving from 4 to 3.
+        assert!(
+            undefaulted.is_empty(),
+            "an input declaring the shipped set now states no default: {undefaulted:?}"
         );
     }
 
@@ -936,7 +853,7 @@ mod tests {
         // The pointer the gate PRINTS, against the tree that has to hold it. Its absence is what
         // let two remedies go on naming `ci.yml` for a whole commit after the step left that file.
         let root = crate::repo::root().expect("could not locate the repo");
-        let files = super::yaml_files(&root).expect("a file under `.github` could not be read");
+        let files = super::finder::yaml_files(&root).expect("a file under `.github` could not be read");
         let host = super::refusal::hosting(&files, &super::refusal::PROBE_REFUSAL)
             .expect("no single workflow refuses an EMPTY probe manifest, so the remedies name nothing");
         assert!(host.starts_with(".github/workflows/"), "{host}");
