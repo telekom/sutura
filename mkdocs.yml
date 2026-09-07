@@ -209,6 +209,7 @@ nav:
       - How a published artefact proves where it came from: adr/0021-how-a-published-artefact-proves-where-it-came-from.md
       - Untrusted content, and what marks it: adr/0022-untrusted-content-marking.md
       - How the agent surface learns who is asking: adr/0023-how-the-agent-surface-learns-who-is-asking.md
+      - Three OSS-readiness scans, and what each discloses: adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
