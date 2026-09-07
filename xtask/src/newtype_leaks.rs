@@ -276,10 +276,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    // The reverse direction, so the list cannot rot into naming a type that was renamed away: a
-    // sealed entry nothing declares is a rule guarding nothing, reported as a failure rather than
-    // as an absence of findings.
-    let undeclared: Vec<&Sealed> = SEALED.iter().filter(|entry| !declared.contains(&entry.name)).collect();
+    let undeclared = undeclared(&declared);
 
     if leaks.is_empty() && opened.is_empty() && undeclared.is_empty() {
         println!(
@@ -314,6 +311,17 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         );
     }
     Verdict::Fail
+}
+
+/// The [`SEALED`] entries the scan did not find declared anywhere.
+///
+/// The reverse direction, so the list cannot rot into naming a type that was renamed away: an entry
+/// nothing declares is a rule guarding nothing, and `run` reports it as a FAILURE rather than as an
+/// absence of findings. Its own function so the refusal is held by a test rather than by the whole
+/// gate - a predicate with passing tests and an untested refusal above it is the shape this stack
+/// keeps finding.
+fn undeclared(declared: &[&'static str]) -> Vec<&'static Sealed> {
+    SEALED.iter().filter(|entry| !declared.contains(&entry.name)).collect()
 }
 
 /// Printed on a sealed violation, and only for the types actually found.
@@ -829,6 +837,19 @@ mod tests {
         // Depth-tracked, because a helper inside a body is not reachable through the type.
         let nested = "impl Census {\n    fn verdict(&self) -> String {\n        fn helper() -> Vec<String> {\n            Vec::new()\n        }\n        String::new()\n    }\n}\n";
         assert!(exposed(nested).is_empty(), "{:?}", exposed(nested));
+    }
+
+    #[test]
+    fn a_sealed_type_the_scan_never_found_is_a_failure_rather_than_a_quiet_pass() {
+        // The refusal, not just its predicate. Nothing was found declared, so every entry is
+        // reported; find them all and none is.
+        assert_eq!(super::undeclared(&[]).len(), SEALED.len(), "an empty scan reported nothing");
+        let all: Vec<&'static str> = SEALED.iter().map(|entry| entry.name).collect();
+        assert!(super::undeclared(&all).is_empty(), "a complete scan still reported something");
+        let missing: Vec<&'static str> = all.iter().skip(1).copied().collect();
+        let reported = super::undeclared(&missing);
+        assert_eq!(reported.len(), 1, "{:?}", reported.iter().map(|e| e.name).collect::<Vec<_>>());
+        assert_eq!(reported.first().map(|entry| entry.name), all.first().copied());
     }
 
     #[test]
