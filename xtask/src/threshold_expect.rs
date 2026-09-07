@@ -24,6 +24,17 @@ use crate::repo;
 /// message builds the `clippy::` prefix so this source cannot report itself.
 const FORBIDDEN: &[&str] = &["too_many_lines", "too_many_arguments", "cognitive_complexity"];
 
+/// Rust source, and nothing else. A [`repo::Scope`]: a bare `fn`, so it cannot count subjects and
+/// is not handed the content - an ordinal narrowing has nowhere to keep its counter. It is NOT
+/// sealed against a predicate that opens the file itself; [`repo::Scope`] measures that fail-open
+/// and says which of the five printed numbers it can and cannot move.
+fn rust_source(rel: &str) -> bool {
+    std::path::Path::new(rel)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|ext| ext == "rs")
+}
+
 /// One banned attribute, located for the report.
 struct Violation {
     /// 1-based line of the `#[expect(`.
@@ -33,44 +44,55 @@ struct Violation {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-expect-thresholds: could not determine the repo root");
-        return Verdict::Fail;
+    let census = match repo::all_files() {
+        Ok(census) => census,
+        Err(why) => {
+            eprintln!("xtask check-expect-thresholds: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
 
     let mut violations: Vec<(String, Violation)> = Vec::new();
-    let mut rs_files = 0usize;
-    for rel in files {
-        if std::path::Path::new(&rel).extension().and_then(|e| e.to_str()) != Some("rs") {
-            continue;
-        }
-        // Incremented AFTER the read, because both the floor below and the success line say
-        // "read": counting here and reading afterwards made `in {rs_files} file(s)` a count of
-        // files FOUND, and would have let a tree of unreadable sources satisfy the floor.
-        let Ok(code) = std::fs::read_to_string(root.join(&rel)) else {
-            continue;
-        };
-        rs_files += 1;
+    // The loop lives inside `inspect`, so this gate never holds the listing and `.take(n)` has
+    // nowhere to be written. `rs_files` is gone with it: the count in the success line is now the
+    // census's own length rather than a local this loop increments.
+    //
+    // **And the read lives there too.** This closure used to open the file and then classify what
+    // happened, which put all three instruments behind one arm it wrote itself: answering `Judged`
+    // for a file it could not open discharged the anchor, moved the numerator and printed a
+    // verdict byte-identical to a clean tree's at exit 0. It cannot make that claim now - it is
+    // handed the bytes of a subject the census opened, and it returns nothing.
+    //
+    // `must_judge` replaces the `rs_files == 0` floor, and is strictly stronger than it. A floor
+    // over a count is satisfiable by reading almost anything; naming a file the gate cannot have a
+    // verdict without survives a scope predicate that stopped matching. This one is the gate
+    // registry itself: every `.rs` scan in the tree can name it, and it is `max-lines`-capped, so
+    // it will not vanish.
+    // Named with its type at the call site: a [`repo::Scope`] is a bare `fn` pointer, so a
+    // closure - the only place an ordinal counter could live - does not compile here.
+    let scope: repo::Scope = rust_source;
+    let inspected = match census.inspect(&["xtask/src/main.rs"], scope, |rel, bytes| {
+        // Lossy rather than `read_to_string`, which used to turn a `.rs` file that is not valid
+        // UTF-8 into an `Unreachable` - a file that WAS reached, and that rustc would reject on its
+        // own. A subject the census opened is judged; how well is this gate's business.
         let mut found = Vec::new();
-        scan(&code, &mut found);
+        scan(&String::from_utf8_lossy(bytes), &mut found);
         for v in found {
-            violations.push((rel.clone(), v));
+            violations.push((String::from(rel), v));
         }
-    }
-
-    // FAIL CLOSED ON AN EMPTY SCAN, because the count was already in the success line and
-    // nothing read it - `github.com/telekom/sutura#371`'s recurring shape. This gate is about a
-    // Rust attribute, so a run that opened no `.rs` file judged nothing and `ok ... in 0 file(s)`
-    // is a sentence about a tree it never saw.
-    if rs_files == 0 {
-        eprintln!("xtask check-expect-thresholds: FAILED - no .rs file was read");
-        eprintln!("  The rule is about an attribute in Rust source, so a scan that found none");
-        eprintln!("  attests nothing. Check that this is the workspace root.");
-        return Verdict::Fail;
-    }
+    }) {
+        Ok(inspected) => inspected,
+        Err(why) => {
+            eprintln!("xtask check-expect-thresholds: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
 
     if violations.is_empty() {
-        println!("xtask check-expect-thresholds: ok - no threshold-lint #[expect(] in {rs_files} file(s)");
+        println!(
+            "xtask check-expect-thresholds: ok - no threshold-lint #[expect(] anywhere - {}",
+            inspected.verdict()
+        );
         return Verdict::Pass;
     }
 

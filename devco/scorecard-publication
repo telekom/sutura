@@ -1,0 +1,43 @@
+# The decision to publish this repository's OpenSSF Scorecard, and everything that decision sends.
+#
+# WHY THIS FILE EXISTS. `.github/workflows/scorecard.yml` sets `publish_results: true`, and that
+# one line sends data about this repository to a public third-party endpoint. A line of YAML is not
+# where a disclosure decision can live: nothing reads it, and a reader cannot tell a deliberate
+# choice from a copied example. `cargo xtask check-workflows` requires this file to exist and to
+# carry content whenever that input is true, so the decision is written down or the gate fails.
+#
+# THE DECISION, dated. Publication is ON, chosen on 2026-09-07, because the README badge was asked
+# for and the badge does not render without it - the action's own documentation names
+# `publish_results: true` and `id-token: write` as its two prerequisites. Reverting is one line:
+# set the input `false`, and the gate then fails until the badge is removed from `README.md`.
+#
+# WHAT THE PUBLICATION SENDS, AND TO WHOM:
+#
+#   * to `https://api.scorecard.dev` - the aggregate score, every check's score and its reason
+#     text, the repository name, and the commit the run scored. Authenticated by a short-lived
+#     OIDC token whose subject names this repository and ref. From there the score reaches the
+#     public OpenSSF dataset and the badge.
+#
+# WHAT A RUN SENDS EVEN WITHOUT PUBLISHING, because the two are separate and only one is optional.
+# The action runs every check it has and takes no check-set argument, so these are not selectable:
+#
+#   * `Vulnerabilities`    -> OSV, at `osv.dev`. It sends the dependency set, not only the name.
+#   * `CII-Best-Practices` -> the OpenSSF Best Practices badge API, at `bestpractices.dev`.
+#   * `Fuzzing`            -> the OSS-Fuzz project list.
+#
+# Read against the scorecard 5.x check documentation on 2026-09-07. `nix run .#deny` inside the
+# REQUIRED `ci` job already reads advisories against the RustSec database, so the first of those
+# duplicates a control this repository has rather than adding one.
+#
+# THE STATE OF THE REPOSITORY WHEN THIS WAS DECIDED: private, as read on 2026-09-07 from
+# `gh api repos/telekom/sutura` (`private: true`, `advanced_security: disabled`). So today the
+# badge renders nothing useful and the publication has little to disclose; both become real when
+# the repository is made public, which is the point at which this decision starts to matter.
+# Measured the same day: the badge URL answers HTTP 302 to a shields.io render, and the REUSE
+# badge answers HTTP 200 with the word `unregistered` - api.reuse.software cannot clone a private
+# repository.
+#
+# WHAT NO GATE HERE HOLDS: that this file is TRUE. It is a dated statement about a third party's
+# behaviour, and the authority is that third party at the version the action pins. What is
+# mechanised is only that it exists, is not empty, and agrees with the badge - see
+# `xtask/src/workflows/scorecard.rs` for each rule and the limit beside it.

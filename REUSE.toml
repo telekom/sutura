@@ -51,10 +51,18 @@ SPDX-PackageDownloadLocation = "https://github.com/telekom/sutura"
 # EVERYTHING, first. The project is Apache-2.0 and the overwhelming majority of these files are
 # first-party, so the default is the true statement and the exceptions below are the short list.
 #
-# `precedence = "aggregate"` means a file's OWN header wins where it has one. That is what makes
-# this block safe to point at the whole tree: it fills gaps rather than overriding statements, so
-# a vendored file's upstream header is still the authority on that file even before the narrowing
-# blocks below repeat it.
+# `precedence = "aggregate"` DOES NOT mean a file's own header wins - this comment said it did, and
+# it was measurably wrong. `aggregate` is a UNION: a file carrying its own header ends up with
+# upstream's statement AND ours, so pointing this block at the whole tree ADDS "the sutura authors"
+# and Apache-2.0 to a vendored file rather than deferring to it. Corrected in review, and it matters
+# because this paragraph is the justification for the catch-all existing at all.
+#
+# WHAT ACTUALLY MAKES THE CATCH-ALL SAFE is the ordering rule below it: the LAST matching annotation
+# wins, so every narrowing block overrides this one for the paths it names. That is a property of
+# the block order, not of `precedence`. Which is exactly why *every immediate child of `vendor/`
+# must have its own covering block* is now a gate rather than a sentence - see
+# `xtask/src/workflows/scorecard.rs`. Without such a block, a copied file does not merely go
+# unattributed: it is affirmatively declared ours.
 [[annotations]]
 path = "**"
 precedence = "aggregate"

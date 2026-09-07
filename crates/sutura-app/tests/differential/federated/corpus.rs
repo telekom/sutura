@@ -257,36 +257,90 @@ pub(crate) struct Derived {
     pub(crate) two_source: PathBuf,
 }
 
-/// Derived once per process, into cargo's own temp directory for this target.
-///
-/// Per PROCESS because the runner gives each test its own: two processes deriving into one
-/// directory would race on files whose bytes are identical, a flake with no defect behind it.
+/// The corpus every question above is answered over: derived once per process, and satisfying every
+/// declaration its catalogs make.
 pub(crate) fn derived() -> &'static Derived {
     static ONCE: OnceLock<Derived> = OnceLock::new();
+    ONCE.get_or_init(|| derive_into("federated-differential"))
+}
+
+/// **The same corpus with the `many_to_one` between the fact and the dimension VIOLATED**, as one
+/// appended row.
+///
+/// A second row for `customer_key = 2`, identical to the one already there. It is a whole second
+/// derivation rather than an entry in [`DATA_CASES`] for the obvious reason: every other case is
+/// something the differential above answers, and this one is a corpus no deployment may serve.
+///
+/// **Identical rather than differing, which is what makes it the case the guards missed.**
+/// `FederatedFailure::AmbiguousLink` fires when two lookup rows disagree in a column the question
+/// projects; when they agree the lookup leg's own `GROUP BY` has already collapsed them, so the
+/// two-source side answered the number the declaration promises while the one-source side's `JOIN`
+/// added the measure twice. Measured on the tree before the boot check existed: `29138` against
+/// `22765` for `recurring-revenue-business-only` in the north, a difference of exactly that
+/// customer's June business revenue.
+pub(crate) fn violated() -> &'static Derived {
+    static ONCE: OnceLock<Derived> = OnceLock::new();
     ONCE.get_or_init(|| {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("federated-differential-{}", std::process::id()));
-        drop(std::fs::remove_dir_all(&root));
-        let derived = Derived {
-            data: root.join("data"),
-            one_source: root.join("catalog-one-source"),
-            two_source: root.join("catalog-two-source"),
-        };
-        copy_tree(&shared_data_root(), &derived.data);
-        copy_tree(&shared_catalog_root(), &derived.one_source);
-        copy_tree(&shared_catalog_root(), &derived.two_source);
-        for &(at, ref edit) in DATA_CASES {
-            apply(&derived.data.join(at), edit);
-        }
-        for &(at, ref edit) in CATALOG_CASES {
-            apply(&derived.one_source.join(at), edit);
-            apply(&derived.two_source.join(at), edit);
-        }
+        let derived = derive_into("federated-differential-violated");
+        apply(&derived.data.join(A_DUPLICATED_KEY.0), &Edit::Appended(A_DUPLICATED_KEY.1));
+        derived
+    })
+}
+
+/// The row [`violated`] appends, held here so the test that reads it names the same bytes.
+pub(crate) const A_DUPLICATED_KEY: (&str, &str) = ("dim_customer.csv", "2,C0002,business,north\n");
+
+/// **The same corpus with two dimension rows whose join key is ABSENT, and no duplicate anywhere.**
+///
+/// The corpus that decides the probe's null rule. `COUNT(col)` and `COUNT(DISTINCT col)` both skip
+/// nulls, so this table counts 40 over 40 and holds its declaration up - while a probe written with
+/// `COUNT(*)` would count 42 over 40 and refuse a deployment for two rows that can join to nothing.
+/// A null key matches nothing on either side of any join, so it duplicates no fact row; that
+/// sentence is `sutura_domain::warehouse::cardinality`'s, and this is the corpus that measures it
+/// rather than leaving it to four dialects' semantics.
+pub(crate) fn with_null_keys() -> &'static Derived {
+    static ONCE: OnceLock<Derived> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let derived = derive_into("federated-differential-null-keys");
         apply(
-            &derived.two_source.join(ON_A_SECOND_DATA_SYSTEM.at),
-            &ON_A_SECOND_DATA_SYSTEM.edit(),
+            &derived.data.join(NULL_DIMENSION_KEYS.0),
+            &Edit::Appended(NULL_DIMENSION_KEYS.1),
         );
         derived
     })
+}
+
+/// The rows [`with_null_keys`] appends. Two, not one, so counting nulls would produce a difference
+/// rather than merely a larger equal pair.
+pub(crate) const NULL_DIMENSION_KEYS: (&str, &str) = ("dim_customer.csv", ",C9001,consumer,south\n,C9002,consumer,south\n");
+
+/// One data directory and two catalogs over it, derived under `stem`.
+///
+/// Per PROCESS because the runner gives each test its own: two processes deriving into one
+/// directory would race on files whose bytes are identical, a flake with no defect behind it.
+fn derive_into(stem: &str) -> Derived {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{stem}-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&root));
+    let derived = Derived {
+        data: root.join("data"),
+        one_source: root.join("catalog-one-source"),
+        two_source: root.join("catalog-two-source"),
+    };
+    copy_tree(&shared_data_root(), &derived.data);
+    copy_tree(&shared_catalog_root(), &derived.one_source);
+    copy_tree(&shared_catalog_root(), &derived.two_source);
+    for &(at, ref edit) in DATA_CASES {
+        apply(&derived.data.join(at), edit);
+    }
+    for &(at, ref edit) in CATALOG_CASES {
+        apply(&derived.one_source.join(at), edit);
+        apply(&derived.two_source.join(at), edit);
+    }
+    apply(
+        &derived.two_source.join(ON_A_SECOND_DATA_SYSTEM.at),
+        &ON_A_SECOND_DATA_SYSTEM.edit(),
+    );
+    derived
 }
 
 /// Copies a directory of documents, recursively.

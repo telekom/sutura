@@ -83,9 +83,12 @@ struct Evidence {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-refusal-coverage: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Refusals)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-refusal-coverage: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
     let declared = match declared_variants(&root) {
         Ok(names) => names,

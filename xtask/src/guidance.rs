@@ -522,9 +522,12 @@ fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> (Vec<S
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-guidance: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Guidance)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-guidance: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
 
     // Only text we might make a claim in. `files` is kept whole for `count_mismatches`, which
@@ -664,7 +667,9 @@ mod tests {
         // RED when it was written: the pin was `1.98.0`, six pages named the pin file, and none of
         // them said what the pin was.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not list the repo");
         for pin in super::PINS {
             let value = super::pinned_value(&root, pin).expect("the pin value");
             let stated = files
@@ -822,9 +827,9 @@ mod tests {
         // The tree-wide half, and why the rules above are not a ratchet on nothing: this was RED
         // when it landed, on the record 288 names and on two others that never numbered a second
         // amendment at all.
-        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
-            panic!("could not determine the repo root");
-        };
+        let (root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not determine the repo root");
         let (problems, counts) = super::pages::page_problems(&root, &super::in_scope(&files));
         assert!(problems.is_empty(), "{problems:#?}");
         // The floors, asserted rather than only printed: a sweep that read nothing satisfies an

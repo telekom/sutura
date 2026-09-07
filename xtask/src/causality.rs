@@ -351,7 +351,17 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
     let listing: std::cell::OnceCell<Vec<String>> = std::cell::OnceCell::new();
     let sources = |dir: &str| {
         listing
-            .get_or_init(|| repo::all_files().map(|found| found.files).unwrap_or_default())
+            // FAIL OPEN, unchanged and now visible: a refusal yields an EMPTY listing and the
+            // feature-activation walk proceeds over nothing. Narrow - this is consulted only for a
+            // manifest declaring a feature name the base did not - and it is
+            // `github.com/telekom/sutura#414`'s own finding on this file, left to the PR that owns
+            // this gate rather than folded into a mechanical one.
+            .get_or_init(|| {
+                repo::all_files()
+                    .and_then(|census| census.into_listing(repo::Unmigrated::Causality))
+                    .map(|(_root, files)| files)
+                    .unwrap_or_default()
+            })
             .iter()
             // `is_compiled_rust` rather than an extension test, so the one rule that decides
             // what this workspace compiles decides here too - a vendored path is excluded by it.

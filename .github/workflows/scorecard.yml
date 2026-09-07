@@ -1,0 +1,116 @@
+# OpenSSF Scorecard, weekly and on a push to `main`, PUBLISHING its results.
+#
+# **THIS WORKFLOW SENDS DATA TO A THIRD PARTY, DELIBERATELY.** `publish_results: true` makes the
+# action mint an OIDC token whose subject names this repository and POST the run to
+# `https://api.scorecard.dev` - the aggregate score, every check's score and reason, the repository
+# name and the commit. That endpoint is public, and from it the score reaches the OpenSSF dataset
+# and the badge in `README.md`.
+#
+# It is on because the badge was asked for and **the badge does not render without it** - the
+# action's own documentation states `publish_results: true` and `id-token: write` as the two
+# prerequisites. It is not a default, and it is one line to revert: setting it `false` stops the
+# publication, and `cargo xtask check-workflows` then FAILS until the badge is removed from
+# `README.md`, so the two cannot drift apart. `docs/adr/0024` is the decision.
+#
+# WHAT ELSE A RUN REACHES, because "publishes a score" is not the whole disclosure. The action runs
+# every check it has, and three of them answer their question by asking somebody other than GitHub:
+# `Vulnerabilities` queries OSV at `osv.dev` and sends the dependency set; `CII-Best-Practices`
+# queries the badge API at `bestpractices.dev`; `Fuzzing` reads the OSS-Fuzz project list. The
+# action takes no check-set argument, so this is not selectable - it is part of what running it
+# costs, and `devco/scorecard-publication` records it beside the decision.
+#
+# THE ACTION RATHER THAN THE NIX-PINNED CLI, and this is a cost rather than a preference. This
+# repository's rule is that nix is the only pin for a tool whose version decides what it reports,
+# and `pkgs.scorecard` exists. But the CLI cannot publish - publication is the action's own step -
+# so the badge selects the action, and with it two things worth naming:
+#
+#   * the action is `using: docker` over `image: docker://ghcr.io/ossf/scorecard-action:v2.4.4`
+#     (read at commit `2d1146689b8cda280b9bc96326124645441f03bc` on 2026-09-07), so the SHA below
+#     pins the manifest and NOT the code that runs. There is no way to write the digest from the
+#     calling side;
+#   * that image comes from `ghcr.io`, which a network behind a registry mirror has no route to.
+#     Every image this repository reaches itself goes through `SUTURA_IMAGE_REGISTRY`; one named
+#     inside a third-party action cannot.
+#
+# NOT REQUIRED, and the limit belongs next to the claim: the only status context the `main` ruleset
+# requires is `ci` - see `devco/required-contexts` for the dated read. This workflow reports no
+# context on a pull request, because it deliberately does not run on one: the checks read what is
+# on the default branch, so scoring a pull-request head would score a tree that is not the project.
+# **A falling score blocks nothing.**
+#
+# THIRD-PARTY ACTIONS: one, and it is the point of the file. `actions/*` is GitHub's own.
+name: scorecard
+
+on:
+  # Post-merge on the default branch. `paths` is deliberately absent: most of what Scorecard scores
+  # - the workflow permissions, the pinning, the branch rules, the release signatures - changes
+  # without any one file predicting it.
+  push:
+    branches: [main]
+  # A ruleset change moves the Branch-Protection score without touching the tree, and this is the
+  # only event that reports it.
+  branch_protection_rule:
+  schedule:
+    # Tuesday 06:43 UTC. Off the hour, and a different day from `security-audit.yml`, so the two
+    # weekly jobs do not queue behind each other.
+    - cron: "43 6 * * 2"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  score:
+    runs-on: rust-mcp
+    timeout-minutes: 30
+    # EVERY PERMISSION, NAMED, because a permission block is a security surface in itself. A
+    # job-level block REPLACES the workflow-level one rather than adding to it.
+    #
+    # `id-token: write` is the only WRITE here and it is the publication's authentication: it mints
+    # a short-lived OIDC token whose subject names this repository and ref, which `api.scorecard.dev`
+    # verifies before accepting a score. It grants nothing else and no secret is exposed by it.
+    #
+    # The four reads below `contents` are the ones the action's own documentation asks for on a
+    # PRIVATE repository, each with the check it serves. Without them those checks answer about the
+    # token rather than about the repository.
+    #
+    # WHAT IS DELIBERATELY ABSENT: `security-events: write`, which would let the run upload SARIF to
+    # code scanning. Code scanning on a private repository needs GitHub Advanced Security, and it is
+    # DISABLED here as read on 2026-09-07 - so that upload would fail rather than be ignored, and
+    # the permission would be granted for nothing.
+    permissions:
+      id-token: write      # publication only: the OIDC token api.scorecard.dev verifies
+      contents: read       # the checkout, and every file-reading check
+      actions: read        # workflow runs, for CI-Tests and Dangerous-Workflow
+      checks: read         # check runs on a commit, for CI-Tests
+      issues: read         # issue activity, for Maintained
+      pull-requests: read  # review history, for Code-Review
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Scorecard
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: scorecard.json
+          # `json` rather than `sarif`: SARIF exists to be uploaded to code scanning, and that
+          # upload cannot work here (see the permission block above). A format nobody consumes
+          # would be a step that looks like a control.
+          results_format: json
+          # THE DISCLOSURE. See the header for exactly what this sends and where, and
+          # `docs/adr/0024` for why it is on. `cargo xtask check-workflows` holds it against the
+          # badge in README.md, in both directions.
+          publish_results: true
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scorecard-${{ github.sha }}
+          path: scorecard.json
+          if-no-files-found: warn
+          retention-days: 90

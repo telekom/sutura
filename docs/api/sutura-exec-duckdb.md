@@ -42,6 +42,7 @@ Why this data system could not answer.
 - `NotFinite` - A floating-point column came back as a value that is not a number.
 - `NotADate` - A day number came back that is not a date this build can represent.
 - `Shape`
+- `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
 - `NoSchema` - The driver handed back a result set with no statement behind it, so there are no column labels to read.
 - `Render` - The plan could not be rendered as SQL.
 - `Attach`
