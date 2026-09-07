@@ -75,6 +75,7 @@ pub(crate) enum Looked {
 }
 
 /// Why a census could not produce a verdict. Each arm is a measured defect, not a hypothesis.
+#[derive(Debug)]
 pub(crate) enum Refusal {
     /// The repo root could not be determined, so nothing was discovered. `repo::root`'s own
     /// comment records this happening from a store path, where the walk found nothing and the gate
@@ -178,8 +179,8 @@ pub(crate) enum Unmigrated {
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
-    pub(super) fn found(root: PathBuf, of: Vec<String>, unreachable: Vec<String>) -> Self {
-        Self { root, of, unreachable }
+    pub(super) const fn found(root: PathBuf, of: Vec<String>, unreachable: Vec<String>) -> Self {
+        Self { of, root, unreachable }
     }
 
     /// The root, so a caller can join a path to it without holding the listing.
@@ -263,7 +264,7 @@ impl Census {
     ///
     /// Taking the token by value rather than by reference so a caller cannot keep one around to
     /// re-open the door with later.
-    pub(crate) fn into_listing(self, _caller: Unmigrated) -> Result<(PathBuf, Vec<String>), Refusal> {
+    pub(crate) fn into_listing(self, _caller: Unmigrated) -> Result<Listing, Refusal> {
         if !self.unreachable.is_empty() {
             return Err(Refusal::Unreachable(self.unreachable));
         }
@@ -273,6 +274,12 @@ impl Census {
         Ok((self.root, self.of))
     }
 }
+
+/// What an unmigrated gate gets: the root, and the discovered paths as a plain `Vec`.
+///
+/// Named rather than a tuple because `type_complexity` is tightened in this workspace, and because
+/// a name is a place to say what this is: **the transitional shape, not the destination.**
+pub(crate) type Listing = (PathBuf, Vec<String>);
 
 /// A verdict that accounted for EVERY subject the walk discovered.
 ///
@@ -299,7 +306,11 @@ impl Inspected {
 #[cfg(test)]
 mod tests {
     use super::{Census, Looked, Refusal, Unmigrated};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+
+    fn has_ext(rel: &str, ext: &str) -> bool {
+        Path::new(rel).extension().is_some_and(|found| found == ext)
+    }
 
     fn census(of: &[&str], unreachable: &[&str]) -> Census {
         Census::found(
@@ -349,7 +360,7 @@ mod tests {
     fn the_printed_count_is_the_witness_own_length() {
         let inspected = census(&["a.rs", "b.md", "c.rs"], &[])
             .inspect(&[], |rel| {
-                if rel.ends_with(".rs") {
+                if has_ext(rel, "rs") {
                     Looked::Judged
                 } else {
                     Looked::OutOfScope
@@ -380,7 +391,7 @@ mod tests {
         // The other half, and the two are not interchangeable: here the predicate matched plenty
         // and missed the one file the gate is about, which no count floor can see.
         let refused = census(&["a.md", "flake.nix", "c.md"], &[]).inspect(&["flake.nix"], |rel| {
-            if rel.ends_with(".md") {
+            if has_ext(rel, "md") {
                 Looked::Judged
             } else {
                 Looked::OutOfScope
@@ -401,7 +412,7 @@ mod tests {
     fn an_anchor_that_was_judged_is_satisfied() {
         let inspected = census(&["flake.nix", "a.md"], &[])
             .inspect(&["flake.nix"], |rel| {
-                if rel.ends_with(".nix") {
+                if has_ext(rel, "nix") {
                     Looked::Judged
                 } else {
                     Looked::OutOfScope

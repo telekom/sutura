@@ -298,7 +298,6 @@ mod tests {
         // the configuration. This is the assertion that reddens the day an entry's promise is kept.
         let root = crate::repo::root().expect("the repo root");
         let ignores = Ignores::parse(&std::fs::read_to_string(root.join(super::IGNORE_FILE)).expect("the ignore file"));
-        let mut files = Vec::new();
         let (_root, files) = crate::repo::collect_text_files(&root, &root)
             .into_listing(crate::repo::Unmigrated::MaxLines)
             .expect("the tests run inside the repo");
