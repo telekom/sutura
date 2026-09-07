@@ -617,7 +617,12 @@ mod tests {
     fn text_detection_is_by_content_not_extension() {
         use std::io::Write as _;
 
-        let dir = std::env::temp_dir().join("sutura-is-text-test");
+        // Keyed by process, because this directory is WRITTEN: an unkeyed name under the
+        // machine's temporary root is one directory for every checkout on the machine, which is
+        // `telekom/sutura#405`'s class. The bytes two worktrees write here are identical today -
+        // which is exactly the argument that was true per tree and not per machine.
+        let dir = std::env::temp_dir().join(format!("sutura-is-text-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
         drop(std::fs::create_dir_all(&dir));
 
         // No extension at all - the case three extension lists all missed.

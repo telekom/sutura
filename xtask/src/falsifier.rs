@@ -11,12 +11,21 @@
 //! AND `Cargo.toml`; without them its walk falls through to `CARGO_MANIFEST_DIR`'s parent and
 //! every gate reads this repository, which is the one tree that makes the assertion vacuous.
 //!
-//! **The seeded files are for the three gates whose subject is EVERY TEXT FILE**, where absence is
-//! a legitimate pass: a tree with no text file genuinely has no over-long file and no CRLF, so
-//! only a violation falsifies them. Measured - without the seed, `max-lines`, `line-endings` and
+//! **The seeded files are for the gates whose subject is a KIND OF FILE**, where absence is a
+//! legitimate pass: a tree with no text file genuinely has no over-long file and no CRLF, so only a
+//! violation falsifies them. Measured - without the seed, `max-lines`, `line-endings` and
 //! `text-hygiene` all answer `ok` here, and every other gate is falsified by the bare root alone.
-//! Neither extension is `.rs`, deliberately: `check-expect-thresholds` scans Rust source, so a
-//! `.rs` file would satisfy its floor while telling it nothing about this tree.
+//! No extension here is `.rs`, deliberately: `check-expect-thresholds` scans Rust source, so a
+//! `.rs` file would satisfy its floor while telling it nothing about this tree - and
+//! `check-worktree-state` is the reason `nix/shared-scratch.sh` exists rather than a Rust file.
+//!
+//! **A seed is what makes a refusal come from a gate's OWN RULE rather than from a missing input,
+//! and only three of the gates here manage that.** Over this tree 20 refuse on an absent or
+//! unreadable input and 8 on an empty-scan floor; `telekom/sutura#405` asks its own gate to be one
+//! of the three, so the shell script below carries a real violation - an unkeyed path under the
+//! machine's temporary root - and `check-worktree-state` refuses it by name, with a line number,
+//! having found and adjudicated one taking. The file is a `.sh` under `nix/` because that is a
+//! scope no other gate in the sweep reads for content, so it falsifies exactly one gate.
 //!
 //! **Why this module exists at all, rather than sitting in `main.rs`:** that file hit the
 //! 1000-line cap on the merge of two branches that both grew it, and `sutura/gates` says to move
@@ -53,6 +62,16 @@ pub(crate) fn falsifier_tree() -> PathBuf {
     // `text-hygiene`, whose rules are neither of the other two.
     let malformed = "a line with a trailing space \r\nand no final newline";
     std::fs::write(root.join("carriage-return.txt"), malformed).expect("the malformed text file");
+    // A gate script writing to a path every checkout on the machine reaches, which is
+    // `check-worktree-state`'s subject and `telekom/sutura#405`'s instance 2 in shape. Clean in
+    // every other way - LF, a final newline, no trailing space, well under the line cap - so this
+    // file falsifies one gate and tells the other three nothing.
+    std::fs::create_dir_all(root.join("nix")).expect("the shell scope");
+    std::fs::write(
+        root.join("nix/shared-scratch.sh"),
+        "#!/usr/bin/env bash\nlog=\"/tmp/sutura-gate-state.log\"\necho hi >\"$log\"\n",
+    )
+    .expect("the unkeyed shared path");
     root
 }
 
