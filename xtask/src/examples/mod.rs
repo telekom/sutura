@@ -135,7 +135,7 @@ use crate::causality::{attributes, regions};
 use crate::repo;
 use crate::serde_parse::scan::code_lines;
 use reach::{EXAMPLES, publishes, reaches_for, resolved, variants};
-use scope::{Scan, gate_crate, in_scope, is_candidate, is_under, member_dirs};
+use scope::{Scan, gate_crate, in_scope, is_candidate, is_under, workspace};
 
 /// Which files reach a variant, and the first line in each that names it.
 type Reaches = BTreeMap<String, BTreeMap<String, usize>>;
@@ -265,6 +265,23 @@ fn problems(variants: &BTreeSet<String>, evidence: &Evidence, scan: &Scan) -> Ve
             "excluded no file under `{crate_dir}/` - this gate's own fixtures name paths under `{EXAMPLES}` and would satisfy it, so an exclusion that matches nothing is a broken scan"
         ));
     }
+    if scan.targets == 0 {
+        // FAIL CLOSED on the SECOND AUTHORITY itself. The arm below compares cargo's answer
+        // against the walk's, and an empty left-hand side satisfies it vacuously - the
+        // floor-with-no-denominator shape one level up.
+        problems.push(String::from(
+            "compared no workspace target root against the scan - cargo names what this workspace compiles, and with none of them in scope there is nothing checking the git listing against anything but itself"
+        ));
+    }
+    for rel in &scan.unseen {
+        // THE PAIR FROM TWO DIFFERENT PLACES. Every other count here is git's listing checked
+        // against git's listing, so a walk that stops inside `repo::all_files` moves them in
+        // step - measured, `.step_by(2)` there printed `127 of 127 in-scope file(s)` at exit 0
+        // over half the tree. Cargo does not read git.
+        problems.push(format!(
+            "`{rel}` is a target root cargo compiles and this scan never read - the listing it walked is smaller than the workspace, so this verdict is about less than a run here covers"
+        ));
+    }
     if scan.read != scan.expected {
         // THE OUTER WALK'S PAIR. Two numbers from two places - the listing filtered by `in_scope`,
         // and the loop that reads it - because one number cannot witness a walk that stopped.
@@ -365,14 +382,16 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-examples: could not derive this gate's own crate directory");
         return Verdict::Fail;
     };
-    let members = match member_dirs(&root) {
-        Ok(members) => members,
+    let cargo = match workspace(&root) {
+        Ok(cargo) => cargo,
         Err(error) => {
             eprintln!("xtask check-examples: {error}");
             return Verdict::Fail;
         }
     };
+    let members = cargo.dirs;
 
+    let mut reached: BTreeSet<String> = BTreeSet::new();
     let mut sources: BTreeMap<String, String> = BTreeMap::new();
     let mut scan = Scan {
         crate_dir,
@@ -380,6 +399,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // From the LISTING, before the walk touches it.
         expected: files.iter().filter(|rel| in_scope(rel, &members, crate_dir)).count(),
         read: 0,
+        unseen: Vec::new(),
+        targets: 0,
         unreadable: Vec::new(),
     };
     for rel in files.iter().filter(|rel| is_candidate(rel, &members)) {
@@ -388,11 +409,23 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             continue;
         }
         scan.read = scan.read.saturating_add(1);
+        reached.insert(rel.clone());
         match std::fs::read_to_string(root.join(rel)) {
             Ok(text) => {
                 sources.insert(rel.clone(), text);
             }
             Err(error) => scan.unreadable.push(format!("`{rel}`: {error}")),
+        }
+    }
+    // THE PAIR FROM TWO DIFFERENT PLACES, and the only one here that is not git checked against
+    // git: cargo names what this workspace compiles, and a target root the walk never reached is
+    // a scan that is about less than the venue runs. Measured before this arm existed:
+    // `.step_by(2)` inside `repo::all_files` moved `expected` and `read` in step and printed
+    // `127 of 127 in-scope file(s)` at exit 0 over half the tree.
+    for rel in cargo.target_roots.iter().filter(|rel| in_scope(rel, &members, crate_dir)) {
+        scan.targets = scan.targets.saturating_add(1);
+        if !reached.contains(rel) {
+            scan.unseen.push(rel.clone());
         }
     }
 
@@ -402,13 +435,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     if problems.is_empty() {
         println!(
-            "xtask check-examples: ok - {} variant(s) under {EXAMPLES}, from {} file(s) of test code declaring {} test(s) that run here, out of {} of {} in-scope file(s) across {} workspace member(s) ({} file(s) dropped for declaring no test a run reaches, {} under `{crate_dir}/` excluded)",
+            "xtask check-examples: ok - {} variant(s) under {EXAMPLES}, from {} file(s) of test code declaring {} test(s) that run here, out of {} of {} in-scope file(s) across {} workspace member(s) whose {} target root(s) the scan all read ({} file(s) dropped for declaring no test a run reaches, {} under `{crate_dir}/` excluded)",
             found.len(),
             evidence.test_files,
             evidence.declared,
             evidence.visited,
             scan.expected,
             members.len(),
+            scan.targets,
             evidence.none_runs,
             scan.excluded
         );
@@ -492,6 +526,8 @@ mod tests {
             excluded: 73,
             expected: evidence.visited,
             read: evidence.visited,
+            unseen: Vec::new(),
+            targets: 39,
             unreadable: Vec::new(),
         }
     }
@@ -897,6 +933,44 @@ mod tests {
         assert!(
             said.first()
                 .is_some_and(|first| first.contains("the evidence walk stopped early")),
+            "{said:?}"
+        );
+    }
+
+    #[test]
+    fn a_listing_smaller_than_the_workspace_is_refused_against_cargos_own_answer() {
+        // THE PAIR FROM TWO DIFFERENT PLACES, and it exists because the other two are not one.
+        // `expected` and `read` are two loops over ONE git listing, so a walk that stops inside
+        // `repo::all_files` moves both together - measured on this tree, `.step_by(2)` there
+        // printed `127 of 127 in-scope file(s)` at exit 0 having read half the tree. Cargo does
+        // not read git, so a target root it compiles that the scan never saw is a disagreement
+        // between two authorities.
+        let found = scan(&[(
+            "crates/x/tests/example.rs",
+            "#[test]\nfn t() { Path::new(\"../../examples/a-variant\"); }\n",
+        )]);
+        let short = Scan {
+            unseen: vec![String::from("crates/y/tests/t.rs")],
+            ..whole(&found)
+        };
+        let said = problems(&set(&["a-variant"]), &found, &short);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said.first()
+                .is_some_and(|first| first.contains("`crates/y/tests/t.rs` is a target root cargo compiles")),
+            "{said:?}"
+        );
+        // AND THE FLOOR ON THE FLOOR: with nothing to compare, the arm above is vacuous, so an
+        // empty comparison is itself the refusal rather than a silent pass.
+        let nothing_compared = Scan {
+            targets: 0,
+            ..whole(&found)
+        };
+        let said = problems(&set(&["a-variant"]), &found, &nothing_compared);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said.first()
+                .is_some_and(|first| first.contains("compared no workspace target root")),
             "{said:?}"
         );
     }
