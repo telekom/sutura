@@ -303,7 +303,9 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
 /// direction of missing one is the `no tests to run` failure this dropping exists to prevent,
 /// which is loud.
 fn is_ignored(lines: &[&str], index: usize) -> bool {
-    attached(lines, index).iter().any(|opening| opening.starts_with("#[ignore"))
+    attached(lines, index)
+        .iter()
+        .any(|(_, opening)| opening.starts_with("#[ignore"))
 }
 
 /// The name in `fn NAME(`, if this line declares a function.

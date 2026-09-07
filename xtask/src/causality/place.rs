@@ -153,7 +153,7 @@ pub(super) fn accounted_for(file: &ChangedFile, lines: &[&str]) -> Option<Declar
 /// resolve the declaration to a file that is not there - which is a refusal, so the wrong answer
 /// here reddens a correct change.
 fn relocated(lines: &[&str], at: usize) -> Option<String> {
-    attached(lines, at).into_iter().find_map(|opening| {
+    attached(lines, at).into_iter().find_map(|(_, opening)| {
         opening
             .strip_prefix("#[path")?
             .trim_start()
