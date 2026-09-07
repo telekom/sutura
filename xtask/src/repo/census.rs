@@ -69,6 +69,12 @@ pub(crate) enum Looked {
     /// Judged by the caller's own rule, which reports through its own captured accumulator.
     Judged,
     /// Not this gate's business. A scope decision, and the only silent arm there is.
+    ///
+    /// **And the type cannot tell a scope decision from a mis-labelled failure** - measured: a
+    /// gate returning this for a file it could not READ keeps `judged + out_of_scope ==
+    /// discovered` exactly true and goes green (`378` to `376 of 1170`, exit 0, over a subtree at
+    /// mode `000`). The accounting is exact and it is not self-policing, so which arm a subject
+    /// gets is the caller's claim and review's business.
     OutOfScope,
     /// This gate was meant to read it and could not. Becomes a REFUSAL, never a `continue`.
     Unreachable(String),
@@ -85,9 +91,16 @@ pub(crate) enum Refusal {
     Unreachable(Vec<String>),
     /// A path the caller declared it cannot have a verdict without was not judged.
     ///
-    /// Generalises `warm_start::pairing::nix_files`' `flake.nix` anchor, and it is strictly
-    /// stronger than a count floor: it survives a scope predicate that stopped matching, which a
-    /// `== 0` floor does not.
+    /// Generalises `warm_start::pairing::nix_files`' `flake.nix` anchor, and it is stronger than a
+    /// count floor: it survives a scope predicate that stopped matching, which a `== 0` floor does
+    /// not.
+    ///
+    /// **The limit, and it is the gap a later PR closes.** This is a DECLARED name, not a set
+    /// derived from `[workspace] members`, so it catches a narrowing that EXCLUDES the anchor and
+    /// not one that keeps it: measured, narrowing `check-expect-thresholds`' scope to `xtask/`
+    /// alone left `125 of 1170 subject(s) judged` at **exit 0** with 253 files silently unjudged,
+    /// because `xtask/src/main.rs` is still inside the narrowed scope. A derived member set is a
+    /// second derivation rather than a rewording of this one - `github.com/telekom/sutura#414`.
     NotJudged {
         /// The anchor that was declared and not judged.
         path: String,
