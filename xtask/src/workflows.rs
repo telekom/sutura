@@ -59,11 +59,11 @@ mod contexts;
 // whose own `on:` block gates and therefore classified none of a CALLED workflow's.
 mod reach;
 
-// WHAT A POSTURE SCAN MAY DISCLOSE. Its own file because it reads a third authority -
-// `devco/scorecard-checks` - and because a new entry in `main.rs`'s task table is not available:
-// that file stands at 999 lines against a cap `crates/` and `xtask/` cannot be exempted from. It
-// belongs here regardless: *what may a workflow do* is this gate's question, and it already walks
-// every place CI invokes something from.
+// A BADGE IS A PUBLIC CLAIM, held against the mechanism it claims. Its own file because it reads
+// two more authorities - `README.md` and `devco/scorecard-publication` - and because a new entry
+// in `main.rs`'s task table is not available: that file stands at 999 lines against a cap
+// `crates/` and `xtask/` cannot be exempted from. It belongs here regardless: *what may a workflow
+// do* is this gate's question, and it already walks every place CI invokes something from.
 mod scorecard;
 
 /// Which output namespace a reference points into.
@@ -185,23 +185,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    // WHAT A SCAN MAY SEND, AND WHERE. Beside the classification above because both are rules
-    // about what a workflow is ALLOWED to do rather than about whether it resolves - see
-    // `scorecard`'s header for the three checks refused by name and the two ways a score reaches
-    // `api.scorecard.dev`.
-    let disclosures = scorecard::problems(&root);
-    if !disclosures.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} scorecard rule(s) broken\n",
-            disclosures.len()
-        );
-        for problem in &disclosures {
+    // WHAT A BADGE CLAIMS, AGAINST WHAT HOLDS IT. Beside the classification above because both
+    // are rules about what a workflow is ALLOWED to assert rather than about whether it resolves -
+    // and a badge is the one thing in this tree that asserts a control to somebody who cannot read
+    // the tree. See `scorecard`'s header for each rule and the limit beside it.
+    let badges = scorecard::problems(&root);
+    if !badges.is_empty() {
+        eprintln!("xtask check-workflows: FAILED - {} badge rule(s) broken\n", badges.len());
+        for problem in &badges {
             eprintln!("  {problem}");
         }
         eprintln!();
-        eprintln!("docs/adr/0024 is the decision these hold. Changing what a posture scan may");
-        eprintln!("disclose is an edit to devco/scorecard-checks AND to");
-        eprintln!("xtask/src/workflows/scorecard.rs, not to a workflow alone.");
+        eprintln!("A badge is a public claim, and an overstated control is itself the defect here.");
+        eprintln!("docs/adr/0024 is the decision; devco/scorecard-publication is what publishing");
+        eprintln!("sends and why it is on.");
         return Verdict::Fail;
     }
 
@@ -222,7 +219,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, nothing publishes a posture score, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")

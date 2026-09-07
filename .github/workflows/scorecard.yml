@@ -1,41 +1,44 @@
-# OpenSSF Scorecard, weekly and on a push to `main`.
+# OpenSSF Scorecard, weekly and on a push to `main`, PUBLISHING its results.
 #
-# WHY THE CLI AND NOT `ossf/scorecard-action`. The issue that asked for this allows either the
-# official action or a native integration, and three things here decide it:
+# **THIS WORKFLOW SENDS DATA TO A THIRD PARTY, DELIBERATELY.** `publish_results: true` makes the
+# action mint an OIDC token whose subject names this repository and POST the run to
+# `https://api.scorecard.dev` - the aggregate score, every check's score and reason, the repository
+# name and the commit. That endpoint is public, and from it the score reaches the OpenSSF dataset
+# and the badge in `README.md`.
 #
-#   * **The action would not be pinned by pinning it.** `ossf/scorecard-action` is a
-#     `using: docker` action whose `action.yaml` reads `image: docker://ghcr.io/ossf/scorecard-action:v2.4.4`
-#     - read at commit `2d1146689b8cda280b9bc96326124645441f03bc` on 2026-09-07. A SHA in `uses:`
-#     pins the three-line manifest; the code that runs comes from a MUTABLE registry tag. Every
-#     other third-party reference in this repository is a commit SHA precisely so that cannot
-#     happen, and there is no way to write that pin for a docker action from the calling side.
-#   * **nix is the only pin for a tool whose version changes what it REPORTS**, which is this
-#     repository's own rule and `cargo xtask check-pins` is what holds it. Scorecard reports
-#     findings, so it belongs where `zizmor`, `actionlint`, `betterleaks` and `cargo-deny` are.
-#   * **A registry hostname must stay reachable.** A network behind a registry mirror has no route
-#     to `ghcr.io` and an unprefixed image reference does not fall back - it fails. Every image
-#     this repository reaches goes through `SUTURA_IMAGE_REGISTRY`, and an image named inside a
-#     third-party action cannot.
+# It is on because the badge was asked for and **the badge does not render without it** - the
+# action's own documentation states `publish_results: true` and `id-token: write` as the two
+# prerequisites. It is not a default, and it is one line to revert: setting it `false` stops the
+# publication, and `cargo xtask check-workflows` then FAILS until the badge is removed from
+# `README.md`, so the two cannot drift apart. `docs/adr/0024` is the decision.
 #
-# `docs/adr/0024` is the decision, including what the action route would disclose and the exact
-# change that would switch to it.
+# WHAT ELSE A RUN REACHES, because "publishes a score" is not the whole disclosure. The action runs
+# every check it has, and three of them answer their question by asking somebody other than GitHub:
+# `Vulnerabilities` queries OSV at `osv.dev` and sends the dependency set; `CII-Best-Practices`
+# queries the badge API at `bestpractices.dev`; `Fuzzing` reads the OSS-Fuzz project list. The
+# action takes no check-set argument, so this is not selectable - it is part of what running it
+# costs, and `devco/scorecard-publication` records it beside the decision.
+#
+# THE ACTION RATHER THAN THE NIX-PINNED CLI, and this is a cost rather than a preference. This
+# repository's rule is that nix is the only pin for a tool whose version decides what it reports,
+# and `pkgs.scorecard` exists. But the CLI cannot publish - publication is the action's own step -
+# so the badge selects the action, and with it two things worth naming:
+#
+#   * the action is `using: docker` over `image: docker://ghcr.io/ossf/scorecard-action:v2.4.4`
+#     (read at commit `2d1146689b8cda280b9bc96326124645441f03bc` on 2026-09-07), so the SHA below
+#     pins the manifest and NOT the code that runs. There is no way to write the digest from the
+#     calling side;
+#   * that image comes from `ghcr.io`, which a network behind a registry mirror has no route to.
+#     Every image this repository reaches itself goes through `SUTURA_IMAGE_REGISTRY`; one named
+#     inside a third-party action cannot.
 #
 # NOT REQUIRED, and the limit belongs next to the claim: the only status context the `main` ruleset
 # requires is `ci` - see `devco/required-contexts` for the dated read. This workflow reports no
-# context on a pull request at all, because it deliberately does not run on one: the checks read
-# what is ON the default branch, so scoring a pull-request head would score a tree that is not the
-# project. **So a falling score does not block anything.** It is a report, and this file says so
-# rather than implying otherwise.
+# context on a pull request, because it deliberately does not run on one: the checks read what is
+# on the default branch, so scoring a pull-request head would score a tree that is not the project.
+# **A falling score blocks nothing.**
 #
-# WHAT A RUN DISCLOSES, AND TO WHOM. Nothing leaves GitHub. The check set comes from
-# `devco/scorecard-checks`, which excludes the three checks that answer their question by asking a
-# service outside GitHub, and `cargo xtask check-workflows` refuses those three by name. The
-# results are a workflow artifact: not published to `api.scorecard.dev`, and not uploaded to code
-# scanning. Both of those are decisions rather than oversights - the ADR states what each would
-# send and where.
-#
-# THIRD-PARTY ACTIONS: none. `actions/*` is GitHub's own and `cachix/install-nix-action` is the
-# same commit every other workflow here uses.
+# THIRD-PARTY ACTIONS: one, and it is the point of the file. `actions/*` is GitHub's own.
 name: scorecard
 
 on:
@@ -63,20 +66,24 @@ jobs:
   score:
     runs-on: rust-mcp
     timeout-minutes: 30
-    # EVERY PERMISSION IS A READ, and each is named because a permission block is a security
-    # surface in itself. A job-level block REPLACES the workflow-level one rather than adding to
-    # it, so `contents: read` is restated here for the checkout.
+    # EVERY PERMISSION, NAMED, because a permission block is a security surface in itself. A
+    # job-level block REPLACES the workflow-level one rather than adding to it.
     #
-    # What is NOT here, and what each would be for:
-    #   * `id-token: write`      - minting an OIDC token whose subject names this repository, which
-    #                              is how `ossf/scorecard-action` authenticates a PUBLISH. Nothing
-    #                              here publishes, so nothing needs to prove who it is.
-    #   * `security-events: write` - uploading SARIF to code scanning. Code scanning on a private
-    #                              repository needs GitHub Advanced Security, and it is DISABLED
-    #                              here as read on 2026-09-07, so the upload would fail rather
-    #                              than be ignored.
+    # `id-token: write` is the only WRITE here and it is the publication's authentication: it mints
+    # a short-lived OIDC token whose subject names this repository and ref, which `api.scorecard.dev`
+    # verifies before accepting a score. It grants nothing else and no secret is exposed by it.
+    #
+    # The four reads below `contents` are the ones the action's own documentation asks for on a
+    # PRIVATE repository, each with the check it serves. Without them those checks answer about the
+    # token rather than about the repository.
+    #
+    # WHAT IS DELIBERATELY ABSENT: `security-events: write`, which would let the run upload SARIF to
+    # code scanning. Code scanning on a private repository needs GitHub Advanced Security, and it is
+    # DISABLED here as read on 2026-09-07 - so that upload would fail rather than be ignored, and
+    # the permission would be granted for nothing.
     permissions:
-      contents: read       # the checkout, and the file-reading checks
+      id-token: write      # publication only: the OIDC token api.scorecard.dev verifies
+      contents: read       # the checkout, and every file-reading check
       actions: read        # workflow runs, for CI-Tests and Dangerous-Workflow
       checks: read         # check runs on a commit, for CI-Tests
       issues: read         # issue activity, for Maintained
@@ -86,67 +93,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          # The flag that makes nix honour settings from flake.nix itself is deliberately absent,
-          # for the reason `security-audit.yml` states: with it, a pull request could add a
-          # substituter and a trusted key and have CI fetch attacker-built store paths whose
-          # signature verifies.
-          extra_nix_config: |
-            fallback = true
-
       - name: Scorecard
-        env:
-          # Through `env` rather than inline, so no expression is expanded into the shell.
-          GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # THE CHECK SET COMES FROM THE RECORD, not from a literal here. One list, so there is
-          # nothing to keep in step - `cargo xtask check-workflows` fails a `--checks=` literal in
-          # this file, and fails an empty record rather than running the whole suite over it.
-          checks=$(grep -v '^[[:space:]]*#' devco/scorecard-checks | grep -v '^[[:space:]]*$' | paste -sd, -)
-          if [ -z "$checks" ]; then
-            echo "::error::devco/scorecard-checks named no check - refusing to fall back to the whole suite"
-            exit 1
-          fi
-          echo "checks: $checks"
-          # `--format=default` and no `jq`: the tool's own table already carries the aggregate and
-          # every per-check score. Rendering JSON would have needed a second tool, and the only way
-          # to reach one here is through the flake REGISTRY, which resolves to whatever
-          # nixpkgs-unstable points at when the job runs - the exact unpinned resolution
-          # `flake.nix` argues against for `cosign` and `syft`. `check-guidance` refuses that
-          # spelling outright, which is how this comment used to fail its own gate.
-          nix run .#scorecard -- \
-            --repo="github.com/${TARGET_REPO}" \
-            --checks="$checks" \
-            --format=default \
-            --show-details | tee scorecard.txt
-
-      - name: Report
-        if: always()
-        run: |
-          set -euo pipefail
-          # The score belongs on the run summary page rather than only in an artifact nobody
-          # downloads. A missing file is one line here rather than a second failure: the step above
-          # already failed if the run did.
-          {
-            echo "## OpenSSF Scorecard"
-            echo
-            if [ -s scorecard.txt ]; then
-              echo '```'
-              cat scorecard.txt
-              echo '```'
-            else
-              echo "No results - the Scorecard step above did not produce any."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: scorecard.json
+          # `json` rather than `sarif`: SARIF exists to be uploaded to code scanning, and that
+          # upload cannot work here (see the permission block above). A format nobody consumes
+          # would be a step that looks like a control.
+          results_format: json
+          # THE DISCLOSURE. See the header for exactly what this sends and where, and
+          # `docs/adr/0024` for why it is on. `cargo xtask check-workflows` holds it against the
+          # badge in README.md, in both directions.
+          publish_results: true
 
       - name: Keep the results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: scorecard-${{ github.sha }}
-          path: scorecard.txt
+          path: scorecard.json
           if-no-files-found: warn
           retention-days: 90

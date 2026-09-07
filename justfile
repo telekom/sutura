@@ -611,24 +611,6 @@ attribution:
 licences:
     nix run .#reuse -- lint
 
-# The OpenSSF Scorecard, over this repository, with the check set `devco/scorecard-checks` records.
-#
-# NEEDS A TOKEN AND A NETWORK, which is why it is a task and not a nix check: every check reads
-# this repository through the GitHub API. `gh auth token` is what a developer already has;
-# `.github/workflows/scorecard.yml` uses the workflow's own `GITHUB_TOKEN`.
-#
-# The check set comes from the record rather than from a literal here, so there is one list - and
-# `cargo xtask check-workflows` refuses a literal in the workflow for the same reason. What the
-# excluded checks would have sent, and to whom, is in that record and in `docs/adr/0024`.
-scorecard:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    checks=$(grep -v '^[[:space:]]*#' devco/scorecard-checks | grep -v '^[[:space:]]*$' | paste -sd, -)
-    [ -n "$checks" ] || { echo "devco/scorecard-checks named no check" >&2; exit 1; }
-    GITHUB_AUTH_TOKEN="${GITHUB_AUTH_TOKEN:-$(gh auth token)}" \
-        nix run .#scorecard -- --repo=github.com/telekom/sutura --checks="$checks" \
-        --format=default --show-details
-
 # ------------------------------------------------------------------ tooling ---
 
 # Scan the whole worktree for secrets. The hook already covers each commit.

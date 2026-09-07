@@ -1,225 +1,238 @@
-//! What an `OpenSSF` Scorecard run may send, and to whom.
+//! A badge is a public claim, so it is held against the mechanism it claims.
 //!
-//! Scorecard measures a repository's security posture, and measuring it is not free of
-//! consequence: three of its checks answer their question by asking a service outside GitHub, and
-//! `ossf/scorecard-action` can PUBLISH the resulting score to a public `OpenSSF` endpoint. This
-//! repository is private as read on 2026-09-07 (`gh api repos/telekom/sutura` -> `private: true`),
-//! so either of those is a disclosure about a tree nobody outside has.
+//! `README.md` carries two badges that assert something about this repository to anybody who reads
+//! it, and each is served by a third party from data this repository sends. That makes them
+//! different from the shields beside them: `rust-2024` and `workflows-zizmor` assert a property of
+//! the tree, where these two report a scan. **An overstated control is itself the defect here**, so
+//! a badge whose mechanism is gone has to be a failing check rather than a discovery made by
+//! whoever believed it.
 //!
-//! **A RULE OF `check-workflows` rather than a gate of its own**, and not only for tidiness:
-//! `xtask/src/main.rs` stands at 999 lines against the 1000-line cap `max-lines` enforces and
-//! `crates/` and `xtask/` are the two prefixes that cap cannot be exempted for - so a new entry in
-//! the task table is a gate nobody can add until that file is split. It belongs here anyway. The
-//! question *what may a workflow do* is `check-workflows`', it already walks the three places CI
-//! invokes something from, and a second gate over the same walk would be a second answer.
-//!
-//! **The point of these rules is that neither can start happening through a YAML edit.** Not because
-//! publishing is wrong - it may well be what this project wants once it is public - but because it
-//! is a decision, and a decision that lives in a comment is a decision nobody made.
-//! `docs/adr/0024` is where it is written down.
+//! **A RULE OF `check-workflows` rather than a gate of its own.** Partly because
+//! `xtask/src/main.rs` stands at 999 lines against a 1000-line cap that `crates/` and `xtask/`
+//! cannot be exempted from - so a new task-table entry is not available - and mostly because the
+//! question is already this gate's: it reads `.github/**` and `flake.nix` and walks every place CI
+//! invokes something from. A second gate over the same walk would be a second answer.
 //!
 //! # What it holds
 //!
-//! * **One list.** `.github/workflows/scorecard.yml` derives its `--checks=` argument from
-//!   `devco/scorecard-checks` rather than spelling a second copy. A literal there is refused - a
-//!   second list of check names is exactly the drift this repository already has gates about.
-//! * **The record permits nothing on its own.** An unreadable or empty record FAILS, rather than
-//!   being read as "no restriction": `scorecard` with an empty `--checks` runs its whole suite,
-//!   including the three below, so a fail-open here would be the disclosure it exists to prevent.
-//! * **No check that phones home**, by name, with the endpoint beside it in [`PHONES_HOME`].
-//!   Adding one is then an edit to this file as well as to the record.
-//! * **Nothing publishes.** No workflow, composite action or CI shell may use
-//!   `ossf/scorecard-action` or set `publish_results` - the two ways a score reaches
-//!   `api.scorecard.dev`. Read over the same three places [`super::sources`] walks, so
-//!   a step that moves out of a workflow does not move out of this gate's sight.
+//! * **The Scorecard badge and the publication move together, in BOTH directions.** The badge is
+//!   served from `api.scorecard.dev` and renders nothing unless the workflow sets
+//!   `publish_results: true`; and that input sends this repository's score, every check's reason
+//!   and the commit to that public endpoint. So a badge with publication off is a dead image, and
+//!   publication with no badge is a disclosure no reader of the README can see. Either alone
+//!   fails.
+//! * **A publication is a decision somebody wrote down.** `publish_results: true` requires
+//!   `devco/scorecard-publication` to exist and to carry content. An empty or missing record fails,
+//!   because the alternative is a disclosure justified by a line of YAML.
+//! * **The REUSE badge needs a live licence check.** It may only be claimed while `flake.nix`
+//!   declares `checks.reuse` AND some file CI invokes something from actually builds it. A badge
+//!   asserting compliance while nothing measures it is the exact defect above.
+//! * **Both badges name THIS repository.** The slug comes from `REUSE.toml`'s
+//!   `SPDX-PackageDownloadLocation`, so a badge copied from another project - which would render
+//!   somebody else's score under our name - is a failure rather than a puzzle.
 //!
 //! # What it does NOT hold, and each is real
 //!
-//! * **Not that a check's behaviour matches [`PHONES_HOME`].** That mapping is the tool's, at the
-//!   version `flake.nix` pins, and this is a dated reading of its documentation rather than a
-//!   trace of a run. A check that starts querying a third party keeps passing here.
-//! * **Not that the record's names are checks the tool has.** Spelling is the tool's authority and
-//!   a misspelling is an error from `scorecard` at run time; asking the binary would need it in
-//!   the hygiene sandbox, which has no network and no Go toolchain.
-//! * **Not that the workflow RUNS.** It reports no status context on a pull request - it
-//!   deliberately does not run on one - and the only required context is `ci`. So this gate holds
-//!   what the workflow may do, and nothing holds that a falling score is ever looked at.
-//! * **Not the outbound traffic itself.** A check could reach a network endpoint this reader
-//!   cannot see. The mechanism is a name list, not a sandbox.
+//! * **Not that publishing is a good idea.** It holds that the decision is written down and
+//!   visible, never that it is right. `docs/adr/0024` is the argument.
+//! * **Not that the badge renders.** The repository is private as read on 2026-09-07, so
+//!   `api.reuse.software` cannot clone it and the REUSE badge answers `unregistered`. Nothing here
+//!   reaches a network; that is a fact about today, recorded in the ADR rather than checked.
+//! * **Not that the REUSE lint is INFORMATIVE.** It holds that the check exists and is invoked.
+//!   `REUSE.toml`'s `path = "**"` catch-all means an unheadered file PASSES that lint - measured,
+//!   and stated in `nix/reuse.nix` - so the badge is a true statement about REUSE compliance and
+//!   not a statement that the declarations are correct.
+//! * **Not that the workflow ever runs, or that anyone looks.** It reports no status context on a
+//!   pull request and the only required context is `ci`. A falling score blocks nothing.
+//! * **Not what the third party does with what it receives.** The record is a dated reading of the
+//!   action's documentation, not a trace.
 
-use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::sources;
 
-/// The record: one check per line, comments and blanks ignored.
-const RECORD: &str = "devco/scorecard-checks";
-
-/// The workflow that runs it.
+/// The workflow that runs and publishes the scan.
 const WORKFLOW: &str = ".github/workflows/scorecard.yml";
 
-/// The flake app the workflow must reach the tool through, so nix stays its only pin.
-const INVOCATION: &str = "nix run .#scorecard";
+/// The dated decision behind the publication.
+const RECORD: &str = "devco/scorecard-publication";
 
-/// Every check that answers its question by asking somebody other than GitHub, and who that is.
-///
-/// A pair rather than a bare name, because a refusal that does not say WHERE the data goes is a
-/// refusal the reader has to research before they can agree with it.
-const PHONES_HOME: &[(&str, &str)] = &[
-    (
-        "Vulnerabilities",
-        "OSV, at osv.dev - and it sends the dependency set, not only the repository name",
-    ),
-    (
-        "CII-Best-Practices",
-        "the OpenSSF Best Practices badge API, at bestpractices.dev",
-    ),
-    ("Fuzzing", "the OSS-Fuzz project list"),
-];
+/// The page the badges are on.
+const README: &str = "README.md";
 
-/// The action whose `publish_results` input sends a score to `api.scorecard.dev`.
-const ACTION: &str = "ossf/scorecard-action";
+/// Where the repository's own identity is declared, so a badge slug has one authority.
+const PACKAGE: &str = "REUSE.toml";
 
-/// That input, refused separately: the action is one way to set it and not the only one.
-const PUBLISH: &str = "publish_results";
+/// The key that declares it there.
+const DOWNLOAD_LOCATION: &str = "SPDX-PackageDownloadLocation";
 
-/// Every way this tree could disclose more than it has decided to.
+/// The action input that sends a score to `api.scorecard.dev`.
+const PUBLISH: &str = "publish_results: true";
+
+/// The badge image host and path, without the slug.
+const SCORECARD_BADGE: &str = "https://api.scorecard.dev/projects/";
+
+/// The REUSE badge image host and path, without the slug.
+const REUSE_BADGE: &str = "https://api.reuse.software/badge/";
+
+/// The flake check the REUSE badge stands on, as `flake.nix` declares it.
+const CHECK: &str = "reuse";
+
+/// And as a workflow, action or CI script has to build it.
+const REUSE_CHECK: &str = "checks.x86_64-linux.reuse";
+
+/// Every way a badge in `README.md` could be claiming more than this tree holds.
 ///
 /// A `Vec` rather than a `Verdict`, like [`super::contexts::problems`]: one gate prints one
 /// verdict, and a rule that owns its own exit code is a rule whose venue nobody can see.
 pub(super) fn problems(root: &Path) -> Vec<String> {
     let mut problems = Vec::new();
 
-    // THE RECORD, and an unreadable one is a failure rather than a smaller scan. An empty
-    // `--checks` runs the whole suite, so "could not read the list" and "the list is empty" both
-    // mean the same thing here: this gate does not know what a run will check.
-    let record = match std::fs::read_to_string(root.join(RECORD)) {
+    // THE SLUG, first, because two rules below are about naming THIS repository and a guess would
+    // make both of them nonsense. An unreadable declaration is a failure rather than a smaller
+    // scan - the shape `crate::arrow_major` draws between configuration and a fault.
+    let package = match std::fs::read_to_string(root.join(PACKAGE)) {
         Ok(text) => text,
         Err(error) => {
             problems.push(format!(
-                "could not read {RECORD}: {error} - it is the only list of what a run may check, and without it an invocation falls back to the whole suite, which reaches osv.dev, bestpractices.dev and the OSS-Fuzz project list"
+                "could not read {PACKAGE}: {error} - it is where this repository's own name is declared"
             ));
             return problems;
         }
     };
-    let checks = recorded(&record);
-    if checks.is_empty() {
+    let Some(slug) = slug(&package) else {
         problems.push(format!(
-            "{RECORD} names no check - an empty list is not a permissive one, it is a run that checks everything"
+            "{PACKAGE} declares no `{DOWNLOAD_LOCATION}` this reader can turn into an `<owner>/<repo>` slug - so whether a badge names this repository is unchecked rather than answered wrongly"
+        ));
+        return problems;
+    };
+
+    let readme = match std::fs::read_to_string(root.join(README)) {
+        Ok(text) => text,
+        Err(error) => {
+            problems.push(format!("could not read {README}: {error} - it is where the badges are"));
+            return problems;
+        }
+    };
+    let workflow = std::fs::read_to_string(root.join(WORKFLOW)).unwrap_or_default();
+
+    // Comment lines are skipped on the workflow side, so the file may EXPLAIN the input at length
+    // without the explanation counting as setting it - the distinction
+    // `workflows::collect`'s `a_comment_is_not_a_reference` draws.
+    let publishes = uncommented(&workflow).any(|line| line.contains(PUBLISH));
+    let badged = readme.contains(SCORECARD_BADGE);
+
+    // BOTH DIRECTIONS, and only one of them is obvious. A badge with publication off is a dead
+    // image; publication with no badge is a disclosure no reader of the README can see.
+    if badged && !publishes {
+        problems.push(format!(
+            "{README} shows the OpenSSF Scorecard badge and {WORKFLOW} does not set `{PUBLISH}` - the badge is served from published results, so it would render nothing while asserting a score"
         ));
     }
-    problems.extend(phoning_home(&checks));
-
-    // THE WORKFLOW. Read directly rather than through the walk below, because its absence is a
-    // finding: the record would then describe a run nothing performs.
-    match std::fs::read_to_string(root.join(WORKFLOW)) {
-        Ok(text) => problems.extend(workflow_problems(&text)),
-        Err(error) => problems.push(format!("could not read {WORKFLOW}: {error}")),
+    if publishes && !badged {
+        problems.push(format!(
+            "{WORKFLOW} sets `{PUBLISH}`, which sends this repository's score to the public api.scorecard.dev, and {README} shows no badge - the disclosure would be visible only in YAML"
+        ));
+    }
+    if badged && !readme.contains(&format!("{SCORECARD_BADGE}github.com/{slug}/badge")) {
+        problems.push(format!(
+            "the Scorecard badge in {README} does not name `{slug}` - a badge copied from another project renders somebody else's score under this name"
+        ));
     }
 
-    // PUBLISHING, over every file CI invokes something from. The SAME walk the reference scan and
-    // the context classification use, so a step that moves into a composite action or into
-    // `nix/*.sh` stays in view - that exact move has already taken five references out of one
-    // gate's sight.
+    // A DECISION SOMEBODY WROTE DOWN. Emptiness and absence are the same finding: a disclosure
+    // whose only justification is a line of YAML.
+    if publishes {
+        match std::fs::read_to_string(root.join(RECORD)) {
+            Ok(text) if text.trim().is_empty() => problems.push(format!(
+                "{RECORD} is empty and {WORKFLOW} publishes - a disclosure needs a dated reason, not a blank file"
+            )),
+            Ok(_) => {}
+            Err(error) => problems.push(format!(
+                "{WORKFLOW} publishes to api.scorecard.dev and {RECORD} could not be read: {error} - that record is where the decision and what it sends are written down"
+            )),
+        }
+    }
+
+    if readme.contains(REUSE_BADGE) {
+        problems.extend(reuse_badge_problems(root, &readme, &slug));
+    }
+
+    problems
+}
+
+/// What the REUSE badge stands on: a declared check, and a CI file that actually builds it.
+///
+/// Two reads rather than one, because a declaration nothing invokes is the failure this rule
+/// exists for - the same distinction `crate::venues` draws between a venue existing and CI
+/// reaching it.
+fn reuse_badge_problems(root: &Path, readme: &str, slug: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+
+    if !readme.contains(&format!("{REUSE_BADGE}github.com/{slug}")) {
+        problems.push(format!(
+            "the REUSE badge in {README} does not name `{slug}` - it would report another project's compliance under this name"
+        ));
+    }
+
+    // THE DECLARED CHECK SET, through this gate's own lexer rather than a substring search over
+    // the file. `flake.nix` also declares `apps.reuse`, so *does the text mention reuse* is true
+    // of a tree whose CHECK has been renamed away - which is precisely the state this rule exists
+    // to catch, and the first version of it passed over exactly that mutation.
+    let flake = std::fs::read_to_string(root.join("flake.nix")).unwrap_or_default();
+    match super::declared_block(&flake, "checks = {") {
+        Some(checks) if checks.contains(CHECK) => {}
+        Some(_) => problems.push(format!(
+            "{README} claims REUSE compliance and flake.nix's `checks` block declares no `{CHECK}` - the badge would assert a licence property nothing measures"
+        )),
+        None => problems.push(String::from(
+            "flake.nix's `checks` block does not close, so which checks exist is unread - the scan is broken rather than the tree",
+        )),
+    }
+
     match sources::ci_sources(root) {
-        Some(sources) => {
-            for source in &sources {
-                problems.extend(publishing(&source.label, &source.text));
+        Some(found) => {
+            if !found.iter().any(|source| source.text.contains(REUSE_CHECK)) {
+                problems.push(format!(
+                    "{README} claims REUSE compliance and no workflow, action or CI script builds `{REUSE_CHECK}` - a declared check nothing invokes measures nothing"
+                ));
             }
         }
         None => problems.push(String::from(
-            "the CI sources could not be walked, so nothing was read for `publish_results`",
+            "the CI sources could not be walked, so whether anything builds the reuse check is unread",
         )),
     }
 
     problems
 }
 
-/// The checks the record names: every line that is neither blank nor a comment.
-fn recorded(text: &str) -> Vec<&str> {
-    text.lines()
+/// `<owner>/<repo>`, out of `REUSE.toml`'s declared download location.
+///
+/// One authority for this repository's own name, so the two badge rules cannot disagree about
+/// which project they are checking.
+fn slug(package: &str) -> Option<String> {
+    let line = package
+        .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .collect()
-}
-
-/// One problem per recorded check that reaches a service outside GitHub.
-fn phoning_home(checks: &[&str]) -> Vec<String> {
-    let named: BTreeSet<&str> = checks.iter().copied().collect();
-    PHONES_HOME
-        .iter()
-        .filter(|(check, _)| named.contains(check))
-        .map(|(check, endpoint)| {
-            format!("{RECORD} names `{check}`, which queries {endpoint} - so a run discloses this repository to a third party")
-        })
-        .collect()
-}
-
-/// What the workflow must and must not say.
-///
-/// Comment lines are skipped for the `--checks` rule, so the file may EXPLAIN the literal it
-/// refuses without tripping over its own explanation - the same distinction
-/// `workflows::collect`'s `a_comment_is_not_a_reference` draws.
-fn workflow_problems(text: &str) -> Vec<String> {
-    let mut problems = Vec::new();
-    let code: Vec<&str> = uncommented(text).collect();
-
-    if !code.iter().any(|line| line.contains(INVOCATION)) {
-        problems.push(format!(
-            "{WORKFLOW} does not run `{INVOCATION}` - nix is the only pin for a tool whose version decides what it reports"
-        ));
+        .filter(|line| !line.starts_with('#'))
+        .find(|line| line.starts_with(DOWNLOAD_LOCATION))?;
+    let url = line.split('"').nth(1)?;
+    let rest = url.trim_end_matches('/').strip_prefix("https://github.com/")?;
+    let mut parts = rest.split('/');
+    let owner = parts.next().filter(|part| !part.is_empty())?;
+    let repo = parts.next().filter(|part| !part.is_empty())?;
+    // Exactly two segments: anything longer is a path INTO the repository rather than the
+    // repository, and a slug taken from one would name something no badge host serves.
+    if parts.next().is_some() {
+        return None;
     }
-    if !code.iter().any(|line| line.contains(RECORD)) {
-        problems.push(format!(
-            "{WORKFLOW} never reads {RECORD} - the check set has to come from the record, not from this file"
-        ));
-    }
-    // `split` rather than index arithmetic: `clippy::string_slice` refuses the latter, and it is
-    // right to - a byte offset into text this gate does not control can land mid-character.
-    for line in &code {
-        for rest in line.split("--checks=").skip(1) {
-            if !derives_from_the_record(rest) {
-                problems.push(format!(
-                    "{WORKFLOW} spells a literal check set (`--checks={}`) - it must expand the value read from {RECORD}, so there is one list rather than two",
-                    rest.split_whitespace().next().unwrap_or(rest)
-                ));
-            }
-        }
-    }
-    problems
-}
-
-/// Is this `--checks=` value the shell expansion of what the record was read into?
-///
-/// Both quoted and bare, because the workflow may legitimately write either and the rule is about
-/// where the value CAME FROM rather than about quoting.
-fn derives_from_the_record(rest: &str) -> bool {
-    rest.starts_with("\"$checks\"") || rest.starts_with("$checks") || rest.starts_with("\"${checks}\"")
-}
-
-/// One problem per way this file could send a score to `api.scorecard.dev`.
-fn publishing(label: &str, text: &str) -> Vec<String> {
-    let mut problems = Vec::new();
-    for line in uncommented(text) {
-        if line.contains(ACTION) {
-            problems.push(format!(
-                "{label} uses `{ACTION}` - it is a `using: docker` action whose image is a mutable registry tag, so a SHA in `uses:` pins the manifest and not the code, and its `{PUBLISH}` input sends the score to api.scorecard.dev"
-            ));
-        }
-        if line.contains(PUBLISH) {
-            problems.push(format!(
-                "{label} sets `{PUBLISH}` - publishing sends this repository's score, every check's reason and the commit to api.scorecard.dev, a public OpenSSF endpoint, and nothing here has decided to"
-            ));
-        }
-    }
-    problems
+    Some(format!("{owner}/{repo}"))
 }
 
 /// Every line that is not wholly a comment.
 ///
 /// Whole lines only, deliberately. Stripping from the first `#` would also cut the `# v7.0.1`
-/// that names the version behind every pinned action SHA, and this gate has no rule that a
-/// trailing comment could hide from: both needles it looks for are keys and `uses:` values.
+/// that names the version behind every pinned action SHA, and the needle here is a key.
 fn uncommented(text: &str) -> impl Iterator<Item = &str> {
     text.lines().filter(|line| !line.trim_start().starts_with('#'))
 }
@@ -229,104 +242,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_comment_or_a_blank_line_records_no_check() {
-        // The record is mostly argument, so this is the rule that keeps its prose out of the
-        // `--checks` value the workflow builds from it.
-        let checks = recorded("# why\n\n  # indented\nLicense\n  SAST  \n");
-        assert_eq!(checks, vec!["License", "SAST"]);
-    }
-
-    #[test]
-    fn a_check_that_queries_a_third_party_is_refused_by_name() {
-        let problems = phoning_home(&["License", "Vulnerabilities"]);
-        assert_eq!(problems.len(), 1);
-        assert!(
-            problems[0].contains("osv.dev"),
-            "the refusal must name the endpoint: {}",
-            problems[0]
+    fn the_slug_comes_from_the_declared_download_location() {
+        let package = concat!(
+            "# a comment naming SPDX-PackageDownloadLocation = \"https://github.com/someone/else\"\n",
+            "SPDX-PackageName = \"sutura\"\n",
+            "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
         );
+        assert_eq!(slug(package).as_deref(), Some("telekom/sutura"));
     }
 
     #[test]
-    fn every_phoning_check_is_refused_and_an_ordinary_one_is_not() {
-        // Each entry, so adding one to the constant without meaning it is visible here.
-        for (check, _) in PHONES_HOME {
-            assert_eq!(phoning_home(&[check]).len(), 1, "{check} was not refused");
+    fn a_location_this_reader_cannot_turn_into_a_slug_is_refused_rather_than_guessed() {
+        // Each of these used to produce a plausible-looking wrong answer, and a wrong slug makes
+        // both badge rules assertions about another project.
+        for location in [
+            "SPDX-PackageDownloadLocation = \"https://example.com/telekom/sutura\"",
+            "SPDX-PackageDownloadLocation = \"https://github.com/telekom\"",
+            "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura/tree/main\"",
+            "SPDX-PackageName = \"sutura\"",
+        ] {
+            assert!(slug(location).is_none(), "{location} was turned into a slug");
         }
-        assert!(phoning_home(&["Token-Permissions", "SBOM"]).is_empty());
-    }
-
-    #[test]
-    fn a_literal_check_set_in_the_workflow_is_refused() {
-        let text = concat!(
-            "jobs:\n",
-            "  score:\n",
-            "    steps:\n",
-            "      - run: |\n",
-            "          checks=$(cat devco/scorecard-checks)\n",
-            "          nix run .#scorecard -- --checks=License,SAST\n",
-        );
-        let problems = workflow_problems(text);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("literal check set"), "{}", problems[0]);
-    }
-
-    #[test]
-    fn the_expansion_of_the_record_is_accepted_quoted_or_bare() {
-        for form in ["\"$checks\"", "$checks", "\"${checks}\""] {
-            let text = format!(
-                "      - run: |\n          checks=$(cat devco/scorecard-checks)\n          nix run .#scorecard -- --checks={form} --format=default\n"
-            );
-            assert!(workflow_problems(&text).is_empty(), "{form} was refused");
-        }
-    }
-
-    #[test]
-    fn a_workflow_that_never_reads_the_record_is_refused() {
-        // The failure this rule exists for is a second list, which passes every other rule here.
-        let text = "      - run: nix run .#scorecard -- --checks=$checks\n";
-        let problems = workflow_problems(text);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("never reads"), "{}", problems[0]);
-    }
-
-    #[test]
-    fn a_workflow_that_reaches_the_tool_some_other_way_is_refused() {
-        let text = "      - run: |\n          cat devco/scorecard-checks\n          scorecard --checks=$checks\n";
-        let problems = workflow_problems(text);
-        assert!(problems.iter().any(|p| p.contains("nix run .#scorecard")), "{problems:?}");
-    }
-
-    #[test]
-    fn the_action_and_the_publish_input_are_both_refused() {
-        let action = publishing("scorecard.yml", "      - uses: ossf/scorecard-action@2d1146\n");
-        assert_eq!(action.len(), 1, "{action:?}");
-        assert!(action[0].contains("mutable registry tag"), "{}", action[0]);
-
-        let publish = publishing("scorecard.yml", "          publish_results: true\n");
-        assert_eq!(publish.len(), 1, "{publish:?}");
-        assert!(publish[0].contains("api.scorecard.dev"), "{}", publish[0]);
-    }
-
-    #[test]
-    fn explaining_the_action_in_a_comment_is_not_using_it() {
-        // The workflow's own header argues at length about why `ossf/scorecard-action` was not
-        // taken, and a gate that failed on its own explanation would be deleted rather than
-        // obeyed. The same distinction `workflows::collect` draws for `nix run .#` references.
-        let text = concat!(
-            "# WHY NOT ossf/scorecard-action: its publish_results input sends the score away.\n",
-            "  # publish_results: true would be the line\n",
-            "jobs:\n",
-        );
-        assert!(publishing("scorecard.yml", text).is_empty());
     }
 
     #[test]
     fn the_committed_tree_satisfies_every_rule_through_the_entry_point() {
-        // THROUGH `problems`, not through its helpers. The first version of this test called
-        // `recorded`, `phoning_home`, `workflow_problems` and `publishing` in turn - which
-        // re-implements the call site, so a `problems` that stopped making one of those calls
-        // would have passed it. A falsifier has to call the production entry point.
+        // THROUGH `problems`, not through its helpers: a test that re-implements the call site
+        // passes over a `problems` that stopped making one of those calls. A falsifier has to call
+        // the production entry point.
         use crate::repo;
         let root = repo::root().expect("repo root");
         let found = problems(&root);
@@ -335,62 +278,111 @@ mod tests {
 
     #[test]
     fn every_rule_is_reached_through_the_entry_point() {
-        // One scratch tree, mutated four ways, each read back through `problems`. This is what
-        // makes a dropped `problems.extend(...)` line a failing test rather than an invisible
-        // hole: neutralising any one leg leaves the corresponding assertion below unmet.
+        // One scratch tree, mutated one rule at a time, each read back through `problems`. This is
+        // what makes a dropped call a failing test rather than an invisible hole.
         let scratch = std::env::temp_dir().join(format!("sutura-scorecard-{}", std::process::id()));
         let workflows = scratch.join(".github/workflows");
         std::fs::create_dir_all(&workflows).expect("the scratch tree");
         std::fs::create_dir_all(scratch.join("devco")).expect("the devco directory");
-
-        let compliant = concat!(
-            "      - run: |\n",
-            "          checks=$(grep -v '^#' devco/scorecard-checks | paste -sd, -)\n",
-            "          nix run .#scorecard -- --checks=\"$checks\" --format=default\n",
-        );
-        let record = scratch.join(RECORD);
-        let workflow = scratch.join(WORKFLOW);
         let write = |path: &std::path::Path, text: &str| std::fs::write(path, text).expect("the scratch file");
 
-        // A tree that satisfies every rule, so each mutation below is the only difference.
-        write(&record, "# prose\nLicense\nSAST\n");
-        write(&workflow, compliant);
+        let readme_both = concat!(
+            "<img src=\"https://api.reuse.software/badge/github.com/telekom/sutura\">\n",
+            "<img src=\"https://api.scorecard.dev/projects/github.com/telekom/sutura/badge\">\n",
+        );
+        let publishing = "    with:\n      publish_results: true\n";
+
+        write(
+            &scratch.join(PACKAGE),
+            "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+        );
+        write(&scratch.join(RECORD), "# decided 2026-09-07\n");
+        write(
+            &scratch.join("flake.nix"),
+            "        checks = {\n          reuse = licensing.check;\n        };\n",
+        );
+        write(
+            &workflows.join("ci.yml"),
+            "        run: nix build .#checks.x86_64-linux.reuse -L\n",
+        );
+        write(&scratch.join(README), readme_both);
+        write(&scratch.join(WORKFLOW), publishing);
         assert!(problems(&scratch).is_empty(), "{:?}", problems(&scratch));
 
-        // 1. A check that queries a third party.
-        write(&record, "License\nFuzzing\n");
+        // 1. The badge stays and the publication stops - a dead image asserting a score.
+        write(&scratch.join(WORKFLOW), "    with:\n      publish_results: false\n");
         let found = problems(&scratch);
-        assert!(found.iter().any(|p| p.contains("OSS-Fuzz")), "{found:?}");
+        assert!(found.iter().any(|p| p.contains("would render nothing")), "{found:?}");
 
-        // 2. A record of pure prose, which would otherwise run the whole suite.
-        write(&record, "# every line a comment\n\n");
-        let found = problems(&scratch);
-        assert!(found.iter().any(|p| p.contains("names no check")), "{found:?}");
-
-        // 3. A second list of check names, spelled in the workflow.
-        write(&record, "License\n");
+        // 2. The publication stays and the badge goes - a disclosure only YAML shows.
+        write(&scratch.join(WORKFLOW), publishing);
         write(
-            &workflow,
-            "      - run: |\n          cat devco/scorecard-checks\n          nix run .#scorecard -- --checks=License,SAST\n",
+            &scratch.join(README),
+            "<img src=\"https://api.reuse.software/badge/github.com/telekom/sutura\">\n",
         );
         let found = problems(&scratch);
-        assert!(found.iter().any(|p| p.contains("literal check set")), "{found:?}");
+        assert!(found.iter().any(|p| p.contains("visible only in YAML")), "{found:?}");
 
-        // 4. `publish_results` in a DIFFERENT CI source, which is what makes the walk the rule
-        //    rather than the one file: a step that moves out of `scorecard.yml` stays in view.
-        write(&workflow, compliant);
+        // 3. A badge naming another project.
         write(
-            &workflows.join("elsewhere.yml"),
-            "jobs:\n  x:\n    steps:\n      - with:\n          publish_results: true\n",
+            &scratch.join(README),
+            "<img src=\"https://api.scorecard.dev/projects/github.com/someone/else/badge\">\n",
         );
         let found = problems(&scratch);
-        assert!(
-            found
-                .iter()
-                .any(|p| p.contains("publish_results") && p.contains("public OpenSSF endpoint")),
-            "{found:?}"
-        );
+        assert!(found.iter().any(|p| p.contains("somebody else's score")), "{found:?}");
 
+        // 4. Publishing with the decision unwritten.
+        write(&scratch.join(README), readme_both);
+        write(&scratch.join(RECORD), "   \n");
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("dated reason")), "{found:?}");
+        std::fs::remove_file(scratch.join(RECORD)).expect("the record");
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("could not be read")), "{found:?}");
+        write(&scratch.join(RECORD), "# decided 2026-09-07\n");
+
+        // 5. The REUSE badge with no check declared.
+        write(
+            &scratch.join("flake.nix"),
+            "        apps.reuse = { };\n        checks = {\n          fmt = f;\n        };\n",
+        );
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("declares no `reuse`")), "{found:?}");
+
+        // 6. The check declared and no CI file building it.
+        write(
+            &scratch.join("flake.nix"),
+            "        checks = {\n          reuse = licensing.check;\n        };\n",
+        );
+        write(
+            &workflows.join("ci.yml"),
+            "        run: echo nothing builds the licence check\n",
+        );
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("measures nothing")), "{found:?}");
+
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+    }
+
+    #[test]
+    fn explaining_the_input_in_a_comment_is_not_setting_it() {
+        // The workflow's header argues at length about what `publish_results: true` sends, and a
+        // rule that read its own explanation would make the header unwritable.
+        let scratch = std::env::temp_dir().join(format!("sutura-scorecard-cmt-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        let write = |path: &std::path::Path, text: &str| std::fs::write(path, text).expect("the scratch file");
+        write(
+            &scratch.join(PACKAGE),
+            "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+        );
+        write(&scratch.join(README), "no badges here\n");
+        write(
+            &scratch.join(WORKFLOW),
+            "# publish_results: true is what a badge would need\n  # publish_results: true\n",
+        );
+        // No badge and no publication: the two agree, so the pair of rules is silent.
+        assert!(problems(&scratch).is_empty(), "{:?}", problems(&scratch));
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
 }

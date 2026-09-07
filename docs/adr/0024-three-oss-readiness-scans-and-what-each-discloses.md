@@ -1,13 +1,14 @@
 ---
 title: Three OSS-readiness scans, and what each discloses
-description: Why REUSE compliance is already held by a nix-pinned lint inside the one required CI context and what its catch-all cannot catch, why ORT is declined and which gap that leaves open, and why OpenSSF Scorecard runs as the nix-pinned CLI rather than as the official action - including exactly what publishing a score would send, to whom, and what turning it on costs.
+description: Why REUSE compliance is already held by a nix-pinned lint inside the one required CI context and what its catch-all cannot catch, why ORT is declined and which gap that leaves open, why OpenSSF Scorecard runs as the official action even though that costs this repository its nix pin, exactly what publishing a score sends and to whom, and why two README badges are held against the mechanisms they claim.
 ---
 
 # Three OSS-readiness scans, and what each discloses
 
 Status: **accepted.** REUSE was already built and is unchanged by this record. ORT is **declined**,
-with the gap stated. Scorecard is **built** as `apps.scorecard` plus
-`.github/workflows/scorecard.yml`, publishing nothing, held by `cargo xtask check-workflows`.
+with the gap stated. Scorecard is **built** as `.github/workflows/scorecard.yml`, using the
+official action and **publishing its results**, with two README badges held against the mechanisms
+they claim by `cargo xtask check-workflows`.
 
 Three tools were asked for, either as their official GitHub Action or through a native
 integration. The answers differ, and the reason they differ is the same in each case: **a scan is
@@ -56,6 +57,20 @@ requires, alongside a check that already runs in the one venue that does. For th
 version considered was `v6.0.0`, commit `676e2d560c9a403aa252096d99fcab3e1132b0f5`; the pinned
 nixpkgs supplies `reuse` 6.2.0.
 
+**The badge, and what makes it honest.** `README.md` now carries the REUSE badge from
+`api.reuse.software`. It is a true statement of REUSE *compliance* - every file's licence is
+declared - and it is **not** a statement that the declarations are correct, which is exactly the
+middle row of the table above. Because a badge is a public claim and this repository treats an
+overstated control as itself the defect, `cargo xtask check-workflows` holds it against a live
+mechanism: the badge may only be claimed while `flake.nix` declares the check **and** some file CI
+invokes something from actually builds it. A declaration nothing invokes measures nothing.
+
+Measured on 2026-09-07: `https://api.reuse.software/badge/github.com/telekom/sutura` answers HTTP
+200 and renders the word `unregistered`, because api.reuse.software clones the repository to check
+it and this one is private. `.../info/github.com/telekom/sutura` answers HTTP 404 for the same
+reason. Both become real when the repository is made public; the badge is added now rather than
+gated behind that flip.
+
 ## ORT: declined, and here is the gap that remains
 
 Declined. Not because licence compliance is uninteresting - it is most of what this repository
@@ -100,79 +115,81 @@ of dependency sources, and no licence mechanism at all for `pixi.lock`.* Reconsi
 becomes the constraint - a copyleft finding in a dependency's source, or a Python package that
 ships in something rather than only building the docs.
 
-## Scorecard: the CLI, not the action
+## Scorecard: the official action, publishing, and what that costs
 
-Built. `apps.scorecard` exposes the nixpkgs-pinned binary (5.5.0 at the pinned revision) and
-`.github/workflows/scorecard.yml` runs it weekly, on a push to `main`, on a
-`branch_protection_rule` change, and on request.
+Built. `.github/workflows/scorecard.yml` runs `ossf/scorecard-action` weekly, on a push to `main`,
+on a `branch_protection_rule` change, and on request - with `publish_results: true`.
 
-### Why not `ossf/scorecard-action`
+### The publication is the decision, and it was made deliberately
 
-Three reasons, and the first is the one that decides it:
+**`publish_results: true` sends this repository's aggregate score, every check's score and reason
+text, the repository name and the scored commit to `https://api.scorecard.dev`** - a public
+endpoint, authenticated by a short-lived OIDC token whose subject names this repository and ref.
+From there the score reaches the public OpenSSF dataset and the badge.
 
-1. **Pinning it does not pin it.** The action's own `action.yaml`, read at commit
-   `2d1146689b8cda280b9bc96326124645441f03bc` (tag `v2.4.4`) on 2026-09-07, is
-   `using: docker` with `image: docker://ghcr.io/ossf/scorecard-action:v2.4.4`. A commit SHA in
-   `uses:` pins that three-line manifest; the code that runs comes from a **mutable registry
-   tag**, and there is no way to write the digest from the calling side. Every third-party
-   reference in this repository is a commit SHA precisely so this cannot happen.
-2. **nix is the only pin for a tool whose version changes what it reports.** That is this
-   repository's rule and `cargo xtask check-pins` holds it. Scorecard reports findings, so it
-   belongs beside `zizmor`, `actionlint`, `betterleaks` and `cargo-deny`.
-3. **A registry hostname must stay reachable.** A network behind a registry mirror has no route to
-   `ghcr.io`, and an unprefixed image reference does not fall back - it fails. Every image this
-   repository reaches goes through `SUTURA_IMAGE_REGISTRY`; an image named inside a third-party
-   action cannot.
+**It is on because the badge was asked for, and the badge does not render without it.** The
+action's own documentation names `publish_results: true` and `id-token: write` as the two
+prerequisites. So this is not a default and it is not presented as one: it is a disclosure chosen
+in exchange for a public claim somebody wanted. `devco/scorecard-publication` is the dated record,
+and `cargo xtask check-workflows` fails if that record is missing or empty while the input is true.
 
-### The publish decision, left explicit
+**Reverting is one line.** Set the input `false`; the gate then fails until the badge is removed
+from `README.md`, which is the point of holding the two together - a badge served from published
+results is a dead image the moment publication stops, and it would go on asserting a score.
 
-**Nothing here publishes, and this section is the choice rather than the answer.**
+**What a run sends even without publishing, because the two are separate and only one is
+optional.** The action runs every check it has and takes no check-set argument, so three outbound
+queries are part of what running it costs: `Vulnerabilities` to OSV at `osv.dev` (with the
+dependency set, not only the name), `CII-Best-Practices` to `bestpractices.dev`, and `Fuzzing` to
+the OSS-Fuzz project list. The first duplicates `nix run .#deny` against RustSec, which already
+runs inside the required `ci` job.
 
-`publish_results` is an input of the **action**, defaulting to `false` (read from its `action.yaml`
-at the commit above). Setting it true makes the action mint an OIDC token whose subject names this
-repository and POST the score to `https://api.scorecard.dev` - the action's own
-`internal_publish_base_url` default. That endpoint is public: the score, the per-check results and
-the repository name become readable by anyone, and a badge becomes available.
+**The state of the repository when this was decided:** private, and `advanced_security` disabled,
+both read from `gh api repos/telekom/sutura` on 2026-09-07. So today the publication has little to
+disclose and the badge shows little; both become real when the repository is public.
 
-**On the CLI route there is no publish path at all.** That is why it is the default here:
-*unrepresentable rather than checked*, which is the same trade `nix/auditable.nix` makes for the
-embedded dependency list. `cargo xtask check-workflows` refuses `ossf/scorecard-action` and
-`publish_results` across every workflow, composite action and CI shell script, so publishing cannot
-begin as a YAML edit.
+### The action, and the pin this costs
 
-**What turning it on would take, and what it would disclose**, so the decision is reversible by
-someone who has not read this file:
+This repository's rule is that **nix is the only pin for a tool whose version decides what it
+reports**, held by `cargo xtask check-pins`. Scorecard reports findings, `pkgs.scorecard` exists in
+the pinned nixpkgs at 5.5.0, and the first version of this change used it. **The badge overrides
+that**, because the CLI cannot publish - publication is the action's own step - and a second,
+nix-pinned local copy of the same tool would be two pins for one verdict, which is the defect the
+rule exists to prevent. So the CLI route was dropped rather than kept alongside.
 
-| Setting | What it sends | To whom |
-| --- | --- | --- |
-| CLI, as built | nothing outbound beyond the GitHub API calls the checks make | GitHub only |
-| `publish_results: true` on the action | aggregate score, every check's score and reason, repository name, commit | `api.scorecard.dev`, and from there the public OpenSSF dataset and badge |
-| `results_format: sarif` + `github/codeql-action/upload-sarif` | the findings as code-scanning alerts | this repository's security tab |
+Two costs follow, and neither is hidden:
 
-The middle row also needs `id-token: write`. The third needs `security-events: write` **and**
-GitHub Advanced Security, which is **disabled** on this repository as read on 2026-09-07 - so that
-upload would fail rather than be quietly ignored. Read the same day:
-`gh api repos/telekom/sutura` answers `private: true`, which is the other half of why neither is on:
-a public score for a tree nobody outside can see is a disclosure without a corresponding benefit.
+1. **The SHA does not pin the code.** `ossf/scorecard-action`'s `action.yaml`, read at commit
+   `2d1146689b8cda280b9bc96326124645441f03bc` (tag `v2.4.4`) on 2026-09-07, is `using: docker` with
+   `image: docker://ghcr.io/ossf/scorecard-action:v2.4.4`. The commit SHA in `uses:` pins that
+   manifest; what executes comes from a **mutable registry tag**, and there is no way to write the
+   digest from the calling side. Every other third-party reference here is a commit SHA precisely
+   so this cannot happen, and this one is the exception.
+2. **The image comes from `ghcr.io`.** A network behind a registry mirror has no route to it, and
+   an unprefixed image reference does not fall back - it fails. Every image this repository reaches
+   itself goes through `SUTURA_IMAGE_REGISTRY`; one named inside a third-party action cannot.
 
-Switching is a deliberate change to `xtask/src/scorecard.rs` as well as to the workflow, and
-`AGENTS.md` is explicit that changing a mechanism is an architecture decision. That is the intent -
-not to make publishing hard, but to make it visible.
+### The permissions, enumerated
 
-### What the run does, and what it may check
+`permissions: {}` at the workflow level; the job declares six, of which exactly one is a write:
 
-The check set comes from `devco/scorecard-checks`, one list, read by the workflow at run time -
-`cargo xtask check-workflows` refuses a `--checks=` literal, because a second list of check names
-is drift this repository already has gates about. Three checks are **excluded and refused by
-name**, because they answer their question by asking somebody other than GitHub:
-`Vulnerabilities` (OSV, at `osv.dev`, and it sends the dependency set), `CII-Best-Practices` (the
-badge API at `bestpractices.dev`) and `Fuzzing` (the OSS-Fuzz project list). Two of the three
-would score zero for a reason already known - there is no badge and the project is not registered
-with OSS-Fuzz - and the third duplicates a required gate.
+| Permission | Why |
+| --- | --- |
+| `id-token: write` | the publication's authentication - a short-lived OIDC token whose subject names this repository and ref, which `api.scorecard.dev` verifies. It grants nothing else and exposes no secret |
+| `contents: read` | the checkout, and every file-reading check |
+| `actions: read` | workflow runs, for `CI-Tests` and `Dangerous-Workflow` |
+| `checks: read` | check runs on a commit, for `CI-Tests` |
+| `issues: read` | issue activity, for `Maintained` |
+| `pull-requests: read` | review history, for `Code-Review` |
 
-The permission set is every-read-and-nothing-else: `contents`, `actions`, `checks`, `issues` and
-`pull-requests`, each named in the workflow with the check it serves. No write, no `id-token`, no
-`security-events`. The results land as a workflow artifact and on the run summary page.
+The four reads below `contents` are the ones the action's documentation asks for on a private
+repository; without them those checks answer about the token rather than about the repository.
+
+**`security-events: write` is deliberately absent.** It would let the run upload SARIF to code
+scanning, and code scanning on a private repository needs GitHub Advanced Security, which is
+disabled here as read on 2026-09-07 - so the upload would fail rather than be ignored, and the
+permission would be granted for nothing. `results_format` is `json` for the same reason: SARIF
+exists to be uploaded, and a format nobody consumes is a step that looks like a control.
 
 ### What is not held, and it is most of the value question
 
@@ -180,12 +197,16 @@ The permission set is every-read-and-nothing-else: `contents`, `actions`, `check
   deliberately does not run on one - the checks read what is on the default branch, so scoring a
   pull-request head would score a tree that is not the project. The only required context is `ci`.
   **A falling score blocks nothing**, and nothing here holds that anyone looks at it.
-* **`check-workflows` does not verify the tool's behaviour.** The mapping from a check name to the
-  services it queries is a dated reading of the tool's documentation at the pinned version, not a
-  trace of a run. A check that starts querying a third party keeps passing.
-* **Several checks cannot answer on this repository.** `Branch-Protection` needs an admin token for
-  most of its detail and the workflow's token is not one; `Webhooks` needs admin outright. Their
-  scores are a statement about the token, not about the repository.
-* **A low score is not a finding.** Scorecard measures signals a scanner can see. Several of them -
-  a badge, OSS-Fuzz registration, a public security policy - are about being a public project, and
-  this one is not yet.
+* **It has never run.** The action is a container action and every job in this repository runs on
+  the self-hosted `rust-mcp` label; whether that runner can execute a docker container action is
+  **unverified** - it cannot be established from a developer machine. The first run on `main` is
+  what will say.
+* **Several checks cannot answer here.** `Branch-Protection` needs an admin token for most of its
+  detail and the workflow's token is not one; `Webhooks` needs admin outright. Their scores are a
+  statement about the token, not about the repository.
+* **A low score is not a finding.** Several signals Scorecard measures - a badge, OSS-Fuzz
+  registration, a public security policy - are about being a public project, and this one is not
+  yet.
+* **The gate does not check the third party.** `devco/scorecard-publication` is a dated reading of
+  the action's documentation. What `api.scorecard.dev` does with what it receives is outside
+  anything in this tree.

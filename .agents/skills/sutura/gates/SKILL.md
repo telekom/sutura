@@ -93,6 +93,21 @@ adding a pin anywhere.
 `check-pins` fails if a tool appears in both nix and pixi. `nix` is the only pin for a tool whose
 version changes what it reports.
 
+**Adding a NEW gate needs a spare line in `xtask/src/main.rs`, and there may not be one.** That file
+holds the task table, and on 2026-09-07 it stood at **999 of the 1000-line cap** `max-lines`
+enforces - a cap `crates/` and `xtask/` cannot be exempted from, because `UNEXEMPTABLE_PREFIXES` is
+exactly those two. A module declaration plus a `Task { .. }` entry is seven lines at its shortest,
+so *add a gate* silently means *split `main.rs` first*. Two ways out, and the second is usually
+better: split the table, or add the rule to an existing gate that already reads the same inputs -
+a submodule under `xtask/src/<gate>/` costs `main.rs` nothing, and a second gate over the same walk
+would be a second answer anyway. `check-workflows`' badge rules landed that way.
+
+**And when a new gate reads `flake.nix` for a name, LEX it - do not search the text.** `flake.nix`
+declares `apps.<name>` and `checks.<name>` for overlapping sets of names, so *does the file mention
+`reuse`* is true of a tree whose CHECK has been renamed away. Measured: that exact substring rule
+passed the mutation it existed to catch, and `workflows::declared_block` - which already lexes the
+block - refuses it. Same family as the brace-counting and fence-scanning defects further down.
+
 ## Never hand-write the cargo line
 
 `just lint` and `just test` ARE the gates' invocations. A hand-written line diverges twice, and
