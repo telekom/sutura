@@ -78,6 +78,7 @@ map" send a reader to three different places.
 - `NotADate` - A day number came back that is not a date this build can represent.
 - `Shape`
 - `SchemaMismatch` - The result schema is not the one the plan's labels describe.
+- `KeyCounts` - A key probe's result was not the pair of counts its aggregate projects.
 - `MissingParam` - A predicate named a parameter index the plan does not have.
 - `NoPredicate` - A plan with no predicate at all.
 - `LegWithoutCombiner` - One leg of a federated answer, which this adapter has nothing to assemble above.

@@ -40,6 +40,7 @@ Why this data system could not answer.
 - `NotFinite` - A floating-point (or `NUMERIC`) column came back as a value that is not a number.
 - `NotADate` - A day came back that is not a date this build can represent.
 - `Shape`
+- `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
 - `Render`
 - `Fixture` - A fixture import failed.
 - `FixtureRead`

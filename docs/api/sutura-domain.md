@@ -4085,6 +4085,8 @@ Why a bundle is not validated.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
 - `UnknownMetricChecked`
+- `DeclaredKeyNotUnique` - A declared join key the data contradicts.
+- `DeclaredKeyNotCounted` - A declared join key no data system would count.
 
 #### Implements
 
@@ -7427,3 +7429,434 @@ This compares the SHAPE and not the labels, so two results of one width whose co
 differently are compared position by position here and reported as a
 `ContentDisagreement::Columns` there. And a caller reaching only for this one gets no
 multiplicity check, because a positional comparison of equal-height results cannot express one.
+
+### Module `cardinality`
+
+Whether a declared join key is really unique in the table it points at.
+
+A module of its own for `preflight`'s reason - nothing in it is about a plan, a credential or
+a row - and its header carries the measurement that made the check necessary: one violated
+`many_to_one`, two topologies, two numbers, and a refusal from neither.
+What a data system answered when it was asked whether a declared join key is really unique.
+
+# The defect this vocabulary exists for
+
+A relationship declares `many_to_one`, and the whole query path spends that declaration: the
+whole-answer path renders a `JOIN` on the strength of *a dimension row cannot duplicate a fact
+row*, and a federated lookup leg renders `GROUP BY` over the columns it projects on the strength
+of the same sentence. **Neither of them checks it, and the two spend it differently.** Measured
+over the derived corpus in `crates/sutura-app/tests/differential/federated.rs`, with one extra
+row for a customer key the dimension table already had:
+
+| Topology | June 2026, `recurring_revenue`, business only, north |
+| --- | --- |
+| one data system | `29138` - the `JOIN` matched twice and the measure was added twice |
+| two data systems | `22765` - the lookup leg's `GROUP BY` collapsed the pair first |
+
+`29138 - 22765` is that one customer's June revenue, counted a second time. **Neither answer was
+refused**, and which one a deployment gets depends on where the dimension model sits rather than
+on the question. `FederatedFailure::AmbiguousLink`
+covers half the shape and only on the federated side: it fires when the duplicate rows DISAGREE
+in a column the question projects, and the `GROUP BY` has already removed them when they agree.
+
+# Why the check is here rather than on the answer path
+
+A duplicate is invisible inside one answer's statement. What the declaration claims is a property
+of the **target table**, not of any one question, so the place it can be contradicted is the same
+place an anchor is: once, at boot, against the data system that holds the table. Refusing there
+makes both topologies agree - a bundle whose declaration the data contradicts is not validated,
+so neither of them serves - and the refusal names the model, the table and the column, which no
+answer-path guard could.
+
+# What the probe carries back, and what it deliberately does not
+
+Two counts: how many non-null values of the key column the table holds, and how many of them are
+distinct. **No key value ever leaves the data system**, which is why the counts are the shape:
+a boot refusal is written to an operator's log, and a duplicated dimension key printed there is
+source data copied into a sink nobody scoped for it. The counts locate the table; the operator
+queries it.
+
+Nulls are excluded from both counts, and that is a correctness decision rather than a
+convenience: a null key matches nothing on either side of any join, so two null target rows
+duplicate no fact row. Counting them would report a violation that cannot change an answer.
+
+**The links here are `crate::`-prefixed** for the reason `preflight`'s header
+gives: the API reference pages are generated from these comments verbatim.
+
+#### `struct DeclaredKey`
+
+```rust
+pub struct DeclaredKey<'a>
+```
+
+One declared join key, resolved to the table and column a data system can be asked about.
+
+**A newtype that parses, and what it parses away is asking the wrong question.** It is
+constructible only from a `Relationship` whose `JoinType` promises that the TARGET column is
+unique, resolved against the `Definitions` that carry the target model - so a probe over a
+`one_to_many` target, or over a column the model does not declare, is unrepresentable rather than
+refused later. An adapter that holds one of these knows the question is worth asking.
+
+It borrows, because every part of it is already owned by the pinned bundle the boot path is
+holding, and a probe outlives nothing.
+
+##### Methods
+
+```rust
+pub const fn column(&self) -> &'a ColumnName
+```
+
+The column whose values are meant to be distinct.
+
+```rust
+pub const fn model(&self) -> &'a ModelName
+```
+
+The model the operator opens to fix it.
+
+```rust
+pub fn promised_by(relationship: &'a Relationship, definitions: &'a Definitions) -> Result<Self, NoDeclaredKey>
+```
+
+The key one relationship promises is unique, or why it promises none.
+
+**The whole of the join-type decision is here**, so no adapter and no boot path repeats it:
+`JoinType::may_duplicate_rows` is the one question, and both `one_to_one` and `many_to_one`
+answer it the same way - each of them says the target column identifies at most one row.
+`one_to_one` promises the origin column does too, and **this does not check that half**; see
+the module header's limits.
+
+```rust
+pub const fn relationship(&self) -> &'a RelationshipName
+```
+
+The relationship whose declaration this probe would contradict.
+
+```rust
+pub const fn source(&self) -> &'a SourceName
+```
+
+The data system that holds the table, which is the adapter this is asked of.
+
+```rust
+pub const fn table(&self) -> &'a QualifiedTable
+```
+
+The table to count over.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum NoDeclaredKey`
+
+```rust
+pub enum NoDeclaredKey
+```
+
+Why a declared relationship yields no key to probe.
+
+Typed, one variant per branch, because two of the three are *nothing to ask* and one is a bundle
+that would not have loaded - and a caller that collapsed them would report a consistent catalog
+as an unchecked one.
+
+##### Variants
+
+- `MayDuplicateRows` - The join type promises nothing about the target column.
+- `ModelUndefined` - The target model is not in these definitions.
+- `ColumnNotOnModel` - The target model does not declare the column the relationship joins on. Unreachable for `ModelUndefined`'s reason, and reported for it.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct KeyCounts`
+
+```rust
+pub struct KeyCounts
+```
+
+How many non-null key values a table holds, and how many of them are distinct.
+
+**Parsed rather than validated:** neither `distinct > rows` nor rows-with-no-distinct-value is
+producible by one column of one table, so a pair in either shape is a defect in an adapter's
+mapping and not a fact about data. The field pair is private and `parse` is
+the only way in, which is what makes the subtraction in
+`duplicated` safe: `rows >= distinct` holds for every constructible
+value. It is written `saturating_sub` anyway, and the reason is the sink rather than the
+arithmetic - this number is rendered into a boot refusal an operator reads, and a panic reachable
+from a catalog-driven path is the one outcome worse than a wrong figure.
+
+##### Methods
+
+```rust
+pub const fn distinct(&self) -> u64
+```
+
+How many of them are distinct.
+
+```rust
+pub const fn duplicated(&self) -> u64
+```
+
+How many rows are surplus to the keys they carry.
+
+Not *how many keys are duplicated* - one key on three rows contributes two - and the
+difference is worth the sentence, because this number goes into a refusal an operator reads.
+
+```rust
+pub const fn is_unique(&self) -> bool
+```
+
+Does the data hold the declaration up?
+
+```rust
+pub const fn parse(rows: u64, distinct: u64) -> Result<Self, ImpossibleCounts>
+```
+
+Parses the pair a data system answered with.
+
+**Both impossible pairs, not one.** `distinct > rows` is the obvious half; `rows > 0` with no
+distinct value is the half this originally accepted, and accepting it is what let a refusal
+describe a table that cannot exist. An empty column - `0` over `0` - is neither, and is a
+perfectly ordinary answer for a dimension table whose key column is entirely null.
+
+```rust
+pub const fn rows(&self) -> u64
+```
+
+How many non-null key values the table holds.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum ImpossibleCounts`
+
+```rust
+pub enum ImpossibleCounts
+```
+
+Why two counts are not a `KeyCounts`.
+
+**Two variants, because there are two impossible pairs and only one of them was refused at
+first.** Both are arithmetic about one column of one table rather than anything about data, so
+both mean a broken adapter mapping; and a pair that reached `KeyNotUnique` would print a table
+that cannot exist into an operator's log.
+
+##### Variants
+
+- `MoreDistinctThanRows` - More distinct values than values. One column of one table cannot produce this.
+- `NoDistinctValue` - Values, and none of them distinct. A non-empty column has at least one distinct value, so this is exactly as impossible as the pair above and was exactly as constructible: `parse(41, 0)` answered `Ok`, and the `KeyNotUnique` it licensed described a table with forty-one rows under no key at all. Review found it; *newtypes that parse* is the rule it broke.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct KeyNotUnique`
+
+```rust
+pub struct KeyNotUnique
+```
+
+A declared key the data contradicts, and the whole of what a refusal about one says.
+
+**Constructible only from counts that are NOT unique**, so a refusal describing a table that
+holds its declaration up is unrepresentable rather than a branch a caller could take by mistake.
+`found` is the only way in and it returns `None` for the clean case.
+
+**A struct rather than six fields on a `NotValidated` variant**, and boxed there:
+`result_large_err` is deliberately left on in this workspace - *a service whose public surface is
+`ToolOutcome::Refusal` wants to know when the error half of every `Result` grows* - and six
+parsed names inline made that `Result` the widest thing the boot path returns.
+
+**It carries no key value**, which is the module header's decision: this is rendered into an
+operator's log, and a duplicated dimension key printed there is source data copied into a sink
+nobody scoped for it. The counts locate the table; the operator queries it.
+
+##### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+The column that was meant to identify at most one row.
+
+```rust
+pub const fn counts(&self) -> KeyCounts
+```
+
+What the data system counted.
+
+```rust
+pub fn found(key: &DeclaredKey<'_>, counts: KeyCounts) -> Option<Self>
+```
+
+The violation these counts show, or `None` where they hold the declaration up.
+
+```rust
+pub const fn model(&self) -> &ModelName
+```
+
+The model an operator opens to fix the declaration.
+
+```rust
+pub const fn relationship(&self) -> &RelationshipName
+```
+
+The relationship whose declaration the data contradicts.
+
+```rust
+pub const fn table(&self) -> &QualifiedTable
+```
+
+The table an operator queries to find the duplicates.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `struct KeyNotCounted`
+
+```rust
+pub struct KeyNotCounted
+```
+
+A declared key no data system would count, and the whole of what a refusal about one says.
+
+**The adapter's own error, flattened at the one boundary where it is still typed.** `W::Error` is
+a generic parameter and this crate must not hold one, so the message and its cause chain arrive
+as text - the same lossless-at-that-boundary move
+`NotExecutedReason::Failed` makes for an anchor's
+adapter error, and for its reason. The chain is what carries the data system's own complaint, and
+a permission failure names the grant in it.
+
+**There is deliberately no *refused* / *unreachable* split here**, and that is a measurement
+rather than a shortcut: the port's one predicate for that question,
+`Warehouse::preflight_was_refused`, is
+overridden by exactly one adapter, and that adapter takes this method's default - so a typed
+split would be a control that cannot fire on any adapter that counts. What is done instead is to
+refuse in BOTH cases and print the cause, which is loud for either and honest about neither being
+told apart. Splitting them wants that predicate implemented by an adapter that can tell a `403`
+from a timeout, and that is a slice of its own.
+
+##### Methods
+
+```rust
+pub const fn model(&self) -> &ModelName
+```
+
+The model whose table could not be counted.
+
+```rust
+pub fn of(key: &DeclaredKey<'_>, message: String, chain: Vec<String>) -> Self
+```
+
+The failure one probe met, from the key it was asked about and the adapter's flattened error.
+
+```rust
+pub const fn relationship(&self) -> &RelationshipName
+```
+
+The relationship whose declaration went unchecked.
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+The data system that would not answer, which is where an operator looks.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `enum CountsNotRead`
+
+```rust
+pub enum CountsNotRead
+```
+
+Why a probe's result set is not a pair of counts.
+
+Every variant is a defect in an adapter or in the rendering, never anything about the data: the
+probe projects exactly two aggregates over one table and no group, so one row of two integers is
+the only shape it can have. Typed rather than one message so that whoever reads a boot log knows
+which half of the mapping is wrong.
+
+##### Variants
+
+- `NoColumn` - The result carries no column under the label the probe projects.
+- `NotOneRow` - Two aggregates over no group produce one row.
+- `NotACount` - A count came back as something other than an integer.
+- `NegativeCount` - A count came back negative, which no `COUNT` produces.
+- `Impossible` - The pair is arithmetically impossible.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Error`, `PartialEq`
+
+#### `enum KeyUniqueness`
+
+```rust
+pub enum KeyUniqueness
+```
+
+What a data system said about a declared key.
+
+**`Self::NotAsked` is not `Self::Counted` with a clean pair, and no caller can read it as
+one.** It is `TablesPresent::NotAsked`'s argument
+applied to a second boot question: the port's default has to be *nothing to report*, because an
+adapter with no cheap way to count must not be forced to answer, and the only answers available
+to one that cannot look are nothing-to-report and a lie. A default claiming uniqueness would be
+that lie, told at boot, about the one declaration the whole join path spends.
+
+**The third outcome is an `Err` from the port rather than a variant here**, for the reason
+`TablesPresent` gives: *could not count* and *the data
+contradicts the declaration* must not collapse into one message, and the adapter's own error type
+is where the reason lives in the detail an operator needs.
+
+##### Variants
+
+- `NotAsked` - The adapter did not count. The port's default.
+- `Counted` - The adapter counted, and this is what it found.
+
+##### Methods
+
+```rust
+pub fn read(rows: &RowSet) -> Result<Self, CountsNotRead>
+```
+
+Reads the two counts off a probe's result set.
+
+**One function, in the domain, called by every SQL adapter and by the engine**, so the three
+implementations of the port cannot disagree about which column is which - the same argument
+`labels` makes for the federated legs. It takes a `RowSet` because
+that is what every adapter already produces; nothing here knows what a statement is.
+
+```rust
+pub const fn was_asked(&self) -> bool
+```
+
+Whether the adapter looked at all.
+
+Read where a caller has to tell *nobody counted* from *counted and clean*, which is the whole
+reason the two are different values.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `constant ROWS_LABEL`
+
+The label the row count is projected under.
+
+**A leading digit, which is the same namespace trick
+`InternalLabel` is built on and for the same reason:**
+`crate::model`'s identifier parser refuses a leading digit as a first character, so no
+`ColumnName` a catalog can declare collides with it. Here that matters less than it does for a
+leg - the probe projects nothing but these two - but the two labels are read back by label rather
+than by position, and a label that no column can shadow is what makes reading by label safe.
+
+#### `constant DISTINCT_LABEL`
+
+The label the distinct count is projected under. See `ROWS_LABEL`.

@@ -85,7 +85,7 @@ fn catalog_root() -> PathBuf {
     example_root().join("catalog")
 }
 
-fn data_root() -> PathBuf {
+pub(crate) fn data_root() -> PathBuf {
     example_root().join("data")
 }
 

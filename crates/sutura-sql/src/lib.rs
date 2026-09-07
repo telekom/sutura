@@ -61,7 +61,7 @@ pub mod generate;
 pub use crate::dialect::{Dialect, PlaceholderStyle};
 pub use crate::expression::refusal::{Construct, ExpressionError};
 pub use crate::expression::{CompiledExpression, Rendering, compile};
-pub use crate::generate::{GenerateError, generate, generate_leg};
+pub use crate::generate::{GenerateError, generate, generate_key_probe, generate_leg};
 
 /// A statement, its parameters, and the one data system it runs against.
 ///
