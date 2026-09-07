@@ -63,23 +63,48 @@ pub(crate) struct Census {
     unreachable: Vec<String>,
 }
 
-/// Which subjects a gate's rule is about, decided from the path alone.
+/// Which subjects a gate's rule is about, decided from the path.
 ///
 /// **A bare `fn` pointer rather than a closure, and that is a mechanism rather than a style
 /// choice.** A non-capturing function has nowhere to keep a counter, so the ordinal narrowing
 /// measured on `github.com/telekom/sutura#419` - `let mut seen = 0; if seen > 60 { out of scope }`,
 /// three lines in the caller's closure, `1 of 1170 subject(s) judged` at exit 0 - does not compile
-/// here: `error[E0308]: expected fn pointer, found closure`. It also cannot see CONTENT and cannot
-/// see the read's outcome, so **a scope decision can never be a disguised read failure**, which is
-/// what the classification enum this replaced could not tell apart.
+/// here: `error[E0308]: expected fn pointer, found closure`. It is not HANDED the content and is
+/// not told the read's outcome, so it cannot be *written* as a reaction to a failed read the way
+/// the classification enum this replaced could.
 ///
-/// **The residue, stated next to the claim.** A `fn` may still touch a `static`, so an ordinal
-/// narrowing is writable as a declared global counter; and a scope predicate that simply excludes
-/// most of the tree is still writable and still legal - narrowing `check-expect-thresholds` to
-/// `xtask/` alone leaves `128 of 1177` at exit 0 with 257 files unjudged, because the anchor is
-/// inside the narrowed scope. Neither is closed here. What closes the second is a `must_judge` set
-/// DERIVED from `[workspace] members` rather than declared, which is a later PR in that issue's
-/// stack.
+/// **What it does NOT prevent, because the sentence here once claimed otherwise and the measurement
+/// refutes it.** A `Scope` is a safe `fn`, and Rust has no effect system, so **nothing in this type
+/// can forbid it opening the file itself** - and that fail-open is real, not hypothetical. Measured
+/// at the production call site with `&& File::open(root.join(rel)).is_ok()` added to
+/// `check-expect-thresholds`' predicate and `chmod 000` on one tracked `.rs`: `384 of 1177
+/// subject(s) judged, 793 out of scope` at **exit 0**, where the unmutated gate refuses at exit 1
+/// naming the file. **The type is doing everything a type can do here; what holds the rest is this
+/// paragraph and the diff a reviewer reads**, because a `Scope` is a named, greppable, top-level
+/// `fn` and an IO call inside one is conspicuous.
+///
+/// **Which of the five printed numbers such a `Scope` can move, measured rather than assumed** -
+/// it matters, because "the numbers move" was published here as the defence and only part of it is
+/// true:
+///
+/// | attempt | result |
+/// | --- | --- |
+/// | inflate `out_of_scope` to hide a subject | **works**, and it is the shape above |
+/// | discharge an anchor it never read | **cannot.** `outstanding.retain` is on the READ path, so a
+///   subject the census did not open cannot satisfy `must_judge` whatever a `Scope` does. That is a
+///   STRUCTURAL bound rather than a count, and it is the strongest thing here |
+/// | inflate `read_bytes` | **cannot.** It is summed from the reads themselves, so a `Scope` can
+///   only make it smaller, or unrepresentative of the subject - never larger |
+/// | rename the subject from inside the `Scope` | routes it to `absent`, with `out_of_scope`
+///   **byte-identical** to the control - so `absent` is the tell, not `out_of_scope` |
+/// | rewrite the subject to the same LENGTH | moves **none of the five**. The byte count is a
+///   witness of what was read, never of what was true |
+///
+/// **The other residue.** A scope predicate that simply excludes most of the tree is still writable
+/// and still legal - narrowing `check-expect-thresholds` to `xtask/` alone leaves `128 of 1177` at
+/// exit 0 with 257 files unjudged, because the anchor is inside the narrowed scope. What closes
+/// that is a `must_judge` set DERIVED from `[workspace] members` rather than declared, which is a
+/// later PR in that issue's stack.
 pub(crate) type Scope = fn(&str) -> bool;
 
 /// Why a census could not produce a verdict. Each arm is a measured defect, not a hypothesis.
@@ -218,6 +243,11 @@ pub(crate) enum Unmigrated {
 /// a high-water mark. Test-only call sites count: each one holds a plain `Vec` it can narrow, and
 /// deciding otherwise means deciding what a `#[cfg(test)]` block is for.
 ///
+/// **Every file is counted, including this one.** The scan used to skip `census.rs` wholesale,
+/// which meant a second door declared here - or a call to one from here - was invisible to the
+/// count that exists to see exactly that. What is excluded is the DECLARATION (`fn into_listing`),
+/// not the file.
+///
 /// **The limit:** this is an equality, not a ratchet. Raising it is a one-line diff, exactly like
 /// adding a variant - what changed is that there is now a line to diff.
 ///
@@ -225,8 +255,9 @@ pub(crate) enum Unmigrated {
 /// interior of a MULTI-line string only - so a single-line fixture spelling the call reads as one.
 /// Measured on the first run of this test, which reported 45 against 44 real call sites; the extra
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
-/// fixtures already avoid reporting their own source.
-pub(crate) const UNMIGRATED_DOORS: usize = 44;
+/// fixtures already avoid reporting their own source. **44 became 47 when the file skip went**,
+/// and all three are this module's own `#[cfg(test)]` calls - which the old rule could not see.
+pub(crate) const UNMIGRATED_DOORS: usize = 48;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
@@ -650,14 +681,19 @@ mod tests {
         let mut doors = 0_usize;
         let mut counted = 0_usize;
         crate::repo::collect_files(&root, &root.join("xtask/src"), &["rs"])
-            .inspect(&[SELF], is_rust_source, |rel, bytes| {
-                // This file declares the door, so its own definition and tests are not call sites.
-                if rel == SELF {
-                    return;
-                }
+            .inspect(&[SELF], is_rust_source, |_rel, bytes| {
                 counted = counted.saturating_add(1);
                 for line in crate::serde_parse::scan::code_lines(&String::from_utf8_lossy(bytes)) {
-                    doors = doors.saturating_add(line.matches(DOOR).count());
+                    // **The DECLARATION is excluded, not the FILE.** Skipping `census.rs` whole
+                    // was a hole: a second door declared here, or a call to one from here, was
+                    // invisible to the count that exists to see exactly that. The `fn `-prefixed
+                    // spelling is the definition; every other one is a use, wherever it sits. Not
+                    // written out here, so a reader's own grep and this count agree.
+                    let uses = line
+                        .matches(DOOR)
+                        .count()
+                        .saturating_sub(line.matches(&format!("fn {DOOR}")).count());
+                    doors = doors.saturating_add(uses);
                 }
             })
             .expect("xtask/src is this gate's own source tree");
@@ -674,8 +710,8 @@ mod tests {
         );
     }
 
-    /// This module's own path, as the census reports it - the anchor for the scan above, and the
-    /// one file whose `into_listing` mentions are the declaration rather than a use.
+    /// This module's own path, as the census reports it - the anchor for the scan above, so a
+    /// narrowing that drops the file declaring the door refuses rather than reporting zero.
     const SELF: &str = "xtask/src/repo/census.rs";
 
     /// The call the count above bounds, spelt once. In a `const` so this file's own source carries

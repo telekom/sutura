@@ -25,8 +25,9 @@ use crate::repo;
 const FORBIDDEN: &[&str] = &["too_many_lines", "too_many_arguments", "cognitive_complexity"];
 
 /// Rust source, and nothing else. A [`repo::Scope`]: a bare `fn`, so it cannot count subjects and
-/// cannot see content - an ordinal narrowing has nowhere to keep its counter, and a scope decision
-/// can never stand in for a read that failed.
+/// is not handed the content - an ordinal narrowing has nowhere to keep its counter. It is NOT
+/// sealed against a predicate that opens the file itself; [`repo::Scope`] measures that fail-open
+/// and says which of the five printed numbers it can and cannot move.
 fn rust_source(rel: &str) -> bool {
     std::path::Path::new(rel)
         .extension()

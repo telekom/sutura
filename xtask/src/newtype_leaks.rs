@@ -178,6 +178,12 @@ const SEQUENCE_TRAITS: &[&str] = &[
 ];
 
 /// Method names that hand out a collection whatever they return.
+///
+/// `into_listing` is HERE rather than merely exempt elsewhere, and that is the fix for a hole
+/// measured on this branch: the exemption was by BARE NAME with no type and no shape scope, so a
+/// second `fn into_listing` on `Inspected` handing out all five verdict numbers passed at exit 0
+/// with the suite green. A by-name exemption is a hole with a nice name. Now the name is refused
+/// everywhere and [`DECLARED_DOOR`] re-permits exactly one type, one name and one return shape.
 const LEAKY_ACCESSORS: &[&str] = &[
     "iter",
     "iter_mut",
@@ -186,15 +192,21 @@ const LEAKY_ACCESSORS: &[&str] = &[
     "as_mut_slice",
     "into_vec",
     "into_inner",
+    "into_listing",
 ];
 
 /// Return-type spellings that hand out a sequence. Checked on the return type ALONE, so a
 /// parameter of type `&[&str]` - which `Census::inspect` has - is not a leak.
 const SEQUENCE_RETURNS: &[&str] = &["[", "Vec<", "Iterator", "Iter<", "IterMut<", "IntoIter", "slice::"];
 
-/// The one declared way out of a sealed type, and it has a bound of its own: the exact call-site
-/// count in `xtask/src/repo/census.rs`, checked against the live tree.
-const DECLARED_DOOR: &str = "into_listing";
+/// The one declared way out of a sealed type: this TYPE, this NAME and this RETURN SHAPE, all
+/// three. It has a bound of its own as well - the exact call-site count in
+/// `xtask/src/repo/census.rs`, checked against the live tree.
+///
+/// Scoped on all three axes because each was measured escaping on its own: by name alone, a
+/// `fn into_listing` on `Inspected` was exempt; without the shape, `Census::into_listing` could
+/// change what it hands back and stay exempt.
+const DECLARED_DOOR: (&str, &str, &str) = ("Census", "into_listing", "Result<Listing, Refusal>");
 
 /// One violation, located.
 struct Leak {
@@ -391,17 +403,31 @@ fn declares(code: &[String], name: &str) -> bool {
     })
 }
 
-/// Every inherent method on a [`SEALED`] type whose signature hands out the contents.
+/// Every method on a [`SEALED`] type whose signature hands out the contents - **inherent OR
+/// through a trait, including a trait this gate has never heard of.**
+///
+/// The trait half is the fourth shape, measured on this branch: `SEQUENCE_TRAITS` refuses the
+/// traits it KNOWS and this function used to walk inherent impls only, so a **five-line custom
+/// trait** restored `.take(3)` at the production call site with the gate reporting
+/// `246 trait impl(s) … 4 sealed witness type(s) still hold their contents` at **exit 0**, the
+/// suite green and clippy clean. A new trait was neither of the two things being checked. The rule
+/// is now about the METHOD rather than about the trait: no method reachable through a sealed type
+/// may hand out its contents, whoever declared the signature.
 fn exposing_methods(code: &[String], rel: &str, out: &mut Vec<Opened>) {
-    for (line, header) in inherent_impls(code) {
-        let Some(sealed) = sealed_target(header.trim().strip_prefix("impl").unwrap_or("")) else {
+    let reachable = inherent_impls(code).into_iter().chain(trait_impls(code));
+    for (line, header) in reachable {
+        // For a trait impl the target is after ` for `; for an inherent one it is after `impl`.
+        let target = header
+            .rsplit_once(" for ")
+            .map_or_else(|| header.trim().strip_prefix("impl").unwrap_or(""), |(_, after)| after);
+        let Some(sealed) = sealed_target(target) else {
             continue;
         };
         for (offset, signature) in method_signatures(code, line.saturating_sub(1)) {
             let Some((name, returns)) = split_signature(&signature) else {
                 continue;
             };
-            if name == DECLARED_DOOR {
+            if (sealed, name, returns.trim()) == DECLARED_DOOR {
                 continue;
             }
             let by_name = LEAKY_ACCESSORS.contains(&name);
@@ -812,18 +838,50 @@ mod tests {
     }
 
     #[test]
-    fn the_declared_transitional_door_is_the_one_exception() {
+    fn the_declared_transitional_door_is_the_one_exception_and_it_is_scoped_three_ways() {
         // `into_listing` hands out a plain `Vec` on purpose and its own bound is the call-site
-        // count in `xtask/src/repo/census.rs`. It is exempt BY NAME rather than by the type alias
-        // that happens to hide the `Vec`, so the exemption is visible here rather than incidental.
-        // Built from parts, so this source does not itself read as a call site to the door-count
-        // bound in `census.rs` - which is exactly what it did on the first run: 45 measured
-        // against 44 real ones, and the extra was this fixture.
+        // count in `xtask/src/repo/census.rs`. It is exempt on THREE axes - type, name and return
+        // shape - because each was measured escaping on its own. Built from parts so this source
+        // does not itself read as a call site to that count: the first run of the count test
+        // reported 45 against 44 real ones, and the extra was this fixture.
+        let (sealed, name, returns) = super::DECLARED_DOOR;
         let door = format!(
-            "impl Census {{\n    pub(crate) fn {}(self, _caller: Unmigrated) -> Result<(PathBuf, Vec<String>), Refusal> {{\n        todo!()\n    }}\n}}\n",
-            super::DECLARED_DOOR
+            "impl {sealed} {{\n    pub(crate) fn {name}(self, _caller: Unmigrated) -> {returns} {{\n        todo!()\n    }}\n}}\n"
         );
         assert!(exposed(&door).is_empty(), "{:?}", exposed(&door));
+
+        // The measured hole: the same NAME on another sealed type, handing out all five verdict
+        // numbers. Exempt before this was scoped; refused now.
+        let elsewhere = format!(
+            "impl Inspected {{\n    pub(crate) fn {name}(self) -> (usize, usize, usize, usize, usize) {{\n        todo!()\n    }}\n}}\n"
+        );
+        assert_eq!(exposed(&elsewhere).len(), 1, "{:?}", exposed(&elsewhere));
+
+        // And the same type and name handing back something else.
+        let reshaped =
+            format!("impl {sealed} {{\n    pub(crate) fn {name}(self) -> Vec<String> {{\n        todo!()\n    }}\n}}\n");
+        assert_eq!(exposed(&reshaped).len(), 1, "{:?}", exposed(&reshaped));
+    }
+
+    #[test]
+    fn a_trait_nobody_has_heard_of_cannot_hand_out_a_sealed_type_either() {
+        // **The fourth shape.** `SEQUENCE_TRAITS` refuses the traits it knows and the method scan
+        // used to walk inherent impls only, so five lines of a custom trait restored `.take(3)` at
+        // the production call site: `246 trait impl(s) … 4 sealed witness type(s) still hold their
+        // contents`, exit 0, suite green, clippy clean.
+        let custom = "impl Subjects for Census {\n    fn subjects(self) -> Vec<String> {\n        self.of\n    }\n}\n";
+        assert_eq!(exposed(custom).len(), 1, "{:?}", exposed(custom));
+
+        // A reference receiver and an unknown trait, which is the same escape one character wider.
+        let borrowed = "impl<'a> Lend for &'a Census {\n    fn all(&self) -> &[String] {\n        &self.of\n    }\n}\n";
+        assert_eq!(exposed(borrowed).len(), 1, "{:?}", exposed(borrowed));
+
+        // An ordinary trait impl on a sealed type is still nobody's business: the rule is about the
+        // METHOD's signature, not about sealing the type off entirely.
+        let debug = "impl core::fmt::Debug for Census {\n    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {\n        todo!()\n    }\n}\n";
+        assert!(exposed(debug).is_empty(), "{:?}", exposed(debug));
+        let dropped = "impl Drop for Swept {\n    fn drop(&mut self) {\n        todo!()\n    }\n}\n";
+        assert!(exposed(dropped).is_empty(), "{:?}", exposed(dropped));
     }
 
     #[test]

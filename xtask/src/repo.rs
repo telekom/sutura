@@ -314,6 +314,7 @@ fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census>
         .filter_map(|raw| staged_path(&String::from_utf8_lossy(raw)))
         .collect();
 
+    let mut unreachable = Vec::new();
     if untracked.ok {
         files.extend(
             untracked
@@ -322,6 +323,16 @@ fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census>
                 .filter(|raw| !raw.is_empty())
                 .map(|raw| String::from(String::from_utf8_lossy(raw))),
         );
+    } else {
+        // **The `ok` half this function read on one invocation and not the other.** A tracked
+        // listing that answered and an untracked one that did not is a listing short by every
+        // untracked file, which is silent if that failure wrote nothing to stderr - a spawn error,
+        // or a kill. `!tracked.ok` above falls back to the WALK, which is more inclusive; there is
+        // no such fallback for half a listing, so it refuses.
+        unreachable.push(String::from(
+            "git ls-files --others could not answer, so every untracked-but-not-ignored file is \
+             missing from this listing and no gate's read can reach it",
+        ));
     }
 
     files.sort_unstable();
@@ -330,7 +341,6 @@ fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census>
         return None;
     }
 
-    let mut unreachable = Vec::new();
     for (which, said) in [("git ls-files --stage", tracked), ("git ls-files --others", untracked)] {
         if !said.stderr.is_empty() {
             unreachable.push(format!("{which}: {}", String::from_utf8_lossy(&said.stderr).trim()));
@@ -576,6 +586,30 @@ mod tests {
             }
             Err(other) => panic!("wrong arm: {}", other.describe()),
             Ok(listing) => panic!("a partial git listing produced {} subject(s)", listing.1.len()),
+        }
+    }
+
+    #[test]
+    fn half_a_git_listing_refuses_even_when_it_said_nothing_on_stderr() {
+        // The `ok` half this function read on one invocation and not the other: a tracked listing
+        // that answered and an untracked one that did NOT is short by every untracked file, and
+        // stderr is not the tell when the failure wrote none - a spawn error, or a kill. There is
+        // no fallback for half a listing the way `!tracked.ok` falls back to the more inclusive
+        // WALK, so it refuses.
+        let half = super::Listed {
+            ok: false,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
+        let census = super::from_git(std::path::Path::new("/nowhere"), &listed(&staged(&["a.rs"]), ""), &half)
+            .expect("the tracked half still produced a listing");
+        match census.into_listing(super::Unmigrated::Docs) {
+            Err(super::Refusal::Unreachable(subjects)) => assert!(
+                subjects.first().is_some_and(|why| why.contains("untracked")),
+                "the refusal has to say what is missing: {subjects:?}"
+            ),
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(listing) => panic!("half a listing produced {} subject(s)", listing.1.len()),
         }
     }
 

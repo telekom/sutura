@@ -16,8 +16,9 @@ use crate::repo;
 /// Every tracked file is a candidate, and BINARY is decided from the bytes rather than from a
 /// second `open`.
 ///
-/// A [`repo::Scope`], so it is a bare `fn` with nothing captured: it cannot count subjects and it
-/// cannot see content, which is what stops a scope decision standing in for a failed read.
+/// A [`repo::Scope`], so it is a bare `fn` with nothing captured and cannot count subjects. It is
+/// not HANDED the content either - though nothing in the type stops a `fn` opening the file itself,
+/// which that type's own doc measures rather than claims away.
 const fn every_text_candidate(_rel: &str) -> bool {
     true
 }

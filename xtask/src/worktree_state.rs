@@ -267,7 +267,8 @@ fn decide(inspected: &Inspected) -> Decision {
 /// The files this gate's rule is about: the ones whose language its lexer knows.
 ///
 /// A [`repo::Scope`], so it is a bare `fn` with nothing captured - it cannot count subjects and it
-/// cannot see content, and `language_of` is a pure function of the path either way.
+/// is not handed the content, and `language_of` is a pure function of the path either way. On what
+/// a `Scope` is still free to do, see [`repo::Scope`]'s own limit.
 fn in_a_known_language(rel: &str) -> bool {
     scan::language_of(rel).is_some()
 }
