@@ -193,12 +193,9 @@ fn reported_total(field: Option<&serde_json::Value>, identified: usize) -> Listi
     // closing a door rather than a style preference: the variant's fields were public, so
     // `reported > identified` held by this `if` was reachable around. `Ok` is the shortfall, `Err`
     // is the reading that says nothing is missing.
-    match reported {
-        None => ListingTotal::Unreadable,
-        Some(reported) => {
-            Shortfall::parse(reported, identified).map_or(ListingTotal::Accounted { reported }, ListingTotal::Short)
-        }
-    }
+    reported.map_or(ListingTotal::Unreadable, |reported| {
+        Shortfall::parse(reported, identified).map_or(ListingTotal::Accounted { reported }, ListingTotal::Short)
+    })
 }
 
 /// A listing being read, one page at a time.

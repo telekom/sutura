@@ -135,6 +135,39 @@ type Mapped<V, E> = Result<V, BigQueryError<E>>;
 /// workspace tightened, and *by dataset* is what it means where the spelled-out type is not.
 type ByDataset<'bundle> = BTreeMap<DatasetAddress, Vec<&'bundle QualifiedTable>>;
 
+/// What a pre-flight's short listings left behind: the tables none of them named, and how many
+/// tables those listings left out of their own totals.
+///
+/// **A struct and not two locals, which is a review finding rather than a nod to
+/// `type_complexity`.** Two bindings is how a shortfall of one comes to describe three tables, and
+/// how a count derived by arithmetic gets to disagree with the set beside it - both shapes were
+/// reproduced. Here they are written together or not at all, and the count is a [`NonZeroU64`]
+/// taken off `Shortfall`, so it cannot arrive as the zero that used to route this answer back to
+/// *these tables are absent*.
+struct Gap {
+    /// The tables no short listing named. Non-empty: this type is built only when one is added.
+    unaccounted_for: BTreeSet<QualifiedTable>,
+    /// How many tables those listings claim that no readable id accounted for.
+    shortfall: NonZeroU64,
+}
+
+impl Gap {
+    /// One dataset's own gap, folded into whatever the earlier datasets left.
+    fn widened(gap: Option<Self>, unnamed: BTreeSet<QualifiedTable>, by: NonZeroU64) -> Self {
+        match gap {
+            None => Self {
+                unaccounted_for: unnamed,
+                shortfall: by,
+            },
+            Some(mut so_far) => {
+                so_far.unaccounted_for.extend(unnamed);
+                so_far.shortfall = so_far.shortfall.saturating_add(by.get());
+                so_far
+            }
+        }
+    }
+}
+
 /// Why this data system could not answer.
 ///
 /// Generic in the transport's own error, for the reason `sutura_app::ServiceError` is generic in the
@@ -739,7 +772,7 @@ where
         // A table a short listing did not name is not a table the dataset does not hold, and *how
         // many the listing left out* is a fact about the listing rather than about the bundle, so
         // neither number can be recovered from the other.
-        let mut gap: Option<(BTreeSet<QualifiedTable>, NonZeroU64)> = None;
+        let mut gap: Option<Gap> = None;
         for table in tables {
             // Partitioned BEFORE anything is listed, so an unaddressable path can neither skip the
             // loop nor cost a call: it is already an answer.
@@ -769,13 +802,7 @@ where
                     // carried, so those tables really are there and this dataset contributes no
                     // shortfall to reason about.
                     if !unnamed.is_empty() {
-                        gap = Some(match gap {
-                            None => (unnamed, short.unaccounted()),
-                            Some((mut named, so_far)) => {
-                                named.extend(unnamed);
-                                (named, so_far.saturating_add(short.unaccounted().get()))
-                            }
-                        });
+                        gap = Some(Gap::widened(gap, unnamed, short.unaccounted()));
                     }
                 }
                 // Every other reading is *nothing to compare*, and it leaves the pre-flight exactly
@@ -801,11 +828,15 @@ where
         // count is `Shortfall`'s now, so a zero cannot arrive; the only reading left for an absent
         // gap is that no listing fell short, and `map_or` answers it the way `TablesPresent::of`
         // answers an empty difference.
-        let Some((unaccounted_for, shortfall)) = gap else {
+        let Some(gap) = gap else {
             return Ok(TablesPresent::All);
         };
-        Ok(UnaccountedTables::parse(unaccounted_for)
-            .map_or(TablesPresent::All, |tables| TablesPresent::Unaccounted { tables, shortfall }))
+        Ok(
+            UnaccountedTables::parse(gap.unaccounted_for).map_or(TablesPresent::All, |tables| TablesPresent::Unaccounted {
+                tables,
+                shortfall: gap.shortfall,
+            }),
+        )
     }
 
     /// Whether the endpoint REFUSED to list a dataset, rather than failing to answer about one.
