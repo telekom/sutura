@@ -1141,6 +1141,29 @@ pub fn root(&self) -> &Path
 The canonical worktree root.
 
 ```rust
+pub fn scratch(&self, purpose: &str) -> PathBuf
+```
+
+This worktree's own subtree of the machine-shared temporary root, for one `purpose`.
+
+**The one derivation of a keyed path under a shared root**, and the only reason it exists
+beside `Scope::state_dir` is LENGTH: a unix socket path caps around 100 bytes on macOS, so
+a server cannot sit under an arbitrarily deep worktree. Everything that does not have that
+constraint belongs under the worktree, where the tree is the key and there is nothing to
+derive.
+
+`purpose` namespaces two writers in one worktree from each other; the digest namespaces two
+worktrees from one another. Both are needed and neither substitutes: a purpose alone is the
+defect `telekom/sutura#405` collects - `<temp_dir>/sutura-conformance/<table>.csv` carried a
+purpose and no key, so a second checkout of this repository was a second WRITER of it.
+
+**What this does NOT give you.** It is a NAME, not an allocation - the same asymmetry this
+module's header states for ports. Two worktrees whose canonical paths collide in four bytes
+of SHA-256 get one directory, which is a startup error somebody reads rather than a test
+that passes against the wrong fixture. And it makes no directory: a caller creates it, so a
+path this returns is not evidence that anything is there.
+
+```rust
 pub fn state_dir(&self) -> PathBuf
 ```
 
