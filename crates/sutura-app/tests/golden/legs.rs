@@ -1,7 +1,8 @@
 //! What one leg of a federated question renders as, expanded over every dialect `sutura-sql` writes.
 //!
-//! **The fixtures are hand-built and the snapshots are not, and the split is deliberate.** There is
-//! no splitter: nothing in this workspace turns a question into legs, so a corpus of question files
+//! **The fixtures are hand-built and the snapshots are not, and the split is deliberate.** The
+//! splitter (`sutura_semantic::plan`) turns a question into a `FederatedPlan`, and these fixtures
+//! are still hand-built rather than derived from it - so a corpus of question files
 //! cannot produce a `LegPlan` the way it produces a `QueryPlan`. What this axis pins is therefore the
 //! RENDERING - `sutura_sql::generate_leg` over each shape, in each dialect, parse-checked in the
 //! dialect it was generated for - which is evidence that stands before anything executes a leg. The
@@ -71,8 +72,9 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// The key the two legs are joined on, under the label the splitter gives it.
 ///
 /// **Taken from `InternalLabel` rather than spelled, and that is what makes the statements below
-/// evidence about the real scheme.** These fixtures are hand-built - there is no splitter to derive
-/// them from - and a hand-written link label is a place where the fixture and the splitter can
+/// evidence about the real scheme.** These fixtures are hand-built rather than derived from the
+/// splitter, which exists - and a hand-written link label is a place where the fixture and the
+/// splitter can
 /// disagree without any test noticing; they did, and the label the splitter chose was a legal
 /// dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
 /// the parse check for a reserved label: `parses_in_the_dialect_it_was_generated_for` asks each of

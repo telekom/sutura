@@ -2036,6 +2036,16 @@ below and still true for the rest.
 3. **A per-leg credential on a second leg.** `LegCredentials` holds N legs and nothing constructs a
    second one: there is no splitter and no combiner, and both `Warehouse` implementors answer a leg
    with a typed error.
+
+   > **Amended, 2026-09-08.** Two sentences above are spent, and they are kept as written because
+   > they are the premise items 2 and 3 argue from. *"Part 4's per-leg check needs a splitter, which
+   > does not exist"* and *"there is no splitter and no combiner"* were true when this record was
+   > written and stopped being true with the change that landed the splitter (`sutura_semantic::plan`)
+   > and the combiner (`FederatedPlan::combine`), both of which are now called from library code.
+   > What still holds item 3 is narrower, and it is a DIFFERENT mechanism from the one written:
+   > `Warehouse::EXECUTES_LEGS` defaults to `false` and only the dev-only `DuckDB` vehicle sets it,
+   > so `answer_federated` refuses a two-source question before it splits and no shipped adapter is
+   > handed a second leg. An absent splitter is not what holds it; a defaulted declaration is.
 4. **Provenance is still read off `Warehouse::posture`** rather than off `Presented::executed_as`, which
    the table at the foot of this record wants. The reason not to move it is that the posture on the
    adapter is what the composition root built, while the credential comes from a broker that read the

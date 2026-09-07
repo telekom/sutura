@@ -45,8 +45,8 @@ mod conformance {
 
     // `refuses_legs`, because this adapter leaves `EXECUTES_LEGS` at its default: it is the engine
     // and belongs ABOVE the port once federation lands, so a leg arriving here means the composition
-    // is wrong. Nothing upstream builds a leg today, which is what makes this pack the only thing
-    // that exercises that guard.
+    // is wrong. No shipped binary builds a leg today - the splitter does, in library code - which
+    // is what makes this pack the only thing that exercises that guard.
     sutura_conformance::execute_packs! {
         adapter: datafusion,
         warehouse: sutura_exec_datafusion::DataFusionWarehouse,

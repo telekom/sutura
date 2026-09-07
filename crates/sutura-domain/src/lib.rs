@@ -38,9 +38,10 @@
 //!   absence.
 //! - [`plan`] is what we decided to execute, and the artifact the execution port speaks in.
 //! - [`federation`] is how a measure survives being computed in pieces: which aggregates descend
-//!   into a leg, which one descends decomposed, and which needs its rows pulled up. Nothing executes
-//!   it yet - there is no splitter and no combiner - so it is a classification with no production
-//!   caller, and its own header says so.
+//!   into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
+//!   (`sutura_semantic::plan`) and the combiner ([`plan::FederatedPlan::combine`]) both exist and
+//!   both call it, so it has a production caller; what no SHIPPED binary does is EXECUTE a leg, and
+//!   its own header names the two mechanisms that hold that.
 //! - [`catalog`] is what a catalog says, and where its cross-references are checked.
 //! - [`knowledge`] is what a catalog says ABOUT what it defines - the glossary, the caveats, the
 //!   terms deliberately left undefined, the worked questions - checked against a [`catalog`] and read

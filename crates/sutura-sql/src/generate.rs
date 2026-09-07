@@ -584,9 +584,14 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
 /// path and not the other.
 ///
-/// **Nothing calls this from a binary.** There is no splitter, so no [`LegPlan`] is constructed
-/// outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
-/// statement per shape per dialect, parse-checked in the dialect it was generated for.
+/// **No SHIPPED binary calls this, and library code does.** `sutura-exec-duckdb` calls it in its
+/// `Executable::Leg` arm, and the splitter constructs a [`LegPlan`] in production - so the
+/// conclusion survives for a different reason than the one written here before, which rested on
+/// *there is no splitter*. What holds it is that `sutura` and `sutura-serve` link only
+/// `sutura-exec-datafusion`, and that `Warehouse::EXECUTES_LEGS` defaults to `false` with only the
+/// dev-only `DuckDB` vehicle setting it. What pins the rendering is the golden family under
+/// `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+/// dialect it was generated for.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.

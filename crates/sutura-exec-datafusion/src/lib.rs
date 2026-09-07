@@ -202,10 +202,12 @@ pub enum DataFusionError {
     /// **Not a refusal and not a default body.** [`Warehouse::execute`] takes an
     /// [`Executable`](sutura_domain::plan::Executable), so this adapter's match over what it can be
     /// handed is exhaustive - which is the mechanism, and this variant is what it costs today.
-    /// Nothing constructs a [`LegPlan`](sutura_domain::plan::LegPlan) outside a test: there is no
-    /// splitter and no combiner, so no code path reaches here. When the combiner arrives this arm is
-    /// where the engine's leg path lands, and until then an error naming the leg is more honest than
-    /// a silently non-federating default.
+    /// The splitter constructs a [`LegPlan`](sutura_domain::plan::LegPlan) in production and the
+    /// combiner above it is built and called, so what keeps a code path off this arm is neither of
+    /// those absences: it is this adapter leaving `Warehouse::EXECUTES_LEGS` at its default `false`,
+    /// which `sutura_app`'s federated path reads and refuses on before it splits. The day this
+    /// adapter declares otherwise, this arm is where the engine's leg path lands - and until then an
+    /// error naming the leg is more honest than a silently non-federating default.
     ///
     /// It carries the table rather than a sentence, because that is the one thing a reader chasing
     /// this needs and the message may be reworded.

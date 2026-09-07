@@ -1,11 +1,17 @@
 //! How a measure federates: what descends into a leg, and the one computation that happens above
 //! them.
 //!
-//! **This module is a classification and a rule, and nothing executes it.** There is no leg plan
-//! type, no splitter and no combiner in this workspace yet, so nothing here has a production
-//! caller: the same shape `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory describes for the
-//! authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
-//! classification that looks wired is worse than one that says it is not.
+//! **This module is a classification and a rule, and the splitter above it reads them.**
+//! `crate::plan::LegPlan` is the leg plan type; the splitter is `sutura_semantic::plan`, which
+//! calls `Federation::of` on the measure it resolves; and the combiner above the legs is
+//! `crate::plan::FederatedPlan::combine`, called from `sutura_app::federated`. So this has a
+//! production caller, and the sentence that used to stand here said it had none - the correction is
+//! recorded rather than quietly applied, because *a classification with no production caller* is
+//! what a reader would otherwise still plan against.
+//!
+//! What remains true is one step lower: no SHIPPED binary EXECUTES a leg, because
+//! `Warehouse::EXECUTES_LEGS` defaults to `false` and only the dev-only `DuckDB` vehicle sets it.
+//! `.agents/skills/sutura/query-surface` carries that state.
 //!
 //! **The problem it answers.** Grouping a fact leg by a remote join key is a strictly finer grouping
 //! than the answer, so a combine above the legs has to aggregate again - and whether that is correct

@@ -30,7 +30,8 @@
 //!   placeholder style is visible in the target it affects rather than only in the one we execute
 //!   against. Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere.
 //!   `golden/legs.rs` is the same axis over the federated plan shapes, and it is a second file rather
-//!   than more cells in the first because its input is not the question corpus: there is no splitter,
+//!   than more cells in the first because its input is not the question corpus: the splitter emits a
+//!   `FederatedPlan` from a compile, not from these fixtures,
 //!   so a leg plan is a hand-built fixture and says so. `golden/qualified.rs` is a third file on the
 //!   same axis and a third file for the same reason: a question has no field that names a table, so a
 //!   table outside the connection's own dataset comes from a catalog document - and the shipped
