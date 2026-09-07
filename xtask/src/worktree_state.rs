@@ -34,14 +34,24 @@
 //!
 //! # Limits, stated next to the claim
 //!
-//! * **`.nix` files are out of scope, and that is the largest gap.** `$TMPDIR` inside a nix
-//!   DERIVATION is the build directory - private per build - while `$TMPDIR` inside a
-//!   `writeShellApplication` a developer runs is the machine's. Nothing in the text of a `.nix`
-//!   file distinguishes those two, and both are in `flake.nix` today: two derivation uses, and two
-//!   tier scripts. Measured on the tree this gate landed on, both tiers are already keyed - the
-//!   Postgres tier's data directory, socket directory and endpoint file are all per-worktree, and
-//!   it listens on no TCP port at all - so `telekom/sutura#405`'s instance 5 is not reproducible as
-//!   stated. What is unheld is a THIRD tier inventing its own key.
+//! * **Only `nix/*-tier.nix` is in scope, and every other `.nix` file is out.** `$TMPDIR` inside a
+//!   nix DERIVATION is the build directory - private per build - while `$TMPDIR` inside a
+//!   `writeShellApplication` a developer runs is the machine's, and nothing in the TEXT of a
+//!   `.nix` file tells those apart. What tells them apart is the file's role, and the tier glob is
+//!   that role: `crate::compose::file` refuses a `nix native` venue that does not name an existing
+//!   `nix/<service>-tier.nix`, and `every_nix_tier_module_is_provisioned_by_a_nix_check` holds the
+//!   mirror. **The residue, stated rather than implied:** that rule runs over the services with a
+//!   compose block, and Postgres - the one tier that provisions a listening server - has no such
+//!   block and is skipped by its own loop. So a THIRD tier is held if it is named like the two
+//!   that exist, and a tier for a blockless service is held by the habit, not by the gate.
+//! * **The worktree key has two spellings and nothing compares them.** `Scope` derives four bytes
+//!   of SHA-256 over the canonical root; `nix/postgres-tier.nix:85` and `nix/keycloak-tier.nix:118`
+//!   each derive `printf '%s' "$root" | cksum | cut -d' ' -f1`, a CRC-32 over the same input. Both
+//!   isolate, so nothing is shared - but they are different values, so no Rust writer can find a
+//!   tier's directory and no gate notices if one side is changed. Measured on the tree this gate
+//!   landed on, both tiers are keyed and Postgres listens on no TCP port at all, so
+//!   `telekom/sutura#405`'s instance 5 is not reproducible as stated - and that dismissal rests on
+//!   these two unreconciled lines.
 //! * **A log path an agent chooses is outside every gate.** `telekom/sutura#405`'s instance 2 is a
 //!   `shipcheck.log` in a shared scratchpad, which is not a file in this repository. What this gate
 //!   reaches is the shell that IS: `nix/*.sh`, where such a path would be written if it were

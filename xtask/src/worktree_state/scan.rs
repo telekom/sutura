@@ -133,14 +133,6 @@ pub(super) struct Taking {
     pub(super) segment: String,
 }
 
-/// Which language's rules a repo-relative path is subject to, or `None` for out of scope.
-///
-/// **Derived from the path, and the scope is argued rather than assumed.** `crates/`, `xtask/` and
-/// `dev/` are where this repository's test and gate code lives - the two things
-/// `telekom/sutura#405` names. `nix/*.sh` is in scope because those scripts run on the developer's
-/// own machine rather than inside a nix sandbox, so a path one of them writes is exactly as shared
-/// as a Rust one; a `.nix` file is NOT, and that is the gate's largest stated limit - see the
-/// module header of `super`.
 /// Files this gate MUST have read, one per arm of [`language_of`].
 ///
 /// **AN ANCHOR SET RATHER THAN A COUNT, and the difference is what a count cannot see.** A floor of
@@ -163,6 +155,15 @@ pub(super) const MUST_READ: &[&str] = &[
     "nix/postgres-tier.nix",
 ];
 
+/// Which language's rules a repo-relative path is subject to, or `None` for out of scope.
+///
+/// **Derived from the path, and the scope is argued rather than assumed.** `crates/`, `xtask/` and
+/// `dev/` are where this repository's test and gate code lives - the two things
+/// `telekom/sutura#405` names. `nix/*.sh` is in scope because those scripts run on the developer's
+/// own machine rather than inside a nix sandbox, so a path one of them writes is exactly as shared
+/// as a Rust one, and `nix/*-tier.nix` for the same reason - a tier is a `writeShellApplication`
+/// a developer runs. Every OTHER `.nix` file is out, and that is the gate's largest stated limit;
+/// the module header of `super` carries what the tier glob does and does not hold.
 pub(super) fn language_of(rel: &str) -> Option<Language> {
     // Extension by suffix, deliberately case-SENSITIVE: `.RS` is not a file this repository writes,
     // and a case-folding comparison would put a scope decision at the mercy of the filesystem the
@@ -182,11 +183,15 @@ pub(super) fn language_of(rel: &str) -> Option<Language> {
         // build directory, private per build, while a `writeShellApplication` a developer runs
         // takes the machine's - and no property of the TEXT tells those apart, which is why the
         // first version of this gate declined the whole extension. What does tell them apart is
-        // the file's ROLE, and this repository already names that: the provisioned-service chain
-        // in `crate::venues` holds that a `nix native` declaration must name an existing
-        // `nix/<service>-tier.nix`, so the naming is a mechanism rather than a habit and this glob
-        // is complete over the tiers by that gate rather than by a list here. `flake.nix` and every
-        // other module stay out, and their `$TMPDIR` uses are the private kind.
+        // the file's ROLE, and this repository already names that: `crate::compose::file` refuses
+        // a `nix native` CI venue that does not name an EXISTING `nix/<service>-tier.nix`, and
+        // `every_nix_tier_module_is_provisioned_by_a_nix_check` holds the mirror, so the naming is
+        // a mechanism rather than a habit and this glob is complete over the tiers by that gate
+        // rather than by a list here. **Its residue, because a leaned-on invariant is worth what
+        // holds it:** that loop runs over services with a compose BLOCK, and Postgres - the one
+        // tier that provisions a listening server - has none and is skipped by it, so a tier for a
+        // blockless service is named by habit. `flake.nix` and every other module stay out, and
+        // their `$TMPDIR` uses are the private kind.
         Some("nix") if rel.starts_with("nix/") && rel.ends_with("-tier.nix") => Some(Language::Shell),
         _ => None,
     }
