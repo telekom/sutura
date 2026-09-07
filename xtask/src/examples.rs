@@ -91,6 +91,11 @@
 //!   0, where that crate is `[workspace] exclude`d and `cargo nextest run --workspace` never
 //!   compiles it. What this costs: a member declared by a glob is a refusal rather than a guess,
 //!   and a member the scan reaches no file of is a refusal rather than a smaller number.
+//! * **`causality::scoped` shares the blank-line gap and is NOT changed**, because the direction of
+//!   failure differs: there a missed `#[ignore]` puts the test into a filterset and nextest exits 4
+//!   with `no tests to run`, which is loud, and here it was a green verdict. One lexer, two callers,
+//!   two directions - the refusal is in [`attributes::cells`](crate::causality::attributes::cells)
+//!   rather than in the shared walk for that reason.
 //! * **A reach in a helper is reached through its own file only.** The two `#[ignore]` levels
 //!   answer *does anything in THIS file run*; a helper here that only an `#[ignore]`d test in
 //!   ANOTHER file calls is still evidence, because a call graph is not a line scan. The narrower
@@ -110,32 +115,29 @@
 //! unwatched and every one of them would otherwise read as a clean tree: no variant, no line of
 //! test code a run reaches, no test DECLARATION out of files that carry test code, an exclusion
 //! that removed nothing, a workspace member the scan reached no file of, a file the scan could not
-//! read, a test-declaring attribute whose item it could not resolve, and a variant nothing
-//! reaches. Five more refuse before it: no repo root, an unreadable root manifest, a member list
-//! this cannot state, a path the walk left with no verdict, and a corpus file the scan loop
-//! skipped.
+//! read, a cell whose run this cannot decide, and a variant nothing reaches. Five more refuse
+//! before it: no repo root, an unreadable root manifest, a member list this cannot state, a path
+//! the walk left with no verdict, and a corpus file the scan loop skipped.
 //!
-//! **Three of those are pairs rather than numbers**, and `github.com/telekom/sutura#414` is why:
+//! **The seventh arm has THREE causes and the third is a FIFTH door into this gate's whole failure
+//! mode**, found by review and reproduced on `110591d5` as well as on the branch that fixed the
+//! other four: no item under the declaration; a `#[cfg]` or `#[cfg_attr]` over the cell; and the
+//! single resolver's two halves disagreeing about a blank line - `item_below` skips one, `attached`
+//! treats one as a block boundary, so ONE blank line below a cell's attributes resolved the item
+//! and returned an EMPTY block, which reads as a cell with no attributes at all. A reach in the
+//! body of an `#[ignore]`d cell then printed `reached from 1 file - ..:120` at exit 0 with the
+//! per-line rule, the block-anchored region and the per-file floor defeated together, and
+//! `xtask hygiene: ok - 33 gate(s)` over the same tree. `attributes::cells` now requires the block
+//! to CONTAIN the declaration; see that function for why "no such spelling exists in this tree" was
+//! not allowed to be the answer.
+//!
+//! **Three of the arms are pairs rather than numbers**, and `github.com/telekom/sutura#414` is why:
 //! a gate's "how much did I read" number derived from its own loop cannot detect the loop
-//! narrowing, measured five times across four gates - once here, as a truncated walk giving
-//! *12 of 205 files, 69 of 1333 declarations, exit 0*.
-//!
-//! | pair | the two derivations | what it catches |
-//! | --- | --- | --- |
-//! | `test_files` / `declared` | files, against the attributes inside them from a second read | the attribute vocabulary silently ceasing to match |
-//! | verdicts / offered | this gate's classification, against the WHOLE listing counted before any predicate of its own | a walk narrowed between the listing and the count |
-//! | members reached / members declared | the listing, against the root manifest | a narrowed SCOPE predicate, which leaves the counts equal |
-//!
-//! The third row is the one a floor cannot replace: **an item the walk never counted cannot be
-//! caught by a floor over the count**, so a scope predicate that stops matching moves files from
-//! `read` to `outside the workspace` and the accounting still balances. A set of NAMES is what
-//! catches that, which is the instrument `sutura/invariants` records for the same reason.
-//!
-//! **Neither pair reaches `repo::all_files` itself.** Its walkers drop an `fs` error and a
-//! `DirEntry` error in silence, so a directory this cannot enter is missing from the denominator
-//! too - `#414` again, and `#373` owns that fix. And a truncated loop is a SOURCE mutation no
-//! input tree can express, so the two arms that refuse on it are held by mutation review rather
-//! than by a fixture; that is stated because it is exactly the claim `#414` says gets overstated.
+//! narrowing. `test_files`/`declared` is files against the attributes inside them from a second
+//! read; the other two are [`corpus`]'s, which carries the measurements and the reason the
+//! denominator is the whole listing. A truncated loop is a SOURCE mutation no input tree can
+//! express, so the two arms that refuse on one are held by mutation review rather than by a
+//! fixture - stated because it is exactly the claim `#414` says gets overstated.
 
 mod corpus;
 
@@ -790,6 +792,46 @@ mod tests {
         let found = scan(&[("crates/x/src/lib.rs", ordinary)]);
         assert_eq!(found.reaches.keys().cloned().collect::<BTreeSet<_>>(), set(&["x"]));
         assert!(found.undecidable.is_empty(), "{:?}", found.undecidable);
+    }
+
+    #[test]
+    fn a_reach_below_a_blank_line_in_an_ignored_cell_is_a_refusal_rather_than_evidence() {
+        // THE FIFTH DOOR, at the gate rather than at the resolver, because this is where it was
+        // exit 0. `causality::attributes`' two halves disagree about a blank line - one skips it to
+        // reach the item, the other treats it as a block boundary - so one blank line below a
+        // cell's attributes gave a cell with no attributes at all: no `#[ignore]`, no `#[cfg]`,
+        // counted as running. Reviewed and reproduced on `110591d5` AND on this branch with all
+        // four region fixes present: the reach in the BODY of the `#[ignore]`d cell printed
+        // `multi-player: reached from 1 file - ..multi_player.rs:120`, exit 0, with
+        // `xtask hygiene: ok - 33 gate(s)` over the same tree. Not over-determined, and
+        // `rustfmt --check` exits 0 on it.
+        //
+        // Cell 1 RUNS here, exactly as the reviewer's sharpest case had it, so the per-file floor
+        // cannot be what reddens this.
+        let blank = "#[test]\nfn u() {}\n#[ignore = \"needs a deployment\"]\n#[test]\n\nfn t() {\n    let p = \"../../examples/x/q.json\";\n}\n";
+        let found = scan(&[("crates/x/tests/t.rs", blank)]);
+        assert_eq!(found.all_ignored, 0, "the file floor cannot fire - cell 1 runs: {found:?}");
+        // THE VARIANT IS STILL REACHED, and that is the point rather than an oversight: the reach
+        // is recorded, so the `named by no test` arm does NOT fire and this fixture is a clean pass
+        // against base. What reddens it is the refusal, and nothing else - so the assertion below
+        // is `exactly one problem, and it is the refusal`, which is empty against base.
+        assert_eq!(found.reaches.keys().cloned().collect::<BTreeSet<_>>(), set(&["x"]));
+        let said = problems(&set(&["x"]), &found, &whole());
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said.first()
+                .is_some_and(|first| first.contains("could not decide whether a run here reaches")
+                    && first.contains("does not reach its item")),
+            "{said:?}"
+        );
+        // The same file with the blank line removed resolves, the cell is `#[ignore]`d as it should
+        // be, the reach is gone and there is nothing to refuse - so the blank line is what moved,
+        // rather than the fixture being unreadable either way.
+        let joined = "#[test]\nfn u() {}\n#[ignore = \"needs a deployment\"]\n#[test]\nfn t() {\n    let p = \"../../examples/x/q.json\";\n}\n";
+        let closed = scan(&[("crates/x/tests/t.rs", joined)]);
+        assert!(closed.reaches.is_empty(), "{:?}", closed.reaches);
+        assert!(closed.unresolvable.is_empty(), "{closed:?}");
+        assert_eq!(closed.declared, 1, "and the cell that runs is still counted: {closed:?}");
     }
 
     #[test]

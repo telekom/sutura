@@ -194,6 +194,16 @@ pub(super) fn item_below<'l>(lines: &[&'l str], from: usize) -> Option<(usize, &
 /// functions with no blank line between them must not share the first one's `#[ignore]`.
 /// Comments do not end a block: a doc comment between an attribute and its item is ordinary here.
 ///
+/// THAT RULE IS RIGHT HERE AND DISAGREES WITH [`item_below`], WHICH IS THE CALLER'S PROBLEM AND NOT
+/// THIS FUNCTION'S. The question `super::scoped` asks is *what is attached to this item*, and for
+/// that a blank line is a boundary. [`item_below`] SKIPS a blank line on its way to the item, so a
+/// caller pairing the two gets a resolved item and an EMPTY block from one blank line - which reads
+/// as a cell with no attributes at all. [`cells`] refuses on exactly that, by requiring the block to
+/// contain the declaration it is standing on; `super::scoped::is_ignored` does not, because there a
+/// missed `#[ignore]` puts the test in a filterset and nextest exits 4 with `no tests to run`, which
+/// is loud. Two callers, one lexer, two directions of failure - stated here because the next caller
+/// has to pick one.
+///
 /// Empty for an attribute that never closes, which is [`attribute_end`]'s refusal reaching this
 /// far: nothing is claimed about a file that does not compile.
 pub(super) fn attached<'l>(lines: &[&'l str], index: usize) -> Vec<(usize, &'l str)> {
@@ -365,6 +375,32 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
             continue;
         };
         let block = attached(&lines, at);
+        if !block.iter().any(|(line, _)| *line == index) {
+            // FAIL CLOSED ON THE PAIR DISAGREEING, which is a FIFTH door into this failure mode and
+            // the one none of the four fixes above reaches. The single resolver is two halves that
+            // read a BLANK LINE differently: [`item_below`] SKIPS one on its way to the item, and
+            // [`attached`] CLEARS the block on one - correctly, for the upward question
+            // `super::scoped` asks it. Paired, one blank line between the attribute block and the
+            // `fn` resolves the item AND returns an empty block, so no `#[ignore]`, no `#[cfg]`, and
+            // the cell counted as a run. Measured on `110591d5` and on this branch with every fix
+            // present: a reach in the BODY of an `#[ignore]`d cell, one blank line below its
+            // attributes, printed `reached from 1 file - ..multi_player.rs:120` at exit 0, with the
+            // per-line rule, the block-anchored region and the per-file floor all defeated at once
+            // and `cargo xtask hygiene: ok - 33 gate(s)` over the same tree. `rustfmt --check` exits
+            // 0 on it, so nothing else moves it, and it is not over-determined.
+            //
+            // The test is exact rather than a heuristic: a block that does not CONTAIN the
+            // declaration this loop is standing on is not that cell's block, whatever the cause -
+            // the blank line, or `attribute_end` refusing an attribute that never closes, which
+            // also comes back empty. Zero occurrences in this tree today, and that is deliberately
+            // not the argument: this module's own doc calls "no such spelling exists yet" not a
+            // mechanism, so it may not be one here either.
+            found.unresolved.push(format!(
+                "the attribute block of `{written}` at line {} does not reach its item",
+                index.saturating_add(1)
+            ));
+            continue;
+        }
         let gated = block
             .iter()
             .find(|(_, opening)| decides_a_run_unevaluably(opening))
@@ -380,10 +416,11 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
             // FROM THE BLOCK'S FIRST LINE, not from the declaring attribute: `#[ignore]` is legal
             // ABOVE `#[test]`, and a region starting at the declaration left the `#[ignore]` line
             // itself outside it - so a reach written in the ignore's own reason string counted as
-            // evidence, measured at exit 0 on merged `main`. Never later than the declaration
-            // either, since an attribute block this could not reconstruct comes back empty and
-            // that must not move the region DOWN.
-            let start = block.first().map_or(index, |(line, _)| *line).min(index).saturating_add(1);
+            // evidence, measured at exit 0 on merged `main`. The refusal above is what makes this
+            // safe without a `min`: the block CONTAINS `index` and is filled in ascending line
+            // order, so its first line is at or above the declaration and can never move the region
+            // DOWN. An empty block is a refusal now rather than a silent fallback.
+            let start = block.first().map_or(index, |(line, _)| *line).saturating_add(1);
             found.unreached.push(start..item_end(&lines, at).saturating_add(2));
         } else {
             found.runs = found.runs.saturating_add(1);
@@ -569,6 +606,53 @@ mod tests {
         // would be lost.
         let found = of_file("#[test]\n#[ignore]\n/// What this would prove.\nfn t() {}\n");
         assert!(found.nothing_runs(), "{found:?}");
+    }
+
+    #[test]
+    fn a_blank_line_between_the_attributes_and_the_item_is_unresolved_rather_than_running() {
+        // THE FIFTH DOOR, and the one none of the four region fixes reaches: the two halves of this
+        // one resolver read a blank line differently. `item_below` SKIPS it and reaches the `fn`;
+        // `attached` CLEARS the block on it and comes back empty. Paired, that is a cell with no
+        // attributes - so no `#[ignore]`, no `#[cfg]`, and `runs += 1`. Measured through
+        // `crate::examples` on `110591d5` and with every other fix present: a reach in the BODY of
+        // an `#[ignore]`d cell one blank line below its attributes printed
+        // `reached from 1 file - ..multi_player.rs:120` at exit 0, `rustfmt --check` clean.
+        for source in [
+            "#[test]\n#[ignore]\n\nfn t() {\n    let p = 1;\n}\n",
+            "#[ignore]\n#[test]\n\nfn t() {\n    let p = 1;\n}\n",
+            "#[cfg(feature = \"x\")]\n#[test]\n\nfn t() {\n    let p = 1;\n}\n",
+            // Several blank lines, and one with only whitespace on it - `trim` sees both.
+            "#[test]\n#[ignore]\n\n   \n\nfn t() {}\n",
+            // A plain `#[test]` too: the refusal is about the PAIR disagreeing, not about `#[ignore]`.
+            "#[test]\n\nfn t() {}\n",
+            // THE SECOND CAUSE of an empty block, and it needs no blank line: an attribute that
+            // never closes EARLIER in the file makes `attribute_end` refuse, `attached` returns
+            // empty for every item below it, and the cell read as running.
+            "#[expect(\n    clippy::x,\n#[test]\n#[ignore]\nfn t() {}\n",
+        ] {
+            let found = of_file(source);
+            assert_eq!(found.runs(), 0, "{source} -> {found:?}");
+            assert_eq!(found.unresolved().len(), 1, "{source} -> {found:?}");
+            assert!(
+                found
+                    .unresolved()
+                    .first()
+                    .is_some_and(|entry| entry.contains("does not reach its item")),
+                "{source} -> {found:?}"
+            );
+        }
+        // AND THE HEALTHY SHAPES MUST NOT MOVE, or the refusal is a false red on every file in the
+        // tree: the two line classes the halves AGREE on are a comment and a further attribute.
+        for source in [
+            "#[test]\n#[ignore]\nfn t() {}\n",
+            "#[test]\n#[ignore]\n/// What this would prove.\nfn t() {}\n",
+            "#[test]\n#[ignore]\n// a line comment\n/* and a block one */\nfn t() {}\n",
+            "#[test]\n#[ignore]\n#[expect(clippy::x, reason = \"..\")]\nfn t() {}\n",
+        ] {
+            let found = of_file(source);
+            assert!(found.unresolved().is_empty(), "{source} -> {found:?}");
+            assert!(found.nothing_runs(), "{source} -> {found:?}");
+        }
     }
 
     #[test]
