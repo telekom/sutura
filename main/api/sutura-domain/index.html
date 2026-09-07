@@ -5095,6 +5095,8 @@ would be "validated" by evidence about something else.</p>
 <li><code>AnchorNotExecuted</code> - The reason is the <code>source</code>, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.</li>
 <li><code>AnchorUnchecked</code></li>
 <li><code>UnknownMetricChecked</code></li>
+<li><code>DeclaredKeyNotUnique</code> - A declared join key the data contradicts.</li>
+<li><code>DeclaredKeyNotCounted</code> - A declared join key no data system would count.</li>
 </ul>
 <h4 id="implements_69">Implements<a class="headerlink" href="#implements_69" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
@@ -7414,6 +7416,293 @@ This compares the SHAPE and not the labels, so two results of one width whose co
 differently are compared position by position here and reported as a
 <code>ContentDisagreement::Columns</code> there. And a caller reaching only for this one gets no
 multiplicity check, because a positional comparison of equal-height results cannot express one.</p>
+<h3 id="module-cardinality">Module <code>cardinality</code><a class="headerlink" href="#module-cardinality" title="Permanent link">&para;</a></h3>
+<p>Whether a declared join key is really unique in the table it points at.</p>
+<p>A module of its own for <code>preflight</code>'s reason - nothing in it is about a plan, a credential or
+a row - and its header carries the measurement that made the check necessary: one violated
+<code>many_to_one</code>, two topologies, two numbers, and a refusal from neither.
+What a data system answered when it was asked whether a declared join key is really unique.</p>
+<h1 id="the-defect-this-vocabulary-exists-for">The defect this vocabulary exists for<a class="headerlink" href="#the-defect-this-vocabulary-exists-for" title="Permanent link">&para;</a></h1>
+<p>A relationship declares <code>many_to_one</code>, and the whole query path spends that declaration: the
+whole-answer path renders a <code>JOIN</code> on the strength of <em>a dimension row cannot duplicate a fact
+row</em>, and a federated lookup leg renders <code>GROUP BY</code> over the columns it projects on the strength
+of the same sentence. <strong>Neither of them checks it, and the two spend it differently.</strong> Measured
+over the derived corpus in <code>crates/sutura-app/tests/differential/federated.rs</code>, with one extra
+row for a customer key the dimension table already had:</p>
+<table>
+<thead>
+<tr>
+<th>Topology</th>
+<th>June 2026, <code>recurring_revenue</code>, business only, north</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>one data system</td>
+<td><code>29138</code> - the <code>JOIN</code> matched twice and the measure was added twice</td>
+</tr>
+<tr>
+<td>two data systems</td>
+<td><code>22765</code> - the lookup leg's <code>GROUP BY</code> collapsed the pair first</td>
+</tr>
+</tbody>
+</table>
+<p><code>29138 - 22765</code> is that one customer's June revenue, counted a second time. <strong>Neither answer was
+refused</strong>, and which one a deployment gets depends on where the dimension model sits rather than
+on the question. <code>FederatedFailure::AmbiguousLink</code>
+covers half the shape and only on the federated side: it fires when the duplicate rows DISAGREE
+in a column the question projects, and the <code>GROUP BY</code> has already removed them when they agree.</p>
+<h1 id="why-the-check-is-here-rather-than-on-the-answer-path">Why the check is here rather than on the answer path<a class="headerlink" href="#why-the-check-is-here-rather-than-on-the-answer-path" title="Permanent link">&para;</a></h1>
+<p>A duplicate is invisible inside one answer's statement. What the declaration claims is a property
+of the <strong>target table</strong>, not of any one question, so the place it can be contradicted is the same
+place an anchor is: once, at boot, against the data system that holds the table. Refusing there
+makes both topologies agree - a bundle whose declaration the data contradicts is not validated,
+so neither of them serves - and the refusal names the model, the table and the column, which no
+answer-path guard could.</p>
+<h1 id="what-the-probe-carries-back-and-what-it-deliberately-does-not">What the probe carries back, and what it deliberately does not<a class="headerlink" href="#what-the-probe-carries-back-and-what-it-deliberately-does-not" title="Permanent link">&para;</a></h1>
+<p>Two counts: how many non-null values of the key column the table holds, and how many of them are
+distinct. <strong>No key value ever leaves the data system</strong>, which is why the counts are the shape:
+a boot refusal is written to an operator's log, and a duplicated dimension key printed there is
+source data copied into a sink nobody scoped for it. The counts locate the table; the operator
+queries it.</p>
+<p>Nulls are excluded from both counts, and that is a correctness decision rather than a
+convenience: a null key matches nothing on either side of any join, so two null target rows
+duplicate no fact row. Counting them would report a violation that cannot change an answer.</p>
+<p><strong>The links here are <code>crate::</code>-prefixed</strong> for the reason <code>preflight</code>'s header
+gives: the API reference pages are generated from these comments verbatim.</p>
+<h4 id="struct-declaredkey"><code>struct DeclaredKey</code><a class="headerlink" href="#struct-declaredkey" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-466-1"><a id="__codelineno-466-1" name="__codelineno-466-1" href="#__codelineno-466-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DeclaredKey</span><span class="o">&lt;'</span><span class="na">a</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>One declared join key, resolved to the table and column a data system can be asked about.</p>
+<p><strong>A newtype that parses, and what it parses away is asking the wrong question.</strong> It is
+constructible only from a <code>Relationship</code> whose <code>JoinType</code> promises that the TARGET column is
+unique, resolved against the <code>Definitions</code> that carry the target model - so a probe over a
+<code>one_to_many</code> target, or over a column the model does not declare, is unrepresentable rather than
+refused later. An adapter that holds one of these knows the question is worth asking.</p>
+<p>It borrows, because every part of it is already owned by the pinned bundle the boot path is
+holding, and a probe outlives nothing.</p>
+<h5 id="methods_85">Methods<a class="headerlink" href="#methods_85" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-467-1"><a id="__codelineno-467-1" name="__codelineno-467-1" href="#__codelineno-467-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">ColumnName</span>
+</span></code></pre></div>
+<p>The column whose values are meant to be distinct.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-468-1"><a id="__codelineno-468-1" name="__codelineno-468-1" href="#__codelineno-468-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">ModelName</span>
+</span></code></pre></div>
+<p>The model the operator opens to fix it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-469-1"><a id="__codelineno-469-1" name="__codelineno-469-1" href="#__codelineno-469-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">promised_by</span><span class="p">(</span><span class="n">relationship</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">Relationship</span><span class="p">,</span><span class="w"> </span><span class="n">definitions</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">Definitions</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NoDeclaredKey</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The key one relationship promises is unique, or why it promises none.</p>
+<p><strong>The whole of the join-type decision is here</strong>, so no adapter and no boot path repeats it:
+<code>JoinType::may_duplicate_rows</code> is the one question, and both <code>one_to_one</code> and <code>many_to_one</code>
+answer it the same way - each of them says the target column identifies at most one row.
+<code>one_to_one</code> promises the origin column does too, and <strong>this does not check that half</strong>; see
+the module header's limits.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-470-1"><a id="__codelineno-470-1" name="__codelineno-470-1" href="#__codelineno-470-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">RelationshipName</span>
+</span></code></pre></div>
+<p>The relationship whose declaration this probe would contradict.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-471-1"><a id="__codelineno-471-1" name="__codelineno-471-1" href="#__codelineno-471-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">SourceName</span>
+</span></code></pre></div>
+<p>The data system that holds the table, which is the adapter this is asked of.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-472-1"><a id="__codelineno-472-1" name="__codelineno-472-1" href="#__codelineno-472-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">QualifiedTable</span>
+</span></code></pre></div>
+<p>The table to count over.</p>
+<h5 id="implements_128">Implements<a class="headerlink" href="#implements_128" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-nodeclaredkey"><code>enum NoDeclaredKey</code><a class="headerlink" href="#enum-nodeclaredkey" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-473-1"><a id="__codelineno-473-1" name="__codelineno-473-1" href="#__codelineno-473-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NoDeclaredKey</span>
+</span></code></pre></div>
+<p>Why a declared relationship yields no key to probe.</p>
+<p>Typed, one variant per branch, because two of the three are <em>nothing to ask</em> and one is a bundle
+that would not have loaded - and a caller that collapsed them would report a consistent catalog
+as an unchecked one.</p>
+<h5 id="variants_67">Variants<a class="headerlink" href="#variants_67" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>MayDuplicateRows</code> - The join type promises nothing about the target column.</li>
+<li><code>ModelUndefined</code> - The target model is not in these definitions.</li>
+<li><code>ColumnNotOnModel</code> - The target model does not declare the column the relationship joins on. Unreachable for <code>ModelUndefined</code>'s reason, and reported for it.</li>
+</ul>
+<h5 id="implements_129">Implements<a class="headerlink" href="#implements_129" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="struct-keycounts"><code>struct KeyCounts</code><a class="headerlink" href="#struct-keycounts" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-474-1"><a id="__codelineno-474-1" name="__codelineno-474-1" href="#__codelineno-474-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">KeyCounts</span>
+</span></code></pre></div>
+<p>How many non-null key values a table holds, and how many of them are distinct.</p>
+<p><strong>Parsed rather than validated:</strong> neither <code>distinct &gt; rows</code> nor rows-with-no-distinct-value is
+producible by one column of one table, so a pair in either shape is a defect in an adapter's
+mapping and not a fact about data. The field pair is private and <code>parse</code> is
+the only way in, which is what makes the subtraction in
+<code>duplicated</code> safe: <code>rows &gt;= distinct</code> holds for every constructible
+value. It is written <code>saturating_sub</code> anyway, and the reason is the sink rather than the
+arithmetic - this number is rendered into a boot refusal an operator reads, and a panic reachable
+from a catalog-driven path is the one outcome worse than a wrong figure.</p>
+<h5 id="methods_86">Methods<a class="headerlink" href="#methods_86" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-475-1"><a id="__codelineno-475-1" name="__codelineno-475-1" href="#__codelineno-475-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">distinct</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>How many of them are distinct.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-476-1"><a id="__codelineno-476-1" name="__codelineno-476-1" href="#__codelineno-476-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">duplicated</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>How many rows are surplus to the keys they carry.</p>
+<p>Not <em>how many keys are duplicated</em> - one key on three rows contributes two - and the
+difference is worth the sentence, because this number goes into a refusal an operator reads.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-477-1"><a id="__codelineno-477-1" name="__codelineno-477-1" href="#__codelineno-477-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_unique</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Does the data hold the declaration up?</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-478-1"><a id="__codelineno-478-1" name="__codelineno-478-1" href="#__codelineno-478-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">,</span><span class="w"> </span><span class="n">distinct</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ImpossibleCounts</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses the pair a data system answered with.</p>
+<p><strong>Both impossible pairs, not one.</strong> <code>distinct &gt; rows</code> is the obvious half; <code>rows &gt; 0</code> with no
+distinct value is the half this originally accepted, and accepting it is what let a refusal
+describe a table that cannot exist. An empty column - <code>0</code> over <code>0</code> - is neither, and is a
+perfectly ordinary answer for a dimension table whose key column is entirely null.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-479-1"><a id="__codelineno-479-1" name="__codelineno-479-1" href="#__codelineno-479-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>How many non-null key values the table holds.</p>
+<h5 id="implements_130">Implements<a class="headerlink" href="#implements_130" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-impossiblecounts"><code>enum ImpossibleCounts</code><a class="headerlink" href="#enum-impossiblecounts" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-480-1"><a id="__codelineno-480-1" name="__codelineno-480-1" href="#__codelineno-480-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ImpossibleCounts</span>
+</span></code></pre></div>
+<p>Why two counts are not a <code>KeyCounts</code>.</p>
+<p><strong>Two variants, because there are two impossible pairs and only one of them was refused at
+first.</strong> Both are arithmetic about one column of one table rather than anything about data, so
+both mean a broken adapter mapping; and a pair that reached <code>KeyNotUnique</code> would print a table
+that cannot exist into an operator's log.</p>
+<h5 id="variants_68">Variants<a class="headerlink" href="#variants_68" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>MoreDistinctThanRows</code> - More distinct values than values. One column of one table cannot produce this.</li>
+<li><code>NoDistinctValue</code> - Values, and none of them distinct. A non-empty column has at least one distinct value, so this is exactly as impossible as the pair above and was exactly as constructible: <code>parse(41, 0)</code> answered <code>Ok</code>, and the <code>KeyNotUnique</code> it licensed described a table with forty-one rows under no key at all. Review found it; <em>newtypes that parse</em> is the rule it broke.</li>
+</ul>
+<h5 id="implements_131">Implements<a class="headerlink" href="#implements_131" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="struct-keynotunique"><code>struct KeyNotUnique</code><a class="headerlink" href="#struct-keynotunique" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-481-1"><a id="__codelineno-481-1" name="__codelineno-481-1" href="#__codelineno-481-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">KeyNotUnique</span>
+</span></code></pre></div>
+<p>A declared key the data contradicts, and the whole of what a refusal about one says.</p>
+<p><strong>Constructible only from counts that are NOT unique</strong>, so a refusal describing a table that
+holds its declaration up is unrepresentable rather than a branch a caller could take by mistake.
+<code>found</code> is the only way in and it returns <code>None</code> for the clean case.</p>
+<p><strong>A struct rather than six fields on a <code>NotValidated</code> variant</strong>, and boxed there:
+<code>result_large_err</code> is deliberately left on in this workspace - <em>a service whose public surface is
+<code>ToolOutcome::Refusal</code> wants to know when the error half of every <code>Result</code> grows</em> - and six
+parsed names inline made that <code>Result</code> the widest thing the boot path returns.</p>
+<p><strong>It carries no key value</strong>, which is the module header's decision: this is rendered into an
+operator's log, and a duplicated dimension key printed there is source data copied into a sink
+nobody scoped for it. The counts locate the table; the operator queries it.</p>
+<h5 id="methods_87">Methods<a class="headerlink" href="#methods_87" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-482-1"><a id="__codelineno-482-1" name="__codelineno-482-1" href="#__codelineno-482-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ColumnName</span>
+</span></code></pre></div>
+<p>The column that was meant to identify at most one row.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-483-1"><a id="__codelineno-483-1" name="__codelineno-483-1" href="#__codelineno-483-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">counts</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">KeyCounts</span>
+</span></code></pre></div>
+<p>What the data system counted.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-484-1"><a id="__codelineno-484-1" name="__codelineno-484-1" href="#__codelineno-484-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">found</span><span class="p">(</span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DeclaredKey</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">counts</span><span class="p">:</span><span class="w"> </span><span class="nc">KeyCounts</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The violation these counts show, or <code>None</code> where they hold the declaration up.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-485-1"><a id="__codelineno-485-1" name="__codelineno-485-1" href="#__codelineno-485-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ModelName</span>
+</span></code></pre></div>
+<p>The model an operator opens to fix the declaration.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-486-1"><a id="__codelineno-486-1" name="__codelineno-486-1" href="#__codelineno-486-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RelationshipName</span>
+</span></code></pre></div>
+<p>The relationship whose declaration the data contradicts.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-487-1"><a id="__codelineno-487-1" name="__codelineno-487-1" href="#__codelineno-487-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">QualifiedTable</span>
+</span></code></pre></div>
+<p>The table an operator queries to find the duplicates.</p>
+<h5 id="implements_132">Implements<a class="headerlink" href="#implements_132" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="struct-keynotcounted"><code>struct KeyNotCounted</code><a class="headerlink" href="#struct-keynotcounted" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-488-1"><a id="__codelineno-488-1" name="__codelineno-488-1" href="#__codelineno-488-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">KeyNotCounted</span>
+</span></code></pre></div>
+<p>A declared key no data system would count, and the whole of what a refusal about one says.</p>
+<p><strong>The adapter's own error, flattened at the one boundary where it is still typed.</strong> <code>W::Error</code> is
+a generic parameter and this crate must not hold one, so the message and its cause chain arrive
+as text - the same lossless-at-that-boundary move
+<code>NotExecutedReason::Failed</code> makes for an anchor's
+adapter error, and for its reason. The chain is what carries the data system's own complaint, and
+a permission failure names the grant in it.</p>
+<p><strong>There is deliberately no <em>refused</em> / <em>unreachable</em> split here</strong>, and that is a measurement
+rather than a shortcut: the port's one predicate for that question,
+<code>Warehouse::preflight_was_refused</code>, is
+overridden by exactly one adapter, and that adapter takes this method's default - so a typed
+split would be a control that cannot fire on any adapter that counts. What is done instead is to
+refuse in BOTH cases and print the cause, which is loud for either and honest about neither being
+told apart. Splitting them wants that predicate implemented by an adapter that can tell a <code>403</code>
+from a timeout, and that is a slice of its own.</p>
+<h5 id="methods_88">Methods<a class="headerlink" href="#methods_88" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-489-1"><a id="__codelineno-489-1" name="__codelineno-489-1" href="#__codelineno-489-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ModelName</span>
+</span></code></pre></div>
+<p>The model whose table could not be counted.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-490-1"><a id="__codelineno-490-1" name="__codelineno-490-1" href="#__codelineno-490-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DeclaredKey</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">message</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">chain</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The failure one probe met, from the key it was asked about and the adapter's flattened error.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-491-1"><a id="__codelineno-491-1" name="__codelineno-491-1" href="#__codelineno-491-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RelationshipName</span>
+</span></code></pre></div>
+<p>The relationship whose declaration went unchecked.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-492-1"><a id="__codelineno-492-1" name="__codelineno-492-1" href="#__codelineno-492-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span>
+</span></code></pre></div>
+<p>The data system that would not answer, which is where an operator looks.</p>
+<h5 id="implements_133">Implements<a class="headerlink" href="#implements_133" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-countsnotread"><code>enum CountsNotRead</code><a class="headerlink" href="#enum-countsnotread" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-493-1"><a id="__codelineno-493-1" name="__codelineno-493-1" href="#__codelineno-493-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CountsNotRead</span>
+</span></code></pre></div>
+<p>Why a probe's result set is not a pair of counts.</p>
+<p>Every variant is a defect in an adapter or in the rendering, never anything about the data: the
+probe projects exactly two aggregates over one table and no group, so one row of two integers is
+the only shape it can have. Typed rather than one message so that whoever reads a boot log knows
+which half of the mapping is wrong.</p>
+<h5 id="variants_69">Variants<a class="headerlink" href="#variants_69" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>NoColumn</code> - The result carries no column under the label the probe projects.</li>
+<li><code>NotOneRow</code> - Two aggregates over no group produce one row.</li>
+<li><code>NotACount</code> - A count came back as something other than an integer.</li>
+<li><code>NegativeCount</code> - A count came back negative, which no <code>COUNT</code> produces.</li>
+<li><code>Impossible</code> - The pair is arithmetically impossible.</li>
+</ul>
+<h5 id="implements_134">Implements<a class="headerlink" href="#implements_134" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="enum-keyuniqueness"><code>enum KeyUniqueness</code><a class="headerlink" href="#enum-keyuniqueness" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-494-1"><a id="__codelineno-494-1" name="__codelineno-494-1" href="#__codelineno-494-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">KeyUniqueness</span>
+</span></code></pre></div>
+<p>What a data system said about a declared key.</p>
+<p><strong><code>Self::NotAsked</code> is not <code>Self::Counted</code> with a clean pair, and no caller can read it as
+one.</strong> It is <code>TablesPresent::NotAsked</code>'s argument
+applied to a second boot question: the port's default has to be <em>nothing to report</em>, because an
+adapter with no cheap way to count must not be forced to answer, and the only answers available
+to one that cannot look are nothing-to-report and a lie. A default claiming uniqueness would be
+that lie, told at boot, about the one declaration the whole join path spends.</p>
+<p><strong>The third outcome is an <code>Err</code> from the port rather than a variant here</strong>, for the reason
+<code>TablesPresent</code> gives: <em>could not count</em> and <em>the data
+contradicts the declaration</em> must not collapse into one message, and the adapter's own error type
+is where the reason lives in the detail an operator needs.</p>
+<h5 id="variants_70">Variants<a class="headerlink" href="#variants_70" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>NotAsked</code> - The adapter did not count. The port's default.</li>
+<li><code>Counted</code> - The adapter counted, and this is what it found.</li>
+</ul>
+<h5 id="methods_89">Methods<a class="headerlink" href="#methods_89" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-495-1"><a id="__codelineno-495-1" name="__codelineno-495-1" href="#__codelineno-495-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">read</span><span class="p">(</span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RowSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">CountsNotRead</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the two counts off a probe's result set.</p>
+<p><strong>One function, in the domain, called by every SQL adapter and by the engine</strong>, so the three
+implementations of the port cannot disagree about which column is which - the same argument
+<code>labels</code> makes for the federated legs. It takes a <code>RowSet</code> because
+that is what every adapter already produces; nothing here knows what a statement is.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-496-1"><a id="__codelineno-496-1" name="__codelineno-496-1" href="#__codelineno-496-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">was_asked</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether the adapter looked at all.</p>
+<p>Read where a caller has to tell <em>nobody counted</em> from <em>counted and clean</em>, which is the whole
+reason the two are different values.</p>
+<h5 id="implements_135">Implements<a class="headerlink" href="#implements_135" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="constant-rows_label"><code>constant ROWS_LABEL</code><a class="headerlink" href="#constant-rows_label" title="Permanent link">&para;</a></h4>
+<p>The label the row count is projected under.</p>
+<p><strong>A leading digit, which is the same namespace trick
+<code>InternalLabel</code> is built on and for the same reason:</strong>
+<code>crate::model</code>'s identifier parser refuses a leading digit as a first character, so no
+<code>ColumnName</code> a catalog can declare collides with it. Here that matters less than it does for a
+leg - the probe projects nothing but these two - but the two labels are read back by label rather
+than by position, and a label that no column can shadow is what makes reading by label safe.</p>
+<h4 id="constant-distinct_label"><code>constant DISTINCT_LABEL</code><a class="headerlink" href="#constant-distinct_label" title="Permanent link">&para;</a></h4>
+<p>The label the distinct count is projected under. See <code>ROWS_LABEL</code>.</p>
 
 
 
