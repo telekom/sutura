@@ -264,6 +264,15 @@ fn decide(inspected: &Inspected) -> Decision {
     }
 }
 
+/// The files this gate's rule is about: the ones whose language its lexer knows.
+///
+/// A [`repo::Scope`], so it is a bare `fn` with nothing captured - it cannot count subjects and it
+/// is not handed the content, and `language_of` is a pure function of the path either way. On what
+/// a `Scope` is still free to do, see [`repo::Scope`]'s own limit.
+fn in_a_known_language(rel: &str) -> bool {
+    scan::language_of(rel).is_some()
+}
+
 /// The gate.
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let census = match repo::all_files() {
@@ -273,10 +282,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
-    // Cloned before `inspect` consumes the census, because the closure needs a root to join to
-    // and `Census` deliberately hands out no iterator to carry one alongside.
-    let root = census.root().to_path_buf();
-
     let mut offered = 0_usize;
     let mut read: Vec<String> = Vec::new();
     let mut lines = (0_usize, 0_usize);
@@ -291,21 +296,25 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // which is precisely the distinction `telekom/sutura#405`'s property 4 asks for and which only
     // three of the registered gates manage. So the SAME anchor set, `scan::MUST_READ`, is still
     // checked - carried by `Inspected` and reported by `decide` AFTER a violation. Same subjects,
-    // same strictness, and the precedence the issue requires.
-    let counted = census.inspect(&[], |rel| {
+    // same strictness, and the precedence the issue requires. **That is unchanged by the census
+    // performing the read**: the read moved, the order of the two rules did not.
+    //
+    // What DID move, and it is the direction this gate wanted: the unreadable-file arm used to be
+    // a `Looked::Unreachable` this closure spelled, which meant a mis-labelled `OutOfScope` was
+    // the one way to hide it. The read is the census's now, so there is no arm to mis-label - the
+    // refusal is `Refusal::Unreachable` from inside `inspect`, and it still fails closed on ONE
+    // unreadable file rather than on every file being unreadable, which is the difference
+    // `sutura/gates` records three times.
+    let scope: repo::Scope = in_a_known_language;
+    let counted = census.inspect(&[], scope, |rel, bytes| {
+        // Re-derived rather than carried: `Scope` is a bare `fn` pointer, so it cannot hand a
+        // value forward, and `language_of` is a pure function of the path.
         let Some(language) = scan::language_of(rel) else {
-            return repo::Looked::OutOfScope;
+            return;
         };
-        // FAIL CLOSED ON ONE UNREADABLE FILE, not only on every file being unreadable.
-        // `sutura/gates` records that exact difference three times. It is `Looked::Unreachable`
-        // rather than this gate's own `eprintln!` now, so the refusal is the census's and a
-        // mis-labelled `OutOfScope` would be the only way to hide it - which is review's business,
-        // as that type's own header says.
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            return repo::Looked::Unreachable(format!(
-                "could not read `{rel}`, a file in this gate's scope - a verdict over a subset"
-            ));
-        };
+        // Lossy rather than `read_to_string`, which turned a file that is not valid UTF-8 into an
+        // `Unreachable` - a file that WAS reached. A subject the census opened is judged.
+        let text = String::from_utf8_lossy(bytes);
         read.push(String::from(rel));
         let (raw, lexed) = scan::covered(language, &text);
         lines = (lines.0.saturating_add(raw), lines.1.saturating_add(lexed));
@@ -316,7 +325,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             Some((_, count)) => *count = count.saturating_add(1),
             None => languages.push((label, 1)),
         }
-        repo::Looked::Judged
     });
     // The file half of the witness is the census's now, and it is STRICTLY STRONGER than the law
     // it replaces: this gate's own per-file law compared two numbers it derived itself, so it could
