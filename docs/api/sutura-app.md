@@ -348,7 +348,7 @@ means rather than a field added to one.
 
 #### Variants
 
-- `Compile`
+- `Compile` - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.
 - `Warehouse`
 - `Broker` - The credential broker did not answer, so nothing could be executed as the asking subject.
 - `Miswired` - Credentials came back that do not fit the request: a wiring defect on this side.

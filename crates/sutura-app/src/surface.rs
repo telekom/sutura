@@ -146,7 +146,15 @@ pub type ErasedCause = Box<dyn core::error::Error + Send + Sync + 'static>;
 /// means rather than a field added to one.
 #[derive(Debug, thiserror::Error)]
 pub enum SurfaceFailure {
-    #[error("the question could not be compiled against the pinned bundle")]
+    /// The pinned bundle would not compile this question, or the splitter built a two-source plan
+    /// this workspace could not then assemble.
+    ///
+    /// **The message names neither, and that is deliberate since `telekom/sutura#338`.** It used to
+    /// say *against the pinned bundle*, which was true of the only cause it could carry and stopped
+    /// being true when `sutura_semantic::CompileFailure` gained its second arm: an assembly failure
+    /// is a defect in this workspace's own wiring, not a bundle that does not hold what it names.
+    /// The cause is kept as a `#[source]` and says which, so the sentence does not have to guess.
+    #[error("the question could not be compiled")]
     Compile {
         #[source]
         cause: ErasedCause,

@@ -354,7 +354,7 @@ fn failed(failure: &SurfaceFailure) -> Failure {
             Failure::Unavailable
         }
         SurfaceFailure::Compile { ref cause } => {
-            tracing::error!(error = %cause, chain = ?chain, "the pinned bundle did not compile this question");
+            tracing::error!(error = %cause, chain = ?chain, "this deployment could not compile this question");
             Failure::Internal
         }
         // A different code from `Unavailable`, and `docs/adr/0014` asks for exactly that: a caller

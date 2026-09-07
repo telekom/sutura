@@ -573,7 +573,7 @@ fn produced(outcome: &sutura_domain::query::ToolOutcome) -> CallToolResult {
 fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
     tracing::error!(error = %failure, causes = ?cause_chain(failure), "the agent surface could not answer");
     failed(match *failure {
-        SurfaceFailure::Compile { .. } => "this deployment could not compile the question against its own bundle",
+        SurfaceFailure::Compile { .. } => "this deployment could not compile the question",
         SurfaceFailure::Warehouse { .. } => "the data system did not answer",
         // Written for an agent: what it needs is whether waiting helps. It does here, and it does
         // not for the arm below - which is why the two are separate sentences rather than one about
