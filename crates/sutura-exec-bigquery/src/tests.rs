@@ -585,8 +585,16 @@ fn a_listing_short_of_its_own_total_does_not_report_the_table_it_never_named_as_
     let TablesPresent::Unaccounted { tables, shortfall } = &answered else {
         panic!("a listing short of its own total leaves the table unaccounted for, and it said {answered:?}");
     };
-    assert_eq!(tables.to_string(), "dim_customer", "the outcome names the table nothing was said about");
-    assert_eq!(shortfall.get(), 3, "and how many tables the listing left out of its own total");
+    assert_eq!(
+        tables.to_string(),
+        "dim_customer",
+        "the outcome names the table nothing was said about"
+    );
+    assert_eq!(
+        shortfall.get(),
+        3,
+        "and how many tables the listing left out of its own total"
+    );
     assert!(
         answered.absent().is_none(),
         "nothing here says the dataset does not hold the table: {answered:?}"

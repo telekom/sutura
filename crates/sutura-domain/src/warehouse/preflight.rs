@@ -324,7 +324,11 @@ mod tests {
             unaccounted.absent().is_none(),
             "an answer that did not reach a table has not said the table is missing: {unaccounted:?}"
         );
-        assert_ne!(unaccounted, TablesPresent::of(asked), "and it is not the absent answer either");
+        assert_ne!(
+            unaccounted,
+            TablesPresent::of(asked),
+            "and it is not the absent answer either"
+        );
         assert!(unaccounted.was_asked(), "the data system was asked and it did answer");
     }
 
