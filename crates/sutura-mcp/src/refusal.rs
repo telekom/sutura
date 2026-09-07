@@ -275,13 +275,17 @@ mod tests {
     /// The numbers a caller needs in order to ask a narrower question survive into the sentence.
     #[test]
     fn a_bound_that_was_exceeded_says_what_the_bound_is() {
+        // THE PHRASES, not the numbers. What this cell means is that each number arrives in its own
+        // ROLE - the one asked for, and the bound - and presence cannot tell those apart. An earlier
+        // round of this fix argued exactly that for the dimensions line below while clearing THIS
+        // line on probability grounds: `9000` and `3653` are four characters each and cannot land by
+        // accident, which is true and is not the point. Swapping the two in the renderer left both
+        // present and the assertion green.
         let (_, detail) = refused(&RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 });
-        assert!(detail.contains("9000") && detail.contains("3653"), "{detail}");
-        // THE PHRASES, not the two digits. `9000` and `3653` above are four characters each and
-        // could not land in this sentence by accident; `'5'` and `'4'` are one character each, and
-        // what the cell means is that each number arrives in its own ROLE - the one asked for, and
-        // the bound. Two bare digits cannot tell those apart, and would still pass if the sentence
-        // swapped them.
+        assert!(
+            detail.contains("the period asked about is 9000 days") && detail.contains("at most 3653 are allowed"),
+            "{detail}"
+        );
         let (_, detail) = refused(&RefusalReason::TooManyDimensions { requested: 5, limit: 4 });
         assert!(
             detail.contains("5 dimensions were asked for") && detail.contains("at most 4 are allowed"),

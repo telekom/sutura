@@ -510,8 +510,9 @@ fn a_symmetric_key_in_a_key_set_is_refused_at_load() {
 /// random base64url and `kid` is three characters of that 64-character alphabet, so
 /// `document.contains("kid")` over a 43-character coordinate is a coin flip with roughly forty
 /// positions to land in - which is how the assertion below failed once, on a real key set naming no
-/// key at all. `a_coordinate_spelling_the_member_name_still_names_no_key` pins that document, so
-/// rewriting this back into a substring test is red rather than intermittent.
+/// key at all. That document is pinned as the second fixture in
+/// `a_key_set_this_deployment_could_not_look_up_is_refused_rather_than_partly_read`, so rewriting
+/// this back into a substring test is red rather than intermittent.
 fn any_key_carries_an_id(document: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(document)
         .expect("a key set fixture is JSON")
@@ -547,21 +548,20 @@ fn a_key_set_this_deployment_could_not_look_up_is_refused_rather_than_partly_rea
         KeySet::parse("not json").expect_err("prose is not a key set"),
         InvalidKeySet::NotAJwkSet { .. }
     ));
-}
 
-#[test]
-fn a_coordinate_spelling_the_member_name_still_names_no_key() {
-    // The document the test above failed on once, pinned rather than described. Its `y` is the real
-    // coordinate `rcgen` generated that day - `...Ukidb3c...` holds `kid` - and the key set names no
-    // key whatever, which is exactly what the refusal is about. `x` is the PUBLIC vector from
-    // RFC 7515 A.3 - named rather than left as "a stand-in", because a reader asking where a
-    // coordinate in a public repository came from should not have to leave the file. Neither half is
-    // a credential and neither has to be valid: `KeySet::parse` reaches `KeyWithoutAnId` before any
-    // coordinate is decoded, so the key material is not what this cell is measuring.
+    // AND THE DOCUMENT THIS CELL ONCE FAILED ON, pinned rather than described - **the evidence a
+    // flake cannot supply by re-running.** `contains("kid")` is TRUE here and `any_key_carries_an_id`
+    // is FALSE, so the two forms disagree on one real document and the substring one is wrong. Its
+    // `y` is the coordinate `rcgen` produced that day: `...Ukidb3c...` spells the member name while
+    // the key set names no key at all. `x` is the PUBLIC vector from RFC 7515 A.3, named rather than
+    // left as "a stand-in" because a reader asking where a coordinate in a public repository came
+    // from should not have to leave the file; neither half has to be valid, since `KeySet::parse`
+    // reaches `KeyWithoutAnId` before any coordinate is decoded.
     //
-    // **This is the evidence a flake cannot supply by re-running.** `contains("kid")` is TRUE here
-    // and `any_key_carries_an_id` is FALSE, so the two assertions disagree on one real document, and
-    // the substring one is the one that is wrong.
+    // A SECOND FIXTURE, NOT A SECOND `#[test]`, and that is the gate's answer rather than a
+    // preference: the whole `#383` change lives in this file, so a test of its own is one
+    // `test-causality` correctly reports as green against base - there is no implementation change
+    // for it to be red against. Here it is what it actually is, another document the refusal holds.
     let anonymous = concat!(
         r#"{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","#,
         r#""x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPTZmuNc","#,

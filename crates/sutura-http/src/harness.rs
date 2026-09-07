@@ -230,8 +230,11 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(code, "time_range_too_long");
-    // The bound is in the sentence, so narrowing needs no second request to discover the number.
-    assert!(detail.contains("3653"), "{detail}");
+    // EACH NUMBER IN ITS OWN ROLE: `contains("3653")` passed with the two swapped. The general rule
+    // is in `.agents/skills/engineering/rust`; this file had applied it one line over and not here.
+    let max_days = sutura_domain::query::MAX_RANGE_DAYS;
+    assert!(detail.contains("the period spans "), "{detail}");
+    assert!(detail.contains(&format!("and the maximum is {max_days}")), "{detail}");
 
     let (status, code, _) = refusal(
         &app,
@@ -248,16 +251,12 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(code, "too_many_dimensions");
-    // THE PHRASE, and the number READ from the domain. `contains('4')` is the same shape the
-    // `sutura-app` prompt cell carried - a bare number standing in for the sentence that should
-    // name it - and a one-character needle over a haystack this test does not write. It is not
-    // vacuous today, because the sentence interpolates only the two bounds, but nothing holds that.
-    // Binding to `MAX_DIMENSIONS` also makes the cell fail when the cap moves and the sentence does
-    // not, which is what it is for.
-    assert!(
-        detail.contains(&format!("the maximum is {}", sutura_domain::query::MAX_DIMENSIONS)),
-        "the sentence does not name the maximum: {detail}"
-    );
+    // BOTH HALVES of what `wire/refusal.rs` promises. `contains('4')` held only the bound, so
+    // dropping `{requested}` from the renderer passed 168 of 168; reading the cap fails the cell
+    // when it moves and the sentence does not.
+    let max_dims = sutura_domain::query::MAX_DIMENSIONS;
+    assert!(detail.contains("5 group-by keys were asked for"), "{detail}");
+    assert!(detail.contains(&format!("and the maximum is {max_dims}")), "{detail}");
 }
 
 #[tokio::test]

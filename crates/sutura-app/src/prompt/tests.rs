@@ -534,11 +534,20 @@ fn the_bounds_are_read_from_the_domain_rather_than_typed() {
     // `sutura-http`, one direction over: a needle that can land in generated material makes a
     // NEGATIVE assertion flake red and a POSITIVE one pass for the wrong reason, which is worse
     // because nothing ever reports it.
+    //
+    // SEARCHED OVER THE WORDS, not the lines. The prompt is wrapped, so a phrase can be split by a
+    // newline and its indent: with enough filler ahead of it the bullet still reads `... of at\n
+    // most 3653 days` and names the bound, while a phrase assertion over the raw text goes red. That
+    // would be a formatter reddening this cell, not a bound - the failure this whole branch is about,
+    // arrived at from the other side. Collapsing runs of whitespace makes the assertion about what
+    // the sentence SAYS; `{text}` is still what a failure prints, because the wrapped form is what a
+    // reader has to look at.
     let text = rendered(Tool::ALL, CatalogProse::Quoted, None);
-    assert!(text.contains(&format!("At most {MAX_DIMENSIONS} dimensions")), "{text}");
-    assert!(text.contains(&format!("at most {MAX_RANGE_DAYS} days")), "{text}");
+    let flowed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flowed.contains(&format!("At most {MAX_DIMENSIONS} dimensions")), "{text}");
+    assert!(flowed.contains(&format!("at most {MAX_RANGE_DAYS} days")), "{text}");
     assert!(
-        text.contains(&format!("At most {} rows", sutura_domain::plan::MAX_ROWS)),
+        flowed.contains(&format!("At most {} rows", sutura_domain::plan::MAX_ROWS)),
         "{text}"
     );
 }

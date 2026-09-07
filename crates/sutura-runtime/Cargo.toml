@@ -36,6 +36,12 @@ tracing-subscriber = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "time"] }
 
 [dev-dependencies]
+# Reading the provenance RECORD rather than its text: `announce_provenance`'s doc claims the line
+# carries paths only, and holding that means asking which FIELDS it emitted, not searching the
+# rendered bytes for a value somebody thought to look for. Already vendored, so this adds no
+# `[[package]]` to `Cargo.lock` - only an edge under `sutura-runtime`, which is the one line the lock
+# gains. Test-only: nothing shipped parses its own log.
+serde_json = { workspace = true }
 # `test-util` and nothing else, for `#[tokio::test(start_paused = true)]`. The admission window and
 # the shutdown grace period are measured in seconds, and a test that waits them out in real time
 # adds those seconds to every run of the suite while proving less: a paused clock advances only when

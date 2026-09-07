@@ -78,7 +78,11 @@ pub fn announce(settings: &Settings) {
 /// legal and still not the ones they wrote.
 ///
 /// Paths only. `ConfigLayers` has nowhere for a value to go, which is what makes this safe to log
-/// next to a tree that contains an access token.
+/// next to a tree that contains an access token. **Held by
+/// `a_configured_file_is_named_in_the_report`, which reads the record's FIELD SET** - the claim is
+/// about the line, so a second field carrying a configured value has to be what reddens it, and for
+/// one round it was not: the cell asserted `config_layers` and a field carrying the bind address
+/// rode alongside it, green.
 fn announce_provenance(settings: &Settings) {
     tracing::info!(
         config_layers = %settings.layers(),
@@ -365,6 +369,33 @@ mod tests {
             layers,
             dir.join("base.yaml").display().to_string(),
             "the provenance field names the file that was read, and nothing out of it"
+        );
+
+        // AND THE LINE, which is what the function's doc actually claims. The equality above holds
+        // one FIELD; "paths only" is a statement about the whole record, and a second field carrying
+        // `settings.server().bind()` satisfied every assertion here while putting a configured value
+        // on the line. So the record is parsed and its own fields are named: everything bunyan puts
+        // on every event is subtracted, and what may remain is exactly `config_layers`.
+        //
+        // The envelope is listed rather than derived, and that is the limit: `tracing-bunyan-
+        // formatter` deciding to emit an eleventh key reddens this cell. That is the right
+        // direction to fail - a new key on the provenance line is exactly what wants a reader.
+        let record: serde_json::Value = serde_json::from_str(recorded.trim()).expect("bunyan writes one JSON object");
+        let envelope = [
+            "v", "level", "name", "hostname", "pid", "time", "msg", "target", "line", "file",
+        ];
+        let mut carried: Vec<&str> = record
+            .as_object()
+            .expect("a bunyan record is an object")
+            .keys()
+            .map(String::as_str)
+            .filter(|key| !envelope.contains(key))
+            .collect();
+        carried.sort_unstable();
+        assert_eq!(
+            carried,
+            ["config_layers"],
+            "the provenance line carries a field that is not a path: {recorded}"
         );
     }
 
