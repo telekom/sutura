@@ -63,22 +63,22 @@ removed BEFORE the tier is touched, so a failed `dev-up` or `dev-down` leaves no
 can connect to. **A tier that is up with no discovery file is that**, and `just dev-up` again is the
 fix.
 
-**The nix Postgres tier in that state HEALS ITSELF now, and only that one.** `just dev-up` still
-serialises the whole document from the docker services it read, so a nix tier's entry goes with it
-and the postmaster survives unnamed - which used to be a `just test` whose postgres cells failed
-closed, because the wrapper asked `sutura-postgres-tier status` (the process) while the cells asked
-the file (`github.com/telekom/sutura#298`). That answer is derived from the file now: the state
-reads as *unclaimed*, `just test` republishes the entry and leaves the server running, and
-`checks.postgres-tier` holds all three arms. A `just dev-endpoint postgres` between the `dev-up` and
-the next `just test` still answers nothing.
+**Both nix tiers in that state HEAL THEMSELVES now, and `start` is the remedy for either.**
+`just dev-up` still serialises the whole document from the docker services it read, so a nix tier's
+entry goes with it and the server survives unnamed - which used to be a `just test` whose postgres
+cells failed closed, because the wrapper asked `sutura-postgres-tier status` (the process) while the
+cells asked the file (`github.com/telekom/sutura#298`). Both tiers derive that answer from the
+records now and keep a process-only guard for `start` (`github.com/telekom/sutura#324` is the same
+split for keycloak): the state reads as *unclaimed*, `start` republishes the entry over the server
+that is already there, and `checks.postgres-tier` and `checks.keycloak-tier` each hold their arms. A
+`just dev-endpoint postgres` between the `dev-up` and the next `just test` still answers nothing.
 
-**No other nix tier is healed, and for keycloak `start` is NOT the remedy** - it returns 0 having
-published nothing. Its guard is `status`, which is the process there and deliberately so (see that
-file), so over the surviving JVM it prints *already up* and returns before the `publish` on the
-other path. `just keycloak-tier stop` then `start` is what works, and it is not free: `start`
-`rm -rf`s the home, so the realm, the client secret and the OS-chosen port are all new and anything
-holding the old realm file has to re-read it. The split that would let it heal like postgres is
-`github.com/telekom/sutura#324`.
+**Keycloak has ONE arm it cannot heal, and it says so instead of returning 0.** Every secret that
+tier has is generated at `start` and written to `.sutura-dev/keycloak-realm.json` alone, so with
+that file gone there is no way back to a usable tier over the running JVM. There,
+`just keycloak-tier start` refuses and names `just keycloak-tier stop` rather than killing a live
+server by itself - a token something else obtained from that realm is valid until the JVM goes.
+The restart is not free: the realm, the client secret and the OS-chosen port are all new.
 
 **And a GREEN `just test` no longer means the tier it started came down.** A `stop` that fails keeps
 its endpoint entry and says so on standard error; the trap in `nix/with-tier.sh` runs it under
