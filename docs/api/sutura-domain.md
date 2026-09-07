@@ -6593,10 +6593,17 @@ pub fn and(self, source: SourceName, posture: SourcePosture) -> Result<Self, Leg
 A second leg, for a federated answer.
 
 Consumes and returns, so a record is built in one expression and there is no half-built state
-for something else to read. Nothing constructs a second leg today - there is no combiner - and
-the method is here because the shape of the record is what decides whether it can be added
-without moving the digest, and that is cheaper to settle now than after an answer format
-ships.
+for something else to read. The federated answer path constructs the second leg here and
+groups the two in `crate::plan::federated::FederatedPlan::combine`, so the shape of this
+record is what decides whether a leg can be added without moving the digest - which is why it
+was settled before an answer format shipped rather than after.
+
+**What stood here denied both**, was true the day it was written, and stayed on the method the
+answer path calls until somebody read the caller - republished on a page in the nav the whole
+time, because `just api` regenerates a doc comment faithfully and regeneration is not
+verification. `check-guidance` registers that wording now, and
+`xtask/src/guidance/absences.rs` is the reader for the direction a registered wording cannot
+hold: an absence nobody has got wrong yet.
 
 ```rust
 pub fn legs(&self) -> impl Iterator<Item>
