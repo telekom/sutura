@@ -13,12 +13,17 @@
 //!
 //! # Three rules
 //!
-//! * **every required context resolves to a job.** A required context that no longer REPORTS is a
-//!   permanently pending merge, which is worse than an ungated leg - it is the failure mode that
-//!   makes *just add the four legs to the required list* a bad remedy. A rename fails here instead.
+//! * **every required context resolves to a job that reports that context.** A required context
+//!   that no longer REPORTS is a permanently pending merge, which is worse than an ungated leg - it
+//!   is the failure mode that makes *just add the four legs to the required list* a bad remedy. A
+//!   rename fails here instead. **A CALLED workflow's job cannot resolve one**: its context is
+//!   prefixed by the caller's job, so its bare id is a string nothing reports, and letting it
+//!   resolve would answer *this reports* about a context that does not exist.
 //! * **every job that can report on a pull request is declared, in one section or the other.** A
 //!   new job is then a decision rather than an omission, which is the whole content of the
-//!   advisory section: it makes the status quo visible.
+//!   advisory section: it makes the status quo visible. **A workflow a gating one CALLS counts** -
+//!   its jobs report on the same pull request while its own `on:` is `workflow_call`, so the event
+//!   test alone read none of them. See [`gating_jobs`] and [`super::reach`].
 //! * **every advisory entry names a job that exists**, so an entry cannot outlive its job.
 //!
 //! # What it does NOT reach, and this one is the important limit
@@ -48,6 +53,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use super::reach;
 use crate::repo;
 
 /// The declaration. Beside `max-lines-ignore` because it is the same kind of file: gate policy a
@@ -66,10 +72,25 @@ struct Job {
     declared_as: String,
     /// The context string GitHub reports: the job's `name:` where it has one, else its id.
     context: String,
+    /// Is [`Self::context`] the whole string GitHub reports, or only part of one?
+    ///
+    /// **A property of the JOB, not of its file**, and it was per-file first, which left the
+    /// sibling of the very hole it closed. Three ways the bare string is not the whole context, and
+    /// each makes letting it resolve a `[required]` entry an answer of *this context reports* about
+    /// a string GitHub never sends - a permanently pending merge, declared green:
+    ///
+    /// * a job in a CALLED workflow reports `<caller job> / <job>`;
+    /// * a job with a `strategy:` reports `<job> (<matrix value>)` per leg and the bare name never;
+    /// * a job whose `name:` carries `${{ }}` reports the EXPANDED string, and this reader holds
+    ///   the literal text.
+    ///
+    /// Such a job is still classified - that is the point of reading it at all - it just cannot
+    /// resolve a requirement.
+    reports_its_context: bool,
 }
 
 /// Every problem. Empty means the declaration and the workflows agree.
-pub(super) fn problems(root: &Path) -> Vec<String> {
+pub(super) fn problems(root: &Path, ci: &OrdinaryCi) -> Vec<String> {
     let Ok(text) = std::fs::read_to_string(root.join(DECLARATION)) else {
         return vec![format!(
             "{DECLARATION} is not readable - it IS the record of what gates a merge"
@@ -85,7 +106,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         )];
     }
 
-    let Gating { jobs, unreadable } = gating_jobs(root);
+    let Gating { jobs, refusals } = gating_jobs(ci);
     if jobs.is_empty() {
         return vec![String::from(
             "no job in any pull-request-triggered workflow was read - the scan is broken, not the declaration",
@@ -93,11 +114,11 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     }
 
     let mut problems = Vec::new();
-    // ONE unreadable file, not all of them. The floor above fails closed only when EVERY workflow
+    // ONE unreachable file, not all of them. The floor above fails closed only when EVERY workflow
     // is unreadable, so a single dropped file was a gating job this record never classified -
     // reported in review. `crate::hook_coverage` had this right: an unreadable input is a recorded
     // failure, never a smaller scan.
-    problems.extend(unreadable);
+    problems.extend(refusals);
     for context in &required {
         if !derivable(context) {
             problems.push(format!(
@@ -105,7 +126,9 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             ));
             continue;
         }
-        if !jobs.iter().any(|job| job.context == *context) {
+        // `reports_its_context` and not merely a name match: a called workflow's job is read here
+        // so it can be CLASSIFIED, and its bare id is not a context anything reports.
+        if !jobs.iter().any(|job| job.reports_its_context && job.context == *context) {
             problems.push(format!(
                 "{DECLARATION} requires the context `{context}` and no job reports it - a required context that never reports is a PERMANENTLY PENDING merge"
             ));
@@ -117,7 +140,8 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         }
     }
     for job in &jobs {
-        let classified = required.contains(&job.context) || advisory.contains(&job.declared_as);
+        let required_by_context = job.reports_its_context && required.contains(&job.context);
+        let classified = required_by_context || advisory.contains(&job.declared_as);
         if !classified {
             problems.push(format!(
                 "`{}` can report on a pull request and {DECLARATION} classifies it as neither required nor advisory - say which, because a job nobody requires gates nothing",
@@ -157,7 +181,7 @@ fn section(text: &str, header: &str) -> BTreeSet<String> {
     entries
 }
 
-/// Every job that can report a context, and every workflow that could not be read.
+/// Every job that can report a context, and every reason that answer is over a subset.
 ///
 /// A named struct rather than a tuple, because `clippy::type_complexity` refuses the tuple - and it
 /// is right to for `crate::shipped::Reconciliation`'s reason: two `Vec`s side by side say nothing
@@ -165,35 +189,88 @@ fn section(text: &str, header: &str) -> BTreeSet<String> {
 struct Gating {
     /// Every job in a workflow that can report on a pull request or a queue entry.
     jobs: Vec<Job>,
-    /// One sentence per workflow file that could not be read at all.
-    unreadable: Vec<String>,
+    /// One sentence per workflow that could not be read, and per call the reach walk could not
+    /// follow. Both are the same failure: a file whose jobs are classified by nothing.
+    refusals: Vec<String>,
 }
 
 /// Every job in every workflow that can report a context on a pull request or a queue entry, and
-/// one sentence per workflow that could not be read.
-fn gating_jobs(root: &Path) -> Gating {
-    let mut paths = Vec::new();
-    repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"], &mut paths);
-    paths.sort();
+/// one sentence per file that could not be reached.
+///
+/// **Two ways a workflow gets here, and the second is what was missing.** A workflow whose own
+/// `on:` block names a gating event is a root. A workflow a root CALLS is one too - its jobs report
+/// `<caller> / <job>` on the same pull request - and its own `on:` is `workflow_call`, so the
+/// event test alone classified none of them: `cross-link.yml`'s legs were a job nobody had
+/// classified while this gate printed *every gating job classified*. The whole content of the
+/// advisory section is that a new job is a DECISION rather than an omission, and a called workflow
+/// was the omission.
+fn gating_jobs(ci: &OrdinaryCi) -> Gating {
+    let mut refusals = ci.unreadable.clone();
+    refusals.extend(ci.closure.drift());
     let mut jobs = Vec::new();
-    let mut unreadable = Vec::new();
-    for rel in &paths {
-        let text = match std::fs::read_to_string(root.join(rel)) {
-            Ok(text) => text,
-            Err(error) => {
-                unreadable.push(format!(
-                    "{rel} could not be read, so any job it declares is classified by nothing: {error}"
-                ));
+    for file in ci.closure.inspected().iter().filter(|file| file.is_workflow()) {
+        // A ROOT runs on its own trigger, so its job's `name:` or id IS the context. A workflow the
+        // walk only reached through a call reports `<caller job> / <job> (<value>)`, which no
+        // `jobs:` key spells - so its jobs are classified and cannot resolve a required context.
+        jobs.extend(jobs_in(file.label(), file.text(), file.is_root()));
+    }
+    Gating { jobs, refusals }
+}
+
+/// What ordinary CI is: every workflow that runs on a gating event, plus everything those call.
+///
+/// **One derivation, read by both of this gate's rules**, which is the point. The release-output
+/// refusal used to root its own walk at the literal name `ci.yml` while this half derived the set -
+/// so `docs.yml` and `security-audit.yml`, both `pull_request`-triggered, ran on every ordinary
+/// pull request outside that refusal's sight. A walk that begins at a name is the very defect the
+/// walk was added to fix, one file over.
+pub(super) struct OrdinaryCi {
+    closure: reach::Closure,
+    /// One sentence per workflow file that could not be read at all. A root nobody could read is
+    /// this reader's failure to report, not the walk's.
+    unreadable: Vec<String>,
+}
+
+impl OrdinaryCi {
+    /// Derive the roots and walk them.
+    pub(super) fn read(root: &Path) -> Self {
+        let mut paths = Vec::new();
+        repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"], &mut paths);
+        paths.sort();
+        let mut unreadable = Vec::new();
+        let mut roots = Vec::new();
+        for rel in &paths {
+            let text = match std::fs::read_to_string(root.join(rel)) {
+                Ok(text) => text,
+                Err(error) => {
+                    unreadable.push(format!(
+                        "{rel} could not be read, so any job it declares is classified by nothing: {error}"
+                    ));
+                    continue;
+                }
+            };
+            if !gates_on_an_event(&text) {
                 continue;
             }
-        };
-        if !gates_on_an_event(&text) {
-            continue;
+            let file = rel.rsplit('/').next().unwrap_or(rel);
+            roots.push(reach::Reached::workflow(file, text));
         }
-        let file = rel.rsplit('/').next().unwrap_or(rel);
-        jobs.extend(jobs_in(file, &text));
+        Self {
+            closure: reach::Closure::from_roots(root, roots),
+            unreadable,
+        }
     }
-    Gating { jobs, unreadable }
+
+    pub(super) const fn closure(&self) -> &reach::Closure {
+        &self.closure
+    }
+
+    /// One sentence per file this reader could not open, root or called alike.
+    pub(super) fn unreachable(&self) -> Vec<String> {
+        let mut out = self.unreadable.clone();
+        out.extend(self.closure.drift());
+        out
+    }
 }
 
 /// Does this workflow run on an event whose run reports a context that could gate a merge?
@@ -208,25 +285,40 @@ fn gates_on_an_event(text: &str) -> bool {
 }
 
 /// Every job in one workflow, with the context each reports.
-fn jobs_in(file: &str, text: &str) -> Vec<Job> {
+///
+/// `in_a_root` is the caller's answer - whether the workflow runs on its own trigger or only
+/// because something calls it is not readable from one job. Everything else about whether the
+/// context is the WHOLE string is read here, per job, because that is where the property lives.
+fn jobs_in(file: &str, text: &str, in_a_root: bool) -> Vec<Job> {
     let lines: Vec<&str> = text.lines().collect();
     block_keys(text, "jobs:")
         .into_iter()
-        .map(|id| Job {
-            declared_as: format!("{file}:{id}"),
+        .map(|id| {
             // A `name:` at the job's own key depth is the context GitHub reports; without one the
             // id is. Reading the wrong one would make a required context resolve to nothing.
-            context: job_name(&lines, &id).unwrap_or_else(|| id.clone()),
+            let name = job_property(&lines, &id, "name");
+            // A `strategy:` makes every leg report `<job> (<value>)`, and an expression in a
+            // `name:` is reported EXPANDED. Either way the string held here is a fragment.
+            let matrix = job_property(&lines, &id, "strategy").is_some();
+            let expanded = name.as_ref().is_some_and(|n| n.contains("${{"));
+            Job {
+                declared_as: format!("{file}:{id}"),
+                context: name.unwrap_or_else(|| id.clone()),
+                reports_its_context: in_a_root && !matrix && !expanded,
+            }
         })
         .collect()
 }
 
-/// The `name:` of one job, if it declares one.
+/// The value of one key at a job's own depth, if the job declares it.
 ///
 /// Read at the job's key depth only - a `name:` two levels in is a STEP's, and every step has one,
-/// so the first `name:` below the job key is usually not the job's.
-fn job_name(lines: &[&str], id: &str) -> Option<String> {
+/// so the first `name:` below the job key is usually not the job's. A key with no inline value,
+/// `strategy:` being the one this gate asks about, answers `Some("")`: the question there is
+/// whether it is DECLARED.
+fn job_property(lines: &[&str], id: &str, key: &str) -> Option<String> {
     let opener = format!("{id}:");
+    let wanted = format!("{key}:");
     let mut inside = false;
     for raw in lines {
         let trimmed = raw.trim_start();
@@ -239,13 +331,13 @@ fn job_name(lines: &[&str], id: &str) -> Option<String> {
             continue;
         }
         if indent <= JOB_INDENT {
-            // The next job, or the end of the block: this one declared no `name:`.
+            // The next job, or the end of the block: this one declared no such key.
             return None;
         }
         if indent == JOB_INDENT.saturating_add(2)
-            && let Some(name) = trimmed.strip_prefix("name:")
+            && let Some(value) = trimmed.strip_prefix(wanted.as_str())
         {
-            return Some(String::from(name.trim().trim_matches('"').trim_matches('\'')));
+            return Some(String::from(value.trim().trim_matches('"').trim_matches('\'')));
         }
     }
     None
@@ -329,7 +421,7 @@ mod tests {
 
     #[test]
     fn the_context_is_the_jobs_own_name_where_it_has_one() {
-        let jobs = super::jobs_in("ci.yml", WORKFLOW);
+        let jobs = super::jobs_in("ci.yml", WORKFLOW, true);
         let ci = jobs.first().expect("the ci job");
         assert_eq!(ci.declared_as, "ci.yml:ci");
         // NOT the step's name, which is the one a naive first-match would return.
@@ -405,15 +497,133 @@ mod tests {
         // `unreadable.yml` would not do: `repo::collect_files` recurses into one rather than
         // collecting it, so the scan would never reach it and the test would prove nothing.
         std::fs::write(workflows.join("unreadable.yml"), [0xff_u8, 0xfe, 0xfd]).expect("the unreadable workflow");
-        let read = super::gating_jobs(&scratch);
+        let read = super::gating_jobs(&super::OrdinaryCi::read(&scratch));
         assert_eq!(read.jobs.len(), 2, "the readable file is still read");
-        assert_eq!(read.unreadable.len(), 1, "{:?}", read.unreadable);
+        assert_eq!(read.refusals.len(), 2, "{:?}", read.refusals);
         assert!(
-            read.unreadable
-                .first()
-                .is_some_and(|line| line.contains("classified by nothing")),
+            read.refusals.iter().any(|line| line.contains("classified by nothing")),
             "{:?}",
-            read.unreadable
+            read.refusals
+        );
+        // AND the call the readable file makes: `cross-link.yml` is not in this scratch tree, so
+        // the walk cannot open it and says so rather than classifying a smaller set of jobs.
+        assert!(
+            read.refusals.iter().any(|line| line.starts_with("UNFOLLOWED CALL:")),
+            "{:?}",
+            read.refusals
+        );
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+    }
+
+    #[test]
+    fn a_job_in_a_called_workflow_is_classified_by_this_record_too() {
+        // THE HOLE THIS CLOSES. A called workflow's own `on:` is `workflow_call`, so the event
+        // test read none of its jobs while its legs reported on every pull request. Over a scratch
+        // tree whose declaration classifies the CALLER and not the called job.
+        let scratch = std::env::temp_dir().join(format!("sutura-called-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        std::fs::create_dir_all(scratch.join("devco")).expect("the devco directory");
+        std::fs::write(
+            workflows.join("ci.yml"),
+            concat!(
+                "on:\n  pull_request:\njobs:\n",
+                "  ci:\n    runs-on: ubuntu-latest\n",
+                "  cross:\n    uses: ./.github/workflows/cross-link.yml\n"
+            ),
+        )
+        .expect("the caller");
+        std::fs::write(
+            workflows.join("cross-link.yml"),
+            "on:\n  workflow_call:\njobs:\n  link:\n    runs-on: ubuntu-latest\n",
+        )
+        .expect("the called workflow");
+        std::fs::write(
+            scratch.join(super::DECLARATION),
+            "[required]\nci\n\n[advisory]\nci.yml:cross\n",
+        )
+        .expect("the declaration");
+
+        let problems = super::problems(&scratch, &super::OrdinaryCi::read(&scratch));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems
+                .first()
+                .is_some_and(|line| line.starts_with("`cross-link.yml:link` can report on a pull request")),
+            "{problems:?}"
+        );
+
+        // AND THE FALSE POSITIVE READING A CALLED WORKFLOW OPENS, which is the reason a job carries
+        // whether its context is the whole string: `link` is the called job's id and the context it
+        // reports is `cross / link (<value>)`, so requiring `link` must NOT resolve. Before this
+        // was carried, the same read that closed the classification hole answered *this context
+        // reports* about a string GitHub never sends - a permanently pending merge, declared green.
+        std::fs::write(
+            scratch.join(super::DECLARATION),
+            "[required]\nci\nlink\n\n[advisory]\nci.yml:cross\ncross-link.yml:link\n",
+        )
+        .expect("the declaration");
+        let problems = super::problems(&scratch, &super::OrdinaryCi::read(&scratch));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems
+                .first()
+                .is_some_and(|line| line.contains("requires the context `link` and no job reports it")),
+            "{problems:?}"
+        );
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+    }
+
+    #[test]
+    fn a_root_job_whose_context_is_only_part_of_one_cannot_resolve_a_requirement() {
+        // THE SIBLING OF THE CASE ABOVE, and the granularity it was got wrong at: whether the bare
+        // id is the WHOLE context is a property of the JOB. A `strategy:` on a ROOT job makes every
+        // leg report `<job> (<value>)` and the bare name never - and a per-FILE answer said yes,
+        // because the file is a root. Requiring that name was `ok`, exit 0: a permanently pending
+        // merge declared green. Same for a `name:` carrying an expression, reported EXPANDED.
+        let scratch = std::env::temp_dir().join(format!("sutura-perjob-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        std::fs::create_dir_all(scratch.join("devco")).expect("the devco directory");
+        std::fs::write(
+            workflows.join("ci.yml"),
+            concat!(
+                "on:\n  pull_request:\njobs:\n",
+                "  ci:\n    runs-on: ubuntu-latest\n",
+                "  sharded:\n    strategy:\n      matrix:\n        shard: [1, 2]\n",
+                "  titled:\n    name: ${{ matrix.os }} build\n",
+            ),
+        )
+        .expect("the caller");
+        std::fs::write(
+            scratch.join(super::DECLARATION),
+            "[required]\nci\nsharded\n\n[advisory]\nci.yml:sharded\nci.yml:titled\n",
+        )
+        .expect("the declaration");
+
+        let problems = super::problems(&scratch, &super::OrdinaryCi::read(&scratch));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems
+                .first()
+                .is_some_and(|line| line.contains("requires the context `sharded` and no job reports it")),
+            "{problems:?}"
+        );
+
+        // AND THE ARM THAT MUST STILL FIRE: a plain root job resolves exactly as before, so this
+        // is a refusal of the fragment rather than of everything.
+        let jobs = super::jobs_in(
+            "ci.yml",
+            &std::fs::read_to_string(workflows.join("ci.yml")).expect("ci.yml"),
+            true,
+        );
+        let reports: Vec<(&str, bool)> = jobs
+            .iter()
+            .map(|job| (job.declared_as.as_str(), job.reports_its_context))
+            .collect();
+        assert_eq!(
+            reports,
+            vec![("ci.yml:ci", true), ("ci.yml:sharded", false), ("ci.yml:titled", false)]
         );
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
@@ -423,7 +633,7 @@ mod tests {
         // Over the REAL files. This is the assertion that reddens when a job is added to a
         // pull-request-triggered workflow without anybody deciding whether it gates anything.
         let root = crate::repo::root().expect("the repo root");
-        let problems = super::problems(&root);
+        let problems = super::problems(&root, &super::OrdinaryCi::read(&root));
         assert!(problems.is_empty(), "{problems:?}");
     }
 }

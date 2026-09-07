@@ -80,6 +80,18 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 fn report(checked: usize, findings: &[Unused]) -> Verdict {
+    // FAIL CLOSED ON AN EMPTY SCAN. `ok - 0 dependency declarations, all referenced` is a
+    // verdict about nothing, and it is the shape `github.com/telekom/sutura#371` collects: the
+    // count lived in the success line and no floor read it, so a resolver that answered with an
+    // empty package set - the wrong tree, a `--no-deps` that stopped naming dependencies - read
+    // as a clean bill. Every member of this workspace declares dependencies, so zero is the scan
+    // being broken rather than the manifests being tidy.
+    if checked == 0 {
+        eprintln!("xtask unused-deps: FAILED - cargo metadata named no dependency declaration at all");
+        eprintln!("  Nothing was judged, so nothing is attested. Check that this is the workspace root");
+        eprintln!("  and that `cargo metadata --no-deps` still reports a `dependencies` array per package.");
+        return Verdict::Fail;
+    }
     if findings.is_empty() {
         println!("xtask unused-deps: ok - {checked} dependency declarations, all referenced");
         return Verdict::Pass;

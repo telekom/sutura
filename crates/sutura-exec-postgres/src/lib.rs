@@ -583,9 +583,18 @@ impl<'a> FromSql<'a> for PgNumeric {
 /// width as `NUMERIC` either way.
 ///
 /// Limit: Postgres's `AVG` over an INTEGER column returns a fractional `NUMERIC` and so takes the
-/// text branch, where the engine reaches a float. The fix is `sutura-sql` casting a Postgres `AVG`
-/// to `float8`; no metric in the corpus averages an integer column today, so the differential can't
-/// see it.
+/// text branch, where the engine reaches a float. The fix is in `sutura-sql`, which casts a
+/// Postgres `AVG` to `DOUBLE` (`generate::avg_for_postgres`).
+///
+/// **The sentence that used to end this paragraph was stale, and it is corrected rather than
+/// deleted because the wrong version is the trap.** It read *no metric in the corpus averages an
+/// integer column today, so the differential can't see it*. Both halves are now false, and both
+/// were measured on 2026-09-06 by deleting that cast: `sutura-app::differential
+/// tests::postgres::it_agrees_with_the_engine_on_every_question` reddens on
+/// `mean-subscription-mrr-june` - *one side answered a row 1 time(s) and the other 0* - and so does
+/// `conformance::postgres::the_rows_are_the_reference_rows` on the packs' own `mean-by-day`. So the
+/// cast is held by two suites, and the class of comment worth distrusting is one that says another
+/// test cannot see something.
 fn numeric_cell(value: &PgNumeric, label: &str) -> Result<Value, PostgresError> {
     if value.is_not_finite() {
         return Err(PostgresError::NotFinite {

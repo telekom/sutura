@@ -77,6 +77,19 @@ docs/adr/*.md
 # branches editing one file - and those reasons are visible without a gate.
 docs/*.md
 
+# The agent skill tree, on the same reasoning again - and it is the entry that proves the paragraph
+# above was not yet general enough. `.agents/skills/**` is prose by every test that argument uses:
+# a skill's length is a function of how many measured findings it carries, and the failure the cap
+# exists to catch is a source file accreting responsibilities nobody notices.
+#
+# MEASURED, and it is the same wrong lesson as the implementation plan's: `sutura/gates/SKILL.md`
+# reached 997 of 1000 when two branches added findings to it in the same week, and one of them then
+# spent a pass compressing its own evidence to get back to 989. That is a budget on evidence, paid
+# in the only currency this page has. Splitting a skill is still right when it has a reason of its
+# own - `AGENTS.md` asks for it when a file only ever gets half-read - but that reason has to be
+# *this is two tasks*, decided by a reader, not *the cap said so*, decided by a line count.
+.agents/skills/**/*.md
+
 # Vendored third-party source: the allocator's C and the two crates that wrap it. Upstream's
 # file lengths are not ours to budget, and pinning individual paths would mean editing this
 # list on every version bump. `VENDOR.md` records what is vendored, from where, and why.

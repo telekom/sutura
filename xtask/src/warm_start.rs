@@ -1,4 +1,4 @@
-//! The warm-start gate: one target directory and one cargo profile, checked where they are used.
+//! The warm-start gate: one target directory, one cargo profile, one sweep - where they are used.
 //!
 //! `nix/cargo-env.nix` unpacks the dependency closure the checks already built into a directory
 //! under `target/`, and `xtask/src/causality.rs` points `CARGO_TARGET_DIR` at a directory it
@@ -30,14 +30,43 @@
 //! here because this module owns both literals, and a gate in `just hygiene` is a stronger venue
 //! than a unit test.
 //!
-//! FAIL CLOSED, like its neighbours. An unreadable file, an export this gate cannot follow, or a
-//! binding it cannot find is a FAILURE naming what it could not find. A path-reading gate's worst
-//! outcome is to stop finding the path and say `ok`.
+//! AND THE THIRD THING THE SAME SEAM CARRIES, which is #336 and #346: the artifacts are only
+//! usable where nothing in them still names the build root they were produced in.
+//! `inheritedArtifacts` pairs every `cargoArtifacts` with `nix/purge-baked-out-dirs.sh` and said in
+//! its own comment that a consumer therefore *cannot* take one without the other - held, until
+//! [`pairing`], by review alone, on both routes. See that module for what a *taking* is and why the
+//! count of them is a witness rather than a number in a sentence.
+//!
+//! FAIL CLOSED, like its neighbours. An unreadable file, an export this gate cannot follow, a
+//! binding it cannot find, a taking it cannot attribute or a consumer it did not reach is a
+//! FAILURE naming what it could not find. A path-reading gate's worst outcome is to stop finding
+//! the path and say `ok`.
 
 use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
+
+/// Nothing takes the inherited artifacts without the regeneration sweep - #336 and #346.
+///
+/// Its own file because this one is a third of the way to the 1000-line cap already, and its own
+/// MODULE because the question is different: this file holds two spellings of one directory
+/// against each other, and that one holds every taking of the artifacts against the sweep that
+/// makes them usable. What they share is the seam, which is why they share a gate.
+mod pairing;
+
+/// The HARNESS for asserting what the sweep REMOVES, over a filesystem rather than off its source.
+///
+/// Test-only: nothing in production calls it, and nothing else in this repository runs the script
+/// for an answer. Beside [`pairing`] rather than inside it because it is a different claim - that
+/// module holds every taking against the sweep, this one holds the sweep against a directory.
+///
+/// **Only the harness lives there; the `#[test]` is in [`tests`] below.** That file's header
+/// carries the measurement, and it is the recorded trap read the right way round: a new file whose
+/// one `#[test]` cannot be red against base makes `test-causality` treat the whole diff as
+/// separable and end at exit 1 rather than at the honest `NOT MECHANICALLY SEPARABLE`.
+#[cfg(test)]
+mod sweep;
 
 /// The nix module that unpacks the inherited artifacts into the directory.
 const WARMER: &str = "nix/cargo-env.nix";
@@ -83,8 +112,22 @@ pub(crate) fn profile_for(target_dir: Option<&Path>) -> Option<&'static str> {
 /// The apps that consume the warmed artifacts.
 const APPS: &str = "flake.nix";
 
-/// What [`WARMER`] must export, up to the value.
+/// What [`WARMER`] must export, up to the value - the opening quote included, because
+/// [`exported_value`] reads a double-quoted value and needs it.
 const EXPORT: &str = "export CARGO_TARGET_DIR=\"";
+
+/// The same export up to the `=`, which is the ASSIGNMENT rather than one way of writing it.
+///
+/// DERIVED, and the reason is a review finding: [`inspect_consumer`]'s refusal matched [`EXPORT`],
+/// so `export CARGO_TARGET_DIR=$PWD/target/somewhere-else` in an app - no quotes, or single ones -
+/// walked past it and the gate printed `ok - 5 app(s) .. each in the directory nix/cargo-env.nix
+/// warmed` while that consumer compiled cold with no stamp and no sweep. Nothing else catches it:
+/// these bodies are `writeShellScript` strings, not among the `.sh` files `just lint-workflows`
+/// shellchecks. **A guard that compares a spelling enumerates one spelling of one input** - so
+/// match the hazard, which is that cargo is pointed somewhere else at all.
+fn export_assignment() -> &'static str {
+    EXPORT.trim_end_matches('"')
+}
 
 /// The binding in [`CONSUMER`] whose `join` chain is the path. Its value is handed to every
 /// `cargo_test` call as `CARGO_TARGET_DIR`, which is what makes it the other half of this pair.
@@ -119,9 +162,23 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
     println!("xtask check-warm-start: ok - {WARMER} stamps that directory and {APPS} builds it at profile {WARM_PROFILE}");
     let profiles = read(&root, APPS).and_then(|text| profiled_consumers(&text));
-    match profiles {
-        Ok(count) => {
-            println!("xtask check-warm-start: ok - {count} app(s) consume the artifacts with profile {WARM_PROFILE}");
+    let consumers = match profiles {
+        Ok(consumers) => consumers,
+        Err(why) => {
+            eprintln!("xtask check-warm-start: {why}");
+            return Verdict::Fail;
+        }
+    };
+    println!(
+        "xtask check-warm-start: ok - {} app(s) consume the artifacts at profile {WARM_PROFILE}, each in the directory {WARMER} warmed",
+        consumers.count()
+    );
+    // THE PAIRING, which is the other half of what makes an inherited artifact usable: the
+    // directory and the profile say WHERE the closure is and HOW it was built, and the sweep says
+    // that nothing in it still names a build root it no longer sits in.
+    match pairing::holds(&root) {
+        Ok(swept) => {
+            println!("xtask check-warm-start: ok - {}", swept.verdict());
             Verdict::Pass
         }
         Err(why) => {
@@ -198,7 +255,18 @@ fn warmed(text: &str) -> Result<String, String> {
 /// limit is that a needle inside a string on a live line is a live anchor to this scan, comment
 /// syntax or not; what it buys is that a commented-OUT line is not one.
 fn live_lines(text: &str) -> impl Iterator<Item = &str> {
-    text.lines().map(str::trim_start).filter(|line| !line.starts_with('#'))
+    live_indexed(text).map(|(_, line)| line)
+}
+
+/// The same lines, each with its 0-based index, for the reader that needs an ORDER.
+///
+/// One rule in one place: [`pairing`] compares where the sweep is inlined against where the target
+/// directory is exported, and a second copy of "which lines run" is a second copy to get wrong.
+fn live_indexed(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    text.lines()
+        .enumerate()
+        .map(|(index, line)| (index, line.trim_start()))
+        .filter(|(_, line)| !line.starts_with('#'))
 }
 
 /// The double-quoted value `CARGO_TARGET_DIR` is exported as.
@@ -338,50 +406,134 @@ fn joined(expression: &str) -> Vec<String> {
     components
 }
 
-/// Check every app that expands `cargoWarmStart`, rather than naming today's two consumers.
-fn profiled_consumers(text: &str) -> Result<usize, String> {
-    let lines: Vec<&str> = text.lines().collect();
-    let mut consumers = 0_usize;
-    for (index, line) in lines.iter().enumerate() {
-        if line.trim() != "${cargoWarmStart}" {
-            continue;
-        }
-        consumers = consumers.saturating_add(1);
-        let command = lines
-            .iter()
-            .skip(index.saturating_add(1))
-            .map(|line| line.trim())
-            .take_while(|line| !line.ends_with("'');"))
-            .find(|line| line.starts_with("exec cargo "))
-            .ok_or_else(|| format!("{APPS}:{} warms cargo but executes no cargo command", index.saturating_add(1)))?;
-        let words: Vec<&str> = command.split_whitespace().collect();
-        let flag = if words.starts_with(&["exec", "cargo", "nextest"]) {
-            "--cargo-profile"
-        } else {
-            "--profile"
-        };
-        // CARGO'S SIDE OF `--` ONLY, and that is a fail-open this gate had rather than a
-        // refinement. Everything past `--` goes to the program cargo RUNS, so a `--profile ci`
-        // there selects no profile for the build - it reuses none of the 756 MB just unpacked,
-        // compiles the closure again, and reaches the same verdict several minutes later with
-        // nothing red anywhere. Scanning the whole line accepted exactly that line, which is the
-        // shape a flag gets moved into when a gate grows an argument of its own.
-        let cargo_side = words.split(|word| *word == "--").next().unwrap_or(&words);
-        if !cargo_side.windows(2).any(|pair| pair == [flag, WARM_PROFILE]) {
+/// The expansion that makes an app a consumer of the warmed artifacts.
+const WARM_EXPANSION: &str = "${cargoWarmStart}";
+
+/// Every `cargoWarmStart` consumer, each of them INSPECTED.
+///
+/// The field is private and [`Consumers::over`] is the only constructor, which refuses unless it
+/// was handed one inspection per consumer the scan found. So the count in the verdict is the
+/// witness's own length: a loop that stopped early cannot print a number as if it had not, which
+/// is the defect this repository has recorded in four gates - a report of `17 page(s)` with
+/// sixteen unscanned.
+#[derive(Debug)]
+struct Consumers {
+    inspected: Vec<usize>,
+}
+
+impl Consumers {
+    fn over(found: &[usize], inspected: Vec<usize>) -> Result<Self, String> {
+        if found.is_empty() {
             return Err(format!(
-                "{APPS}:{} warms profile {WARM_PROFILE} but its cargo command does not pass `{flag} {WARM_PROFILE}` \
-                 BEFORE `--`; everything after that separator goes to the program cargo runs, so a \
-                 profile there selects none for the build: {command}",
-                index.saturating_add(1)
+                "{APPS} contains no `{WARM_EXPANSION}` consumer; this gate checked nothing"
             ));
         }
+        if inspected.len() != found.len() {
+            return Err(format!(
+                "inspected {} of {} `{WARM_EXPANSION}` consumer(s), so this verdict is about a subset",
+                inspected.len(),
+                found.len()
+            ));
+        }
+        Ok(Self { inspected })
     }
-    if consumers == 0 {
+
+    const fn count(&self) -> usize {
+        self.inspected.len()
+    }
+}
+
+/// Where every consumer of the warmed artifacts expands the warmer, as 0-based line indices.
+fn warm_consumers(lines: &[&str]) -> Vec<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.trim() == WARM_EXPANSION)
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// The LIVE lines of one consumer's script, from its expansion to the end of the shell string.
+///
+/// `live_lines`' rule applied to a slice, and it is a fail-open this reader had rather than a
+/// refinement: a `# exec cargo run --profile ci ..` line satisfied the profile rule below while
+/// nothing ran it, because the search read the raw body. Same shape as the guard that existed only
+/// in a comment and satisfied the shipped-binaries loop rule - the comment-versus-code split, one
+/// more time. A commented-out `exec` is now *no cargo command*, which is red.
+fn consumer_body<'a>(lines: &[&'a str], index: usize) -> Vec<&'a str> {
+    lines
+        .iter()
+        .skip(index.saturating_add(1))
+        .map(|line| line.trim())
+        .take_while(|line| !line.ends_with("'');"))
+        .filter(|line| !line.starts_with('#'))
+        .collect()
+}
+
+/// The two things that have to be true of one consumer.
+fn inspect_consumer(lines: &[&str], index: usize) -> Result<(), String> {
+    let body = consumer_body(lines, index);
+    let at = index.saturating_add(1);
+
+    // ONE: THE DIRECTORY THE WARMER LEFT IT IN. Everything the warm start buys is scoped to the
+    // directory it exports - the unpacked closure, the stamp `profile_for` derives the profile
+    // from, and (since #346) the sweep that regenerates whatever baked a build root. A consumer
+    // that points `CARGO_TARGET_DIR` somewhere else afterwards keeps all three and uses none of
+    // them: cold build, no stamp, and a sweep that reported about a directory this run does not
+    // compile into. Nothing fails from it, which is why it is a gate and not a comment.
+    //
+    // MATCHED ON THE ASSIGNMENT, not on `EXPORT`'s opening quote - see `export_assignment` for the
+    // measurement, and #384's rule for why: a guard that compares a spelling enumerates one
+    // spelling of one input, and `=$PWD/..`, `='..'` and `="..'` all point cargo elsewhere.
+    if let Some(own) = body.iter().find(|line| line.starts_with(export_assignment())) {
         return Err(format!(
-            "{APPS} contains no consumer of `cargoWarmStart`; this gate checked nothing"
+            "{APPS}:{at} expands `{WARM_EXPANSION}` and then exports its own target directory: {own}\n  \
+             The unpacked closure, the {STAMP} stamp and the baked-OUT_DIR sweep all belong to the directory \
+             {WARMER} exported, so this consumer would compile cold into another one with nothing red."
         ));
     }
-    Ok(consumers)
+
+    let command = body
+        .iter()
+        .find(|line| line.starts_with("exec cargo "))
+        .ok_or_else(|| format!("{APPS}:{at} warms cargo but executes no cargo command"))?;
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let flag = if words.starts_with(&["exec", "cargo", "nextest"]) {
+        "--cargo-profile"
+    } else {
+        "--profile"
+    };
+    // CARGO'S SIDE OF `--` ONLY, and that is a fail-open this gate had rather than a
+    // refinement. Everything past `--` goes to the program cargo RUNS, so a `--profile ci`
+    // there selects no profile for the build - it reuses none of the 756 MB just unpacked,
+    // compiles the closure again, and reaches the same verdict several minutes later with
+    // nothing red anywhere. Scanning the whole line accepted exactly that line, which is the
+    // shape a flag gets moved into when a gate grows an argument of its own.
+    let cargo_side = words.split(|word| *word == "--").next().unwrap_or(&words);
+    if !cargo_side.windows(2).any(|pair| pair == [flag, WARM_PROFILE]) {
+        return Err(format!(
+            "{APPS}:{at} warms profile {WARM_PROFILE} but its cargo command does not pass `{flag} {WARM_PROFILE}` \
+             BEFORE `--`; everything after that separator goes to the program cargo runs, so a \
+             profile there selects none for the build: {command}"
+        ));
+    }
+    Ok(())
+}
+
+/// Check every app that expands `cargoWarmStart`, rather than naming today's five consumers.
+///
+/// TWO PASSES on purpose. The first says which consumers exist and the second inspects them, so
+/// the two numbers are separately obtained and [`Consumers::over`] can compare them. One pass
+/// counting as it goes cannot tell a complete inspection from an early return.
+fn profiled_consumers(text: &str) -> Result<Consumers, String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let found = warm_consumers(&lines);
+    let mut inspected = Vec::new();
+    for index in &found {
+        inspect_consumer(&lines, *index)?;
+        inspected.push(*index);
+    }
+    Consumers::over(&found, inspected)
 }
 
 #[cfg(test)]
@@ -550,8 +702,74 @@ mod tests {
         let error = super::profiled_consumers(apps).expect_err("nextest's configuration profile is not Cargo's ci profile");
         assert!(error.contains("does not pass `--cargo-profile ci`"), "{error}");
         assert_eq!(
-            super::profiled_consumers(&apps.replace("nextest run --profile", "nextest run --cargo-profile")),
+            super::profiled_consumers(&apps.replace("nextest run --profile", "nextest run --cargo-profile"))
+                .map(|consumers| consumers.count()),
             Ok(2)
+        );
+    }
+
+    #[test]
+    fn a_consumer_that_repoints_the_target_directory_leaves_everything_the_warmer_did_behind() {
+        // Everything `cargoWarmStart` buys is scoped to the directory it exports: the unpacked
+        // closure, the stamp `profile_for` reads, and - since #346 - the sweep. A consumer that
+        // exports its own afterwards keeps the flag and loses all three, cold-builds, and is
+        // green. `--profile ci` on the line below is deliberately correct, so the only thing
+        // this test can be reddened by is the rule it is about.
+        let apps = concat!(
+            "            ${cargoWarmStart}\n",
+            "            export CARGO_TARGET_DIR=\"$PWD/target/somewhere-else\"\n",
+            "            exec cargo run -q --profile ci -p xtask -- test-causality\n",
+            "          '');\n",
+        );
+        let error = super::profiled_consumers(apps).expect_err("a re-export abandons the warmed directory");
+        assert!(error.contains("exports its own target directory"), "{error}");
+        // AND EVERY OTHER WAY OF WRITING THE SAME ASSIGNMENT, because the rule used to match
+        // `EXPORT`'s opening quote and these three walked past it at exit 0 while one consumer
+        // compiled cold. A guard that compares a spelling enumerates one spelling of one input.
+        for quoting in [
+            "export CARGO_TARGET_DIR=$PWD/target/somewhere-else",
+            "export CARGO_TARGET_DIR='$PWD/target/somewhere-else'",
+            "export CARGO_TARGET_DIR=\t\"$PWD/x\"",
+        ] {
+            let evasion = apps.replace("export CARGO_TARGET_DIR=\"$PWD/target/somewhere-else\"", quoting);
+            let error = super::profiled_consumers(&evasion).expect_err(quoting);
+            assert!(error.contains("exports its own target directory"), "{quoting}: {error}");
+        }
+        // COMMENTED OUT is not exported, which is the rule `live_lines` states one screen up and
+        // the shape a raw scan gets wrong in the other direction.
+        assert_eq!(
+            super::profiled_consumers(&apps.replace("            export CARGO", "            # export CARGO"))
+                .map(|consumers| consumers.count()),
+            Ok(1)
+        );
+    }
+
+    #[test]
+    fn a_commented_out_cargo_command_is_no_cargo_command() {
+        // The fail-open this reader had before #336's branch: the profile rule read the RAW body,
+        // so a parked `exec` line satisfied it while nothing ran it. See `consumer_body`.
+        let apps = concat!(
+            "            ${cargoWarmStart}\n",
+            "            # exec cargo run -q --profile ci -p xtask -- test-causality\n",
+            "          '');\n",
+        );
+        let error = super::profiled_consumers(apps).expect_err("a parked exec line runs nothing");
+        assert!(error.contains("executes no cargo command"), "{error}");
+    }
+
+    #[test]
+    fn a_consumer_the_loop_never_reached_cannot_be_counted_as_inspected() {
+        // The witness, directly: `Consumers::over` is the only constructor and it compares two
+        // separately obtained numbers. A `.take(1)` over the inspection loop is the whole
+        // mutation, and it has to be unable to mint a verdict.
+        let found = [12, 34, 56];
+        let why = super::Consumers::over(&found, vec![12]).expect_err("one of three is not every one");
+        assert!(why.contains("inspected 1 of 3"), "{why}");
+        let why = super::Consumers::over(&[], Vec::new()).expect_err("no consumer is not a pass");
+        assert!(why.contains("checked nothing"), "{why}");
+        assert_eq!(
+            super::Consumers::over(&found, found.to_vec()).map(|consumers| consumers.count()),
+            Ok(3)
         );
     }
 
@@ -572,8 +790,97 @@ mod tests {
         assert!(error.contains("BEFORE `--`"), "{error}");
         // Cargo's own side still passes with a tail beside it, so the fix is not a ban on `--`.
         assert_eq!(
-            super::profiled_consumers(&past.replace("run -q -p xtask", "run -q --profile ci -p xtask")),
+            super::profiled_consumers(&past.replace("run -q -p xtask", "run -q --profile ci -p xtask"))
+                .map(|consumers| consumers.count()),
             Ok(1)
         );
+    }
+
+    #[test]
+    fn the_sweep_removes_what_baked_a_directory_it_no_longer_sits_in() {
+        // THE SCRIPT'S OWN BEHAVIOUR, over a real directory, because nothing else in this
+        // repository runs it for an answer: `just lint-workflows` shellchecks it and every venue
+        // that executes it does so for its side effect inside a build. Four units, one per branch
+        // of its decision, and each assertion is a `try_exists` on the unit AND its fingerprint
+        // rather than a line of its output - *an `Ok` from a subprocess is not evidence that the
+        // side effect happened.*
+        //
+        // HERE RATHER THAN IN `super::sweep`, WHICH KEEPS ONLY THE HARNESS, and that file's header
+        // has the measurement: as the one `#[test]` in a new file it made this diff look separable
+        // to `test-causality`, which then ended `FAILED ... 0 tests run` at exit 1. It cannot be
+        // red against base either way - the script's behaviour is unchanged by this branch, only
+        // its stated limits are - so it is a characterization test and belongs in a file the gate
+        // already holds.
+        //
+        // IT IS ALSO THE ONLY MECHANISM OVER *THE SWEEP HAPPENS AT ALL*: comment out the script's
+        // trailing `suturaPurgeBakedOutDirs` invocation and the script still exits 0,
+        // `just lint-workflows` shellchecks it clean and `just hygiene` - `pairing` included -
+        // reports `ok - 32 gate(s)` over a tree where nothing is purged. This reddens on it,
+        // `left: (true, true)`, because the unit and its fingerprint are still there.
+        use super::sweep::{present, sweep, unit};
+
+        let target = std::env::temp_dir().join(format!("sutura-sweep-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&target));
+        let profile = target.join("ci");
+        let elsewhere = "/nix/var/nix/builds/nix-74462-1743377963/source/target/ci/build/moved-aaaa/out";
+
+        // 1. MOVED, and what it generated names the directory it ran in. The one purge.
+        unit(
+            &profile,
+            "moved",
+            "aaaa",
+            elsewhere,
+            &format!("#[folder = \"{elsewhere}\"]"),
+            "",
+        );
+        // 2. MOVED, and nothing it generated names that directory. Relocation alone is true of
+        //    every build script in an unpacked closure; purging on it would cost the closure.
+        unit(&profile, "relocated", "bbbb", elsewhere, "pub const N: u8 = 1;", "");
+        // 3. RAN WHERE IT SITS, which is every build script in an ordinary target directory.
+        let own = profile.join("build/local-cccc/out");
+        unit(
+            &profile,
+            "local",
+            "cccc",
+            &own.to_string_lossy(),
+            &format!("#[folder = \"{}\"]", own.display()),
+            "",
+        );
+        // 4. THE STATED LIMIT: the baked path is in `output` - cargo's record of the `cargo::`
+        //    directives - which is a SIBLING of `out/` and not inside it, so the search never
+        //    reads it. This asserts the limit rather than trusting the paragraph that states it.
+        unit(
+            &profile,
+            "directives",
+            "dddd",
+            elsewhere,
+            "pub const N: u8 = 2;",
+            &format!("cargo:rustc-link-search=native={elsewhere}"),
+        );
+
+        let said = sweep(&target);
+
+        assert_eq!(
+            present(&profile, "moved", "aaaa"),
+            (false, false),
+            "the baked unit and its fingerprint both go: {said}"
+        );
+        assert_eq!(
+            present(&profile, "relocated", "bbbb"),
+            (true, true),
+            "relocation alone is not a reason: {said}"
+        );
+        assert_eq!(
+            present(&profile, "local", "cccc"),
+            (true, true),
+            "a script that ran here baked nothing stale: {said}"
+        );
+        assert_eq!(
+            present(&profile, "directives", "dddd"),
+            (true, true),
+            "the `output` file is the STATED LIMIT: {said}"
+        );
+        assert!(said.contains("1 inherited build script output(s) regenerated here"), "{said}");
+        drop(std::fs::remove_dir_all(&target));
     }
 }

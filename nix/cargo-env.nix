@@ -87,6 +87,24 @@ let
   # The unpack is crane's `inheritCargoArtifacts` line verbatim, and it is STAMPED with the
   # derivation that produced it: 756 MB of decompression is worth paying once per closure
   # and not once per run.
+  #
+  # THE SWEEP BELONGS TO THIS BINDING AND NOT TO EACH APP, which is #346. A closure unpacked
+  # here arrives with whatever absolute build directory a build script baked into what it
+  # generated - the defect `inheritedArtifacts` pairs away for the derivations, reached by a
+  # different route - and `tar -x` over an existing warm target OVERWRITES rather than clears, so
+  # a directory warmed by an earlier closure keeps a stale path even once the artifact no longer
+  # carries one. Two of the five `${cargoWarmStart}` consumers used to inline the script
+  # themselves and the other three were correct only because `apps.causality` happened to run
+  # first in the same CI job and its purge cleared the crate for whoever came next. **An ordering
+  # is not a mechanism**: run any of the other three on its own from a cold target and the failure
+  # the script exists to end is back. One owner, every consumer, nothing to remember.
+  #
+  # ORDER IS LOAD-BEARING, so `cargo xtask check-warm-start` asserts it rather than trusting the
+  # position: the script resolves the target directory out of CARGO_TARGET_DIR, so inlined ABOVE
+  # the export below it would sweep the developer's `target/` and report `0 ... regenerated here`
+  # about the wrong directory - a green line over a directory nobody asked about. That gate also
+  # reads the variable the script resolves against the variable this exports, because being in the
+  # right place buys nothing if the two names have drifted.
   cargoWarmStart = ''
     export PATH="${pkgs.zstd}/bin:${pkgs.gnutar}/bin:$PATH"
     warmRoot="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -105,6 +123,9 @@ let
     # The app's own `cargo run -p xtask` compiles here too, rather than into a second
     # directory that would have to build xtask's dependencies from scratch.
     export CARGO_TARGET_DIR="$warmTarget"
+    # AFTER that export, for the reason this binding's header gives. The header also carries why
+    # this is here rather than in each app.
+    ${builtins.readFile ./purge-baked-out-dirs.sh}
   '';
 in
 {

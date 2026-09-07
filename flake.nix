@@ -327,6 +327,15 @@
         # is a tracked `.sh` rather than a string here so `just lint-workflows` shellchecks it.
         # NOT folded into `commonArgs`: `buildDepsOnly` inherits nothing, so the sweep would be a
         # no-op in the producer while moving `sutura-deps`' hash and rebuilding ~80 crates for it.
+        #
+        # HELD BY `cargo xtask check-warm-start` RATHER THAN BY THE SHAPE OF THIS BINDING, which is
+        # #336: one attrset makes the pairing hard to separate by accident and holds nothing at all
+        # against `//`, which updates one level deep - a consumer binding `preBuild` after this one
+        # loses the sweep with no error and nothing red. That gate reads every binding of
+        # `cargoArtifacts` in every nix file, attributes each to whatever receives it, and refuses a
+        # second `preBuild` anywhere: a phase this file does not own is exactly the shape that
+        # displaces this one. A `preBuild` needed for another reason therefore composes HERE, where
+        # it runs beside the sweep instead of in place of it.
         inheritedArtifacts = artifacts: {
           cargoArtifacts = artifacts;
           preBuild = builtins.readFile ./nix/purge-baked-out-dirs.sh;
@@ -696,15 +705,10 @@
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
 
             ${cargoLinkEnv}
+            # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
+            # this app used to inline the script and three of the five consumers relied on it
+            # having done so first. `nix/cargo-env.nix` owns it now, one owner for all five.
             ${cargoWarmStart}
-            # The warm start unpacks a closure built in another derivation, so it lands here with
-            # whatever absolute build directory a build script baked into what it generated - the
-            # same defect `inheritedArtifacts` handles for the checks, reached by a different
-            # route. THE SAME SCRIPT, so the two cannot drift, and it is still needed here after
-            # the checks stopped needing a crate name: `tar -x` over an existing warm target
-            # OVERWRITES rather than clears, so a directory warmed by an earlier closure keeps its
-            # stale path even once the artifact no longer carries one.
-            ${builtins.readFile ./nix/purge-baked-out-dirs.sh}
             exec cargo run -q --profile ci -p xtask -- test-causality "$@"
           '');
         };
@@ -785,13 +789,13 @@
         # of a `--`. The `--profile ci` on this line is cargo's own, building the xtask binary into
         # the warmed directory, and `check-warm-start` is what reads it.
         #
-        # The purge for `apps.causality`'s reason, and it is not precautionary here. This gate asks
-        # for one shipped package with NO feature flags, which the v2 resolver gives a narrower
-        # feature set and therefore a different `-C metadata` than the workspace-wide union the
-        # closure was built at - so `utoipa-swagger-ui` is recompiled rather than reused, against the
-        # `OUT_DIR` its build script baked in another derivation. Correct on its own and not by
-        # position: the two apps below and the one above it inherit a purge from whichever warm
-        # consumer ran first, which is an ordering rather than a mechanism.
+        # The sweep this app most needs is the warm start's own now (#346). It asks for one shipped
+        # package with NO feature flags, which the v2 resolver gives a narrower feature set and
+        # therefore a different `-C metadata` than the workspace-wide union the closure was built
+        # at - so `utoipa-swagger-ui` is recompiled rather than reused, against the `OUT_DIR` its
+        # build script baked in another derivation. It used to inline the script here and the other
+        # four consumers inherited a purge from whichever of them ran first, which is an ordering
+        # rather than a mechanism; `nix/cargo-env.nix` carries it for all five.
         apps.default-features = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-features" ''
@@ -799,7 +803,6 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            ${builtins.readFile ./nix/purge-baked-out-dirs.sh}
             exec cargo run -q --profile ci -p xtask -- check-default-features "$@"
           '');
         };

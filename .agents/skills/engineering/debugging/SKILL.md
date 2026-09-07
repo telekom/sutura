@@ -123,6 +123,15 @@ Ask, in order:
 - Fix the cause. If you fix a symptom deliberately, say so and say why.
 - Re-run the narrow reproduction, then `gates`.
 
+**A mutation script that restores with `git checkout -- <path>` reverts work the mutation never
+made, and the tell is that NOTHING FAILS.** Where causality answers `NOT MECHANICALLY SEPARABLE` or
+`INCONCLUSIVE`, the substitute is a loop of *break one thing, run, restore* - and `git checkout`
+restores the whole file from the index, not the mutation. Any UNCOMMITTED edit in a file the script
+touches is gone, silently, because the restore is exactly what the script is supposed to do.
+Measured on this repo: a bypass-reproduction script reverted two uncommitted documentation fixes in
+files it mutated, and nothing was red afterwards - it was found by re-grepping for a sentence that
+should have been there. **Commit before running one**, and prefer a script that restores from a copy
+it made itself; the same class as any `git checkout` in a shared or automated context.
 ## Failure modes already understood here
 
 Read these before spending an hour on a class of bug this repo has met.

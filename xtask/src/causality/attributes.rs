@@ -1,6 +1,13 @@
 //! The attribute vocabulary this gate reads, and what a hunk of added lines makes of the file it
 //! landed in.
 //!
+//! TWO GATES READ IT NOW, and the second one is why [`cells`] is here rather than in
+//! `crate::examples`. That gate asks *which of this file's tests does a run in this venue reach*,
+//! which is the same vocabulary this module already owns, read over a whole file instead of over
+//! a diff's added lines. A second copy of "what declares a test, and what makes one `#[ignore]`d"
+//! is a second thing to keep true, and the paragraphs below are about what one such disagreement
+//! already cost.
+//!
 //! ONE MODULE FOR BOTH LISTS, which is the constraint `super::scoped`'s header states: the forms
 //! that decide *this file is test code* and the attributes that NAME a test have to agree, because
 //! a form accepted here whose name the extractor cannot read is the empty scan, and the empty scan
@@ -72,8 +79,11 @@
 //! this said - `github.com/telekom/sutura#319` measured the overstatement. It claimed a `fn`
 //! signature the formatter had to wrap names nothing; it does not, because a name is read off the
 //! FIRST signature line and rustfmt breaks a long signature after the `(`, never before the name.
-//! Driven over a `tests/`-target file whose only added content is `#[test]` plus a wrapped
-//! `async fn a_very_long_...(`, the scan returns `Runnable` and NAMES it. What names nothing is a
+//! **Both halves are tests rather than this paragraph** since
+//! `github.com/telekom/sutura#347`, and they are in `super::scoped`'s module because `Scan::of`
+//! is what drives the extractor: one adds `#[tokio::test]` over a wrapped `async fn` with a return
+//! type and pins the name, the other adds only that signature's PARAMETER line and pins that no
+//! name comes out. What names nothing is a
 //! **body-only or def-interior edit**: added lines inside an existing test, or inside a signature
 //! whose first line this diff did not touch. The ATTRIBUTE is not read as one line -
 //! [`item_below`] balances its brackets, because reading one as a single line was a defect and
@@ -81,7 +91,9 @@
 //! And nothing here is keyed on a file's extension - `super::plan` decides that, and a test whose
 //! subject is not Rust at all is outside this module and outside the gate.
 
-use crate::causality::regions::{AddedLine, PostImage, attribute_end, item_head};
+use core::ops::Range;
+
+use crate::causality::regions::{AddedLine, PostImage, attribute_end, item_end, item_head};
 
 /// Attributes that mark the function below them as a test.
 ///
@@ -200,6 +212,120 @@ pub(super) fn attached<'l>(lines: &[&'l str], index: usize) -> Vec<&'l str> {
     block
 }
 
+/// The tests a file declares, split by whether a run in this venue reaches them.
+///
+/// [`Adds`] above answers *what did this DIFF add*; this answers *what does this FILE declare*,
+/// which is a different question over the same vocabulary and is why it lives beside it rather
+/// than in a second list somewhere else. `super::scoped` already resolves an added attribute to
+/// the test below it and already separates `Declared::Runs` from `Declared::Ignored`; what this
+/// adds is the resolution in the other direction - from a LINE to the test containing it - which
+/// is what a gate scanning whole files needs and what `crate::examples` had no way to ask.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Cells {
+    /// 1-based, half-open line ranges, one per `#[ignore]`d test: the declaring attribute through
+    /// the last line of the function under it.
+    ignored: Vec<Range<usize>>,
+    /// Tests declared here that a run in this venue reaches.
+    runs: usize,
+    /// Test-declaring attributes whose item this could not resolve, so nothing may be claimed
+    /// about whether they run.
+    unresolved: usize,
+}
+
+impl Cells {
+    /// Is the line at 1-based `number` inside a test no run here reaches?
+    pub(crate) fn ignores(&self, number: usize) -> bool {
+        self.ignored.iter().any(|region| region.contains(&number))
+    }
+
+    /// Does this file declare tests of which NONE runs here?
+    ///
+    /// The coarser of the two answers, and it is needed BESIDE [`Self::ignores`] rather than
+    /// instead of it, because the two catch different halves and this repository's own evidence
+    /// is the sharp case: the only line reaching `examples/multi-player` sits in a HELPER the
+    /// tests call, not in a test body, so a per-line rule alone leaves `#[ignore]` on every test
+    /// in that file with the reach still standing. A helper in a file where nothing runs is
+    /// unreachable from this venue THROUGH THAT FILE, which is what this says.
+    pub(crate) const fn nothing_runs(&self) -> bool {
+        self.runs == 0 && !self.ignored.is_empty()
+    }
+
+    /// Tests declared here that a run reaches - the number a caller states beside its own count.
+    pub(crate) const fn runs(&self) -> usize {
+        self.runs
+    }
+
+    /// Test-declaring attributes whose item could not be resolved. Non-zero is a broken scan,
+    /// not a clean file: a caller that cannot see the test cannot say whether it runs.
+    pub(crate) const fn unresolved(&self) -> usize {
+        self.unresolved
+    }
+}
+
+/// The tests `text` declares, and which of them no run in this venue reaches.
+///
+/// TWO IMAGES OF ONE FILE, and both are load-bearing. `text` is the file as written, because
+/// [`attached`]'s contract is over that: it SKIPS comment lines, so a doc comment between
+/// `#[test]` and its `fn` leaves the attribute block intact. `code` is the same file with its
+/// comments and multi-line string interiors blanked out
+/// ([`code_lines`](crate::serde_parse::scan::code_lines)), and an attribute counts as a
+/// declaration only if it survives there - so a `#[test]` inside a `/* .. */` block or a raw
+/// string is not one. Reading only the written image would count a commented-out test as running
+/// and let a file past [`Cells::nothing_runs`]; reading only the blanked one turns every
+/// comment into a blank line, which ENDS an attribute block and would lose the `#[ignore]` of any
+/// test with a doc comment under its attributes.
+///
+/// `#[cfg_attr(.., ignore)]` IS NOT RECOGNISED, and the argument `super::scoped::is_ignored`
+/// gives for tolerating that does NOT transfer here - importing it would be the overstated
+/// control `AGENTS.md` calls a defect in itself. There, missing an `#[ignore]` puts an ignored
+/// test into a filterset and nextest exits 4 with *no tests to run*: loud. Here, missing one
+/// leaves a cell counted as running, and the caller's verdict is a silent exit 0. Measured:
+/// `#[cfg_attr(all(), ignore)]` on both cells of the one file reaching a variant leaves the
+/// verdict byte-identical to the healthy one. So the honest statement is that this form is a
+/// live hole in the direction that fails OPEN, held by review and by nothing else, and the only
+/// thing keeping it narrow is that no such spelling exists in this tree - which
+/// `git grep -n "cfg_attr" -- "*.rs"` answers and this file does not.
+pub(crate) fn cells(text: &str, code: &str) -> Cells {
+    let lines: Vec<&str> = text.lines().collect();
+    let blanked: Vec<&str> = code.lines().collect();
+    let mut found = Cells::default();
+    for index in 0..lines.len() {
+        let written = lines.get(index).map(|line| line.trim()).unwrap_or_default();
+        let visible = blanked.get(index).map(|line| line.trim()).unwrap_or_default();
+        if !declares_a_test(written) || !declares_a_test(visible) {
+            continue;
+        }
+        // FROM THE ATTRIBUTE'S OWN LINE, not one below it, and the difference is a defect this
+        // gate would have shipped. `item_below`'s `#[` arm skips an attribute AS A WHOLE through
+        // `attribute_end`, which is the reason that function exists; starting one line down hands
+        // it a WRAPPED attribute's continuation line - `flavor = "multi_thread"` - as the item,
+        // and `attached` then reads the block above THAT line and never sees the `#[ignore]`
+        // below it. Measured on this tree: one cell written as a wrapped `#[tokio::test(..)]`
+        // plus `#[ignore]` and the other as an ordinary `#[test]` plus `#[ignore]` left the
+        // verdict at `0 file(s) dropped` and exit 0 - every cell ignored, both of this gate's
+        // levels defeated at once, which is the exact state it exists to redden. Latent rather
+        // than live only because no wrapped test-declaring attribute is written in this tree
+        // today, and "no such spelling exists yet" is not a mechanism.
+        let Some((at, _)) = item_below(&lines, index) else {
+            // FAIL CLOSED at the caller: an attribute that declares a test and whose item this
+            // cannot reach says nothing about whether the test runs, and a silent zero there is
+            // the whole failure mode this resolution exists to remove.
+            found.unresolved = found.unresolved.saturating_add(1);
+            continue;
+        };
+        if attached(&lines, at).iter().any(|opening| opening.starts_with("#[ignore")) {
+            // From the DECLARING attribute rather than from the item, so a reach written on one of
+            // the test's own attribute lines is inside the region too.
+            found
+                .ignored
+                .push(index.saturating_add(1)..item_end(&lines, at).saturating_add(2));
+        } else {
+            found.runs = found.runs.saturating_add(1);
+        }
+    }
+    found
+}
+
 /// The strongest thing ONE added line says about its file.
 fn says(added: &AddedLine, lines: &[&str]) -> Adds {
     let trimmed = added.text.trim();
@@ -237,9 +363,109 @@ fn is_module_item(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Adds, adds, attached};
+    use super::{Adds, Cells, adds, attached, cells};
     use crate::causality::fixtures::{added_from, tree};
     use crate::causality::regions::AddedLine;
+    use crate::serde_parse::scan::code_lines;
+
+    /// What `text` declares, read through the two images the gate reads it through.
+    fn of_file(text: &str) -> Cells {
+        cells(text, &code_lines(text).join("\n"))
+    }
+
+    #[test]
+    fn a_test_is_ignored_with_the_attribute_on_either_side_of_it() {
+        // `#[ignore]` is legal above or below `#[test]`, and both spellings are in this tree.
+        for source in [
+            "#[test]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n",
+            "#[ignore]\n#[test]\nfn t() {\n    let p = 1;\n}\n",
+            "#[ignore = \"a reason the formatter\n    wrapped\"]\n#[test]\nfn t() {\n    let p = 1;\n}\n",
+        ] {
+            let found = of_file(source);
+            assert!(found.nothing_runs(), "{source}");
+            assert_eq!(found.runs(), 0, "{source}");
+            assert_eq!(found.unresolved(), 0, "{source}");
+        }
+        let runs = of_file("#[test]\nfn t() {\n    let p = 1;\n}\n");
+        assert!(!runs.nothing_runs());
+        assert_eq!(runs.runs(), 1);
+    }
+
+    #[test]
+    fn a_wrapped_test_declaring_attribute_still_finds_its_item_and_its_ignore() {
+        // THE SHAPE THAT DEFEATED BOTH LEVELS AT ONCE. Resolving the item from one line BELOW the
+        // attribute hands a wrapped one its own continuation line as the item, and the block
+        // `attached` then reads is the one above THAT line - so the `#[ignore]` underneath is
+        // invisible and the cell counts as running. Measured through the gate before the fix:
+        // one cell wrapped and both `#[ignore]`d left `0 file(s) dropped` and exit 0.
+        for source in [
+            "#[tokio::test(\n    flavor = \"multi_thread\"\n)]\n#[ignore = \"needs a broker\"]\nfn t() {\n    let p = 1;\n}\n",
+            "#[test_case(\n    1,\n    2\n)]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n",
+            "#[rstest(\n    case(1)\n)]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n",
+        ] {
+            let found = of_file(source);
+            assert!(found.nothing_runs(), "{source}");
+            assert_eq!(found.runs(), 0, "{source}");
+            assert_eq!(found.unresolved(), 0, "{source}");
+            assert!(found.ignores(5), "a line inside the wrapped, ignored cell: {source}");
+        }
+        // The wrapped attribute over a cell that RUNS is still named, so the fix is the item
+        // resolution rather than a rule that wrapped attributes are ignored.
+        let runs = of_file("#[tokio::test(\n    flavor = \"multi_thread\"\n)]\nfn t() {\n    let p = 1;\n}\n");
+        assert!(!runs.nothing_runs());
+        assert_eq!(runs.runs(), 1);
+    }
+
+    #[test]
+    fn the_ignored_region_is_the_test_and_stops_at_its_closing_brace() {
+        let source = "#[test]\n#[ignore]\nfn t() {\n    let p = 1;\n}\n#[test]\nfn u() {\n    let q = 2;\n}\n";
+        let found = of_file(source);
+        assert!(found.ignores(1), "the declaring attribute");
+        assert!(found.ignores(4), "the body of the ignored test");
+        assert!(found.ignores(5), "its closing brace");
+        assert!(!found.ignores(8), "the body of the one that runs");
+        assert_eq!(found.runs(), 1, "and the neighbour is still counted");
+        assert!(!found.nothing_runs());
+    }
+
+    #[test]
+    fn a_declaration_the_lexer_blanked_is_not_one() {
+        // A `#[test]`-shaped line inside a block comment or a raw string is not a test. Read over
+        // the written image alone it is, which puts a file whose real cells are all `#[ignore]`d
+        // back on the passing side.
+        let commented = of_file("/*\n#[test]\nfn dead() {}\n*/\n#[test]\n#[ignore]\nfn t() {}\n");
+        assert!(commented.nothing_runs(), "{commented:?}");
+        assert_eq!(commented.runs(), 0, "{commented:?}");
+    }
+
+    #[test]
+    fn a_doc_comment_between_the_attributes_and_the_item_does_not_detach_them() {
+        // The other direction, and why the WRITTEN image is read for the block: over the blanked
+        // one a comment is a blank line, a blank line ends an attribute block, and the `#[ignore]`
+        // would be lost.
+        let found = of_file("#[test]\n#[ignore]\n/// What this would prove.\nfn t() {}\n");
+        assert!(found.nothing_runs(), "{found:?}");
+    }
+
+    #[test]
+    fn a_declaration_with_no_item_under_it_is_unresolved_rather_than_running() {
+        // A caller that cannot see the test cannot say whether it runs, and saying it runs is the
+        // fail-open direction.
+        let found = of_file("fn a() {}\n\n#[test]\n");
+        assert_eq!(found.unresolved(), 1, "{found:?}");
+        assert_eq!(found.runs(), 0, "{found:?}");
+        assert!(!found.nothing_runs(), "an unresolved declaration is not an ignored one");
+    }
+
+    #[test]
+    fn a_file_that_declares_no_test_declares_no_ignored_one_either() {
+        // A helper module under `tests/` is neither running nor ignored, and the floor must not
+        // fire on it.
+        let found = of_file("pub fn corpus() -> &'static str {\n    \"../../examples/x\"\n}\n");
+        assert!(!found.nothing_runs());
+        assert_eq!(found.runs(), 0);
+        assert_eq!(found.unresolved(), 0);
+    }
 
     /// What one added line, at line 1 of a file whose post-image is `text`, makes of that file.
     fn of(line: &str, text: &str) -> Adds {

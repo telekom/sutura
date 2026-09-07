@@ -36,6 +36,22 @@
 //!   invisible to it - so *`unrun` is no longer honest* is mechanical, and *`yes` is earned* stays
 //!   review's, with the run named beside it. That is one half of a two-sided rule, and it is the
 //!   half whose failure was silent.
+//! * **A venue CI DOES invoke, whose run nobody has seen, says `wired`** - the state the rule above
+//!   left with nowhere to go. `unrun` and `yes` were the only two ends of that transition, and the
+//!   change that wires a leg into a job is not the change that can produce its first green run: the
+//!   run happens after the push. So a correct wiring had exactly two moves, one refused by the rule
+//!   above and one an overstatement, which is a gate that can only be satisfied by a lie. Measured
+//!   on telekom/sutura#287: wiring `nix run .#bigquery-two-principals` into `ci.yml` reddens
+//!   `check-venues`, and the leg cannot be green because the five values it is pointed at do not
+//!   exist yet. `wired` says *something reaches this and no run has been observed*, and it is
+//!   **not citable** - it counts exactly as `unrun` does towards a row having a reason to exist,
+//!   and exactly as `unrun` does towards a claim being answered, which is not at all.
+//!
+//!   **Its two rules are `unrun`'s pointing the other way**, so the pair cannot both be satisfied
+//!   and neither can be satisfied vacuously: the section has to use the word, and a `wired` cell
+//!   whose venue CI does **not** invoke is refused - because the honest state for a venue nothing
+//!   reaches is `unrun`, and a `wired` that nothing reaches would be the softer spelling this whole
+//!   vocabulary exists to refuse.
 //! * **A venue nothing runs claims nothing**, and a venue that IS reached and answers no claim is
 //!   a row with no reason to be there.
 //! * **Every venue has its own section**, and every `##` section is a venue's or one of the three
@@ -65,7 +81,6 @@
 //! construction, and the side it holds is the one that fails silently.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
@@ -82,320 +97,82 @@ mod acceptance;
 // parser over different files, with its fixtures beside it.
 mod environment;
 
+// What the PAGE is - a venues row, a claims cell, a verdict word, a `##` section - as against what
+// it must HOLD, which is this file. The same seam `acceptance` draws over `mod shape;`, and the
+// 1000-line gate is what forced it here too: every `#[test]` stayed, only the parsing moved.
+mod page;
+
+use page::{NOT_BUILT, STRUCTURAL, VERDICTS, Venue, cited_tests, claims, key, section_body, venues, verdict};
+
+// What the TREE holds - which tests exist, and which tasks CI really runs - as against what the
+// page says about it. The third side of the seam `mod page;` opens, and the 1000-line gate is what
+// forced it: every `#[test]` stayed here, only the readers moved.
+mod sources;
+
+use sources::{cited_invocations, invoked, test_names};
+
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
-/// The venues table's header, matched whole so a fourth column cannot silently change what the
-/// last cell means.
-const VENUES_HEADER: &str = "| Venue | Where it runs | What it costs | Reached by |";
-
-/// The claims matrix's header start; the rest of the row is the venue columns, compared not fixed.
-const CLAIMS_HEADER: &str = "| Claim |";
-
-/// The `##` sections that are not a venue. An allowlist, so a venue section that is not a row
-/// stops being invisible and a fourth structural section is a deliberate edit here.
-const STRUCTURAL: &[&str] = &["The venues", "Which venue answers which claim", "Keeping this page honest"];
-
-/// Every verdict a cell may state, longest first so `only here` is not read as two words. `-` is
-/// *not answered here*, `redundant` *could and need not*, `can` *capable, and the standing test is
-/// in another venue*, `unrun` *the standing test is HERE and nothing has run it*, `only here` the
-/// column's reason to exist. Anything else is a sentence, and a sentence is what the matrix is
-/// there instead of.
+/// Every built venue whose `Reached by` names nothing its own readers can resolve.
 ///
-/// **`unrun` is not a softer `can`.** A `can` cell points at evidence somewhere else; an `unrun`
-/// cell points at none. Only `yes` and `can` may be cited for a claim, and only `unrun` and those
-/// two count as a venue having a reason to be in the table - see [`page_problems`].
-const VERDICTS: &[&str] = &["only here", "redundant", "unrun", "yes", "can", "no", "-"];
-
-/// What a venue that runs nowhere says in its `Reached by` cell.
-const NOT_BUILT: &str = "not built";
-
-/// One row of the venues table.
-struct Venue {
-    /// The name, with the emphasis removed.
-    name: String,
-    /// The `Reached by` cell.
-    reached: String,
-}
-
-impl Venue {
-    /// Does anything run this venue?
-    fn is_built(&self) -> bool {
-        self.reached != NOT_BUILT
-    }
-}
-
-/// The cells of a markdown table row, emphasis kept and whitespace trimmed.
-fn cells(row: &str) -> Vec<String> {
-    let inner = row.trim().trim_start_matches('|').trim_end_matches('|');
-    inner.split('|').map(|cell| cell.trim().to_owned()).collect()
-}
-
-/// Is this line the separator under a table header?
-fn is_separator(line: &str) -> bool {
-    let trimmed = line.trim();
-    trimmed.starts_with('|') && trimmed.contains("---")
-}
-
-/// The header cells and the rows under the one header line `matches` accepts, or why the table
-/// could not be read.
+/// **The cheapest bypass on the page, and it closes one that predates `wired`.** Every rule that
+/// decides a venue's state resolves this cell through [`cited_invocations`], which wants a
+/// backticked `just <task>` or `nix run .#<app>` - so dropping that prefix, to *the
+/// `bigquery-two-principals` task*, made the cell resolve to nothing and the venue's verdict
+/// permanent at exit 0, whatever CI ran.
 ///
-/// The HEADER is returned as well as the rows because in the claims matrix it is the venue list -
-/// reading the first data row as the header is how a comparison ends up between a claim's cells
-/// and itself, which is what this returned separately.
-///
-/// FAILS CLOSED in the four ways a text scan goes quiet: no header, two headers, a header with no
-/// separator row - markdown renders such a table as one paragraph, so the page would read as prose
-/// while this gate read an empty table - and no rows at all.
-type Table = (Vec<String>, Vec<Vec<String>>);
-
-fn table(text: &str, what: &str, matches: impl Fn(&str) -> bool) -> Result<Table, String> {
-    let mut lines = text.lines().peekable();
-    let mut found: Option<Table> = None;
-
-    while let Some(line) = lines.next() {
-        if !matches(line.trim()) {
-            continue;
-        }
-        if found.is_some() {
-            return Err(format!("{PAGE} has two {what} tables - which one is the map?"));
-        }
-        let header = cells(line);
-        match lines.next() {
-            Some(separator) if is_separator(separator) => {}
-            _ => return Err(format!("{PAGE}: the {what} table has no separator row")),
-        }
-        let mut rows = Vec::new();
-        while let Some(row) = lines.next_if(|next| next.trim().starts_with('|')) {
-            rows.push(cells(row));
-        }
-        found = Some((header, rows));
-    }
-
-    match found {
-        Some((header, rows)) if !rows.is_empty() => Ok((header, rows)),
-        Some(_) => Err(format!("{PAGE}: the {what} table has no rows")),
-        None => Err(format!("{PAGE} has no {what} table - the map is not stated")),
-    }
-}
-
-/// The venues table, or why it could not be read.
-fn venues(text: &str) -> Result<Vec<Venue>, String> {
-    let (_, rows) = table(text, "venues", |line| line == VENUES_HEADER)?;
-    let mut out = Vec::new();
-    for row in rows {
-        let [name, .., reached] = row.as_slice() else {
-            return Err(format!("{PAGE}: a venues row has fewer cells than the header: {row:?}"));
-        };
-        let name = name.replace('*', "").trim().to_owned();
-        if name.is_empty() {
-            return Err(format!("{PAGE}: a venues row names no venue"));
-        }
-        out.push(Venue {
-            name,
-            reached: reached.clone(),
-        });
-    }
-    Ok(out)
-}
-
-/// The venue name with a leading article dropped and case flattened, so a table row and its own
-/// section heading can be compared without demanding the same wording of both.
-fn key(name: &str) -> String {
-    let lower = name.to_lowercase();
-    for article in ["a ", "an ", "the "] {
-        if let Some(rest) = lower.strip_prefix(article) {
-            return rest.to_owned();
-        }
-    }
-    lower
-}
-
-/// Is `word` the verdict this cell states, rather than a prefix of some other word?
-fn states(normalized: &str, word: &str) -> bool {
-    let Some(rest) = normalized.strip_prefix(word) else {
-        return false;
-    };
-    rest.is_empty() || rest.starts_with([' ', ',', '-', '(', '.', ';', ':'])
-}
-
-/// The verdict a cell states, or `None` when it states something else.
-fn verdict(cell: &str) -> Option<&'static str> {
-    let normalized = cell.replace(['*', '_'], "").trim().to_lowercase();
-    VERDICTS.iter().copied().find(|word| states(&normalized, word))
-}
-
-/// Every test name the page cites: a backticked `snake_case` identifier long enough not to be a
-/// field or a type. Bounded deliberately - a short `kid` or `aud` in backticks is prose.
-fn cited_tests(text: &str) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for line in text.lines() {
-        for span in line.split('`').skip(1).step_by(2) {
-            let name = span.trim();
-            let shaped = name.len() >= 16
-                && name.matches('_').count() >= 3
-                && name.starts_with(|c: char| c.is_ascii_lowercase())
-                && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
-            if shaped {
-                out.insert(name.to_owned());
-            }
-        }
-    }
-    out
-}
-
-/// The body of one venue's `##` section: every line from its heading to the next `## `.
-///
-/// `None` when no heading matches, which is a separate failure the section check already reports -
-/// so this returning `None` cannot make an `unrun` cell pass. Bounded at the next `## ` rather than
-/// read to the end of the page, because a check satisfied by the word appearing ANYWHERE below is
-/// the dead-gate shape this file's own header is about.
-fn section_body(text: &str, venue: &str) -> Option<String> {
-    let lines: Vec<&str> = text.lines().collect();
-    let start = lines.iter().position(|line| {
-        line.strip_prefix("## ")
-            .is_some_and(|heading| key(heading.trim()) == key(venue))
-    })?;
-    Some(
-        lines
-            .iter()
-            .skip(start.saturating_add(1))
-            .take_while(|line| !line.starts_with("## "))
-            .copied()
-            .collect::<Vec<&str>>()
-            .join(
-                "
-",
-            ),
-    )
-}
-
-/// Every test function in the workspace, by name.
-///
-/// A test rather than any function, because the page's claim is that these names ARE the standing
-/// tests: a helper renamed into one of them would satisfy an existence check and prove nothing.
-fn test_names(root: &Path, files: &[String]) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    let rust = files
+/// Its own function rather than a loop inside [`page_problems`], because that function is at the
+/// line budget this workspace sets and a rule with a paragraph belongs where the paragraph fits.
+fn resolvable_problems(listed: &[Venue]) -> Vec<String> {
+    listed
         .iter()
-        .filter(|f| Path::new(f).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")));
-    for rel in rust {
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
-        let lines: Vec<&str> = text.lines().collect();
-        for (i, line) in lines.iter().enumerate() {
-            let trimmed = line.trim();
-            if !(trimmed.starts_with("#[") && trimmed.contains("test")) {
-                continue;
-            }
-            for ahead in lines.iter().skip(i.saturating_add(1)).take(4) {
-                let candidate = ahead.trim().trim_start_matches("pub ").trim_start_matches("async ");
-                if let Some(rest) = candidate.strip_prefix("fn ")
-                    && let Some(name) = rest.split('(').next()
-                {
-                    out.insert(name.trim().to_owned());
-                    break;
-                }
-            }
-        }
-    }
-    out
-}
-
-/// The task or app name one invocation names, or `None` when the span is not an invocation.
-///
-/// `just bigquery-two-principals` and `nix run .#bigquery-two-principals` both resolve to
-/// `bigquery-two-principals`, which is what makes a page citing the TASK comparable against a
-/// workflow invoking the APP. That the two names coincide is this repository's convention and not a
-/// derived fact - a task whose flake app is named differently would not be seen, and that is a
-/// false NEGATIVE, which is the direction this check can afford.
-fn invocation(span: &str) -> Option<&str> {
-    let rest = span
-        .strip_prefix("nix run .#just -- ")
-        .or_else(|| span.strip_prefix("nix run .#"))
-        .or_else(|| span.strip_prefix("just "))?;
-    let name: &str = rest.split_whitespace().next()?;
-    let name = name.trim_end_matches(&[',', '.', ';', ':'][..]);
-    let shaped = !name.is_empty()
-        && name.starts_with(|c: char| c.is_ascii_lowercase())
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
-    shaped.then_some(name)
-}
-
-/// Every `just` task and `nix run .#` app CI invokes, by bare name.
-///
-/// **Read out of the same three places `crate::workflows` scans, through the same walk**, because
-/// the recorded way a reference leaves a gate's sight is a step moving out of a workflow - and a
-/// second walk here would be a second answer to *where does CI invoke things from*.
-///
-/// A comment is not an invocation, matching `crate::workflows::collect`'s own rule: `ci.yml` and
-/// `docs.yml` both discuss tasks in prose, and a gate that read those would refuse an `unrun` cell
-/// because somebody explained the job in a comment.
-///
-/// `None` only when the scan itself is broken, which its caller turns into a failure rather than an
-/// empty set: a set that found nothing would make every `unrun` cell pass, and *a scan that passes
-/// by finding nothing* is the failure mode a text gate is most prone to here.
-fn invoked(root: &Path) -> Option<BTreeSet<String>> {
-    let read = crate::workflows::sources::ci_sources(root)?;
-    let mut out = BTreeSet::new();
-    for source in &read {
-        for line in source.text.lines() {
-            if line.trim_start().starts_with('#') {
-                continue;
-            }
-            for needle in ["just ", "nix run .#"] {
-                let mut rest = line;
-                while let Some(at) = rest.find(needle) {
-                    let from = rest.get(at..).unwrap_or_default();
-                    if let Some(name) = invocation(from) {
-                        out.insert(name.to_owned());
-                    }
-                    rest = rest.get(at.saturating_add(needle.len())..).unwrap_or_default();
-                }
-            }
-        }
-    }
-    Some(out)
-}
-
-/// The task and app names a `Reached by` cell cites, by bare name.
-///
-/// Backticked spans only, because that is how the page writes an invocation and because the cell's
-/// prose ("a GitHub environment, on demand") would otherwise contribute words.
-fn cited_invocations(reached: &str) -> BTreeSet<String> {
-    reached
-        .split('`')
-        .skip(1)
-        .step_by(2)
-        .filter_map(|span| invocation(span.trim()))
-        .map(str::to_owned)
+        .filter(|venue| venue.is_built() && cited_invocations(&venue.reached).is_empty())
+        .map(|venue| {
+            format!(
+                "{PAGE}: `{}` is reached by `{}`, which names no `just <task>` and no \
+                 `nix run .#<app>` in backticks - every rule that decides this venue's state \
+                 resolves that cell, so a `Reached by` nothing can resolve is a venue whose state \
+                 cannot be judged. Either name the invocation the way this page names one, or the \
+                 cell is `{NOT_BUILT}`",
+                venue.name, venue.reached
+            )
+        })
         .collect()
 }
 
-/// Everything the `unrun` verdict has to be consistent with, for the venues whose cells state it.
+/// Everything the two un-citable verdicts have to be consistent with, for the venues stating them.
 ///
-/// Together rather than beside the other page rules, because the two of them are the whole
-/// difference between `unrun` being a token and being a caveat, and they fail in opposite
-/// directions: one catches a cell whose section never explains it, the other a cell that has
-/// stopped being true.
-fn unrun_problems(text: &str, listed: &[Venue], unrun: &BTreeSet<&str>, invoked: &BTreeSet<String>) -> Vec<String> {
+/// Together rather than beside the other page rules, because these are the whole difference
+/// between `unrun`/`wired` being tokens and being caveats, and they fail in opposite directions:
+/// one catches a cell whose section never explains it, the others a cell that has stopped being
+/// true - in either direction, since `unrun` expires when CI reaches a venue and `wired` is not yet
+/// earned until it does.
+fn transition_problems(
+    text: &str,
+    listed: &[Venue],
+    unrun: &BTreeSet<&str>,
+    wired: &BTreeSet<&str>,
+    invoked: &BTreeSet<String>,
+) -> Vec<String> {
     let mut problems = Vec::new();
-    for venue in listed.iter().filter(|venue| unrun.contains(venue.name.as_str())) {
-        // A venue whose cell says `unrun` has to say it in its own SECTION too, in that word. The
-        // exclusion a reader needs is *no run has happened*, and a section that explains a `can` in
-        // prose is how the two drifted apart before this verdict existed.
-        if !section_body(text, &venue.name).is_some_and(|body| body.contains("unrun")) {
-            problems.push(format!(
-                "{PAGE}: `{}` says `unrun` in the matrix and its own section never uses that word \
-                 - the cell is where the state is read and the section is where it is explained, \
-                 and a section that explains it in other words is how the two came apart",
-                venue.name
-            ));
+    // The shared half: a cell stating one of these has to say the same word in its own SECTION.
+    // One loop over both, because the argument is identical and two copies of it would be two
+    // places for the wording to drift - which is the failure this whole module is about.
+    for (word, venues) in [("unrun", unrun), ("wired", wired)] {
+        for venue in listed.iter().filter(|venue| venues.contains(venue.name.as_str())) {
+            if !section_body(text, &venue.name).is_some_and(|body| body.contains(word)) {
+                problems.push(format!(
+                    "{PAGE}: `{}` says `{word}` in the matrix and its own section never uses that \
+                     word - the cell is where the state is read and the section is where it is \
+                     explained, and a section that explains it in other words is how the two came \
+                     apart",
+                    venue.name
+                ));
+            }
         }
-
+    }
+    for venue in listed.iter().filter(|venue| unrun.contains(venue.name.as_str())) {
         // **A venue CI INVOKES may not say `unrun`**, which is the half the page-shaped rules do
         // not hold. They read a spelling; none of them reads whether a run has happened, so a leg
         // wired into a job could go green on every push while this page went on saying nothing had
@@ -406,18 +183,47 @@ fn unrun_problems(text: &str, listed: &[Venue], unrun: &BTreeSet<&str>, invoked:
         // not a green run. A wired job that always skips reddens this too, and a hand-run is
         // invisible to it. What is mechanical is that `unrun` stops being honest; that `yes` is
         // EARNED stays review's.
-        let wired: BTreeSet<String> = cited_invocations(&venue.reached)
+        let reached_by_ci: BTreeSet<String> = cited_invocations(&venue.reached)
             .into_iter()
             .filter(|name| invoked.contains(name))
             .collect();
-        if !wired.is_empty() {
+        if !reached_by_ci.is_empty() {
             problems.push(format!(
-                "{PAGE}: `{}` says `unrun` and CI invokes {wired:?} - `unrun` is a test that EXISTS \
-                 and has not been run, and a venue a job reaches is no longer in that state. Either \
-                 the run has happened and the cell is `yes` with the run named in the section, or \
-                 the job does not reach this venue and its `Reached by` cell ({}) is not what \
-                 reaches it. What is read here is the INVOCATION and not a green run: a job that \
-                 always skips reddens this too, and a hand-run is invisible to it",
+                "{PAGE}: `{}` says `unrun` and CI invokes {reached_by_ci:?} - `unrun` is a test \
+                 that EXISTS and has not been run, and a venue a job reaches is no longer in that \
+                 state. Either the run has happened and the cell is `yes` with the run named in \
+                 the section, or nobody has seen one yet and the cell is `wired`, or the job does \
+                 not reach this venue and its `Reached by` cell ({}) is not what reaches it. What \
+                 is read here is the INVOCATION and not a green run: a job that always skips \
+                 reddens this too, and a hand-run is invisible to it",
+                venue.name, venue.reached
+            ));
+        }
+    }
+    // And the mirror. `wired` says *CI reaches this and no run has been observed*, so a cell
+    // stating it over a venue no job invokes is claiming a wiring that is not there - which would
+    // make `wired` a spelling of `unrun` that skips `unrun`'s own expiry rule.
+    for venue in listed.iter().filter(|venue| wired.contains(venue.name.as_str())) {
+        // A job reaches it, so it does not run nowhere. Two cells of one row contradicting each
+        // other is the shape the `yes`/`can` guard above was found missing.
+        if venue.runs_nowhere() {
+            problems.push(format!(
+                "{PAGE}: `{}` says `wired` and its own `Where it runs` cell says `{}` - `wired` is \
+                 *a job reaches this*, so the two cells of this row contradict each other. A venue \
+                 that runs nowhere and has a written test is `unrun`",
+                venue.name, venue.runs
+            ));
+        }
+        let reached_by_ci: BTreeSet<String> = cited_invocations(&venue.reached)
+            .into_iter()
+            .filter(|name| invoked.contains(name))
+            .collect();
+        if reached_by_ci.is_empty() {
+            problems.push(format!(
+                "{PAGE}: `{}` says `wired` and CI invokes nothing its `Reached by` cell ({}) \
+                 names - `wired` is *a job reaches this and no run has been observed*, so a venue \
+                 no job reaches is `unrun` instead. Either the wiring is missing from the \
+                 workflows or the `Reached by` cell does not name what reaches it",
                 venue.name, venue.reached
             ));
         }
@@ -438,7 +244,7 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
         )];
     }
 
-    let (header, claims) = match table(text, "claims", |line| line.starts_with(CLAIMS_HEADER)) {
+    let (header, claims) = match claims(text) {
         Ok(read) => read,
         Err(problem) => return vec![problem],
     };
@@ -488,6 +294,7 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
     // would have been read by nothing, which `clippy::collection_is_never_read` said out loud.
     let mut claimed: BTreeSet<&str> = BTreeSet::new();
     let mut unrun: BTreeSet<&str> = BTreeSet::new();
+    let mut wired: BTreeSet<&str> = BTreeSet::new();
     for row in &claims {
         let claim = row.first().map_or("", String::as_str);
         if row.len() != listed.len().saturating_add(1) {
@@ -517,14 +324,38 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
                             venue.name
                         ));
                     }
+                    // **The second half of that same guard, and it was missing.** `is_built` reads
+                    // ONE cell, so a venue gained the right to be cited the moment its `Reached by`
+                    // named a task - even while its own `Where it runs` still said it runs nowhere.
+                    // Measured: with the exchange venue in that state, the row carrying leg 2 could
+                    // be edited from `only here` to `yes` and `check-venues` exited 0. A venue that
+                    // runs nowhere may have a written test, which is what `unrun` is for; it may
+                    // not be evidence for anything.
+                    else if venue.runs_nowhere() {
+                        problems.push(format!(
+                            "{PAGE}: `{}` claims `{word}` about `{claim}` while its own `Where it \
+                             runs` cell says `{}` - a venue that runs nowhere cannot be cited, \
+                             whatever its `Reached by` names. A written test that nothing can point \
+                             at is `unrun`",
+                            venue.name, venue.runs
+                        ));
+                    }
                 }
-                Some("unrun") => {
+                // The two un-citable verdicts, which differ only in whether CI has reached the
+                // venue yet - so they earn a row for exactly the same reason and are refused for a
+                // venue nothing runs for exactly the same reason. `transition_problems` is where
+                // they part.
+                Some(word @ ("unrun" | "wired")) => {
                     claimed.insert(venue.name.as_str());
-                    unrun.insert(venue.name.as_str());
+                    if word == "unrun" {
+                        unrun.insert(venue.name.as_str());
+                    } else {
+                        wired.insert(venue.name.as_str());
+                    }
                     if !venue.is_built() {
                         problems.push(format!(
-                            "{PAGE}: `{}` is `{NOT_BUILT}` and says `unrun` about `{claim}` - \
-                             `unrun` is a test that EXISTS and has not been run, so a venue \
+                            "{PAGE}: `{}` is `{NOT_BUILT}` and says `{word}` about `{claim}` - \
+                             `{word}` is a test that EXISTS and has not been run, so a venue \
                              nothing reaches cannot be in that state: either something reaches it \
                              and the `Reached by` cell should say so, or the cell is `-`",
                             venue.name
@@ -540,9 +371,9 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
         if !claimed.contains(venue.name.as_str()) {
             problems.push(format!(
                 "{PAGE}: `{}` is reached by `{}` and claims nothing in the matrix - not one `yes`, \
-                 `can` or `unrun`. Either it answers a claim and the column does not say so, a \
-                 test is written for it and the cell should say `unrun`, or the row has no reason \
-                 to be there",
+                 `can`, `unrun` or `wired`. Either it answers a claim and the column does not say \
+                 so, a test is written for it and the cell should say `unrun` (or `wired`, once a \
+                 job reaches it), or the row has no reason to be there",
                 venue.name, venue.reached
             ));
         }
@@ -573,7 +404,8 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
         }
     }
 
-    problems.extend(unrun_problems(text, &listed, &unrun, invoked));
+    problems.extend(resolvable_problems(&listed));
+    problems.extend(transition_problems(text, &listed, &unrun, &wired, invoked));
 
     for name in cited_tests(text) {
         if !tests.contains(&name) {
@@ -657,7 +489,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{PAGE, VERDICTS, invocation, page_problems, verdict};
+    use super::sources::{invocation, starts_a_command};
+    use super::{PAGE, VERDICTS, page_problems, verdict};
 
     /// A page with two venues too few is refused, so the fixtures below carry three.
     const MAP: &str = "\
@@ -812,6 +645,183 @@ Not built.
         );
     }
 
+    /// [`MAP`] with the shared-key venue's one answer at `wired`, and the word in its section -
+    /// the state a venue is in between the change that wires its job and the first run anybody has
+    /// seen.
+    fn map_with_a_wired_cell() -> String {
+        MAP.replace(
+            "| A statement is accepted | no | **yes** | - |",
+            "| A statement is accepted | no | **wired** | - |",
+        )
+        .replace(
+            "## A real dataset under a shared key\n\nNothing about who asked.\n",
+            "## A real dataset under a shared key\n\nNothing about who asked, and the leg is wired and unseen.\n",
+        )
+    }
+
+    #[test]
+    fn a_venue_ci_invokes_says_wired_rather_than_unrun() {
+        // RED WHEN WRITTEN, and the finding is what `unrun`'s expiry rule left with nowhere to go:
+        // the change that WIRES a leg cannot also produce its first green run, because the run
+        // happens after the push. So the two moves available were a cell the gate refuses and a
+        // `yes` nobody has earned. This is the third, and it passes only while CI really does
+        // invoke the name the `Reached by` cell states.
+        assert_eq!(
+            problems_with_ci(&map_with_a_wired_cell(), &["bigquery-acceptance"]),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_venue_no_job_invokes_may_not_say_wired() {
+        // The mirror of `a_venue_ci_invokes_may_not_say_unrun`, and without it `wired` would be a
+        // spelling of `unrun` that skips `unrun`'s own expiry: a cell could claim a wiring that is
+        // not in any workflow and never be asked for it again.
+        let found = problems_with_ci(&map_with_a_wired_cell(), &["deny", "crap", "xtask"]);
+        assert!(
+            found.iter().any(|p| p.contains("CI invokes nothing")),
+            "a `wired` cell over a venue no job reaches has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_wired_cell_whose_section_never_uses_the_word_fails() {
+        // The same tie `unrun` carries, held for the new word by the same loop rather than by a
+        // second copy of the rule - a cell is where the state is read, a section is where it is
+        // explained, and prose explaining it in other words is how those two came apart before.
+        let unexplained = MAP.replace(
+            "| A statement is accepted | no | **yes** | - |",
+            "| A statement is accepted | no | **wired** | - |",
+        );
+        let found = problems_with_ci(&unexplained, &["bigquery-acceptance"]);
+        assert!(found.iter().any(|p| p.contains("never uses that")), "{found:?}");
+    }
+
+    #[test]
+    fn a_venue_nothing_runs_may_not_say_wired() {
+        // `not built` and `wired` are contradictory in the one direction that matters: a venue
+        // nothing runs at all cannot be one a job reaches.
+        let overstated = MAP.replace(
+            "| An exchange endpoint accepts it | no | no | **only here** |",
+            "| An exchange endpoint accepts it | no | no | **wired** |",
+        );
+        let found = problems_with_ci(&overstated, &["bigquery-acceptance"]);
+        assert!(found.iter().any(|p| p.contains("cannot be in that state")), "{found:?}");
+    }
+
+    #[test]
+    fn a_venue_whose_only_verdict_is_wired_still_has_a_reason_to_be_in_the_table() {
+        // The same accounting `unrun` earns: not evidence, and still a reason for the row. Without
+        // this the *claims nothing in the matrix* arm would fire on every wired-and-unseen venue,
+        // which is the state this verdict exists to name.
+        let found = problems_with_ci(&map_with_a_wired_cell(), &["bigquery-acceptance"]);
+        assert!(!found.iter().any(|p| p.contains("claims nothing in the matrix")), "{found:?}");
+    }
+
+    /// [`MAP`] with the exchange venue given a task that reaches it while its own `Where it runs`
+    /// still says nowhere - the exact state #382 put the real page in, and the one that turned the
+    /// guard on `yes` off.
+    fn map_with_a_venue_that_runs_nowhere_but_names_a_task() -> String {
+        MAP.replace(
+            "| **A real token exchange** | nowhere yet | a pool | not built |",
+            "| **A real token exchange** | nowhere yet | a pool | `just bigquery-exchanged-identity` |",
+        )
+        .replace(
+            "| An exchange endpoint accepts it | no | no | **only here** |",
+            "| An exchange endpoint accepts it | no | no | **unrun** |",
+        )
+        .replace(
+            "## A real token exchange\n\nNot built.\n",
+            "## A real token exchange\n\nThe leg is written and unrun.\n",
+        )
+    }
+
+    #[test]
+    fn a_venue_that_runs_nowhere_may_not_be_cited_however_its_reached_by_reads() {
+        // **RED WHEN WRITTEN, and the finding is that nothing was red.** `is_built` reads ONE cell,
+        // so the moment a venue's `Reached by` named a task it earned the right to say `yes` - even
+        // with its own `Where it runs` still saying it runs nowhere. Measured on the real page: the
+        // row carrying *two subjects read two different row sets* could be edited from `only here`
+        // to `yes` and `check-venues` exited 0. Both cells are read now.
+        let overstated = map_with_a_venue_that_runs_nowhere_but_names_a_task().replace(
+            "| An exchange endpoint accepts it | no | no | **unrun** |",
+            "| An exchange endpoint accepts it | no | no | **yes** |",
+        );
+        let found = problems(&overstated);
+        assert!(found.iter().any(|p| p.contains("says `nowhere yet`")), "{found:?}");
+    }
+
+    #[test]
+    fn a_venue_that_runs_nowhere_may_still_say_unrun_with_a_task_that_reaches_it() {
+        // The other direction, and it is a real state rather than a loophole: a written test, a
+        // task that reaches it, and nothing that can point the task at anything. Without this the
+        // rule above would be satisfied by refusing every venue in that position, which is the one
+        // this page most needs to be able to describe.
+        assert_eq!(
+            problems(&map_with_a_venue_that_runs_nowhere_but_names_a_task()),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_venue_that_runs_nowhere_may_not_say_wired_either() {
+        // `wired` is *a job reaches this*, so it contradicts a row that says the venue runs
+        // nowhere. Two cells of one row disagreeing is the shape the `yes` guard was found missing.
+        let contradictory = map_with_a_venue_that_runs_nowhere_but_names_a_task().replace(
+            "| An exchange endpoint accepts it | no | no | **unrun** |",
+            "| An exchange endpoint accepts it | no | no | **wired** |",
+        );
+        let found = problems_with_ci(&contradictory, &["bigquery-exchanged-identity"]);
+        assert!(found.iter().any(|p| p.contains("contradict each other")), "{found:?}");
+    }
+
+    #[test]
+    fn a_reached_by_that_names_no_invocation_leaves_the_venue_unjudgeable() {
+        // **The cheapest bypass on the page, and it predates `wired`.** Every rule that decides a
+        // venue's state resolves this cell through `cited_invocations`, which wants the spelling
+        // the page uses - so dropping `just ` made the cell resolve to nothing and `unrun`
+        // permanent at exit 0, whatever CI ran.
+        let unresolvable = map_with_an_unrun_cell().replace(
+            "| **A real dataset under a shared key** | an environment | a key | `just bigquery-acceptance` |",
+            "| **A real dataset under a shared key** | an environment | a key | the `bigquery-acceptance` task |",
+        );
+        let found = problems_with_ci(&unresolvable, &["bigquery-acceptance"]);
+        assert!(found.iter().any(|p| p.contains("names no `just <task>`")), "{found:?}");
+    }
+
+    #[test]
+    fn a_task_named_inside_a_printed_string_is_not_an_invocation() {
+        // **The bypass that made `wired` weaker than `unrun`, measured.** `invoked` scanned each
+        // non-comment line for a substring, so a sentence inside `echo` resolved the name and a
+        // venue no job runs said `wired` at exit 0 with a byte-identical summary. For `unrun` the
+        // incentive to write that line runs against the author; for `wired` it runs with them.
+        assert_eq!(
+            starts_a_command("          nix run .#bigquery-two-principals -- --no-capture"),
+            Some("bigquery-two-principals")
+        );
+        assert_eq!(starts_a_command("    just lint-ci"), Some("lint-ci"));
+        assert_eq!(starts_a_command("    exec just test"), Some("test"));
+        assert_eq!(starts_a_command("        - just hygiene"), Some("hygiene"));
+        // A wrapper runs the real command after its own argument terminator. Measured: the first
+        // version of this reader resolved 18 names where the substring scan resolved 19, and this
+        // line in `nix/container-setup.sh` was the one it lost.
+        assert_eq!(starts_a_command("devenv shell -- just setup"), Some("setup"));
+        assert_eq!(starts_a_command("  nix develop --command just test"), Some("test"));
+        // And the prose forms, which are what this exists to refuse.
+        assert_eq!(
+            starts_a_command("echo to run this leg locally use nix run .#bigquery-two-principals please"),
+            None
+        );
+        assert_eq!(starts_a_command("printf 'run just test first'"), None);
+        // And the terminator inside a printed sentence is not a wrapper's, which is why this reads
+        // the wrapper as the segment's own command rather than splitting lines on `--`.
+        assert_eq!(starts_a_command("echo \"use -- just test to start\""), None);
+        assert_eq!(
+            starts_a_command("echo \"CI runs it through nix run .#bigquery-acceptance\""),
+            None
+        );
+    }
+
     #[test]
     fn an_invocation_is_a_task_or_an_app_and_prose_is_neither() {
         assert_eq!(invocation("just bigquery-two-principals"), Some("bigquery-two-principals"));
@@ -899,6 +909,10 @@ Not built.
         assert_eq!(verdict("**yes**, that *we refuse one*"), Some("yes"));
         assert_eq!(verdict("**can** - the builder takes several audiences"), Some("can"));
         assert_eq!(verdict("**unrun** - the only venue that could"), Some("unrun"));
+        assert_eq!(
+            verdict("**wired** - a job reaches it and no run has been seen"),
+            Some("wired")
+        );
         assert_eq!(verdict("no - one key is one identity"), Some("no"));
         assert_eq!(verdict("**only here**"), Some("only here"));
         assert_eq!(verdict("-"), Some("-"));
@@ -909,6 +923,7 @@ Not built.
         assert_eq!(verdict("yesterday"), None);
         assert!(VERDICTS.contains(&"only here"));
         assert!(VERDICTS.contains(&"unrun"));
+        assert!(VERDICTS.contains(&"wired"));
     }
 
     #[test]

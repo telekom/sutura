@@ -22,8 +22,12 @@
 //! everything that is not Rust. The class it must NOT revert is a **build input**: reverting a
 //! manifest or a lockfile changes what cargo RESOLVES rather than what the tests measure, and a
 //! test file held at HEAD that needs a new dependency would stop compiling. Those are named in the
-//! output instead - which is also the honest statement of `github.com/telekom/sutura#343`, where a
-//! manifest-only diff can enable a whole test module and nothing here reads a feature table.
+//! output instead. **Held at HEAD is not the same as unexamined**, and it used to be: a manifest
+//! diff can compile a whole module of pre-existing tests by declaring the feature a
+//! `#[cfg(feature = ..)] mod ..;` is gated on, which nothing here reads. `super::features` reads
+//! it, taking the table on each side of the base commit rather than the diff, so that shape is a
+//! refusal rather than the silent pass `github.com/telekom/sutura#343` recorded. What this module
+//! still decides is only that a build input is not REVERTED.
 //!
 //! **3. A DIFF CANNOT TELL A MOVED TEST FROM AN ADDED ONE.** The gate's premise is *a test the diff
 //! ADDED must be red against the base behaviour*. Move a test into a new file - the refactor this
