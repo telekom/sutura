@@ -126,6 +126,16 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 /// true, which is the third time this repository has caught a doc crediting a type with a property
 /// something else holds.
 ///
+/// **A data system whose own listing did not account for itself is a REFUSAL, and it is the third
+/// one rather than a shade of the second.** A listing that reports a total and then names fewer
+/// tables than the total claims has a gap, and a table the bundle names that is missing from what it
+/// DID name may be sitting in it - so this root refuses without saying the table is absent, because
+/// the catalog may be entirely right. `telekom/sutura#275` and `docs/adr/0018` carry why it is not
+/// the `WARN`: an `Err` out of the port is the warning half, so the one shape the cross-check exists
+/// to catch would have ended in a deployment that serves. **The limit next to it:** what it
+/// establishes is that the check did not complete, never why - a document whose shape changed and a
+/// table created or dropped mid-listing leave the same gap.
+///
 /// **A data system that could not be ASKED is a WARNING and not a refusal, and that is now narrower
 /// than it was.** Review found the earlier version indefensible: a `403` on `tables.list` - a grant
 /// an operator can add - and a `503` from a dead endpoint were the same permanent `WARN`, in the
@@ -181,6 +191,21 @@ where
                 return Err(format!(
                     "{source} does not hold {absent}. Refusing to serve a model whose questions would \
                      fail at query time - fix the catalog's `table:`, or create the table"
+                ));
+            }
+            // **A REFUSAL, and deliberately not the `Absent` sentence above.** The data system said
+            // it holds more tables than it went on to name, so these are tables it did not answer
+            // about rather than tables it said it does not have - and the catalog may be entirely
+            // right. Sending an operator to fix a `table:` here is the defect `telekom/sutura#275`
+            // is about; the WARN half is the worse direction still, because the one shape the
+            // cross-check exists to catch would end in a deployment that serves.
+            Verdict::Unaccounted { tables, shortfall } => {
+                return Err(format!(
+                    "{source} did not account for {shortfall} of the table(s) it says it holds, so this \
+                     deployment cannot tell whether it has {tables}. Refusing to serve, and NOT reporting \
+                     those tables absent - the catalog may be right and the listing was not whole. Start \
+                     again; if it persists, this deployment is not reading the data system's listing the \
+                     way the data system is writing it"
                 ));
             }
             Verdict::Present { asked: tables } => tracing::info!(
@@ -261,6 +286,7 @@ mod tests {
     mod preflight {
 
         use core::cell::RefCell;
+        use core::num::NonZeroU64;
         use std::collections::BTreeSet;
 
         use sutura_app::Warehouses;
@@ -268,7 +294,7 @@ mod tests {
         use sutura_domain::model::{QualifiedTable, SourceName};
         use sutura_domain::plan::{AnchorPlan, Executable};
         use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-        use sutura_domain::warehouse::preflight::TablesPresent;
+        use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
         use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
         use crate::boot::refuse_absent_tables;
@@ -398,6 +424,48 @@ mod tests {
             assert!(
                 !error.contains("dim_customer"),
                 "the refusal must not name a table the data system holds: {error}"
+            );
+        }
+
+        #[test]
+        fn a_data_system_that_did_not_account_for_its_own_tables_does_not_boot_and_names_no_model() {
+            // **`telekom/sutura#275` at the root that renders it.** The data system said it holds four
+            // tables it then did not name, so the bundle's table may be one of them - and the two
+            // things this root must not do are the two it did before: report the table absent (which
+            // sends an operator to a `table:` that may be perfectly right) and serve with a `WARN`
+            // (which is where an `Err` out of the port would have landed it, and is the worse
+            // direction of the two).
+            let engines = opened(|asked| {
+                Ok(TablesPresent::Unaccounted {
+                    tables: UnaccountedTables::parse(
+                        asked
+                            .iter()
+                            .filter(|table| table.name().as_str() == "fct_orders")
+                            .cloned()
+                            .collect(),
+                    )
+                    .expect("the bundle names fct_orders"),
+                    shortfall: NonZeroU64::new(4).expect("four is not zero"),
+                })
+            });
+            let error = refuse_absent_tables(&bundle(), &engines)
+                .expect_err("a data system that cannot account for its own tables has not verified this bundle");
+            assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+            assert!(error.contains("fct_orders"), "and the table nothing was said about: {error}");
+            assert!(
+                error.contains("did not account for 4 of the table(s)"),
+                "and how big the gap was, because one number cannot show a shortfall: {error}"
+            );
+            // The two sentences this refusal must NOT be, asserted rather than assumed from the arm
+            // it was written in: `does not hold` is the absent refusal an operator fixes a `table:`
+            // over, and `named by model(s)` is the half of it that names the file to open.
+            assert!(
+                !error.contains("does not hold"),
+                "nothing here established that the table is missing: {error}"
+            );
+            assert!(
+                !error.contains("named by model(s)"),
+                "and no model is at fault, so none is named: {error}"
             );
         }
 

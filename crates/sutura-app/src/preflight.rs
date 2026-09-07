@@ -24,23 +24,31 @@
 //! one.
 
 use core::fmt;
+use core::num::NonZeroU64;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::model::{ModelName, QualifiedTable, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::warehouse::Warehouse;
-use sutura_domain::warehouse::preflight::TablesPresent;
+use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
 
 use crate::warehouses::Warehouses;
 
 /// What one data system answered about the tables one bundle names in it.
 ///
-/// **Five outcomes and not three, because a root treats two of the failures differently.** The port
-/// answers three things and fails in one way, and that one failure splits on
-/// `Warehouse::preflight_was_refused`: a data system that REFUSED to be listed will refuse
-/// identically on every launch and the fix is one grant, while one that could not be reached is a
-/// condition that passes. A root that collapsed them would either stop a deployment that would have
-/// worked or hide the check being off in the deployment least likely to read a startup log.
+/// **Six outcomes and not three, because a root treats two of the failures differently and one of
+/// the answers is not about the catalog at all.** The port answers four things and fails in one way,
+/// and that one failure splits on `Warehouse::preflight_was_refused`: a data system that REFUSED to
+/// be listed will refuse identically on every launch and the fix is one grant, while one that could
+/// not be reached is a condition that passes. A root that collapsed them would either stop a
+/// deployment that would have worked or hide the check being off in the deployment least likely to
+/// read a startup log.
+///
+/// **[`Self::Unaccounted`] is the fourth answer and it is a REFUSAL, not the third failure.** The
+/// data system answered; its answer did not account for its own inventory. Reading that as
+/// [`Self::Absent`] is what `telekom/sutura#275` is - a shortfall rounded down to zero and charged
+/// to the catalog - and reading it as [`Self::Unverified`] would be worse still: that is the warning
+/// half, so the one shape the cross-check exists to catch would end in a deployment that serves.
 ///
 /// Generic in the adapter's error so the cause travels: nothing here can read `W::Error`, and the
 /// root that composed the adapter is the one that can flatten it.
@@ -62,6 +70,20 @@ pub enum Verdict<E> {
     },
     /// Asked, and these tables are not there. A refusal, and the models to name in it.
     Absent(AbsentBehind),
+    /// Asked, answered, and the answer did not account for every table the data system said it
+    /// holds - so these tables are neither established present nor established absent.
+    ///
+    /// **It names tables and not the models behind them, which is the one place this verdict
+    /// deliberately says less than [`Self::Absent`].** A model is what an operator opens to fix a
+    /// `table:` that is wrong, and nothing here says a `table:` is wrong: the catalog may be
+    /// entirely right and the data system's own answer incomplete. Naming models would send an
+    /// operator to exactly the file `telekom/sutura#275` is about them being sent to wrongly.
+    Unaccounted {
+        /// The tables the data system's answer did not reach.
+        tables: UnaccountedTables,
+        /// How many tables it said it holds that its own answer did not account for.
+        shortfall: NonZeroU64,
+    },
     /// The data system refused to be asked: this identity may not list it.
     Refused {
         /// The adapter's own error, for a root to flatten into its message.
@@ -209,6 +231,9 @@ where
                     .map(|table| (table.clone(), behind.get(table).cloned().unwrap_or_default()))
                     .collect(),
             )),
+            // Carried straight through rather than joined against the bundle, because the models are
+            // the wrong half of this answer - the variant's own documentation says why.
+            Ok(TablesPresent::Unaccounted { tables, shortfall }) => Verdict::Unaccounted { tables, shortfall },
             // The split the port documents: an authorization failure will fail identically on every
             // launch and one grant fixes it, everything else is a condition that passes. Which one it
             // was is the ADAPTER's to say, because `W::Error` is its own type and nothing here reads it.
@@ -241,13 +266,14 @@ fn models_by_table(pinned: &PinnedDefinitions, source: &SourceName) -> BTreeMap<
 #[cfg(test)]
 mod tests {
     use core::cell::RefCell;
+    use core::num::NonZeroU64;
     use std::collections::BTreeSet;
 
     use sutura_domain::identity::Presented;
     use sutura_domain::model::{QualifiedTable, SourceName, TableName};
     use sutura_domain::plan::{AnchorPlan, Executable};
     use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-    use sutura_domain::warehouse::preflight::TablesPresent;
+    use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
     use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
     use super::{Verdict, ask};
@@ -363,6 +389,40 @@ mod tests {
             vec![2],
             "one call carrying both tables, not one call per model"
         );
+    }
+
+    #[test]
+    fn a_table_a_data_system_did_not_account_for_is_not_an_absence_and_carries_no_model() {
+        // **The decision `telekom/sutura#275` settles, at the layer that maps the port's answer.**
+        // Both outcomes name tables and both stop a boot; what separates them is the sentence a root
+        // is licensed to write, and this one may not say a `table:` is wrong. So the verdict carries
+        // the tables and the size of the gap and deliberately NOT the models behind them.
+        let engines = opened(|asked| {
+            Ok(TablesPresent::Unaccounted {
+                tables: UnaccountedTables::parse(
+                    asked
+                        .iter()
+                        .filter(|table| table.name().as_str() == "fct_orders")
+                        .cloned()
+                        .collect(),
+                )
+                .expect("the bundle names fct_orders"),
+                shortfall: NonZeroU64::new(4).expect("four is not zero"),
+            })
+        });
+        let answered = ask(&bundle(), &engines);
+        let Verdict::Unaccounted {
+            ref tables,
+            ref shortfall,
+        } = *answered[0].verdict()
+        else {
+            panic!(
+                "a data system that did not account for its own tables has not established an absence: {:?}",
+                answered[0].verdict()
+            )
+        };
+        assert_eq!(tables.to_string(), "fct_orders", "the table the answer never reached");
+        assert_eq!(shortfall.get(), 4, "and how many tables it left out of its own total");
     }
 
     #[test]

@@ -559,23 +559,15 @@ fn a_bundle_whose_tables_are_all_there_is_asked_about_and_answered_clean() {
 }
 
 #[test]
-fn a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named() {
-    // **The deliberate non-decision, pinned so it stays deliberate.** The listing now says whether
-    // an empty answer came from an empty dataset or from a document that stopped being one, and
-    // NOTHING here reads it: an empty listing whose own total claims three tables still reports the
-    // bundle's table absent, exactly as it did before the field was decoded.
+fn a_listing_short_of_its_own_total_does_not_report_the_table_it_never_named_as_absent() {
+    // **`telekom/sutura#275`, at the seam that decides it.** A dataset answering with no readable
+    // table id beside a total claiming three is a listing with a gap in it, and the bundle's table
+    // may be sitting in that gap - so it is UNACCOUNTED FOR and not absent. Before this the gap was
+    // rounded down to zero and the boot refused saying every table in the bundle is missing: the
+    // right direction, the wrong reason, and an operator sent to fix a catalog that was never wrong.
     //
-    // That is `docs/adr/0018`'s order - measure, then decide - and the decision is not a formality:
-    // an `Err` from this method is a WARNING the deployment serves past, so refusing on a shape
-    // change would move it from *refused for the wrong reason* to *served anyway*, which is the
-    // worse direction. Whoever settles that - `telekom/sutura#275` - changes this test, and the
-    // record with it.
-    //
-    // **What this test is NOT, said next to it:** it is not a regression test. Its assertion holds
-    // identically on the base tree - the behaviour it pins is the behaviour that was already there -
-    // so a `just causality` green over it would be a COMPILE artifact of naming `ListingTotal`. What
-    // it holds is the absence of a decision, and the evidence for that is a mutation: `preflight`
-    // made to skip a dataset whose listing is `Short` turns this red.
+    // What the answer must NOT be is `AllBut`, and `absent()` is the accessor a root would have read
+    // to build that sentence - so it is asserted rather than left to the variant's name.
     let warehouse = open(
         Recording::empty().holding_with_total(
             "acme-analytics/warehouse",
@@ -589,11 +581,93 @@ fn a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named() {
     );
     let answered = warehouse
         .preflight(&asked(&["dim_customer"]))
-        .expect("a listing that contradicts itself is still a listing the dataset answered");
+        .expect("a listing with a gap in it is still a listing the dataset answered");
+    let TablesPresent::Unaccounted { tables, shortfall } = &answered else {
+        panic!("a listing short of its own total leaves the table unaccounted for, and it said {answered:?}");
+    };
+    assert_eq!(tables.to_string(), "dim_customer", "the outcome names the table nothing was said about");
+    assert_eq!(shortfall.get(), 3, "and how many tables the listing left out of its own total");
+    assert!(
+        answered.absent().is_none(),
+        "nothing here says the dataset does not hold the table: {answered:?}"
+    );
+}
+
+#[test]
+fn a_listing_short_of_its_own_total_that_still_named_the_bundles_table_is_clean() {
+    // **The half that keeps the decision narrow, and it is not symmetry.** A short listing cannot
+    // un-name an entry it carried, so a table it DID name is a table the dataset really holds - and
+    // a deployment whose bundle names only such tables is not stopped by a gap over tables it never
+    // asked about. Refusing here would redden an ordinary boot for a total that moved while a
+    // dataset was being written to.
+    let warehouse = open(
+        Recording::empty().holding_with_total(
+            "acme-analytics/warehouse",
+            &["dim_customer"],
+            ListingTotal::Short {
+                reported: 5,
+                identified: 1,
+            },
+        ),
+        shared_posture(),
+    );
+    let answered = warehouse.preflight(&asked(&["dim_customer"])).expect("the dataset answered");
+    assert_eq!(
+        answered,
+        TablesPresent::All,
+        "the listing named the table the bundle asks about, whatever its total said about the rest"
+    );
+}
+
+#[test]
+fn a_listing_that_accounted_for_itself_still_names_a_table_that_is_not_there() {
+    // The control that stops the change above from being *nothing is ever absent again*: a listing
+    // whose own total agrees with the ids it carried has no gap, so a table missing from it is
+    // missing, and the refusal an operator acts on is unchanged.
+    let warehouse = open(
+        Recording::empty().holding_with_total(
+            "acme-analytics/warehouse",
+            &["dim_customer"],
+            ListingTotal::Accounted { reported: 1 },
+        ),
+        shared_posture(),
+    );
+    let answered = warehouse
+        .preflight(&asked(&["dim_customer", "dim_prodcut"]))
+        .expect("the dataset answered");
     assert_eq!(
         absent_names(&answered),
-        vec![String::from("dim_customer")],
-        "the total is carried and decides nothing yet"
+        vec![String::from("dim_prodcut")],
+        "a listing that accounts for itself still says what it does not hold"
+    );
+}
+
+#[test]
+fn a_table_a_whole_listing_does_not_hold_outranks_a_gap_in_another_dataset() {
+    // **Two datasets, two findings, one sentence** - and the definite one is the one a root prints,
+    // because it is the one an operator can act on. Both outcomes stop the boot, so nothing serves
+    // that would not have; what the precedence buys is that the actionable sentence is not held
+    // behind the one that says *look at this*.
+    let warehouse = open(
+        Recording::empty()
+            .holding_with_total(
+                "acme-analytics/warehouse",
+                &[],
+                ListingTotal::Short {
+                    reported: 3,
+                    identified: 0,
+                },
+            )
+            .holding_with_total("acme-analytics/reference", &[], ListingTotal::Accounted { reported: 0 }),
+        shared_posture(),
+    );
+    let answered = warehouse
+        .preflight(&asked(&["dim_customer", "reference.dim_plan"]))
+        .expect("both datasets answered");
+    assert_eq!(
+        absent_names(&answered),
+        vec![String::from("reference.dim_plan")],
+        "the empty dataset that accounted for itself is the finding; the gap waits for the next boot"
     );
 }
 

@@ -88,6 +88,7 @@
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and this
 //! is the first adapter where there would be row-level security to leak through.
 
+use core::num::NonZeroU64;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
@@ -96,7 +97,7 @@ use sutura_domain::model::TableName;
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::preflight::TablesPresent;
+use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -117,7 +118,9 @@ pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 mod sts;
 pub use sts::{StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity, WorkloadIdentityBroker};
 
-use crate::transport::{Cell, DatasetAddress, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ProjectId};
+use crate::transport::{
+    Cell, DatasetAddress, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ListingTotal, ProjectId,
+};
 
 /// One fallible step of this adapter.
 ///
@@ -695,6 +698,21 @@ where
     /// answered whatever the dataset holds, so it belongs in the absent set beside a table that is
     /// simply not there, and it costs no round trip.
     ///
+    /// **A listing SHORT of its own total answers about the tables it named and about no others.**
+    /// `HeldTables::total` is read here now, and what it decides is narrow on purpose: a table the
+    /// short listing named is present, and a table it did not name is
+    /// [`TablesPresent::Unaccounted`] rather than absent, because the listing has a gap the table
+    /// could be sitting in. Before this the gap was rounded down to zero and the bundle was charged
+    /// for it - a dataset answering with no readable id beside a non-zero total refused the boot
+    /// saying every table it names is missing. `telekom/sutura#275`.
+    ///
+    /// **What that does NOT cover, next to the claim.** Only [`ListingTotal::Short`] is read: a
+    /// service that re-spelled the total as well leaves `Unreported` or `Unreadable`, which say
+    /// *nothing to compare*, and a dataset whose every id `usable_table_id` drops is `Accounted`
+    /// beside no ids - both still answer *absent*. And a gap explains a table's absence without
+    /// establishing it: this adapter cannot tell a document whose shape changed from a table created
+    /// or dropped while the listing was being read, and does not pretend to.
+    ///
     /// # Errors
     ///
     /// [`BigQueryError::Endpoint`] where a dataset could not be listed - no permission, no such
@@ -711,6 +729,11 @@ where
         }
         let mut grouped: ByDataset<'_> = BTreeMap::new();
         let mut absent: BTreeSet<QualifiedTable> = BTreeSet::new();
+        // The second set and the second number, because one of each cannot show a shortfall: a table
+        // a short listing did not name is not a table the dataset does not hold, and *how many the
+        // listing left out* is a fact about the listing rather than about the bundle.
+        let mut unaccounted_for: BTreeSet<QualifiedTable> = BTreeSet::new();
+        let mut shortfall: u64 = 0;
         for table in tables {
             // Partitioned BEFORE anything is listed, so an unaddressable path can neither skip the
             // loop nor cost a call: it is already an answer.
@@ -726,14 +749,49 @@ where
                 .transport
                 .list_tables(&at)
                 .map_err(|cause| BigQueryError::Endpoint { cause })?;
-            // **`HeldTables::total` is deliberately not read here**, and the deliberation is
-            // `docs/adr/0018`'s: what the listing said about its own size is carried up so a
-            // decision CAN be made on it, and which decision - refuse or warn - is not settled,
-            // because a listing that fails here is a warning the deployment serves past. Reading it
-            // now would pick that answer by accident.
-            absent.extend(asked.into_iter().filter(|table| !held.holds(table.name().as_str())).cloned());
+            let unnamed = asked.into_iter().filter(|table| !held.holds(table.name().as_str())).cloned();
+            match held.total() {
+                // **The cross-check, connected.** A listing that reported more tables than it carried
+                // readable ids for has a gap in it, and a table the bundle names that this listing
+                // did not name may be sitting in that gap - so it is unaccounted for and NOT absent.
+                // `telekom/sutura#275` is the decision; `docs/adr/0018` carries why it is a value on
+                // the answer rather than an `Err`, which would have been the warning half.
+                ListingTotal::Short { reported, identified } => {
+                    let unnamed: BTreeSet<QualifiedTable> = unnamed.collect();
+                    // A listing that fell short and still named everything the bundle asks about
+                    // costs this deployment nothing: a short listing cannot un-name an entry it
+                    // carried, so those tables really are there and this dataset contributes no
+                    // shortfall to reason about.
+                    if !unnamed.is_empty() {
+                        shortfall = shortfall.saturating_add(reported.saturating_sub(identified));
+                        unaccounted_for.extend(unnamed);
+                    }
+                }
+                // Every other reading is *nothing to compare*, and it leaves the pre-flight exactly
+                // where it was: a dataset whose listing reported no total, or one this crate could
+                // not read, still answers *this table is not here*. Stated as an exhaustive match
+                // rather than a wildcard so a fifth reading has to be decided here.
+                ListingTotal::Accounted { .. } | ListingTotal::Unreported | ListingTotal::Unreadable => {
+                    absent.extend(unnamed);
+                }
+            }
         }
-        Ok(TablesPresent::of(absent))
+        // **A definite absence wins, and both outcomes stop a boot** - so nothing serves that would
+        // not have. It is the more actionable sentence of the two: a table a listing that accounted
+        // for itself did not name is one an operator fixes in the catalog or in the dataset, while a
+        // gap is a thing to look at. The unaccounted-for set is reported on the next boot, which is
+        // the same *first problem wins* both roots already apply across data systems.
+        if !absent.is_empty() {
+            return Ok(TablesPresent::of(absent));
+        }
+        Ok(match NonZeroU64::new(shortfall) {
+            // `map_or` for `TablesPresent::of`'s reason: an empty set is *nothing to report*, which
+            // here means every short listing still named what the bundle asks about.
+            Some(shortfall) => UnaccountedTables::parse(unaccounted_for)
+                .map_or(TablesPresent::All, |tables| TablesPresent::Unaccounted { tables, shortfall }),
+            // No listing fell short, so the set is empty and this is the answer it always was.
+            None => TablesPresent::of(unaccounted_for),
+        })
     }
 
     /// Whether the endpoint REFUSED to list a dataset, rather than failing to answer about one.
