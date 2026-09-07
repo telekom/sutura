@@ -103,6 +103,9 @@ struct Inspected {
     read_files: usize,
     /// What the independent per-taking count offered.
     discovered: usize,
+    /// Anchors the walk did not read. See [`Inspected::of`] for why this is carried rather than
+    /// refused, and [`decide`] for what reports it.
+    missed: Vec<&'static str>,
     /// One answer per taking, in file and line order.
     adjudicated: Vec<(Taking, Keyed)>,
 }
@@ -119,18 +122,6 @@ impl Inspected {
                  reached"
             ));
         }
-        // AN ANCHOR, and it is the arm neither count can reach: both numbers come off
-        // `scan::language_of`, so a predicate that stopped matching leaves them agreeing over a
-        // subset. `telekom/sutura#414`'s reframing - the count stops being the control.
-        for anchor in scan::MUST_READ {
-            if !read.iter().any(|rel| rel == anchor) {
-                return Err(format!(
-                    "the walk did not read `{anchor}`, which this gate's scope must reach. An \
-                     anchor rather than a count, because a predicate that stopped matching leaves \
-                     the counts agreeing over a subset"
-                ));
-            }
-        }
         if discovered != adjudicated.len() {
             return Err(format!(
                 "the scan offered {discovered} taking(s) of a machine-shared root and adjudicated \
@@ -142,6 +133,21 @@ impl Inspected {
         Ok(Self {
             offered_files,
             read_files,
+            // AN ANCHOR, and it is the arm neither count can reach: both numbers come off
+            // `scan::language_of`, so a predicate that stopped matching leaves them agreeing over
+            // a subset. `telekom/sutura#414`'s reframing - the count stops being the control.
+            //
+            // COMPUTED HERE AND REPORTED BY `decide`, rather than refused here, and the ordering is
+            // the whole reason: over `crate::falsifier`'s tree no anchor can exist, so refusing in
+            // this constructor made the gate's refusal there come from a MISSING INPUT instead of
+            // from its own rule - measured, and `telekom/sutura#405`'s property 4 is exactly that
+            // distinction. A violation found is a violation whatever else was missed; only a CLEAN
+            // scan needs its coverage attested.
+            missed: scan::MUST_READ
+                .iter()
+                .filter(|anchor| !read.iter().any(|rel| rel == *anchor))
+                .copied()
+                .collect(),
             discovered,
             adjudicated,
         })
@@ -165,6 +171,11 @@ impl Inspected {
         self.adjudicated.len()
     }
 
+    /// Anchors this gate's scope must reach and the walk did not.
+    fn missed(&self) -> &[&'static str] {
+        &self.missed
+    }
+
     /// Every taking nothing keys.
     fn shared(&self) -> Vec<&Taking> {
         self.adjudicated
@@ -186,6 +197,40 @@ impl Inspected {
         }
         counted.sort_unstable_by(|left, right| left.0.cmp(right.0));
         counted
+    }
+}
+
+/// What a finished inspection means.
+///
+/// **A third exhaustive match, and it exists because the ORDER of two refusals was a defect.** The
+/// anchor was a constructor refusal first, which made the gate's verdict over
+/// `crate::falsifier`'s tree - where no anchor can exist - come from a missing input rather than
+/// from its own rule. `telekom/sutura#405`'s property 4 is precisely that distinction, and only
+/// three of the gates in the sweep manage the first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Decision {
+    /// The scan found a path a second worktree also reaches. Reported FIRST, whatever else the
+    /// walk missed: a violation found is a violation.
+    Violations,
+    /// Nothing shared, and the walk did not read a subject this gate's scope must cover - so the
+    /// clean bill is over a tree the verdict names and the scan never reached.
+    MissedAnchors,
+    /// Nothing shared, every anchor read.
+    Clean,
+}
+
+/// The decision, from the witness alone.
+///
+/// A function of the witness rather than a chain of `if`s inside `run`, so the ORDER is a thing a
+/// test can read - `a_violation_is_reported_even_when_the_walk_missed_an_anchor` is that test.
+fn decide(inspected: &Inspected) -> Decision {
+    if !inspected.shared().is_empty() {
+        return Decision::Violations;
+    }
+    if inspected.missed().is_empty() {
+        Decision::Clean
+    } else {
+        Decision::MissedAnchors
     }
 }
 
@@ -259,7 +304,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
 
-    let shared = inspected.shared();
     let holders: Vec<String> = inspected
         .by_holder()
         .into_iter()
@@ -270,34 +314,55 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .map(|(label, count)| format!("{count} {label}"))
         .collect();
 
-    if shared.is_empty() {
-        let (read, offered_files) = inspected.files();
-        println!(
-            "xtask check-worktree-state: ok - inspected {} of {} taking(s) ({}) over {read} of \
-             {offered_files} file(s) ({})",
-            inspected.inspected(),
-            inspected.discovered(),
-            holders.join(", "),
-            scanned.join(", ")
-        );
-        return Verdict::Pass;
+    // ONE EXHAUSTIVE MATCH over `Decision`, so a fourth outcome cannot be answered by an `else`.
+    match decide(&inspected) {
+        Decision::Clean => {
+            let (read, offered_files) = inspected.files();
+            println!(
+                "xtask check-worktree-state: ok - inspected {} of {} taking(s) ({}) over {read} of \
+                 {offered_files} file(s) ({})",
+                inspected.inspected(),
+                inspected.discovered(),
+                holders.join(", "),
+                scanned.join(", ")
+            );
+            Verdict::Pass
+        }
+        Decision::MissedAnchors => {
+            eprintln!(
+                "xtask check-worktree-state: FAILED - the walk did not read {} anchored \
+                 subject(s), so a clean bill here is over a tree it never reached",
+                inspected.missed().len()
+            );
+            for anchor in inspected.missed() {
+                eprintln!("  {anchor}");
+            }
+            eprintln!();
+            eprintln!("An ANCHOR rather than a count, because both counts above come off one scope");
+            eprintln!("predicate: a predicate that stops matching leaves them agreeing over a subset");
+            eprintln!("with every floor satisfied. `scan::MUST_READ` names one subject per arm, so an");
+            eprintln!("unreachable subject refuses whether or not anybody reads a number.");
+            Verdict::Fail
+        }
+        Decision::Violations => {
+            let shared = inspected.shared();
+            eprintln!(
+                "xtask check-worktree-state: FAILED - {} of {} taking(s) reach a machine-shared path",
+                shared.len(),
+                inspected.discovered()
+            );
+            for taking in &shared {
+                let narrowed = if taking.segment.trim().is_empty() {
+                    String::from("nothing narrows it")
+                } else {
+                    format!("narrowed to `{}`", taking.segment.trim())
+                };
+                eprintln!("  {}:{}: takes `{}`, {narrowed}", taking.path, taking.line, taking.root);
+            }
+            explain();
+            Verdict::Fail
+        }
     }
-
-    eprintln!(
-        "xtask check-worktree-state: FAILED - {} of {} taking(s) reach a machine-shared path",
-        shared.len(),
-        inspected.discovered()
-    );
-    for taking in &shared {
-        let narrowed = if taking.segment.trim().is_empty() {
-            String::from("nothing narrows it")
-        } else {
-            format!("narrowed to `{}`", taking.segment.trim())
-        };
-        eprintln!("  {}:{}: takes `{}`, {narrowed}", taking.path, taking.line, taking.root);
-    }
-    explain();
-    Verdict::Fail
 }
 
 /// What to do about it. Printed, because a gate that only says no gets worked around.
@@ -395,16 +460,41 @@ mod tests {
     }
 
     #[test]
-    fn the_witness_refuses_a_walk_that_missed_an_anchor() {
+    fn a_walk_that_missed_an_anchor_is_not_a_clean_bill() {
         // THE ARM NEITHER COUNT CAN REACH. Both numbers agree here and the taking is adjudicated,
         // so every conservation law is satisfied - what is wrong is that the walk never read a
         // subject this gate's scope must cover, which is what a predicate that stopped matching
         // looks like from the inside. `telekom/sutura#414`'s reframing: the point is that the count
-        // stops being the control.
+        // stops being the control, so an unreachable subject refuses whether or not anybody reads a
+        // number.
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let one = vec![(taking(1), Keyed::Process)];
-        let refused = Inspected::of(short.len(), &short, 1, one).expect_err("an anchor was missed");
-        assert!(refused.contains(scan::MUST_READ[0]), "{refused}");
+        let witness = Inspected::of(short.len(), &short, 1, one).expect("the counts agree");
+        assert_eq!(witness.missed(), [scan::MUST_READ[0]]);
+        assert_eq!(super::decide(&witness), super::Decision::MissedAnchors);
+    }
+
+    #[test]
+    fn a_violation_is_reported_even_when_the_walk_missed_an_anchor() {
+        // THE ORDER, AND IT WAS A DEFECT BEFORE IT WAS A TEST. The anchor started as a refusal
+        // inside `Inspected::of`, which made the gate's verdict over `crate::falsifier`'s tree -
+        // where no anchor can exist - come from a MISSING INPUT rather than from its own rule.
+        // Measured: `FAILED - the walk did not read crates/sutura-conformance/src/corpus.rs` where
+        // the honest answer was `1 of 1 taking(s) reach a machine-shared path`, naming the seeded
+        // file and its line. `telekom/sutura#405`'s property 4 is exactly that distinction.
+        let short: Vec<String> = anchors().into_iter().skip(1).collect();
+        let shared = vec![(taking(2), Keyed::Shared)];
+        let witness = Inspected::of(short.len(), &short, 1, shared).expect("the counts agree");
+        assert!(!witness.missed().is_empty(), "the fixture must also miss an anchor");
+        assert_eq!(super::decide(&witness), super::Decision::Violations);
+    }
+
+    #[test]
+    fn a_clean_scan_that_read_every_anchor_is_the_only_pass() {
+        let one = vec![(taking(1), Keyed::Process)];
+        let witness = Inspected::of(anchors().len(), &anchors(), 1, one).expect("the counts agree");
+        assert!(witness.missed().is_empty());
+        assert_eq!(super::decide(&witness), super::Decision::Clean);
     }
 
     #[test]

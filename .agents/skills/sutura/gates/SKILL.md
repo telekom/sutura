@@ -737,6 +737,17 @@ Three things worth carrying:
   staged file it renamed away from, so a rule asking *is a key anywhere near this* would have passed
   the very defect it was written for. `cargo xtask check-worktree-state` reads the first `.join`
   argument and nothing deeper.
+- **AN ANCHOR IS STRICTLY STRONGER THAN A COUNT FLOOR, and the ORDER of two refusals decides
+  whether a gate refuses for its own reason.** Both of `check-worktree-state`'s conservation laws
+  take their numbers from one scope predicate, so a predicate that stops matching leaves them
+  agreeing over a subset with every floor satisfied - which is why the gate anchors named subjects,
+  one per arm, instead: an unreachable subject refuses whether or not anybody reads a number. The
+  trap is what came next. Written as a refusal inside the witness's constructor, the anchor made the
+  gate's verdict over the falsifier tree - where no anchor can exist - come from a MISSING INPUT
+  rather than from its own rule, measured, and only three of the sweep's gates manage the latter. So
+  a violation is reported AHEAD of a missed anchor, through an exhaustive `Decision` a test can
+  read. **A fail-closed precondition placed ahead of the rule turns a rule-refusal into an
+  input-refusal, and nothing but reading the verdict will tell you.**
 - **A `/tmp/` literal cannot be judged from a line, and the measurement is why the gate does not
   try.** Every rooted literal in this workspace is a fixture value that never reaches a filesystem
   - `cargo xtask check-worktree-state` prints the count, so no figure is copied here;
