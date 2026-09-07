@@ -287,6 +287,27 @@ pub(crate) fn is_index_symlink(path: &str) -> bool {
 /// Bounded so a large file costs a single read rather than a full decode.
 const SNIFF_BYTES: usize = 8 * 1024;
 
+/// What a look at a file's first bytes concluded.
+///
+/// **Three answers rather than two, and the third is the whole point.** `is_text_file` collapses
+/// *this is not text* and *I could not look* into one `false`, so a gate that skips the first
+/// silently skips the second as well - and then reports a count one lower with nothing to compare
+/// it against. `github.com/telekom/sutura#412` is that defect in `text-hygiene`, and the trap the
+/// fix has to avoid is the one `check-shipped-binaries` hit: a PNG under a documentation glob is
+/// OUT OF SCOPE, not unreadable, and a gate that reddens on it gets switched off. Separating the
+/// two is what lets a caller refuse the second while still ignoring the first.
+#[derive(Debug)]
+pub(crate) enum TextProbe {
+    /// No NUL byte in the sniffed prefix, and that prefix decodes as UTF-8.
+    Text,
+    /// Read, and not text. Out of scope for a text gate rather than a problem with it.
+    Binary,
+    /// In scope and unanswerable: the file could not be opened, or the read failed. The caller
+    /// decides what that means - `std::io::ErrorKind::NotFound` is a listing that disagrees with
+    /// the working tree, which is not the same as a file that is there and will not be read.
+    Unreadable(std::io::Error),
+}
+
 /// Is this file text?
 ///
 /// Decided by CONTENT, not by an extension list. Three gates each carried their own list of 14,
@@ -296,28 +317,49 @@ const SNIFF_BYTES: usize = 8 * 1024;
 /// could not see. Content-based detection has no list to forget: a new file type is covered
 /// the day it appears.
 ///
-/// Text means no NUL byte in the first [`SNIFF_BYTES`] and that prefix decodes as UTF-8. A
-/// file that cannot be read is not text, because nothing can be said about it.
+/// Text means no NUL byte in the first [`SNIFF_BYTES`] and that prefix decodes as UTF-8.
+///
+/// **The boolean loses which of the two other answers it gave**, so a caller that must not drop an
+/// unreadable file in silence wants [`probe_text`] instead. This form stays for the callers whose
+/// verdict genuinely does not depend on the difference.
 pub(crate) fn is_text_file(path: &Path) -> bool {
+    matches!(probe_text(path), TextProbe::Text)
+}
+
+/// [`is_text_file`], with *could not look* kept apart from *not text*.
+///
+/// Two steps, because they answer different questions: the read either happened or it did not,
+/// and only if it did is there anything to classify. Splitting them is what makes the OS error
+/// available to the caller instead of collapsing into a `false`.
+pub(crate) fn probe_text(path: &Path) -> TextProbe {
+    match sniff(path) {
+        Ok(head) => classify(&head),
+        Err(cause) => TextProbe::Unreadable(cause),
+    }
+}
+
+/// The first [`SNIFF_BYTES`] of a file, or why they could not be had.
+fn sniff(path: &Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
 
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
-    };
+    let mut file = std::fs::File::open(path)?;
     let mut head = vec![0_u8; SNIFF_BYTES];
-    let Ok(read) = file.read(&mut head) else {
-        return false;
-    };
+    let read = file.read(&mut head)?;
     head.truncate(read);
+    Ok(head)
+}
 
+/// Text or binary, from bytes that were read.
+fn classify(head: &[u8]) -> TextProbe {
     if head.contains(&0) {
-        return false;
+        return TextProbe::Binary;
     }
     // A multi-byte character can straddle the cutoff, so an incomplete tail is not evidence of
     // binary. Only an error before the last few bytes is.
-    match std::str::from_utf8(&head) {
-        Ok(_) => true,
-        Err(e) => e.valid_up_to() + 4 >= head.len(),
+    match std::str::from_utf8(head) {
+        Ok(_) => TextProbe::Text,
+        Err(e) if e.valid_up_to() + 4 >= head.len() => TextProbe::Text,
+        Err(_) => TextProbe::Binary,
     }
 }
 
@@ -451,6 +493,51 @@ mod tests {
 
         // A path that does not exist is not text: nothing can be said about it.
         assert!(!super::is_text_file(&dir.join("absent")));
+
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_probe_keeps_could_not_look_apart_from_not_text() {
+        use std::io::Write as _;
+
+        use super::TextProbe;
+
+        // THE distinction `github.com/telekom/sutura#412` is about. `is_text_file` answers `false`
+        // to both, so a gate that skips a binary file also skips one it could not open - and says
+        // nothing about either. Keyed on the process id, and removed first, for the reason
+        // `crate::falsifier` gives at its own constructor: a pid is reusable.
+        let dir = std::env::temp_dir().join(format!("sutura-probe-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+
+        let text = dir.join("prose.md");
+        std::fs::write(&text, "a line\n").expect("write");
+        assert!(matches!(super::probe_text(&text), TextProbe::Text));
+
+        // Out of scope, and it must STAY out of scope: `check-shipped-binaries` reddened a correct
+        // tree by treating a PNG under a documentation glob as a failure to read.
+        let binary = dir.join("favicon.png");
+        let mut f = std::fs::File::create(&binary).expect("create");
+        f.write_all(b"\x89PNG\r\n\x1a\n\x00\x00").expect("write");
+        assert!(matches!(super::probe_text(&binary), TextProbe::Binary));
+
+        // In scope and unanswerable. A DIRECTORY rather than a mode-000 file: `open` succeeds on
+        // unix and the read fails with `EISDIR`, which no privilege level changes - where mode bits
+        // deny nobody when the process is root, so a permission fixture would assert nothing there.
+        let opaque = dir.join("a-directory");
+        std::fs::create_dir_all(&opaque).expect("a directory in the path of a file read");
+        assert!(
+            matches!(super::probe_text(&opaque), TextProbe::Unreadable(_)),
+            "a path that cannot be read as a file is neither text nor binary"
+        );
+
+        // Absent is Unreadable too, and the KIND is what a caller separates on: a listing that
+        // names a file the working tree does not have is git's business, not a text gate's.
+        match super::probe_text(&dir.join("absent")) {
+            TextProbe::Unreadable(cause) => assert_eq!(cause.kind(), std::io::ErrorKind::NotFound),
+            other => panic!("an absent path must be unreadable, not {other:?}"),
+        }
 
         drop(std::fs::remove_dir_all(&dir));
     }

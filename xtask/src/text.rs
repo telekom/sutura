@@ -9,6 +9,10 @@
 //! files. Each is a `--fix`-able formatting concern except the first two, which are
 //! reported; `--fix` rewrites what can be rewritten mechanically.
 //!
+//! And - `github.com/telekom/sutura#412` - a file this gate is meant to read and cannot, which
+//! used to leave the walk with no finding and no bucket. See [`Tally`] for what the verdict's two
+//! numbers are and what comparing them is worth.
+//!
 //! NOT covered, deliberately: `check-yaml` and `check-toml`. Every YAML and TOML file here
 //! is already parsed by a tool in the gates - cargo reads the manifests, `cargo-deny` reads
 //! `deny.toml`, clippy reads `clippy.toml`, the toolchain file is read by rustup and by Nix,
@@ -49,6 +53,7 @@ pub(crate) enum Finding {
     MissingFinalNewline,
     MultipleFinalNewlines(usize),
     TooLarge(u64),
+    Unreadable(String),
 }
 
 impl Finding {
@@ -65,6 +70,11 @@ impl Finding {
             Self::MultipleFinalNewlines(n) => format!("{n} blank lines at end of file"),
             Self::TooLarge(bytes) => {
                 format!("{bytes} bytes exceeds the {MAX_BYTES}-byte limit for a tracked file")
+            }
+            // The OS error travels with it: "could not read" without the reason sends the reader
+            // back to the shell to work out which of the four it was.
+            Self::Unreadable(ref cause) => {
+                format!("this gate is meant to read this file and could not: {cause}")
             }
         }
     }
@@ -214,27 +224,63 @@ pub(crate) fn fixed(path: &str, text: &str) -> String {
 /// One file and everything wrong with it.
 type Offender = (String, Vec<Finding>);
 
-/// `xtask text-hygiene [--fix]` - the hook and formatter entry point.
-pub(crate) fn run(args: &[String]) -> Verdict {
-    let fix = args.iter().any(|a| a == "--fix");
+/// What the walk did with every path the listing offered.
+///
+/// **The denominator, and the reason it exists.** `checked` on its own is a number nothing
+/// compares: a file this gate could not read left the loop with no finding and no bucket, so the
+/// verdict said `ok - N text file(s) checked` with N one lower than the tree and nothing to notice
+/// it by (`github.com/telekom/sutura#412`; #402 measured `chmod 000 devenv.nix` at exit 0). Every
+/// listed path now lands in exactly one bucket, so the sum is comparable against the LENGTH of the
+/// listing.
+///
+/// **What that comparison is worth, stated next to it.** On the git path the two numbers come from
+/// two places - the listing is git's index, the buckets are what the filesystem answered - so a
+/// disagreement is real evidence. On [`repo::all_files`]'s walk fallback (the Nix sandbox, where
+/// there is no `.git`) both come from one walk, and one walk compared against itself catches a loop
+/// that stops early and NOT a walk that never descended into a directory it could not read.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Tally {
+    /// Read as text and inspected.
+    checked: usize,
+    /// Read, and not text. Out of scope: a PNG is not a text file this gate failed to read.
+    binary: usize,
+    /// Listed and not on disk. Git's business - a deleted file that is still in the index - and
+    /// bucketed rather than reported so the gate does not redden while somebody is mid-edit.
+    absent: usize,
+    /// An index symlink checked out as a pointer file, skipped for the reason
+    /// [`repo::INDEX_SYMLINKS`] gives.
+    pointer: usize,
+    /// In scope and unreadable. Each of these is ALSO a finding, which is the half that makes the
+    /// count more than bookkeeping.
+    unreadable: usize,
+    /// Rewritten by `--fix`. Not part of [`Self::accounted`] - a repaired file was checked.
+    fixed: usize,
+}
 
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask text-hygiene: could not determine the repo root");
-        return Verdict::Fail;
-    };
+impl Tally {
+    /// Every listed path this walk reached a conclusion about.
+    const fn accounted(&self) -> usize {
+        self.checked + self.binary + self.absent + self.pointer + self.unreadable
+    }
+}
 
+/// Judges one listing, and says what it did with every entry.
+///
+/// Split out of [`run`] so both halves are reachable from a test: this reads a tree a test can
+/// build, and [`report`] turns what it found into the exit code.
+fn walk(root: &std::path::Path, files: &[String], fix: bool) -> (Vec<Offender>, Tally) {
     let mut offenders: Vec<Offender> = Vec::new();
-    let mut fixed_count = 0_usize;
-    let mut checked = 0_usize;
+    let mut tally = Tally::default();
 
     for rel in files {
         // A symlink stored as a pointer file has no trailing newline, because a symlink
         // target does not. Where git is available these never reach here; where it is not,
         // this is what stops the walk from failing them. See repo::INDEX_SYMLINKS.
-        if repo::is_index_symlink(&rel) {
+        if repo::is_index_symlink(rel) {
+            tally.pointer += 1;
             continue;
         }
-        let path = root.join(&rel);
+        let path = root.join(rel);
 
         // The size check applies to every file, text or not: a 40 MB binary in git is the
         // problem this catches.
@@ -245,52 +291,112 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             findings.push(Finding::TooLarge(meta.len()));
         }
 
-        if repo::is_text_file(&path)
-            && let Ok(text) = std::fs::read_to_string(&path)
-        {
-            {
-                checked += 1;
-                findings.extend(inspect(&rel, &text));
+        match repo::probe_text(&path) {
+            repo::TextProbe::Binary => tally.binary += 1,
+            // Absent is not this gate's finding to make: `git status` already says so, and a gate
+            // that reddens between `rm` and `git add` is one somebody switches off.
+            repo::TextProbe::Unreadable(cause) if cause.kind() == std::io::ErrorKind::NotFound => {
+                tally.absent += 1;
+            }
+            repo::TextProbe::Unreadable(cause) => {
+                tally.unreadable += 1;
+                findings.push(Finding::Unreadable(cause.to_string()));
+            }
+            // Sniffed as text and still not readable in full: the prefix decoded and a byte past
+            // it did not. That file is in scope by this gate's own boundary, so it is a finding
+            // for the same reason the arm above is.
+            repo::TextProbe::Text => match std::fs::read_to_string(&path) {
+                Err(cause) => {
+                    tally.unreadable += 1;
+                    findings.push(Finding::Unreadable(cause.to_string()));
+                }
+                Ok(text) => {
+                    tally.checked += 1;
+                    findings.extend(inspect(rel, &text));
 
-                if fix && findings.iter().any(Finding::fixable) {
-                    let repaired = fixed(&rel, &text);
-                    if repaired != text {
-                        match std::fs::write(&path, repaired.as_bytes()) {
-                            Ok(()) => {
-                                fixed_count += 1;
-                                findings.retain(|f| !f.fixable());
+                    if fix && findings.iter().any(Finding::fixable) {
+                        let repaired = fixed(rel, &text);
+                        if repaired != text {
+                            match std::fs::write(&path, repaired.as_bytes()) {
+                                Ok(()) => {
+                                    tally.fixed += 1;
+                                    findings.retain(|f| !f.fixable());
+                                }
+                                Err(e) => eprintln!("xtask text-hygiene: could not write {rel}: {e}"),
                             }
-                            Err(e) => eprintln!("xtask text-hygiene: could not write {rel}: {e}"),
                         }
                     }
                 }
-            }
+            },
         }
 
         if !findings.is_empty() {
-            offenders.push((rel, findings));
+            offenders.push((rel.clone(), findings));
         }
     }
 
-    if fix && fixed_count > 0 {
-        println!("xtask text-hygiene: repaired {fixed_count} file(s)");
+    (offenders, tally)
+}
+
+/// Turns what the walk found into the exit code, and prints both numbers behind it.
+fn report(fix: bool, offered: usize, tally: &Tally, offenders: &[Offender]) -> Verdict {
+    if fix && tally.fixed > 0 {
+        println!("xtask text-hygiene: repaired {} file(s)", tally.fixed);
     }
 
-    if offenders.is_empty() {
-        println!("xtask text-hygiene: ok - {checked} text file(s) checked");
-        return Verdict::Pass;
-    }
+    let accounted = tally.accounted();
+    let mut failed = false;
 
-    eprintln!("xtask text-hygiene: FAILED");
-    for (path, findings) in &offenders {
-        for f in findings {
-            eprintln!("  {path}: {}", f.describe());
+    if !offenders.is_empty() {
+        failed = true;
+        eprintln!("xtask text-hygiene: FAILED");
+        for (path, findings) in offenders {
+            for f in findings {
+                eprintln!("  {path}: {}", f.describe());
+            }
         }
+        eprintln!();
+        eprintln!("Run `cargo xtask text-hygiene --fix` for the mechanical ones (whitespace and");
+        eprintln!("final newlines). Conflict markers and oversized files need a decision.");
     }
-    eprintln!();
-    eprintln!("Run `cargo xtask text-hygiene --fix` for the mechanical ones (whitespace and");
-    eprintln!("final newlines). Conflict markers and oversized files need a decision.");
-    Verdict::Fail
+
+    if accounted != offered {
+        failed = true;
+        eprintln!(
+            "xtask text-hygiene: FAILED - {accounted} of {offered} listed path(s) were accounted \
+             for. Every listed path gets one of read, binary, absent, symlink pointer or \
+             unreadable here, so a shortfall is this gate having stopped reading rather than a \
+             smaller tree."
+        );
+    }
+
+    if failed {
+        return Verdict::Fail;
+    }
+
+    println!(
+        "xtask text-hygiene: ok - {} text file(s) checked; {accounted} of {offered} listed path(s) \
+         accounted for ({} binary, {} absent, {} symlink pointer(s))",
+        tally.checked, tally.binary, tally.absent, tally.pointer
+    );
+    Verdict::Pass
+}
+
+/// `xtask text-hygiene [--fix]` - the hook and formatter entry point.
+///
+/// Everything but the listing lives in [`walk`] and [`report`], which is what lets a test drive
+/// the verdict over a tree it built. What is left here - and therefore covered by no unit test -
+/// is the four lines that find the repo and hand the two halves to each other.
+pub(crate) fn run(args: &[String]) -> Verdict {
+    let fix = args.iter().any(|a| a == "--fix");
+
+    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
+        eprintln!("xtask text-hygiene: could not determine the repo root");
+        return Verdict::Fail;
+    };
+
+    let (offenders, tally) = walk(&root, &files, fix);
+    report(fix, files.len(), &tally, &offenders)
 }
 
 #[cfg(test)]
@@ -483,5 +589,143 @@ text
         assert!(!f.fixable(), "choosing a side is a judgement, not a fix");
         assert!(Finding::TrailingWhitespace { line: 1 }.fixable());
         assert!(!Finding::TooLarge(1).fixable());
+        // Nor is a file that could not be opened: there is nothing to rewrite.
+        assert!(!Finding::Unreadable(String::from("Permission denied")).fixable());
+    }
+
+    /// A scratch tree of this test's own, emptied first so a rerun starts clean.
+    ///
+    /// Keyed on the process id AND removed first, for the reason `crate::falsifier` gives at its
+    /// own constructor: a pid is reusable, so a tree an earlier run left behind would seed files
+    /// into a walk whose whole argument is that its contents are known.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sutura-text-{name}-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("a scratch tree");
+        dir
+    }
+
+    /// The listing entries `walk` is handed, as it would get them from `repo::all_files`.
+    fn listing(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| String::from(*n)).collect()
+    }
+
+    #[test]
+    fn an_unreadable_in_scope_file_is_a_finding_and_not_a_smaller_count() {
+        use std::io::Write as _;
+
+        // **`github.com/telekom/sutura#412`.** A file this gate is meant to read and cannot was
+        // neither counted nor reported: `is_text_file` answered `false` for it exactly as for a
+        // PNG, the `read_to_string` was never reached, `offenders` stayed empty, and the verdict
+        // printed a count one lower than the tree with nothing to compare it against. #402
+        // measured that as `chmod 000 devenv.nix` leaving `ok - 1150 text file(s)` at exit 0.
+        let dir = scratch("unreadable");
+        std::fs::write(dir.join("clean.md"), "a line\n").expect("a clean file");
+        // A DIRECTORY, not a mode-000 file: `open` succeeds on unix and the read fails with
+        // `EISDIR` whatever the process's privileges are, where mode bits deny a root process
+        // nothing - so a permission fixture would assert nothing on a container that runs as root.
+        std::fs::create_dir_all(dir.join("opaque")).expect("an unreadable path");
+        // The second way in, and the one no permission bit is involved in: the sniff window
+        // decodes and a byte past it does not, so this file passes `probe_text` and still cannot
+        // be read to a string. 0xFF sits well past `repo`'s 8 KiB prefix.
+        let mut late = std::fs::File::create(dir.join("late-binary.txt")).expect("create");
+        late.write_all(&vec![b'a'; 16 * 1024]).expect("a decodable prefix");
+        late.write_all(&[0xFF]).expect("and a byte that is not UTF-8");
+
+        let files = listing(&["clean.md", "late-binary.txt", "opaque"]);
+        let (offenders, tally) = super::walk(&dir, &files, false);
+
+        let named: Vec<&str> = offenders.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            named,
+            vec!["late-binary.txt", "opaque"],
+            "an in-scope file that cannot be read is reported by name: {offenders:?}"
+        );
+        assert!(
+            offenders
+                .iter()
+                .all(|(_, found)| found.iter().any(|one| matches!(*one, Finding::Unreadable(_)))),
+            "and the OS error travels with it: {offenders:?}"
+        );
+        assert_eq!(tally.unreadable, 2);
+        assert_eq!(tally.checked, 1, "only the readable file was checked");
+        assert_eq!(
+            tally.accounted(),
+            files.len(),
+            "the drop is visible in the accounting as well as in the findings"
+        );
+
+        // **And it reaches the exit code**, which is the half a helper test would not prove: three
+        // gates reviewed on this tree had their verdict reach the exit code through a line nothing
+        // covered.
+        assert_eq!(super::report(false, files.len(), &tally, &offenders), crate::Verdict::Fail);
+
+        // The control. Same walk over the readable file alone must PASS, or the assertion above is
+        // about the harness rather than about the unreadable files.
+        let clean = listing(&["clean.md"]);
+        let (none, ok) = super::walk(&dir, &clean, false);
+        assert!(none.is_empty(), "{none:?}");
+        assert_eq!(super::report(false, clean.len(), &ok, &none), crate::Verdict::Pass);
+
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn every_listed_path_lands_in_exactly_one_bucket() {
+        use std::io::Write as _;
+
+        // The denominator half of #412. `checked` alone is a number nothing compares, so the walk
+        // now has to say what it did with EVERY entry - and this is what a loop that stops early
+        // trips over: `.take(n)` here leaves `accounted` short of the listing it was handed.
+        let dir = scratch("buckets");
+        std::fs::write(dir.join("prose.md"), "a line\n").expect("a text file");
+        let mut binary = std::fs::File::create(dir.join("favicon.png")).expect("create");
+        binary.write_all(b"\x89PNG\r\n\x1a\n\x00\x00").expect("write");
+        std::fs::create_dir_all(dir.join("opaque")).expect("an unreadable path");
+        // `.claude/skills` is an index symlink; on a checkout without symlink support it is a
+        // pointer file with no final newline, which is what the skip exists for. Not created on
+        // disk on purpose - the skip is by path and happens before anything is opened.
+
+        let files = listing(&["prose.md", "favicon.png", "gone.md", ".claude/skills", "opaque"]);
+        let (_, tally) = super::walk(&dir, &files, false);
+
+        assert_eq!(
+            tally,
+            super::Tally {
+                checked: 1,
+                binary: 1,
+                absent: 1,
+                pointer: 1,
+                unreadable: 1,
+                fixed: 0,
+            },
+            "each entry has exactly one answer"
+        );
+        assert_eq!(tally.accounted(), files.len());
+
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_shortfall_between_the_listing_and_the_walk_is_refused() {
+        // **The wiring, driven directly.** A gate reviewed on this tree today printed `19 of 19`
+        // where both numbers came from one walk, and `.take(2)` made it `2 of 2` and green. Here
+        // the offered count is the LENGTH of the listing `repo::all_files` produced and the
+        // accounted count is summed inside the loop, so they cannot both shrink together.
+        let complete = super::Tally {
+            checked: 3,
+            ..super::Tally::default()
+        };
+        assert_eq!(super::report(false, 3, &complete, &[]), crate::Verdict::Pass);
+        assert_eq!(
+            super::report(false, 4, &complete, &[]),
+            crate::Verdict::Fail,
+            "a path the walk reached no conclusion about is a gate that stopped reading"
+        );
+
+        // A finding fails too, with the accounting complete - so the two arms are independent
+        // rather than one of them carrying the other.
+        let offender = vec![(String::from("x.md"), vec![Finding::MissingFinalNewline])];
+        assert_eq!(super::report(false, 3, &complete, &offender), crate::Verdict::Fail);
     }
 }
