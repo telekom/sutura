@@ -66,7 +66,7 @@ fn plan(measure: PlanMeasure, label: &str, keys: Vec<PlanKey>) -> QueryPlan {
         SourceName::parse("local").expect("a test source is a source"),
         MetricName::parse("revenue").expect("a test metric is a metric"),
         StatementTables::only(orders()),
-        PlanBucket::new(String::from("period"), Grain::Month, on("order_date")),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("order_date")),
         keys,
         measure,
         ResultLabel::measure(&MetricName::parse(label).expect("a test measure label is a metric name")),

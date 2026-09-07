@@ -642,7 +642,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
 #[cfg(test)]
 mod tests {
     use sutura_domain::model::{ColumnName, Grain, TableName};
-    use sutura_domain::plan::{PlanBucket, PlanColumn};
+    use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
 
     use polyglot_sql::builder;
 
@@ -651,7 +651,7 @@ mod tests {
 
     fn bucket(grain: Grain) -> PlanBucket {
         PlanBucket::new(
-            String::from("period"),
+            ResultLabel::bucket(),
             grain,
             PlanColumn::new(
                 TableName::parse("orders").expect("a test table is a table"),

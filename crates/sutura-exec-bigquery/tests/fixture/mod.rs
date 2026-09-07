@@ -131,7 +131,7 @@ pub(crate) fn absent_table() -> QualifiedTable {
 pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
     labelled_plan(
         table,
-        String::from("period"),
+        ResultLabel::bucket(),
         ResultLabel::measure(&MetricName::parse("total_amount").expect("a metric name parses")),
     )
 }
@@ -151,12 +151,12 @@ pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
 pub(crate) fn plan_in_the_internal_namespace(table: &QualifiedTable) -> QueryPlan {
     labelled_plan(
         table,
-        InternalLabel::Link.label(),
+        ResultLabel::internal(InternalLabel::Link),
         ResultLabel::internal(InternalLabel::Leaf(0)),
     )
 }
 
-fn labelled_plan(table: &QualifiedTable, bucket_label: String, measure_label: ResultLabel) -> QueryPlan {
+fn labelled_plan(table: &QualifiedTable, bucket_label: ResultLabel, measure_label: ResultLabel) -> QueryPlan {
     // Every column is qualified by the table's BARE name, because `FROM a.b.c` gives the reference
     // an implicit alias of `c`. That is a claim about GoogleSQL that no local test can check, and
     // `the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers` is what checks it.

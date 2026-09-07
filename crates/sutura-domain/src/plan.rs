@@ -165,29 +165,56 @@ impl PlanJoin {
 
 /// The truncated time column, and the label it is projected under.
 ///
-/// **Its label is still a `String`, and that is the one carrier `telekom/sutura#337` has not
-/// reached.** Every producer in this workspace passes
-/// [`TIME_BUCKET_LABEL`](crate::catalog::TIME_BUCKET_LABEL), so the value is a constant in practice
-/// and a [`ResultLabel`] here would take no argument at all - but the change to this constructor
-/// reaches a fixture in `sutura_sql::generate`'s own test module, which another change owns. **The
-/// limit, next to the claim:** a computed bucket label is refused by nothing here; what stops one is
-/// that the two callers are `sutura_semantic::plan`'s two plan shapes and both spell the constant.
+/// **The label is a [`ResultLabel`] and not a `String`, which is the third carrier
+/// `telekom/sutura#337` names.** Every producer in this workspace passes [`ResultLabel::bucket`],
+/// which takes no argument because there is nothing to choose:
+/// [`TIME_BUCKET_LABEL`](crate::catalog::TIME_BUCKET_LABEL) is the one spelling.
+///
+/// **The limit, next to the claim:** the type says the text came from something already parsed, not
+/// WHICH of the four constructors produced it - so a bucket labelled with a dimension's own name is
+/// still representable here, and what refuses that particular collision is
+/// [`Definitions::assemble`](crate::catalog::Definitions), which will not accept a dimension named
+/// `period` in the first place.
+///
+/// A computed bucket label is a compile error, which is the pair [`ResultLabel`] carries for a key
+/// applied to the carrier it did not reach:
+///
+/// ```compile_fail
+/// use sutura_domain::model::{ColumnName, Grain, TableName};
+/// use sutura_domain::plan::{PlanBucket, PlanColumn};
+///
+/// fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanBucket {
+///     PlanBucket::new(format!("0_leaf_{leaf}"), Grain::Month, PlanColumn::new(table, column))
+/// }
+/// ```
+///
+/// And the twin, so a rename cannot make that block pass vacuously:
+///
+/// ```
+/// use sutura_domain::model::{ColumnName, Grain, TableName};
+/// use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
+///
+/// fn _parsed(table: TableName, column: ColumnName) -> PlanBucket {
+///     PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table, column))
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlanBucket {
-    label: String,
+    label: ResultLabel,
     grain: Grain,
     column: PlanColumn,
 }
 
 impl PlanBucket {
     #[inline]
-    pub const fn new(label: String, grain: Grain, column: PlanColumn) -> Self {
+    pub const fn new(label: ResultLabel, grain: Grain, column: PlanColumn) -> Self {
         Self { label, grain, column }
     }
 
+    /// The text the bucket is projected under.
     #[inline]
     pub fn label(&self) -> &str {
-        &self.label
+        self.label.as_str()
     }
 
     #[inline]

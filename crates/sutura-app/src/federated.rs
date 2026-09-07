@@ -275,7 +275,6 @@ mod tests {
     /// tests feed it, so this test is about the ORCHESTRATOR (mint once, run both, record both) and
     /// leans on the combiner suite for the arithmetic.
     fn federated_plan() -> sutura_domain::plan::FederatedPlan {
-        use sutura_domain::catalog::TIME_BUCKET_LABEL;
         use sutura_domain::measure::{AggregatedColumn, Measure, Term};
         use sutura_domain::model::Aggregate;
         use sutura_domain::model::{ColumnName, DimensionName, TableName};
@@ -293,13 +292,7 @@ mod tests {
         // The link column, under the reserved label both legs project it as. The splitter names it
         // from `InternalLabel` and this fake does too, so the shape stays the shape it emits.
         let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link), tablecol("customer_key"));
-        let bucket = |c: &str| {
-            PlanBucket::new(
-                String::from(TIME_BUCKET_LABEL),
-                Grain::Month,
-                PlanColumn::new(table.clone(), column(c)),
-            )
-        };
+        let bucket = |c: &str| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table.clone(), column(c)));
 
         let fact = LegPlan::Fact {
             source: fact_source,

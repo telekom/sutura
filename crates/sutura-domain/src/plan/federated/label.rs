@@ -92,9 +92,11 @@ pub fn labels(federation: &Federation) -> Vec<InternalLabel> {
 /// `sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
 /// instead. What that changes about the paragraph above: the two namespaces are still disjoint
 /// *because* of the leading digit, and what the types add is that no producer can put a value in
-/// both. **The limit, next to the claim:** one carrier is not converted -
-/// [`PlanBucket`](crate::plan::PlanBucket)'s label is still a `String`, for the reason stated on
-/// that type.
+/// both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+/// something already parsed, never WHICH of the four constructors produced it - so a value built by
+/// [`ResultLabel::internal`](crate::plan::ResultLabel::internal) is accepted anywhere a label is
+/// taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+/// needs to: the disjointness is the leading digit.
 ///
 /// **Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
 /// is 63 characters because that is the tightest among the data systems targeted, and it is a

@@ -27,7 +27,6 @@
 
 use std::collections::BTreeSet;
 
-use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
@@ -193,7 +192,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         model.source().clone(),
         metric.name().clone(),
         tables,
-        PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column),
+        PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column),
         keys,
         measure,
         ResultLabel::measure(metric.name()),
@@ -357,7 +356,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
     }
     joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
 
-    let bucket = PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column);
+    let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
 
     // **Where the fact leg's tables stop being a list and become a checked set - the same guard the
     // whole-answer path goes through, reached from the other plan shape.** A leg keeps every

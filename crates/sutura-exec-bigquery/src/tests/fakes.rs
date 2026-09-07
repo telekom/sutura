@@ -333,7 +333,7 @@ pub(super) fn plan() -> QueryPlan {
         source(),
         MetricName::parse("mrr").expect("a test metric is a metric"),
         StatementTables::only(table.clone()),
-        PlanBucket::new(String::from("period"), Grain::Month, column("month")),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {

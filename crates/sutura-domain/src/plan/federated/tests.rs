@@ -80,7 +80,7 @@ fn link_key(table_name: &str) -> PlanKey {
 
 fn bucket() -> PlanBucket {
     PlanBucket::new(
-        String::from(TIME_BUCKET_LABEL),
+        ResultLabel::bucket(),
         Grain::Month,
         PlanColumn::new(table(FACT), column("month")),
     )

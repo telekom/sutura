@@ -35,7 +35,6 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName,
 };
@@ -85,9 +84,10 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// evidence about the real scheme.** These fixtures are hand-built rather than derived from
 /// `sutura_semantic::plan` - this file's header says why - so a hand-written link label is a place
 /// where the fixture and the splitter can disagree without any test noticing; they did, and the
-/// label the splitter chose was a legal dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
-/// the parse check for a reserved label: `parses_in_the_dialect_it_was_generated_for` asks each of
-/// the four targets' PARSERS whether an alias in this namespace is valid there.
+/// label the splitter chose was a legal dimension name, which is `telekom/sutura#325`'s F2. The
+/// rendered statements are therefore also the parse check for a reserved label:
+/// `parses_in_the_dialect_it_was_generated_for` asks each of the four targets' PARSERS whether an
+/// alias in this namespace is valid there.
 ///
 /// **A parser is not the venue that decides, and the internal namespace is the one place in this
 /// repository where that gap is load-bearing.** Every internal label starts with the character
@@ -110,7 +110,7 @@ fn june() -> TimeRange {
 }
 
 fn month_bucket() -> PlanBucket {
-    PlanBucket::new(String::from(TIME_BUCKET_LABEL), Grain::Month, column(FACT_TABLE, "month"))
+    PlanBucket::new(ResultLabel::bucket(), Grain::Month, column(FACT_TABLE, "month"))
 }
 
 /// The two range bounds and the metric's own status filter, in parameter order.

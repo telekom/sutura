@@ -104,7 +104,7 @@ fn anchors_plan(range: TimeRange, grain: Grain, keys: Vec<PlanKey>, filters: Vec
         SourceName::parse("local").expect("a test source is a source"),
         metric(),
         StatementTables::only(table()),
-        PlanBucket::new(String::from("period"), grain, column("month")),
+        PlanBucket::new(ResultLabel::bucket(), grain, column("month")),
         keys,
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {
@@ -260,7 +260,7 @@ fn a_metric_the_bundle_does_not_anchor_has_no_anchors_plan() {
         SourceName::parse("local").expect("a test source is a source"),
         absent.clone(),
         StatementTables::only(table()),
-        PlanBucket::new(String::from("period"), Grain::Month, column("month")),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {

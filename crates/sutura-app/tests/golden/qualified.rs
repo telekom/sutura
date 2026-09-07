@@ -36,7 +36,6 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::{
     Aggregate, ColumnName, DatasetName, DimensionName, Grain, JoinType, MetricName, ProjectName, Qualification, QualifiedTable,
     RelationshipName, SourceName, TableName, TableQualifier,
@@ -159,7 +158,7 @@ fn plan_over(path: QualifiedTable, joined: Option<QualifiedTable>) -> QueryPlan 
         // Every fixture here ends its paths in two DIFFERENT names, so the set parses. The pair that
         // does not is a test of its own, one function below.
         StatementTables::parse(path, joins).expect("the fixtures name two distinguishable tables"),
-        PlanBucket::new(String::from(TIME_BUCKET_LABEL), Grain::Month, column(FACT, "order_date")),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, column(FACT, "order_date")),
         keys,
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {

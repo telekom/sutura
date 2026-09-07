@@ -332,7 +332,7 @@ mod tests {
             source(),
             MetricName::parse(MEASURE_LABEL).expect("a metric name parses"),
             StatementTables::only(table.clone()),
-            PlanBucket::new(String::from("period"), Grain::Month, column("day")),
+            PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("day")),
             vec![PlanKey::new(
                 ResultLabel::dimension(&DimensionName::parse(GRANT_LABEL).expect("a dimension name parses")),
                 column(group_column),

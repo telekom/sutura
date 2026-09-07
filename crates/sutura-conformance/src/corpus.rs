@@ -363,7 +363,7 @@ fn real(value: f64) -> Value {
 
 /// The time bucket every case groups by: one day.
 fn bucket() -> PlanBucket {
-    PlanBucket::new(String::from("period"), Grain::Day, column("day"))
+    PlanBucket::new(ResultLabel::bucket(), Grain::Day, column("day"))
 }
 
 /// The one dimension key in the corpus.

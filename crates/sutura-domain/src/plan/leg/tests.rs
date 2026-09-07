@@ -48,7 +48,7 @@ fn range() -> TimeRange {
 
 fn bucket() -> PlanBucket {
     PlanBucket::new(
-        String::from("period"),
+        ResultLabel::bucket(),
         Grain::Month,
         column("fct_subscription_monthly", "month"),
     )

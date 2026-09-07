@@ -86,7 +86,7 @@ fn question() -> QueryPlan {
         source(),
         MetricName::parse("revenue").expect("a test metric is a metric"),
         StatementTables::only(orders()),
-        PlanBucket::new(String::from("period"), Grain::Month, on("order_date")),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("order_date")),
         vec![PlanKey::new(
             ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
             on("region"),
