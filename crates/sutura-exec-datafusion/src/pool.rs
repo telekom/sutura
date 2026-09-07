@@ -25,12 +25,13 @@
 //!
 //! # Greedy, and never spilling
 //!
-//! [`GreedyMemoryPool`] rather than `FairSpillPool`: first come, first served, and a reservation over
-//! the ceiling fails immediately. `docs/adr/0009` Decision 3 decides the policy and the second of its
-//! two reasons is what settles it - spilling writes the **asking subject's rows** to the pod's local
-//! disk, a data-at-rest surface nothing in this design governs, on the one path whose whole purpose
-//! is that a query executes as the person who asked. A bound that protects memory by making an
-//! ungoverned copy of the data has not protected anything.
+//! [`GreedyMemoryPool`](datafusion::execution::memory_pool::GreedyMemoryPool) rather than
+//! `FairSpillPool`: first come, first served, and a reservation over the ceiling fails immediately.
+//! `docs/adr/0009` Decision 3 decides the policy and the second of its two reasons is what settles
+//! it - spilling writes the **asking subject's rows** to the pod's local disk, a data-at-rest
+//! surface nothing in this design governs, on the one path whose whole purpose is that a query
+//! executes as the person who asked. A bound that protects memory by making an ungoverned copy of
+//! the data has not protected anything.
 //!
 //! So temporary files are **disabled** rather than left at the engine's default of an OS temporary
 //! directory. That is belt and braces on purpose: the pool alone would still let a spilling operator
@@ -150,6 +151,9 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         | DataFusionError::NotADate { .. }
         | DataFusionError::Shape { .. }
         | DataFusionError::SchemaMismatch { .. }
+        // A probe's result that is not two counts is read AFTER the batches came back, so the
+        // reservation it needed was granted.
+        | DataFusionError::KeyCounts { .. }
         | DataFusionError::MissingParam { .. }
         | DataFusionError::NoPredicate
         // A leg handed to an adapter with nothing above it is a composition fault, not a ceiling

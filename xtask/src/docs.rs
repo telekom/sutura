@@ -241,17 +241,18 @@ fn exclusions(text: &str) -> Vec<String> {
 }
 
 /// Every page under the docs directory, relative to it, with `/` separators.
-fn pages(root: &Path, docs_dir: &str) -> BTreeSet<String> {
-    let mut found = Vec::new();
-    repo::collect_files(root, &root.join(docs_dir), &["md"], &mut found);
-    found
+fn pages(root: &Path, docs_dir: &str) -> Result<BTreeSet<String>, String> {
+    let (_root, found) = repo::collect_files(root, &root.join(docs_dir), &["md"])
+        .into_listing(repo::Unmigrated::Docs)
+        .map_err(|why| why.describe())?;
+    Ok(found
         .iter()
         .filter_map(|rel| {
             let tail = rel.strip_prefix(docs_dir)?;
             tail.strip_prefix('/')
         })
         .map(String::from)
-        .collect()
+        .collect())
 }
 
 /// Both directions, as a list of problems. Pure, so the rule is testable without a repo.
@@ -495,7 +496,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             // cannot tell an absent file from a present-but-unreadable one, and a sentence naming
             // the wrong cause sends its reader to the wrong fix.
             eprintln!("xtask check-docs: FAILED - could not read {CONFIG}: {error}");
-            if !pages(&root, DEFAULT_DOCS_DIR).is_empty() {
+            if pages(&root, DEFAULT_DOCS_DIR).is_ok_and(|found| !found.is_empty()) {
                 eprintln!("  and pages exist under {DEFAULT_DOCS_DIR}, so they are published by nothing.");
             }
             eprintln!("  Every rule this gate holds - nav reachability, exclusions, link targets, assets -");
@@ -510,7 +511,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .filter_map(|line| nav_target(line))
         .map(String::from)
         .collect();
-    let present = pages(&root, &docs_dir);
+    let present = match pages(&root, &docs_dir) {
+        Ok(present) => present,
+        Err(why) => {
+            eprintln!("xtask check-docs: FAILED - {why}");
+            return Verdict::Fail;
+        }
+    };
     let patterns = exclusions(&config);
     let exclude::Resolved {
         pages: excluded,

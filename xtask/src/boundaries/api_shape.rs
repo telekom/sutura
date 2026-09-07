@@ -327,9 +327,9 @@ fn is_rust(path: &str) -> bool {
 /// not ours - would fail our gate.
 pub(crate) fn check() -> Result<Report, String> {
     let meta = crate::cargo_metadata(&["--no-deps"])?;
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        return Err(String::from("could not determine the repo root"));
-    };
+    let (root, files) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::Boundaries))
+        .map_err(|why| why.describe())?;
     let dirs = library_src_dirs(&meta, &root)?;
     let mut problems = dynamic_error_deps(&meta)?;
 

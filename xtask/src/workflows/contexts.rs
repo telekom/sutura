@@ -234,10 +234,19 @@ pub(super) struct OrdinaryCi {
 impl OrdinaryCi {
     /// Derive the roots and walk them.
     pub(super) fn read(root: &Path) -> Self {
-        let mut paths = Vec::new();
-        repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"], &mut paths);
-        paths.sort();
         let mut unreadable = Vec::new();
+        // The walk's own finding lands in the channel this reader already publishes: a workflow
+        // directory it cannot enumerate leaves every job below classified by nothing.
+        let mut paths = match repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"])
+            .into_listing(repo::Unmigrated::Workflows)
+        {
+            Ok((_root, found)) => found,
+            Err(why) => {
+                unreadable.push(why.describe());
+                Vec::new()
+            }
+        };
+        paths.sort();
         let mut roots = Vec::new();
         for rel in &paths {
             let text = match std::fs::read_to_string(root.join(rel)) {

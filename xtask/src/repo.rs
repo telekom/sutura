@@ -6,6 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+mod census;
+
+pub(crate) use census::{Census, Looked, Refusal, Unmigrated};
+
 /// Directories no gate ever descends into: build output, VCS internals, tool caches.
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -82,38 +86,124 @@ pub(crate) fn root() -> Option<PathBuf> {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(Path::to_path_buf)
 }
 
-/// Every file under `dir` whose extension is in `extensions`, as repo-relative paths with
-/// `/` separators. Symlinks are skipped: following them can leave the repo or loop.
-pub(crate) fn collect_files(root: &Path, dir: &Path, extensions: &[&str], out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if file_type.is_symlink() {
-            continue;
-        }
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if file_type.is_dir() {
-            if !SKIP_DIRS.contains(&name.as_str()) {
-                collect_files(root, &path, extensions, out);
-            }
-            continue;
-        }
-        let matches_extension = path
-            .extension()
-            .and_then(std::ffi::OsStr::to_str)
-            .is_some_and(|ext| extensions.contains(&ext));
-        if matches_extension && let Some(rel) = relative(root, &path) {
-            out.push(rel);
+/// What a walk is looking for. One enum rather than three copies of the walk: the swallowed
+/// `read_dir` error below was written three times, at `:88`, `:194` and `:236`, and a defect with
+/// three homes is a defect that gets fixed in two of them.
+enum Wanted<'a> {
+    /// An extension in this list. The `collect_files` door.
+    Extensions(&'a [&'a str]),
+    /// Every file. The `all_files` walk fallback.
+    Everything,
+    /// Text, decided by content. The `collect_text_files` door.
+    ///
+    /// **A limit, marked rather than fixed here:** [`is_text_file`] returns `false` for a file it
+    /// cannot open, so an unreadable file is dropped as *not text* rather than recorded as
+    /// unreachable. That is one root cause behind three gates and it changes all three at once, so
+    /// it is the next-but-one PR in `github.com/telekom/sutura#414`'s stack, not this one.
+    Text,
+}
+
+impl Wanted<'_> {
+    fn holds(&self, path: &Path) -> bool {
+        match self {
+            Self::Extensions(extensions) => path
+                .extension()
+                .and_then(std::ffi::OsStr::to_str)
+                .is_some_and(|ext| extensions.contains(&ext)),
+            Self::Everything => true,
+            Self::Text => is_text_file(path),
         }
     }
 }
 
-/// Every file in the repo, as repo-relative paths, paired with the root to join them to.
+/// Every file under `dir` whose extension is in `extensions`, as a [`Census`].
+///
+/// Symlinks are skipped: following them can leave the repo or loop.
+pub(crate) fn collect_files(root: &Path, dir: &Path, extensions: &[&str]) -> Census {
+    gather(root, dir, &Wanted::Extensions(extensions))
+}
+
+/// Every text file under `dir`, as a [`Census`].
+///
+/// The content-based sibling of [`collect_files`], for gates that should judge every text file
+/// rather than a named set of extensions.
+pub(crate) fn collect_text_files(root: &Path, dir: &Path) -> Census {
+    gather(root, dir, &Wanted::Text)
+}
+
+/// Walk, and hand back what was found together with what could not be reached.
+fn gather(root: &Path, dir: &Path, wanted: &Wanted<'_>) -> Census {
+    let mut found = Vec::new();
+    let mut unreachable = Vec::new();
+    walk(root, dir, wanted, &mut found, &mut unreachable);
+    Census::found(root.to_path_buf(), found, unreachable)
+}
+
+/// The one tree walk, and the one place an `fs` error on the way down is recorded.
+///
+/// **Every error here used to be dropped** - `let Ok(entries) = read_dir(dir) else { return; }`
+/// followed by `entries.flatten()` and `let Ok(file_type) = .. else { continue; }`, three times
+/// over. Dropping one takes a subtree out of the DENOMINATOR as well as out of the scan, so every
+/// count a gate prints afterwards agrees with itself over a tree it never looked at: measured,
+/// `chmod 000 .github/actions` produced `ok - 2 literal(s) across 8 file(s)` at exit 0.
+///
+/// `NotFound` versus anything else, the split [`is_text_file`]'s neighbour `read_to_string` calls
+/// already make: a directory that is absent was never a subject, while a directory that exists and
+/// will not be read is a subject this walk was meant to reach and could not.
+fn walk(root: &Path, dir: &Path, wanted: &Wanted<'_>, found: &mut Vec<String>, unreachable: &mut Vec<String>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        // Absent is not unreachable. A door pointed at a directory this tree does not have -
+        // `docs/` in a checkout without it - discovers nothing, and the census's own empty-set
+        // refusal is what decides whether that is acceptable for the gate asking.
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => return,
+        Err(why) => {
+            unreachable.push(format!("{}: {why}", shown(root, dir)));
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            // The `.flatten()` that used to be here. A `DirEntry` error means this directory holds
+            // something the walk cannot name, so the listing is short by an unknown amount.
+            Err(why) => {
+                unreachable.push(format!("{}: {why}", shown(root, dir)));
+                continue;
+            }
+        };
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(why) => {
+                unreachable.push(format!("{}: {why}", shown(root, &path)));
+                continue;
+            }
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if file_type.is_dir() {
+            if !SKIP_DIRS.contains(&name.as_str()) {
+                walk(root, &path, wanted, found, unreachable);
+            }
+            continue;
+        }
+        if wanted.holds(&path)
+            && let Some(rel) = relative(root, &path)
+        {
+            found.push(rel);
+        }
+    }
+}
+
+/// A path as a reader should see it: repo-relative where that is possible, absolute otherwise.
+fn shown(root: &Path, path: &Path) -> String {
+    relative(root, path).unwrap_or_else(|| path.display().to_string())
+}
+
+/// Every file in the repo, as a [`Census`] carrying the root to join a path to.
 ///
 /// Prefers `git ls-files` because tracked-only is the set a gate should judge: a build
 /// artefact somebody left lying around is not a repo problem. Falls back to walking the
@@ -123,16 +213,17 @@ pub(crate) fn collect_files(root: &Path, dir: &Path, extensions: &[&str], out: &
 /// The fallback still scans EVERYTHING, so it cannot turn a gate into a no-op; it can only
 /// be more inclusive than the git listing. Returning an empty list on a missing git would
 /// have made every gate pass vacuously in the sandbox, which is the failure mode a gate
-/// exists to prevent.
-pub(crate) struct RepoFiles {
-    /// Absolute repo root; join it to a `files` entry to read one.
-    pub(crate) root: PathBuf,
-    /// Repo-relative paths with `/` separators.
-    pub(crate) files: Vec<String>,
-}
-
-pub(crate) fn all_files() -> Option<RepoFiles> {
-    let root = root()?;
+/// exists to prevent - and [`Refusal::Empty`] is what now says so out loud instead.
+///
+/// **Where the unreachable-subject finding comes from on this path, stated because it reads
+/// stronger than it is.** `git ls-files` reads the INDEX, so it lists a file inside a directory
+/// nothing can open and the walk's own finding is empty. On a git checkout the finding therefore
+/// arrives from the gate's own read - `Looked::Unreachable`, refused by [`Census::inspect`] - and
+/// the walk's finding covers the sandbox fallback and the two directory-scoped doors above.
+pub(crate) fn all_files() -> Result<Census, Refusal> {
+    let Some(root) = root() else {
+        return Err(Refusal::NoRoot);
+    };
     // TRACKED plus UNTRACKED-BUT-NOT-IGNORED, which is what git would publish.
     //
     // Tracked-only was wrong in a way that is hard to see: a brand-new file is invisible until
@@ -180,39 +271,10 @@ pub(crate) fn all_files() -> Option<RepoFiles> {
         files.sort_unstable();
         files.dedup();
         if !files.is_empty() {
-            return Some(RepoFiles { root, files });
+            return Ok(Census::found(root, files, Vec::new()));
         }
     }
-    let mut files = Vec::new();
-    collect_all(&root, &root, &mut files);
-    Some(RepoFiles { root, files })
-}
-
-/// The extension-agnostic sibling of [`collect_files`], for gates that decide what is text
-/// by their own rules rather than by a fixed extension list.
-fn collect_all(root: &Path, dir: &Path, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if file_type.is_symlink() {
-            continue;
-        }
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if file_type.is_dir() {
-            if !SKIP_DIRS.contains(&name.as_str()) {
-                collect_all(root, &path, out);
-            }
-            continue;
-        }
-        if let Some(rel) = relative(root, &path) {
-            out.push(rel);
-        }
-    }
+    Ok(gather(&root, &root, &Wanted::Everything))
 }
 
 /// The path from one `git ls-files --stage` entry, or `None` for a symlink.
@@ -226,37 +288,6 @@ fn staged_path(entry: &str) -> Option<String> {
         return None;
     }
     Some(String::from(path))
-}
-
-/// Every text file under `dir`, as repo-relative paths.
-///
-/// The content-based sibling of [`collect_files`], for gates that should judge every text file
-/// rather than a named set of extensions.
-pub(crate) fn collect_text_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if file_type.is_symlink() {
-            continue;
-        }
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if file_type.is_dir() {
-            if !SKIP_DIRS.contains(&name.as_str()) {
-                collect_text_files(root, &path, out);
-            }
-            continue;
-        }
-        if is_text_file(&path)
-            && let Some(rel) = relative(root, &path)
-        {
-            out.push(rel);
-        }
-    }
 }
 
 /// Paths that are SYMLINKS in the index but may be pointer files on disk.
@@ -296,8 +327,11 @@ const SNIFF_BYTES: usize = 8 * 1024;
 /// could not see. Content-based detection has no list to forget: a new file type is covered
 /// the day it appears.
 ///
-/// Text means no NUL byte in the first [`SNIFF_BYTES`] and that prefix decodes as UTF-8. A
-/// file that cannot be read is not text, because nothing can be said about it.
+/// Text means no NUL byte in the first [`SNIFF_BYTES`] and that prefix decodes as UTF-8.
+///
+/// **A file that cannot be read answers `false` here, and that is a known fail-open** - it drops
+/// out of the walk as *not text* rather than being recorded as unreachable. Three gates share that
+/// root cause and change together; see [`Wanted::Text`].
 pub(crate) fn is_text_file(path: &Path) -> bool {
     use std::io::Read as _;
 
@@ -488,6 +522,89 @@ mod tests {
         assert!(!matches("docs/generated/*", "docs/adr/0001.md"));
     }
 
+    #[test]
+    fn a_directory_that_is_absent_discovers_nothing_rather_than_refusing() {
+        // The OTHER half of the `NotFound`-versus-anything-else split at `walk`'s `read_dir`, and
+        // the half nothing held: neutralising that guard with `&& false` left `just test` at 2523
+        // passed, exit 0, byte-identical to a clean run. A door pointed at a directory this tree
+        // does not have must DISCOVER NOTHING - `Refusal::Empty`, which each gate then decides
+        // about - and not report the absence as a subject it failed to reach, or every gate
+        // scoped to an optional directory refuses on a tree that is merely smaller.
+        let root = std::env::temp_dir().join(format!("sutura-absent-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a scratch tree");
+
+        let refused = super::collect_files(&root, &root.join("no-such-dir"), &["rs"]).inspect(&[], |_| super::Looked::Judged);
+
+        let _swept = std::fs::remove_dir_all(&root);
+        match refused {
+            Err(super::Refusal::Empty) => {}
+            Err(other) => panic!("an ABSENT directory is not an unreachable one: {}", other.describe()),
+            Ok(inspected) => panic!("an empty discovery produced a verdict: {}", inspected.verdict()),
+        }
+    }
+
+    #[test]
+    fn a_directory_the_walk_cannot_open_is_a_refusal_rather_than_a_shorter_list() {
+        // THE defect, and deterministic on every platform: `read_dir` on a regular file fails with
+        // something other than `NotFound`, which is exactly the class `chmod 000` produces. It used
+        // to `return` in silence, so the subtree left the DENOMINATOR as well as the scan and every
+        // count printed afterwards agreed with itself over a tree the walk never looked at.
+        let root = std::env::temp_dir().join(format!("sutura-unreachable-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a scratch tree");
+        let not_a_directory = root.join("regular.txt");
+        std::fs::write(&not_a_directory, "not a directory\n").expect("a regular file");
+
+        let refused = super::collect_files(&root, &not_a_directory, &["rs"]).inspect(&[], |_| super::Looked::Judged);
+
+        let _swept = std::fs::remove_dir_all(&root);
+        let Err(why) = refused else {
+            panic!("a directory that cannot be opened produced a verdict");
+        };
+        assert!(
+            why.describe().contains("regular.txt"),
+            "the refusal has to name what it could not reach: {}",
+            why.describe()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_subtree_refuses_instead_of_shrinking_the_walk() {
+        // The measured instance, seeded the way it was measured. **Self-skips where mode bits are
+        // ignored** - uid 0 reads a 0000 directory - so the deterministic test above is the one
+        // that holds this arm in every venue, and this one holds the SHAPE the issue reported.
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = std::env::temp_dir().join(format!("sutura-chmod-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("open/inner")).expect("a scratch tree");
+        std::fs::create_dir_all(root.join("shut")).expect("a subtree to close");
+        std::fs::write(root.join("open/inner/a.rs"), "// reachable\n").expect("a reachable file");
+        std::fs::write(root.join("shut/b.rs"), "// unreachable\n").expect("a file behind it");
+        std::fs::set_permissions(root.join("shut"), std::fs::Permissions::from_mode(0o000)).expect("chmod");
+
+        let took_effect = std::fs::read_dir(root.join("shut")).is_err();
+        let refused = super::collect_files(&root, &root, &["rs"]).inspect(&[], |_| super::Looked::Judged);
+
+        drop(std::fs::set_permissions(
+            root.join("shut"),
+            std::fs::Permissions::from_mode(0o755),
+        ));
+        let _swept = std::fs::remove_dir_all(&root);
+
+        if !took_effect {
+            // Running as a user the mode cannot stop. Nothing to assert, and saying so beats an
+            // assertion that would be vacuous.
+            return;
+        }
+        let Err(why) = refused else {
+            panic!("an unreadable subtree produced a verdict over the rest of the tree");
+        };
+        assert!(why.describe().contains("shut"), "{}", why.describe());
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_nested_worktree_is_not_walked_into() {
@@ -507,7 +624,12 @@ mod tests {
         .expect("their file");
 
         let mut found = Vec::new();
-        super::collect_files(&root, &root, &["rs"], &mut found);
+        super::collect_files(&root, &root, &["rs"])
+            .inspect(&[], |rel| {
+                found.push(String::from(rel));
+                super::Looked::Judged
+            })
+            .expect("the scratch tree holds one .rs file and nothing unreadable");
 
         let _swept = std::fs::remove_dir_all(&root);
         assert_eq!(found, vec![String::from("crates/thing/src/lib.rs")], "{found:?}");

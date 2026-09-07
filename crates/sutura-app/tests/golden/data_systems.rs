@@ -8,9 +8,10 @@ use sutura_domain::pinned::AnchorCheck;
 use sutura_domain::plan::Executable;
 use sutura_domain::query::ToolOutcome;
 use sutura_domain::warehouse::RowSet;
+use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, load, open, questions, read_question, stem};
+use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, data_root, load, open, questions, read_question, stem};
 
 use crate::shared::{chain, question, settings, stable};
 
@@ -324,6 +325,92 @@ where
     );
 }
 
+/// **Every data system in this registry COUNTS a declared join key, and counts the right thing.**
+///
+/// `Warehouse::declared_key` is defaulted to `KeyUniqueness::NotAsked`, so an adapter that never
+/// implemented it - or one whose value mapping stopped handing back an integer, which arrives as an
+/// `Err` that the boot path reads as *unchecked* - would leave every cardinality declaration on that
+/// data system silently unchecked. Nothing else would say so: the corpus satisfies its declarations,
+/// so a probe that answered nothing and a probe that answered cleanly leave the same green run.
+///
+/// **The counts are compared against the fixture CSV**, not merely against each other: a probe that
+/// resolved the wrong table, or one over a table nobody loaded, answers `0` over `0` - which *is*
+/// unique, vacuously, and would read as a clean check forever.
+///
+/// **What this axis does not reach is `BigQuery`**, which is not in this registry at all - no
+/// published artifact links the crate, and that registry's rule is that a cell which cannot execute
+/// reads as coverage. So a dimension model on a dataset is unchecked, stated in
+/// `.agents/skills/sutura/invariants` and in `SECURITY.md` rather than implied by a green run here.
+fn counts_every_declared_join_key<W>()
+where
+    W: DataSystemUnderTest,
+{
+    if !W::available() {
+        return;
+    }
+    let pinned = load::<ReferenceCatalog>();
+    let warehouse = open::<W>(&pinned);
+    let definitions = pinned.definitions();
+    assert!(
+        !definitions.relationships().is_empty(),
+        "the example catalog declares no relationship, so this proved nothing"
+    );
+    for relationship in definitions.relationships().values() {
+        let key = DeclaredKey::promised_by(relationship, definitions).unwrap_or_else(|e| {
+            panic!(
+                "{} declares a cardinality that promises no unique key: {e}",
+                relationship.name()
+            )
+        });
+        // The registry cell is the second of the two call sites `clippy.toml` permits for a port
+        // method that executes with no credential - the boot path holds the other. It is here rather
+        // than nowhere because a capability nothing measures is a capability that can vanish.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "this cell is one of the two permitted callers of a port method that executes with no \
+                      credential; it exists to measure that the method still does what the boot path needs"
+        )]
+        let answered = warehouse
+            .declared_key(key)
+            .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, key.column(), key.table()));
+        let KeyUniqueness::Counted(counts) = answered else {
+            panic!(
+                "{} did not count {}, so every cardinality declaration on it is unchecked and nothing \
+                 else in this suite would have said so",
+                W::NAME,
+                key.column()
+            );
+        };
+        let rows = rows_in_fixture(&key);
+        assert_eq!(
+            counts.rows(),
+            rows,
+            "{} counted {} values of {} where the fixture holds {rows}",
+            W::NAME,
+            counts.rows(),
+            key.column()
+        );
+        assert!(
+            counts.is_unique(),
+            "{} says {} is not unique in {}, which would make the example corpus unservable: {counts:?}",
+            W::NAME,
+            key.column(),
+            key.table()
+        );
+    }
+}
+
+/// How many data rows the fixture CSV behind a probed table holds.
+///
+/// The corpus quotes nothing and every row carries a key, so a line count is the number the probe
+/// has to reproduce. `adapters::fixture_tables` is not reused here deliberately: what wants checking
+/// is that the adapter read the table the KEY names, which means resolving the path from the key.
+fn rows_in_fixture(key: &DeclaredKey<'_>) -> u64 {
+    let path = data_root().join(format!("{}.csv", key.table().name()));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()));
+    text.lines().skip(1).filter(|line| !line.is_empty()).count() as u64
+}
+
 /// One cell of the data-system axis.
 macro_rules! cell {
     ($name:ident, $adapter:ty) => {
@@ -351,6 +438,11 @@ macro_rules! cell {
             #[test]
             fn a_metric_declaring_that_a_zero_denominator_fails_does_fail() {
                 super::fails_a_zero_denominator_that_declares_it_fails::<$adapter>();
+            }
+
+            #[test]
+            fn whether_it_counts_a_declared_join_key_is_what_the_boot_check_can_use_it_for() {
+                super::counts_every_declared_join_key::<$adapter>();
             }
         }
     };

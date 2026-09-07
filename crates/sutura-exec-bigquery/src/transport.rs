@@ -95,10 +95,11 @@ impl<'job> JobRequest<'job> {
     /// The asking subject's own credential, where the leg carried one.
     ///
     /// **This is the half that makes a `BigQuery` source execute as the asker.** A
-    /// [`Presented::SubjectToken`] carries the credential a broker minted for the asking subject - an
-    /// exchanged Google access token scoped to that subject - and the transport sends it as its bearer
-    /// for THIS job, so the endpoint evaluates the statement under whoever the token says. `None` for
-    /// the shared posture, whose leg runs under the identity the transport itself already holds.
+    /// [`Presented::SubjectToken`](sutura_domain::identity::Presented::SubjectToken) carries the
+    /// credential a broker minted for the asking subject - an exchanged Google access token scoped
+    /// to that subject - and the transport sends it as its bearer for THIS job, so the endpoint
+    /// evaluates the statement under whoever the token says. `None` for the shared posture, whose
+    /// leg runs under the identity the transport itself already holds.
     #[inline]
     #[must_use]
     pub const fn subject_bearer(&self) -> Option<&Secret> {

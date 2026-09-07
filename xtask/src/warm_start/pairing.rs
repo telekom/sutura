@@ -178,10 +178,12 @@ impl Swept {
 
 /// Every `.nix` file in the tree, or a failure naming what it could not enumerate.
 fn nix_files(root: &Path) -> Result<Vec<NixFile>, String> {
-    let listing = repo::all_files().ok_or_else(|| String::from("could not enumerate the repo's files"))?;
+    let (_root, listing) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::WarmStart))
+        .map_err(|why| why.describe())?;
     let mut files = Vec::new();
     let nix = std::ffi::OsStr::new("nix");
-    for rel in listing.files.iter().filter(|rel| Path::new(rel).extension() == Some(nix)) {
+    for rel in listing.iter().filter(|rel| Path::new(rel).extension() == Some(nix)) {
         files.push(NixFile::read(root, rel)?);
     }
     // FAIL CLOSED, and not on emptiness alone: this gate's whole subject is declared in

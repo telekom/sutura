@@ -493,6 +493,60 @@ pub(super) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // `github.com/telekom/sutura#370` row A. The wording sat on the doc comment of the very
+        // method the federated answer path calls, and `just api` republished it at
+        // `docs/api/sutura-domain.md`, which `mkdocs.yml` puts in the nav. **It was TRUE when it
+        // was written**, so nothing here could have caught it going false - that direction is
+        // `absences`, one module over. This is the other one: a ratchet, so the pre-federation
+        // wording cannot be reinstated by anyone reading the method rather than its caller.
+        name: "nothing constructs a second leg",
+        // ONE wording, and the other half of the same sentence is deliberately not here: `there is
+        // no combiner` is also how the BigQuery adapter's refusal says a LEG arrived with nothing
+        // above it to group it - a different claim, and correct. Registering it would fail correct
+        // prose, which is the pair `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids`
+        // refuses. What survives is the clause that carries the workspace-wide claim.
+        //
+        // **The sibling sentences are NOT fixed by this entry, and saying so is the point.** The
+        // same absence is written in several more `.rs` doc comments, which this table's scope
+        // never reaches - `github.com/telekom/sutura#404` measures each one and says which
+        // production line refutes it. They are filed rather than folded in here because one file
+        // is an adapter another change owns and one is a record that would need an amendment.
+        wordings: &["Nothing constructs a second leg"],
+        // The combiner's declaration, which is what the sentence says does not exist. It is called
+        // from `sutura_app`'s federated path, but the declaration is the narrower fact and the one
+        // that retires the rule if federation is ever taken back out.
+        evidence: &[Evidence {
+            path: "crates/sutura-domain/src/plan/federated/mod.rs",
+            holds: "pub fn combine(",
+        }],
+        instead: "`sutura_app`'s federated answer path builds the second leg and \
+                  `crates/sutura-domain/src/plan/federated/mod.rs` declares what groups the \
+                  two, so the record's shape is settled rather than provisional",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
+        // `github.com/telekom/sutura#370` row B, and the one shape this table holds that no reader
+        // could: the sentence names a type that has NEVER been declared here, so there was no
+        // moment it went false and nothing to derive it from. Two skills carried it, which is this
+        // table's founding cause verbatim - a correction that lands in one document and is not
+        // carried to its sibling.
+        name: "the request path reads a scoped view of the definitions",
+        wordings: &["scoped view"],
+        // What the request path actually borrows: the pinned bundle itself, handed out whole by
+        // the transport's shared state. A view between the two would be this accessor's return
+        // type, and it is not.
+        evidence: &[Evidence {
+            path: "crates/sutura-http/src/state.rs",
+            holds: "fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions",
+        }],
+        instead: "`load()` runs at boot and the request path borrows the pinned bundle whole - \
+                  `crates/sutura-http/src/state.rs` hands a handler `&PinnedDefinitions` - so \
+                  there is no per-request view over it, and nothing on that path can acquire I/O",
+        only: &[],
+        except: &[],
+    },
 ];
 
 /// A file's text with every run of whitespace collapsed to one space, plus the line each byte
@@ -786,7 +840,9 @@ mod tests {
         // demanding the page keep quoting it would turn tidying that quote red for a rule that is
         // no longer there. Both predicates, or this test and the check disagree about what a rule is.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not list the repo");
         for rule in CONTRADICTED
             .iter()
             .filter(|rule| !rule.except.is_empty() && rule.is_live(&root))
@@ -854,7 +910,9 @@ SQL goldens read the cap";
         // Same argument as `every_live_rule_still_has_its_evidence`, for the other table: a glob
         // matching nothing would make the check pass vacuously. Caught here, not on a branch.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not list the repo");
         for counted in COUNTS {
             assert!(
                 super::counts::tally(&root, &files, counted) > 0,
@@ -874,7 +932,9 @@ SQL goldens read the cap";
         // counting 93 goldens against a number no page stated any more. A count nobody writes
         // down is not a gate - it is a walk of the tree whose verdict is always agreement.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not list the repo");
         for counted in COUNTS {
             assert!(
                 !super::counts::statements(&root, &files, counted).is_empty(),
