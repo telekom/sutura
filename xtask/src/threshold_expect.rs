@@ -33,44 +33,56 @@ struct Violation {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-expect-thresholds: could not determine the repo root");
-        return Verdict::Fail;
+    let census = match repo::all_files() {
+        Ok(census) => census,
+        Err(why) => {
+            eprintln!("xtask check-expect-thresholds: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
+    let root = census.root().to_path_buf();
 
     let mut violations: Vec<(String, Violation)> = Vec::new();
-    let mut rs_files = 0usize;
-    for rel in files {
-        if std::path::Path::new(&rel).extension().and_then(|e| e.to_str()) != Some("rs") {
-            continue;
+    // The loop lives inside `inspect`, so this gate never holds the listing and `.take(n)` has
+    // nowhere to be written. `rs_files` is gone with it: the count in the success line is now the
+    // census's own length rather than a local this loop increments.
+    //
+    // `must_judge` replaces the `rs_files == 0` floor, and is strictly stronger than it. A floor
+    // over a count is satisfiable by reading almost anything; naming a file the gate cannot have a
+    // verdict without survives a scope predicate that stopped matching. This one is the gate
+    // registry itself: every `.rs` scan in the tree can name it, and it is `max-lines`-capped, so
+    // it will not vanish.
+    let inspected = match census.inspect(&["xtask/src/main.rs"], |rel| {
+        if std::path::Path::new(rel).extension().and_then(|e| e.to_str()) != Some("rs") {
+            return repo::Looked::OutOfScope;
         }
-        // Incremented AFTER the read, because both the floor below and the success line say
-        // "read": counting here and reading afterwards made `in {rs_files} file(s)` a count of
-        // files FOUND, and would have let a tree of unreadable sources satisfy the floor.
-        let Ok(code) = std::fs::read_to_string(root.join(&rel)) else {
-            continue;
-        };
-        rs_files += 1;
-        let mut found = Vec::new();
-        scan(&code, &mut found);
-        for v in found {
-            violations.push((rel.clone(), v));
+        // Was `else { continue; }`, which dropped an unreadable file out of the denominator as
+        // well as out of the scan. A file in scope this gate cannot read is a file it did not
+        // judge, so it is a refusal.
+        match std::fs::read_to_string(root.join(rel)) {
+            Err(why) => repo::Looked::Unreachable(format!("{rel}: {why}")),
+            Ok(code) => {
+                let mut found = Vec::new();
+                scan(&code, &mut found);
+                for v in found {
+                    violations.push((String::from(rel), v));
+                }
+                repo::Looked::Judged
+            }
         }
-    }
-
-    // FAIL CLOSED ON AN EMPTY SCAN, because the count was already in the success line and
-    // nothing read it - `github.com/telekom/sutura#371`'s recurring shape. This gate is about a
-    // Rust attribute, so a run that opened no `.rs` file judged nothing and `ok ... in 0 file(s)`
-    // is a sentence about a tree it never saw.
-    if rs_files == 0 {
-        eprintln!("xtask check-expect-thresholds: FAILED - no .rs file was read");
-        eprintln!("  The rule is about an attribute in Rust source, so a scan that found none");
-        eprintln!("  attests nothing. Check that this is the workspace root.");
-        return Verdict::Fail;
-    }
+    }) {
+        Ok(inspected) => inspected,
+        Err(why) => {
+            eprintln!("xtask check-expect-thresholds: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
 
     if violations.is_empty() {
-        println!("xtask check-expect-thresholds: ok - no threshold-lint #[expect(] in {rs_files} file(s)");
+        println!(
+            "xtask check-expect-thresholds: ok - no threshold-lint #[expect(] anywhere - {}",
+            inspected.verdict()
+        );
         return Verdict::Pass;
     }
 

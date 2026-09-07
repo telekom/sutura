@@ -786,7 +786,7 @@ mod tests {
         // demanding the page keep quoting it would turn tidying that quote red for a rule that is
         // no longer there. Both predicates, or this test and the check disagree about what a rule is.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance)).expect("could not list the repo");
         for rule in CONTRADICTED
             .iter()
             .filter(|rule| !rule.except.is_empty() && rule.is_live(&root))
@@ -854,7 +854,7 @@ SQL goldens read the cap";
         // Same argument as `every_live_rule_still_has_its_evidence`, for the other table: a glob
         // matching nothing would make the check pass vacuously. Caught here, not on a branch.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance)).expect("could not list the repo");
         for counted in COUNTS {
             assert!(
                 super::counts::tally(&root, &files, counted) > 0,
@@ -874,7 +874,7 @@ SQL goldens read the cap";
         // counting 93 goldens against a number no page stated any more. A count nobody writes
         // down is not a gate - it is a walk of the tree whose verdict is always agreement.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance)).expect("could not list the repo");
         for counted in COUNTS {
             assert!(
                 !super::counts::statements(&root, &files, counted).is_empty(),

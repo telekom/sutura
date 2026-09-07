@@ -267,9 +267,12 @@ struct Sources {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-conformance-bindings: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Conformance)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-conformance-bindings: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
     match judge(&root, &files) {
         Ok(report) => {
@@ -590,7 +593,7 @@ mod tests {
     /// both declarations were found: one registry, one packs macro, and bindings under `tests/`.
     #[test]
     fn the_declarations_in_this_tree_are_found_by_the_needles_this_gate_keys_on() {
-        let repo::RepoFiles { root, files } = repo::all_files().expect("the tests run inside the repo");
+        let (root, files) = repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Conformance)).expect("the tests run inside the repo");
         let sources = super::collect(&root, &files).expect("this tree is in scope");
         let found: Vec<&str> = sources.registries.iter().map(|site| site.path.as_str()).collect();
         assert_eq!(found.len(), 1, "{found:?}");
@@ -623,7 +626,7 @@ mod tests {
     /// cell and not a manual experiment.
     #[test]
     fn a_scan_that_read_no_rust_is_a_failure_and_not_a_clean_tree() {
-        let repo::RepoFiles { root, .. } = repo::all_files().expect("the tests run inside the repo");
+        let (root, _files) = repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Conformance)).expect("the tests run inside the repo");
         let Err(why) = super::collect(&root, &[]) else {
             panic!("a scan that read nothing is not a verdict")
         };

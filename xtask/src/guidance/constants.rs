@@ -723,9 +723,9 @@ mod tests {
     /// pairs, at least one agrees, and nothing disagrees.
     #[test]
     fn the_real_workspace_is_what_the_floor_is_about() {
-        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
-            panic!("could not locate the repo");
-        };
+        let (root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not locate the repo");
         let sources = super::readable(&root, &files);
         assert!(sources.unreadable.is_empty(), "{:?}", sources.unreadable);
         let held = super::declarations(&sources.read);

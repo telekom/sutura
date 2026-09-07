@@ -177,8 +177,12 @@ fn indented_instructions(text: &str) -> Result<Vec<usize>, markdown::Unlexable> 
 /// not, so reconciling an unpublished page is the conservative error. The one thing to know is that
 /// a refusal from here can name a page a reader will not find on the site.
 pub(super) fn pages(root: &std::path::Path) -> Result<Vec<DocumentedBuild>, String> {
-    let mut pages = Vec::new();
-    crate::repo::collect_files(root, &root.join("docs"), &["md"], &mut pages);
+    let (_root, mut pages) = match crate::repo::collect_files(root, &root.join("docs"), &["md"])
+        .into_listing(crate::repo::Unmigrated::ShippedBinaries)
+    {
+        Ok(listing) => listing,
+        Err(why) => return Err(why.describe()),
+    };
     pages.sort();
     let mut found = Vec::new();
     for page in pages {

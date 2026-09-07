@@ -421,9 +421,12 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-venues: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Venues)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-venues: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
     let Ok(page) = std::fs::read_to_string(root.join(PAGE)) else {
         eprintln!("xtask check-venues: {PAGE} is not readable - it IS the map");
@@ -931,7 +934,7 @@ Not built.
         // The gate over the tree rather than over a fixture: the assertion that goes red when
         // somebody edits the page, which the fixtures above cannot do.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::Venues)).expect("could not list the repo");
         let page = std::fs::read_to_string(root.join(PAGE)).expect(PAGE);
         let tests = super::test_names(&root, &files);
         let invoked = super::invoked(&root).expect("the CI scan reads .github/workflows");

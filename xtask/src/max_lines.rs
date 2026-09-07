@@ -105,10 +105,15 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let mut files = Vec::new();
     // Every text file, decided by content: an extension list is a list to forget, and a
     // 5000-line generated file with an unlisted extension is exactly what this should catch.
-    repo::collect_text_files(&root, &root, &mut files);
+    let (_root, mut files) = match repo::collect_text_files(&root, &root).into_listing(repo::Unmigrated::MaxLines) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask max-lines: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
     files.sort();
 
     let mut violations: Vec<(String, usize)> = Vec::new();
@@ -294,7 +299,9 @@ mod tests {
         let root = crate::repo::root().expect("the repo root");
         let ignores = Ignores::parse(&std::fs::read_to_string(root.join(super::IGNORE_FILE)).expect("the ignore file"));
         let mut files = Vec::new();
-        crate::repo::collect_text_files(&root, &root, &mut files);
+        let (_root, files) = crate::repo::collect_text_files(&root, &root)
+            .into_listing(crate::repo::Unmigrated::MaxLines)
+            .expect("the tests run inside the repo");
         let over_cap: Vec<String> = files
             .iter()
             .filter(|rel| super::count_lines(&root.join(rel)) > DEFAULT_MAX_LINES)
