@@ -233,11 +233,22 @@ type Offender = (String, Vec<Finding>);
 /// listed path now lands in exactly one bucket, so the sum is comparable against the LENGTH of the
 /// listing.
 ///
-/// **What that comparison is worth, stated next to it.** On the git path the two numbers come from
-/// two places - the listing is git's index, the buckets are what the filesystem answered - so a
-/// disagreement is real evidence. On [`repo::all_files`]'s walk fallback (the Nix sandbox, where
-/// there is no `.git`) both come from one walk, and one walk compared against itself catches a loop
-/// that stops early and NOT a walk that never descended into a directory it could not read.
+/// **The one place a path could still leave the walk in silence is closed**, and it was the reason
+/// this gate was strong in the inner loop and blind where it counted: `repo::collect_all` used to
+/// `return` on a directory it could not open, dropping the whole subtree, and `checks.hygiene`
+/// runs exactly that fallback. It now emits the directory as a path, so it arrives here as an
+/// unreadable in-scope entry like any other.
+///
+/// **What the comparison is worth, and it is narrower than it looks.** Every iteration of the loop
+/// buckets its path unconditionally, so NO TREE CAN MAKE THE TWO NUMBERS DISAGREE - only an edit to
+/// this file can. It is a guard against a future change that stops reading, not evidence about the
+/// repository, and the mutations on the pull request are what show it catches that: `.take(1)` on
+/// the walk turns it red. Read it as a tripwire, not as a measurement.
+///
+/// **What IS evidence about the tree is the floor**, which is why [`report`] refuses an empty
+/// listing: `0 of 0` satisfies every equality above, and [`repo::root`]'s own comment records
+/// `ok - 0 text file(s) checked` shipping as a false pass when a store binary walked a directory
+/// that no longer existed.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Tally {
     /// Read as text and inspected.
@@ -356,8 +367,35 @@ fn report(fix: bool, offered: usize, tally: &Tally, offenders: &[Offender]) -> V
             }
         }
         eprintln!();
-        eprintln!("Run `cargo xtask text-hygiene --fix` for the mechanical ones (whitespace and");
-        eprintln!("final newlines). Conflict markers and oversized files need a decision.");
+        // EACH REMEDY IS PRINTED ONLY WHERE IT APPLIES, which is this pull request's other half
+        // turned on itself: `github.com/telekom/sutura#386` is about a refusal naming two variables
+        // that were not set, and an unconditional "run --fix" under a permission denial is the same
+        // defect - a remedy the reader cannot act on, inside the change that added the finding.
+        let any = |wanted: fn(&Finding) -> bool| offenders.iter().any(|(_, f)| f.iter().any(wanted));
+        if any(Finding::fixable) {
+            eprintln!("Run `cargo xtask text-hygiene --fix` for the mechanical ones (whitespace and");
+            eprintln!("final newlines).");
+        }
+        if any(|f| matches!(*f, Finding::ConflictMarker { .. } | Finding::TooLarge(_))) {
+            eprintln!("Conflict markers and oversized files need a decision.");
+        }
+        if any(|f| matches!(*f, Finding::Unreadable(_))) {
+            eprintln!("A file this gate cannot read needs its permissions or its bytes fixed - no");
+            eprintln!("rewrite can be attempted on content nothing has seen.");
+        }
+    }
+
+    // THE FLOOR. Nothing above can fail on an EMPTY listing: `0 == 0` accounted, no offenders, and
+    // the verdict would read `ok`. That is not hypothetical - `repo::root`'s comment records
+    // `nix run .#xtask -- text-hygiene` printing `ok - 0 text file(s) checked` and exiting 0
+    // because a store binary's compile-time path pointed at a build sandbox that was gone.
+    if offered == 0 {
+        failed = true;
+        eprintln!(
+            "xtask text-hygiene: FAILED - the listing was empty, so this gate read nothing. A \
+             repository with no files is not a clean one; something upstream of here could not \
+             enumerate the tree."
+        );
     }
 
     if accounted != offered {
@@ -704,6 +742,55 @@ text
         assert_eq!(tally.accounted(), files.len());
 
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn fix_rewrites_the_file_on_disk_and_an_unreadable_one_survives_it() {
+        // `--fix` IS THE `just fmt` WRITE PATH (`justfile:109`, and `devenv.nix` calls the same
+        // task), so "untested" understated it: nothing covered the arm that REWRITES a tracked
+        // file. This drives it over a scratch tree and reads the bytes back.
+        let dir = scratch("fix");
+        let messy = dir.join("messy.md");
+        std::fs::write(&messy, "trailing   \nno final newline").expect("a fixable file");
+        std::fs::create_dir_all(dir.join("opaque")).expect("an unreadable path beside it");
+
+        let files = listing(&["messy.md", "opaque"]);
+        let (offenders, tally) = super::walk(&dir, &files, true);
+
+        assert_eq!(tally.fixed, 1, "the writable file was rewritten: {tally:?}");
+        assert_eq!(
+            std::fs::read_to_string(&messy).expect("read back"),
+            "trailing\nno final newline\n",
+            "the bytes on disk are what changed, not just the finding list"
+        );
+        // The fixable findings are gone from the report because they were repaired; the unreadable
+        // path is still a finding, because `--fix` cannot rewrite what it cannot read.
+        let named: Vec<&str> = offenders.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(named, vec!["opaque"], "{offenders:?}");
+        assert_eq!(tally.accounted(), files.len());
+        assert_eq!(super::report(true, files.len(), &tally, &offenders), crate::Verdict::Fail);
+
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn an_empty_listing_is_refused_rather_than_called_clean() {
+        // THE FLOOR. Every equality in `report` is satisfied by nothing at all, so without this a
+        // gate that enumerated no files would print `ok`. `repo::root`'s comment records exactly
+        // that shipping: `ok - 0 text file(s) checked`, exit 0, from a store binary whose
+        // compile-time path pointed into a build sandbox that no longer existed.
+        let nothing = super::Tally::default();
+        assert_eq!(
+            super::report(false, 0, &nothing, &[]),
+            crate::Verdict::Fail,
+            "a gate that read nothing may not report a clean tree"
+        );
+        // And one real file is still a pass, so the floor is not simply refusing everything.
+        let one = super::Tally {
+            checked: 1,
+            ..super::Tally::default()
+        };
+        assert_eq!(super::report(false, 1, &one, &[]), crate::Verdict::Pass);
     }
 
     #[test]

@@ -106,8 +106,27 @@ fn report(offered: usize, tally: &Tally, offenders: &[Offender]) -> Verdict {
                 }
             }
         }
-        eprintln!("\nFix:  tr -d '\r' < FILE > FILE.lf && mv FILE.lf FILE");
-        eprintln!("A carriage return inside a Nix '' '' string becomes part of a shell argument.");
+        // Printed only where it applies. `tr -d` is not a remedy for a file nothing could open,
+        // and a remedy the reader cannot act on is `github.com/telekom/sutura#386`'s defect landing
+        // inside the change that added the finding.
+        if offenders.iter().any(|(_, t)| matches!(*t, Trouble::Crlf(_))) {
+            eprintln!("\nFix:  tr -d '\r' < FILE > FILE.lf && mv FILE.lf FILE");
+            eprintln!("A carriage return inside a Nix '' '' string becomes part of a shell argument.");
+        }
+        if offenders.iter().any(|(_, t)| matches!(*t, Trouble::Unreadable(_))) {
+            eprintln!("\nA file this gate cannot read needs its permissions or its bytes fixed.");
+        }
+    }
+
+    // The floor, for the reason `crate::text::Tally` gives at length: every equality above is
+    // satisfied by an empty listing, and `ok - no CRLF in 0 text file(s)` is a clean bill over
+    // nothing read.
+    if offered == 0 {
+        failed = true;
+        eprintln!(
+            "xtask line-endings: FAILED - the listing was empty, so this gate read nothing. \
+             Something upstream of here could not enumerate the tree."
+        );
     }
 
     if accounted != offered {
@@ -207,6 +226,19 @@ mod tests {
         assert_eq!(report(files.len(), &tally, &offenders), Verdict::Fail);
 
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn an_empty_listing_is_refused_rather_than_called_clean() {
+        // The same floor `text-hygiene` carries, and for the same recorded reason: every equality
+        // in `report` is satisfied by nothing at all, so a gate that enumerated no files would
+        // print a clean bill over an empty tree.
+        assert_eq!(report(0, &Tally::default(), &[]), Verdict::Fail);
+        let one = Tally {
+            read: 1,
+            ..Tally::default()
+        };
+        assert_eq!(report(1, &one, &[]), Verdict::Pass);
     }
 
     #[test]

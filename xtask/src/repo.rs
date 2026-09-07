@@ -191,7 +191,24 @@ pub(crate) fn all_files() -> Option<RepoFiles> {
 /// The extension-agnostic sibling of [`collect_files`], for gates that decide what is text
 /// by their own rules rather than by a fixed extension list.
 fn collect_all(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    // A DIRECTORY THIS WALK CANNOT OPEN IS EMITTED AS A PATH, not skipped in silence.
+    //
+    // The `else { return; }` this replaces was `github.com/telekom/sutura#412`'s own defect one
+    // level up, and it was measured in both directions: `chmod 000` on a directory is caught on
+    // the git path, because git's index does not need to read it - and was INVISIBLE here, where
+    // the listing simply lost the subtree. `flake.nix` gives `checks.hygiene` the whole tree with
+    // no `.git`, so this fallback is the path the merge verdict comes from: the gate was strong in
+    // the inner loop and blind exactly where it counted.
+    //
+    // Emitting the path rather than returning a `Result` is what keeps this a three-line fix:
+    // `RepoFiles` is destructured by fourteen gates, several of them owned by other branches, so a
+    // new field would be a mechanical edit across files this change has no business touching. A
+    // consumer that reads its entries - `text-hygiene`, `line-endings` - now finds an in-scope path
+    // it cannot read and says so; one that filters by extension never sees it.
     let Ok(entries) = std::fs::read_dir(dir) else {
+        if let Some(rel) = relative(root, dir) {
+            out.push(rel);
+        }
         return;
     };
     for entry in entries.flatten() {
@@ -573,6 +590,49 @@ mod tests {
     fn trailing_star_covers_a_directory() {
         assert!(matches("docs/generated/*", "docs/generated/openapi.json"));
         assert!(!matches("docs/generated/*", "docs/adr/0001.md"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_the_walk_cannot_open_is_emitted_rather_than_dropped() {
+        // THE RESIDUAL `github.com/telekom/sutura#412` left open, closed. `collect_all` used to
+        // `return` on an unreadable directory, so the whole subtree left the listing with nothing
+        // said - and because `checks.hygiene` runs this fallback (whole tree, no `.git`), that was
+        // the blind spot on the path the merge verdict comes from. Measured before the fix: a
+        // mode-000 directory gave `ok - 4 text file(s) checked; 4 of 4 listed path(s) accounted
+        // for`, exit 0, with a real trailing-whitespace finding inside it hidden.
+        //
+        // Mode bits ARE the fixture here, unlike the gates' own tests, because there is no
+        // portable way to make `read_dir` fail on a directory otherwise - so this asserts only
+        // that the walk did not lose the path, and skips when the mode denies nobody (a root
+        // process), which is stated rather than silently passing.
+        let root = std::env::temp_dir().join(format!("sutura-opaque-dir-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("open")).expect("a readable directory");
+        std::fs::write(root.join("open/kept.md"), "a line\n").expect("a file inside it");
+        let shut = root.join("shut");
+        std::fs::create_dir_all(&shut).expect("a directory to close");
+        std::fs::write(shut.join("hidden.md"), "a line\n").expect("a file inside it");
+
+        std::fs::set_permissions(&shut, std::os::unix::fs::PermissionsExt::from_mode(0o000)).expect("close it");
+        let denied = std::fs::read_dir(&shut).is_err();
+        let mut found = Vec::new();
+        super::collect_all(&root, &root, &mut found);
+        std::fs::set_permissions(&shut, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("reopen it");
+        let _swept = std::fs::remove_dir_all(&root);
+
+        if !denied {
+            // A privileged process is not denied by a mode bit, so there is nothing to observe.
+            // Said out loud rather than passed quietly, because a fixture that stops reproducing
+            // is a test that has become decoration.
+            return;
+        }
+        assert!(found.contains(&String::from("open/kept.md")), "{found:?}");
+        assert!(
+            found.contains(&String::from("shut")),
+            "the unreadable directory has to reach the listing, or the subtree leaves it in \
+             silence and the count is the only tell: {found:?}"
+        );
     }
 
     #[cfg(unix)]
