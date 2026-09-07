@@ -48,18 +48,46 @@ use sutura_dev::scope::Scope;
 /// The lock file, inside the worktree's own state directory.
 const FILE: &str = "compose.lock";
 
-/// An acquired lock. Released when it is dropped, because dropping the file closes the descriptor
-/// the operating system attached the lock to - which is also why a crash releases it.
+/// An acquired lock, released when it is dropped.
+///
+/// # Released by an UNLOCK and not by the close, which is a correction
+///
+/// This type used to say the drop released the lock "because dropping the file closes the descriptor
+/// the operating system attached the lock to". The lock is not attached to the descriptor. It is
+/// attached to the **open file description**, and a `close` only tears that down once the LAST
+/// descriptor referring to it is gone - so a duplicate that outlives the drop keeps the lock held,
+/// and the next `acquire` in this very process is refused naming its own PID as the holder.
+///
+/// Every subprocess spawned anywhere in this binary makes exactly that duplicate: `fork` copies the
+/// whole descriptor table, and `FD_CLOEXEC` does not fire until the child reaches `exec`.
+///
+/// **The forking process is usually this one, and no second thread is needed** - which is the half
+/// that took a measurement to establish. A refused `acquire` calls [`working_dir`], which spawns
+/// `lsof`; so one thread, one test, doing nothing but acquire-refuse-drop-acquire, already forks
+/// between the drop and the re-acquisition. **And the window is widest when the exec FAILS**, where
+/// the child is torn down instead of being replaced: measured over 3000 iterations, spawning a
+/// program that does not exist produced 29-807 spurious refusals, spawning an `lsof` that is present
+/// produced 0, and spawning nothing produced 0. So a host without `lsof`, which the Nix build
+/// sandbox is, is the WORST case for this rather than an exempt one, and
+/// `github.com/telekom/sutura#328`'s `holder: Unidentified` is the tell that the probe answered
+/// nothing there.
+///
+/// So `checks.nextest` is exactly where that issue and its duplicate were both seen, and
+/// process-per-test prevents none of it. Concurrency only raises the RATE, by adding threads that
+/// fork while another holds a lock.
+///
+/// [`Drop`] therefore unlocks the description explicitly, which releases the lock however many
+/// copies of the descriptor are open. A crash still releases it, for the original reason.
 ///
 /// `Debug` so a test that expected a refusal can say what it got instead. It prints the descriptor,
 /// which is not a secret and not a path outside this repository.
 #[derive(Debug)]
 pub(crate) struct Held {
-    /// The locked file. Held for the lifetime of the operation; not read again.
+    /// The locked file. Held for the lifetime of the operation; read only by the destructor.
     ///
-    /// It is the LOCK, not a handle to tidy up: the field exists so the descriptor outlives the
-    /// destroy rather than being closed at the end of `acquire`.
-    _file: std::fs::File,
+    /// It is the LOCK, not a handle to tidy up: the field exists so the description outlives the
+    /// destroy rather than being unlocked at the end of `acquire`.
+    file: std::fs::File,
     /// Where the lock lives, for the message.
     path: PathBuf,
 }
@@ -68,6 +96,17 @@ impl Held {
     /// Where the lock lives. Printed, so a reader can see which file is involved.
     pub(crate) fn path(&self) -> &Path {
         &self.path
+    }
+}
+
+impl Drop for Held {
+    /// Release the description's lock, and let the close that follows do the rest.
+    ///
+    /// The result is discarded because a destructor has nowhere to report it, and the close is the
+    /// fallback this module already had: an `unlock` that fails leaves the previous behaviour rather
+    /// than a worse one.
+    fn drop(&mut self) {
+        drop(self.file.unlock());
     }
 }
 
@@ -253,7 +292,7 @@ fn acquire_under(scope: &Scope, repository: &Path) -> Result<Held, LockError> {
         writer.write_all(note.as_bytes()).map_err(unusable)?;
     }
     file.set_len(note.len() as u64).map_err(unusable)?;
-    Ok(Held { _file: file, path })
+    Ok(Held { file, path })
 }
 
 #[cfg(test)]
@@ -318,6 +357,35 @@ mod tests {
         drop(held);
         assert!(path.is_file(), "the file persists - unlinking it is how exclusion gets lost");
         drop(acquire(&scope).expect("dropping the lock releases it"));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_dropped_lock_is_released_even_when_a_duplicate_descriptor_outlives_it() {
+        // `github.com/telekom/sutura#328`, as an input rather than as a rate.
+        //
+        // `flock` lives on the OPEN FILE DESCRIPTION, not on the descriptor, so closing one
+        // descriptor releases the lock only when the LAST one closes. Every subprocess this binary
+        // spawns duplicates the whole descriptor table into the child at `fork`, and `FD_CLOEXEC`
+        // only fires at `exec` - so a lock held while ANY fork is in flight has a copy of itself
+        // alive in that child, and a `drop` inside the window released nothing.
+        //
+        // The fork that does it here is the test's OWN second `acquire`: its refusal path probes
+        // `working_dir`, which spawns `lsof`. One thread and one test are enough, so
+        // `nextest`'s process-per-test does not prevent this and `a_lock_is_exclusive_and_released_on_drop`
+        // above was reproducibly red in the sandbox - see [`Held`] for the measurement, including
+        // why a MISSING `lsof` is the worst case rather than an exempt one.
+        //
+        // `try_clone` is that same duplicate with the timing removed, so this test does not depend
+        // on any spawn at all.
+        let dir = temp_worktree("duplicated");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+
+        let held = acquire(&scope).expect("first acquisition");
+        let duplicate = held.file.try_clone().expect("a descriptor is cloneable");
+        drop(held);
+        drop(acquire(&scope).expect("dropping the lock releases it, whoever else holds a copy"));
+        drop(duplicate);
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 
