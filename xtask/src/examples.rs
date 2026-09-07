@@ -69,13 +69,28 @@
 //!   `github.com/telekom/sutura#308` names still counts. What it removes is the FABRICATED path
 //!   at that anchor - `tmp.join("examples/multi-player/corpus-with-two-metrics.json")` - and the
 //!   stale one. The residue is held by review.
-//! * **`#[cfg_attr(.., ignore)]` is invisible, and it fails OPEN.** The two levels above read the
-//!   `#[ignore` spelling only. Measured: `#[cfg_attr(all(), ignore)]` on both cells of the one
-//!   file reaching a variant leaves the verdict byte-identical to the healthy one, exit 0 - the
-//!   same silent pass this gate exists to remove, one spelling over. `super::causality` tolerates
-//!   the same gap for a reason that does NOT hold here: there a missed `#[ignore]` is a loud
-//!   `no tests to run`, and here it is a green verdict. Held by review and by the fact that
-//!   `git grep -n "cfg_attr" -- "*.rs"` finds the spelling nowhere in this tree.
+//! * **An attribute that DECIDES the run and cannot be evaluated is not evidence, and the cell it
+//!   sits on is where that stops.** `#[cfg(..)]` other than the exact `#[cfg(test)]`, and any
+//!   `#[cfg_attr(..)]`, make "does a run here reach this line" a question about features, targets
+//!   and flags this scan does not have; each such cell is dropped from the evidence and NAMED in
+//!   the verdict. What that does NOT reach is the same attribute over something CONTAINING the
+//!   cell - `crates/sutura-serve/tests/served.rs` gates a whole `mod tests` on `#[cfg(unix)]` -
+//!   because closing that needs the cfg item's brace range, which is `regions::item_end`'s
+//!   instrument aimed one level out. Held by review, and the shapes are
+//!   `git grep -n '#\[cfg(' -- 'crates/**/*.rs'`.
+//! * **A dropped cell is stated, not refused, and that is a correction to `#400`'s own remedy.**
+//!   That issue asks for the `unresolvable` refusal, and routing an unevaluable cell there turns
+//!   this gate RED on the healthy tree: eight cells across
+//!   `crates/sutura-cli/src/sources/bigquery.rs` and `crates/sutura-serve/src/tests.rs` are
+//!   legitimately written under `#[cfg(feature = "bigquery")]` or its negation, and the remedy for
+//!   a feature-gated test cannot be to delete it. Fail-closed for the CLAIM keeps the gate: the
+//!   cell is not evidence, so a variant whose only reach sits in one fails on the variant.
+//! * **The corpus is the workspace's MEMBERS**, off the root manifest's `[workspace] members`,
+//!   the authority `crate::fmt` already uses for the neighbouring reason. Measured on merged
+//!   `main`: a variant whose only reach was `vendor/mimalloc_rust/src/lib.rs:73` passed at exit
+//!   0, where that crate is `[workspace] exclude`d and `cargo nextest run --workspace` never
+//!   compiles it. What this costs: a member declared by a glob is a refusal rather than a guess,
+//!   and a member the scan reaches no file of is a refusal rather than a smaller number.
 //! * **A reach in a helper is reached through its own file only.** The two `#[ignore]` levels
 //!   answer *does anything in THIS file run*; a helper here that only an `#[ignore]`d test in
 //!   ANOTHER file calls is still evidence, because a call graph is not a line scan. The narrower
@@ -89,31 +104,49 @@
 //! * **It says nothing about what is IN the directory.** An example whose data was deleted fails
 //!   the test that reads it, in `nextest`, which is the venue for that.
 //!
-//! Six fail-closed arms, because this gate exists to stop a directory going unwatched and every
-//! one of them would otherwise read as a clean tree: no variant, no line of test code a run
-//! reaches, no test DECLARATION out of files that carry test code, an exclusion that removed
-//! nothing, a file the scan could not read, and a test-declaring attribute whose item it could
-//! not resolve. The third is the one that is a PAIR rather than a number, and that is why it
-//! exists: `test_files` counts files and `declared` counts the attributes inside them, from a
-//! second read of the same text, so the attribute vocabulary silently ceasing to match leaves the
-//! first at its healthy line and takes every `#[ignore]` in the tree out of view with it. A
-//! single number in a verdict is exactly what let this gate's earlier defects through.
+//! # What the verdict WITNESSES, and what a count cannot
+//!
+//! Eight fail-closed arms in [`problems`], because this gate exists to stop a directory going
+//! unwatched and every one of them would otherwise read as a clean tree: no variant, no line of
+//! test code a run reaches, no test DECLARATION out of files that carry test code, an exclusion
+//! that removed nothing, a workspace member the scan reached no file of, a file the scan could not
+//! read, a test-declaring attribute whose item it could not resolve, and a variant nothing
+//! reaches. Five more refuse before it: no repo root, an unreadable root manifest, a member list
+//! this cannot state, a path the walk left with no verdict, and a corpus file the scan loop
+//! skipped.
+//!
+//! **Three of those are pairs rather than numbers**, and `github.com/telekom/sutura#414` is why:
+//! a gate's "how much did I read" number derived from its own loop cannot detect the loop
+//! narrowing, measured five times across four gates - once here, as a truncated walk giving
+//! *12 of 205 files, 69 of 1333 declarations, exit 0*.
+//!
+//! | pair | the two derivations | what it catches |
+//! | --- | --- | --- |
+//! | `test_files` / `declared` | files, against the attributes inside them from a second read | the attribute vocabulary silently ceasing to match |
+//! | verdicts / offered | this gate's classification, against the WHOLE listing counted before any predicate of its own | a walk narrowed between the listing and the count |
+//! | members reached / members declared | the listing, against the root manifest | a narrowed SCOPE predicate, which leaves the counts equal |
+//!
+//! The third row is the one a floor cannot replace: **an item the walk never counted cannot be
+//! caught by a floor over the count**, so a scope predicate that stops matching moves files from
+//! `read` to `outside the workspace` and the accounting still balances. A set of NAMES is what
+//! catches that, which is the instrument `sutura/invariants` records for the same reason.
+//!
+//! **Neither pair reaches `repo::all_files` itself.** Its walkers drop an `fs` error and a
+//! `DirEntry` error in silence, so a directory this cannot enter is missing from the denominator
+//! too - `#414` again, and `#373` owns that fix. And a truncated loop is a SOURCE mutation no
+//! input tree can express, so the two arms that refuse on it are held by mutation review rather
+//! than by a fixture; that is stated because it is exactly the claim `#414` says gets overstated.
 
 mod corpus;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use corpus::{Corpus, Members, gate_crate};
+use corpus::{Corpus, EXAMPLES, Members, gate_crate, publishes, reaches_for, resolved, variants};
 
 use crate::Verdict;
 use crate::causality::{attributes, regions};
 use crate::repo;
 use crate::serde_parse::scan::code_lines;
-
-/// The directory whose children are the deployment variants, with the separator that makes it a
-/// path prefix. One constant: a scan for the segment and a message naming the directory must not
-/// drift apart.
-const EXAMPLES: &str = "examples/";
 
 /// Which files reach a variant, and the first line in each that names it.
 type Reaches = BTreeMap<String, BTreeMap<String, usize>>;
@@ -238,107 +271,6 @@ fn evidence(files: &BTreeMap<String, String>, published: &BTreeSet<String>) -> R
         ));
     }
     Ok(found)
-}
-
-/// The variant a reach is evidence for, or `None` if the path it names is not one git publishes.
-///
-/// The scan reads a LITERAL and the literal is repo-relative only under an assumption about the
-/// root it is joined to - `github.com/telekom/sutura#308`'s second limit. Requiring the path to
-/// resolve against the published listing does not close that (measured: the issue's own
-/// `tmp.join("examples/multi-player")` names a directory this repository publishes, so it still
-/// counts); what it removes is the shape a synthetic corpus actually takes, a FABRICATED path at
-/// the same anchor - and, in the same move, a stale one, which used to hold a variant green while
-/// naming a file nothing could open.
-///
-/// A directory counts through the files under it, because git publishes no directory: one
-/// authority for this and for [`variants`], which is what stops the two halves disagreeing.
-fn resolved(reach: &str, published: &BTreeSet<String>) -> Option<String> {
-    if !published.contains(reach) {
-        return None;
-    }
-    reach
-        .strip_prefix(EXAMPLES)
-        .map(|rest| rest.split('/').next().unwrap_or_default())
-        .filter(|name| !name.is_empty())
-        .map(String::from)
-}
-
-/// Every path under `examples/` this line of code reaches for.
-///
-/// `find` in a loop rather than once, because a second path on the same line used to be invisible.
-/// The whole path rather than the variant name alone, so [`resolved`] can ask the listing about
-/// what the line actually names: `examples/x` and `examples/x/corpus-with-two-metrics.json` are
-/// the same variant and are not the same claim.
-fn reaches_for(line: &str) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut at = 0_usize;
-    while let Some(offset) = line.get(at..).and_then(|rest| rest.find(EXAMPLES)) {
-        let start = at.saturating_add(offset);
-        at = start.saturating_add(EXAMPLES.len());
-        if !anchored(line.get(..start).unwrap_or_default()) {
-            continue;
-        }
-        let rest: String = line
-            .get(at..)
-            .unwrap_or_default()
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.' | '/'))
-            .collect();
-        let named = rest.trim_end_matches('/');
-        if !named.is_empty() {
-            found.push(format!("{EXAMPLES}{named}"));
-        }
-    }
-    found
-}
-
-/// Is a path boundary in front of the match, of one of the two shapes a repo-relative reach takes?
-///
-/// The start of a string literal, or a `../` walking up out of `CARGO_MANIFEST_DIR`. Measured over
-/// this workspace: those two cover every reach in it, and nothing else does. `#` is deliberately
-/// not a comment marker anywhere here - it opens one in a shell and an ATTRIBUTE in Rust, and
-/// `#[path = "../../examples/x/mod.rs"]` is a real reach.
-fn anchored(before: &str) -> bool {
-    before.is_empty() || before.ends_with('"') || before.ends_with("../")
-}
-
-/// The deployment variants, read off the same listing the evidence is read from.
-///
-/// One authority for both halves of the gate. `read_dir` was the other candidate and disagreed
-/// with the scan in two directions, both reproduced: `mkdir examples/x` was a local FAILURE that
-/// the git-derived nix sandbox and CI could not see, because git tracks no empty directory - a red
-/// no venue reproduces; and a gitignored or symlinked child was a variant that can never be
-/// published, while `hygiene` is a pre-commit hook, so it blocked every commit over a path git
-/// will never publish. A directory git would not publish is not one a reader can find, which is
-/// the failure this gate exists for.
-fn variants(files: &[String]) -> BTreeSet<String> {
-    files
-        .iter()
-        .filter_map(|rel| rel.strip_prefix(EXAMPLES))
-        .filter_map(|rest| rest.split_once('/'))
-        .filter(|(name, _)| !name.is_empty())
-        .map(|(name, _)| String::from(name))
-        .collect()
-}
-
-/// Every path under `examples/` git publishes, each directory included through the files in it.
-///
-/// The same listing [`variants`] reads, for the same reason: a reach resolved against the
-/// filesystem and a variant read off git would disagree exactly where that module's doc says they
-/// did. A directory is in no listing, so each ancestor of a published file is added here - which
-/// is what lets `join("../../examples/single-player")` resolve while
-/// `join("../../examples/single-player/gone.yaml")` does not.
-fn publishes(files: &[String]) -> BTreeSet<String> {
-    let mut published = BTreeSet::new();
-    for rel in files.iter().filter(|rel| rel.starts_with(EXAMPLES)) {
-        let mut at = 0_usize;
-        while let Some(offset) = rel.get(at..).and_then(|rest| rest.find('/')) {
-            at = at.saturating_add(offset).saturating_add(1);
-            published.insert(String::from(rel.get(..at.saturating_sub(1)).unwrap_or_default()));
-        }
-        published.insert(rel.clone());
-    }
-    published
 }
 
 /// The verdict, as a list of problems. Pure, so every arm is testable without a repo - which is
@@ -524,8 +456,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::corpus::{Corpus, is_under};
-    use super::{Evidence, anchored, evidence, problems, publishes, reaches_for, report, variants};
+    use super::corpus::{Corpus, anchored, is_under, publishes, reaches_for, variants};
+    use super::{Evidence, evidence, problems, report};
 
     fn set(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|s| String::from(*s)).collect()
@@ -808,6 +740,77 @@ mod tests {
         // moved. Without this the fixture above passes with the ignore check taken out entirely.
         let runs = "#[test]\nfn t() {\n    let p = \"../../examples/x/q.json\";\n}\n";
         assert_eq!(reached(&[("crates/x/tests/t.rs", runs)]), set(&["x"]));
+    }
+
+    #[test]
+    fn a_reach_on_the_ignore_line_itself_is_not_evidence() {
+        // #400's FIRST fail-open, measured on merged `main`: the ignored region started at the
+        // DECLARING attribute, so an `#[ignore = ".."]` sitting ABOVE `#[test]` was one line above
+        // its own cell and a path named in its reason string counted as a reach from a running
+        // test - `reached from 1 file - ../multi_player.rs:88`, exit 0, where line 88 was the
+        // `#[ignore]`. Rustfmt-stable, so nothing else moved it. The second cell runs, so the
+        // FILE-level floor cannot be what reddens this.
+        let reason = "#[ignore = \"restore ../../examples/x/q.json first\"]\n#[test]\nfn t() {}\n#[test]\nfn u() {}\n";
+        let found = scan(&[("crates/x/tests/t.rs", reason)]);
+        assert!(found.reaches.is_empty(), "{:?}", found.reaches);
+        assert_eq!(found.declared, 1, "the neighbour that runs is still declared");
+        assert_eq!(found.all_ignored, 0, "and the file is not dropped whole");
+        // The same line above a cell that RUNS is evidence, so the region and not the attribute
+        // spelling is what moved.
+        let runs = "#[test]\nfn t() {\n    let p = \"../../examples/x/q.json\";\n}\n";
+        assert_eq!(reached(&[("crates/x/tests/t.rs", runs)]), set(&["x"]));
+    }
+
+    #[test]
+    fn a_reach_in_a_cell_an_attribute_decides_is_not_evidence_and_is_named() {
+        // #400's THIRD fail-open: `#[cfg(feature = "..")]` on both cells of the one file reaching a
+        // variant left the verdict BYTE-IDENTICAL to the healthy one at exit 0, and
+        // `#[cfg_attr(all(), ignore)]` did the same. Neither is evaluable here, so neither is a run
+        // this venue reaches - and the drop is NAMED, because a variant that then has none fails on
+        // the message about the variant.
+        for gate in ["#[cfg(feature = \"bigquery\")]", "#[cfg_attr(all(), ignore)]", "#[cfg(unix)]"] {
+            let source =
+                format!("{gate}\n#[test]\nfn t() {{\n    let p = \"../../examples/x/q.json\";\n}}\n#[test]\nfn u() {{}}\n");
+            let found = scan(&[("crates/x/tests/t.rs", source.as_str())]);
+            assert!(found.reaches.is_empty(), "{gate}: {:?}", found.reaches);
+            assert_eq!(found.undecidable.len(), 1, "{gate}: {:?}", found.undecidable);
+            assert!(
+                found
+                    .undecidable
+                    .iter()
+                    .next()
+                    .is_some_and(|entry| entry.contains(gate) && entry.contains("in `crates/x/tests/t.rs`")),
+                "{gate}: {:?}",
+                found.undecidable
+            );
+        }
+        // Exactly `#[cfg(test)]` is evaluable and true in a test build, so it is not a drop - or
+        // every unit-test module in the workspace would be one.
+        let ordinary = "#[cfg(test)]\nmod tests {\n    #[cfg(test)]\n    #[test]\n    fn t() {\n        let p = \"../../examples/x/q.json\";\n    }\n}\n";
+        let found = scan(&[("crates/x/src/lib.rs", ordinary)]);
+        assert_eq!(found.reaches.keys().cloned().collect::<BTreeSet<_>>(), set(&["x"]));
+        assert!(found.undecidable.is_empty(), "{:?}", found.undecidable);
+    }
+
+    #[test]
+    fn a_workspace_member_the_scan_reached_no_file_of_is_a_narrowed_scan() {
+        // #414's property, and the one a pair of counts cannot hold: an item the walk never counted
+        // cannot be caught by a floor over the count, so a narrowed SCOPE predicate moves files
+        // from `read` to `outside the workspace` and the accounting still balances. The members
+        // reached come off the listing and the members declared come off the root manifest, so
+        // neither number is read off the other.
+        let reached = scan(&[(
+            "crates/x/tests/example.rs",
+            "#[test]\nfn t() { Path::new(\"../../examples/a-variant\"); }\n",
+        )]);
+        let narrowed = Corpus::fixture(73, Vec::new(), vec![String::from("crates/sutura-http")]);
+        let said = problems(&set(&["a-variant"]), &reached, &narrowed);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said.first()
+                .is_some_and(|first| first.contains("read no file of the workspace member `crates/sutura-http/`")),
+            "{said:?}"
+        );
     }
 
     #[test]

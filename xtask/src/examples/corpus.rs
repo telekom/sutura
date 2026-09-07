@@ -36,13 +36,23 @@
 //! the instrument `sutura/invariants` records as beating a pair of counts. It is derived from the
 //! root manifest rather than from the listing, so a narrowing of either does not move both.
 //!
-//! **What neither reaches:** `repo::all_files` itself. Its three walkers drop an `fs` error and a
-//! `DirEntry` error in silence (`github.com/telekom/sutura#414`, and `#373` owns the fix), so a
-//! directory this cannot enter is missing from `offered` and every count below agrees with itself
-//! over a tree nothing looked at. `offered` is this gate's floor, not the filesystem's.
+//! **What neither reaches:** `repo::all_files` itself, and the boundary is worth stating exactly.
+//! In a git checkout `offered` is `git ls-files`' own answer, so a directory the process cannot
+//! enter is git's problem and not a silent narrowing. In the git-derived nix sandbox there is no
+//! `.git`, `all_files` falls back to its own walk, and that walk still drops a `read_dir` error
+//! and a `DirEntry` error in silence - verified at `repo.rs:88`, `:194` and `:236` on `110591d5`,
+//! AFTER `#373` merged, so that PR did not close them. `github.com/telekom/sutura#414` owns the
+//! shape; a sibling measured a base walk falling from 373 to 371 files at exit 0. So in that venue
+//! `offered` is a floor over what the walk reached, not over what the tree holds - which is why
+//! the member anchor below is the load-bearing half rather than the accounting.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+
+/// The directory whose children are the deployment variants, with the separator that makes it a
+/// path prefix. One constant: a scan for the segment and a message naming the directory must not
+/// drift apart.
+pub(crate) const EXAMPLES: &str = "examples/";
 
 /// Is this path Rust? Case-insensitive, for the reason `docs::is_markdown` gives: half of this
 /// repo is developed on a filesystem that does not distinguish `.RS` from `.rs`.
@@ -343,6 +353,107 @@ impl Corpus {
             crate_dir: "xtask",
         }
     }
+}
+
+/// The variant a reach is evidence for, or `None` if the path it names is not one git publishes.
+///
+/// The scan reads a LITERAL and the literal is repo-relative only under an assumption about the
+/// root it is joined to - `github.com/telekom/sutura#308`'s second limit. Requiring the path to
+/// resolve against the published listing does not close that (measured: the issue's own
+/// `tmp.join("examples/multi-player")` names a directory this repository publishes, so it still
+/// counts); what it removes is the shape a synthetic corpus actually takes, a FABRICATED path at
+/// the same anchor - and, in the same move, a stale one, which used to hold a variant green while
+/// naming a file nothing could open.
+///
+/// A directory counts through the files under it, because git publishes no directory: one
+/// authority for this and for [`variants`], which is what stops the two halves disagreeing.
+pub(crate) fn resolved(reach: &str, published: &BTreeSet<String>) -> Option<String> {
+    if !published.contains(reach) {
+        return None;
+    }
+    reach
+        .strip_prefix(EXAMPLES)
+        .map(|rest| rest.split('/').next().unwrap_or_default())
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+}
+
+/// Every path under `examples/` this line of code reaches for.
+///
+/// `find` in a loop rather than once, because a second path on the same line used to be invisible.
+/// The whole path rather than the variant name alone, so [`resolved`] can ask the listing about
+/// what the line actually names: `examples/x` and `examples/x/corpus-with-two-metrics.json` are
+/// the same variant and are not the same claim.
+pub(crate) fn reaches_for(line: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut at = 0_usize;
+    while let Some(offset) = line.get(at..).and_then(|rest| rest.find(EXAMPLES)) {
+        let start = at.saturating_add(offset);
+        at = start.saturating_add(EXAMPLES.len());
+        if !anchored(line.get(..start).unwrap_or_default()) {
+            continue;
+        }
+        let rest: String = line
+            .get(at..)
+            .unwrap_or_default()
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.' | '/'))
+            .collect();
+        let named = rest.trim_end_matches('/');
+        if !named.is_empty() {
+            found.push(format!("{EXAMPLES}{named}"));
+        }
+    }
+    found
+}
+
+/// Is a path boundary in front of the match, of one of the two shapes a repo-relative reach takes?
+///
+/// The start of a string literal, or a `../` walking up out of `CARGO_MANIFEST_DIR`. Measured over
+/// this workspace: those two cover every reach in it, and nothing else does. `#` is deliberately
+/// not a comment marker anywhere here - it opens one in a shell and an ATTRIBUTE in Rust, and
+/// `#[path = "../../examples/x/mod.rs"]` is a real reach.
+pub(crate) fn anchored(before: &str) -> bool {
+    before.is_empty() || before.ends_with('"') || before.ends_with("../")
+}
+
+/// The deployment variants, read off the same listing the evidence is read from.
+///
+/// One authority for both halves of the gate. `read_dir` was the other candidate and disagreed
+/// with the scan in two directions, both reproduced: `mkdir examples/x` was a local FAILURE that
+/// the git-derived nix sandbox and CI could not see, because git tracks no empty directory - a red
+/// no venue reproduces; and a gitignored or symlinked child was a variant that can never be
+/// published, while `hygiene` is a pre-commit hook, so it blocked every commit over a path git
+/// will never publish. A directory git would not publish is not one a reader can find, which is
+/// the failure this gate exists for.
+pub(crate) fn variants(files: &[String]) -> BTreeSet<String> {
+    files
+        .iter()
+        .filter_map(|rel| rel.strip_prefix(EXAMPLES))
+        .filter_map(|rest| rest.split_once('/'))
+        .filter(|(name, _)| !name.is_empty())
+        .map(|(name, _)| String::from(name))
+        .collect()
+}
+
+/// Every path under `examples/` git publishes, each directory included through the files in it.
+///
+/// The same listing [`variants`] reads, for the same reason: a reach resolved against the
+/// filesystem and a variant read off git would disagree exactly where that module's doc says they
+/// did. A directory is in no listing, so each ancestor of a published file is added here - which
+/// is what lets `join("../../examples/single-player")` resolve while
+/// `join("../../examples/single-player/gone.yaml")` does not.
+pub(crate) fn publishes(files: &[String]) -> BTreeSet<String> {
+    let mut published = BTreeSet::new();
+    for rel in files.iter().filter(|rel| rel.starts_with(EXAMPLES)) {
+        let mut at = 0_usize;
+        while let Some(offset) = rel.get(at..).and_then(|rest| rest.find('/')) {
+            at = at.saturating_add(offset).saturating_add(1);
+            published.insert(String::from(rel.get(..at.saturating_sub(1)).unwrap_or_default()));
+        }
+        published.insert(rel.clone());
+    }
+    published
 }
 
 /// What one path is, in one place, so the exhaustive `match` above has one thing to be exhaustive
