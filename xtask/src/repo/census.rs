@@ -87,18 +87,24 @@ pub(crate) struct Census {
 /// it matters, because "the numbers move" was published here as the defence and only part of it is
 /// true:
 ///
-/// | attempt | result |
+/// | attempt | result, measured at the production call site |
 /// | --- | --- |
-/// | inflate `out_of_scope` to hide a subject | **works**, and it is the shape above |
-/// | discharge an anchor it never read | **cannot.** `outstanding.retain` is on the READ path, so a
-///   subject the census did not open cannot satisfy `must_judge` whatever a `Scope` does. That is a
-///   STRUCTURAL bound rather than a count, and it is the strongest thing here |
+/// | inflate `out_of_scope` to hide a subject | **works.** `384 of 1177, 793 out of scope` at exit
+///   0 against `385 / 792` - the shape above |
+/// | discharge an anchor it never read | **cannot.** A `Scope` that renames `xtask/src/main.rs`
+///   away gives `FAILED - discovered 1185 subject(s) and did not judge 'xtask/src/main.rs'`, exit
+///   **1**. `outstanding.retain` is on the READ path, so a subject the census did not open cannot
+///   satisfy `must_judge` whatever a `Scope` does. That is a STRUCTURAL bound rather than a count,
+///   and it is the strongest thing here |
 /// | inflate `read_bytes` | **cannot.** It is summed from the reads themselves, so a `Scope` can
 ///   only make it smaller, or unrepresentative of the subject - never larger |
-/// | rename the subject from inside the `Scope` | routes it to `absent`, with `out_of_scope`
-///   **byte-identical** to the control - so `absent` is the tell, not `out_of_scope` |
-/// | rewrite the subject to the same LENGTH | moves **none of the five**. The byte count is a
-///   witness of what was read, never of what was true |
+/// | rename the subject from inside the `Scope` | routes it to `absent`: `389 of 1185, 795 out of
+///   scope, 1 absent`, and `out_of_scope` is **byte-identical** to the control's `795`. So `absent`
+///   is the tell, not `out_of_scope` |
+/// | rewrite the subject to the same LENGTH | moves **none of the five**, verified against a no-op
+///   mutation padded to the rewrite's exact byte length - both `390 of 1185, 795 out of scope, 0
+///   absent, 9040258 byte(s) read`. The byte count is a witness of what was read, never of what was
+///   true |
 ///
 /// **The other residue.** A scope predicate that simply excludes most of the tree is still writable
 /// and still legal - narrowing `check-expect-thresholds` to `xtask/` alone leaves `128 of 1177` at
@@ -283,6 +289,14 @@ impl Census {
     /// * the numerator is incremented by a successful `read`, never by the closure;
     /// * `must_judge` is discharged by a successful `read`, never by the closure;
     /// * `read_bytes` is minted by the reads themselves, so no caller can state it.
+    ///
+    /// **And exactly what `judged` therefore means, because it is narrower than "inspected".** It
+    /// means THIS CENSUS OPENED THE SUBJECT - not that the caller's rule ran on it. A closure whose
+    /// first line is `return;` leaves every number a clean tree's and the suite green, so the
+    /// silent arm the classification enum had survives as an early return; what it can no longer do
+    /// is claim a subject was reached. That is deliberately not called a hole here: reachability is
+    /// what this type exists to hold, and whether a `Judged` was judged CORRECTLY was never in its
+    /// reach - `github.com/telekom/sutura#414` carries it as instance 8 of the class.
     ///
     /// `must_judge` is the paths this gate declares it cannot have a verdict without. An empty set
     /// is permitted only for a gate whose subject may legitimately be absent, and that is a
