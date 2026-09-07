@@ -19,8 +19,9 @@ Derived in part from Curity's OAuth developer skills (Apache-2.0) - see `VENDOR.
 
 ## Validating an incoming access token
 
-Design, not description: there is no token to validate today, because nothing accepts a request.
-Configuration, when it exists, comes from the environment and is never hardcoded:
+`sutura-http` validates one: `TokenValidator::verify` is on the request path the router builds, so
+this section describes built behaviour rather than a design. Configuration comes from the
+environment and is never hardcoded:
 
 | Setting | Meaning |
 | --- | --- |
@@ -64,9 +65,11 @@ the raw token deep in a call stack is authorization nobody can audit.
 
 The intent is that every query runs as the calling principal. Concretely:
 
-**None of this is built yet, and the section is the design rather than a description.** There is no
-credential port in the workspace; single-player reads a file, which has no login to present. Written
-down here because the shape has to be decided before the first adapter, not after.
+**The port is built and the downstream leg is not.** `sutura_domain::identity::CredentialBroker` is
+the credential port, with production implementors in `sutura-config` and in `sutura-exec-bigquery`'s
+token exchange - the sentence that used to stand here said the workspace had no such port. What is
+still absent is the leg it is for: no shipped adapter has anywhere for a per-subject credential to
+arrive, so no query runs AS the calling principal. The bullets below are the design of that half.
 
 - A broker mints a credential per request, from the request's own context. There is no service
   account fallback: a leg that cannot run as the subject is refused instead.
@@ -82,8 +85,9 @@ down here because the shape has to be decided before the first adapter, not afte
 
 ## Reviewing a change here
 
-The table applies to the change that *introduces* any of the above. Nothing in the workspace is
-subject to it today, so a "yes" to any row would be a claim about code that does not exist.
+The table applies to the change that *introduces* any of the above, and the first two rows are
+already enforced: `sutura-http`'s token validator pins the algorithm list and sets the audience. The
+rest are still claims about code that does not exist, which is where a "no" is the honest answer.
 
 | Question | If the answer is no |
 | --- | --- |

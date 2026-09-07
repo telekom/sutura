@@ -44,8 +44,10 @@
 //!    [`BigQueryWarehouse::load_fixture`], runs the corpus questions, and compares its rows with the
 //!    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 //!
-//! So this crate is still built and not wired - see `.agents/skills/sutura/query-surface` - and nothing here may be cited
-//! as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
+//! So nothing here may be cited as an invariant. `sutura-serve` DOES link this adapter and dispatch
+//! `kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
+//! records the day the last *not wired* was spent, and the two sentences that used to stand here
+//! said the opposite. What is still true is that a default build links none of it,
 //! and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
 //! last one has changed rather than gone away.** It was *a cell that has never executed reads as
 //! coverage*; the corpus leg executes, so what keeps the entry out now is that a cell in that registry

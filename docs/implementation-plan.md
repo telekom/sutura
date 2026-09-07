@@ -149,8 +149,8 @@ project becomes something else.
 | Execution from DataFusion | **present**, and it stays the combiner under federation | none |
 | Polyglot for rendering, transpilation if needed | **present for rendering**, four dialects compiled | the per-dialect rewrite layer Oracle needs sits behind a feature deliberately not compiled |
 | Flexible sources and metadata systems | **decided, not built - and one of the eleven connectors is now measured rather than assumed** | the connectors, and the metadata capability declaration they conform through - which [what DataHub can carry](adr/0016-what-datahub-can-carry.md) schedules, having found the first source that provides part of a model rather than all of it |
-| Security | **the strongest part of the record** | the credential port is designed and unbuilt |
-| The agent-facing surface | **MISSING FROM THIS PLAN** | there is no `sutura-mcp`, and until now no step for it |
+| Security | **the strongest part of the record** | the credential port is built with two production implementors; the leg that runs AS the subject is not |
+| The agent-facing surface | **was missing from this plan, and has since landed** | `sutura-mcp` exists; what it does not carry is a leg executed as the caller |
 
 ### What wren gives, and what was declined
 
