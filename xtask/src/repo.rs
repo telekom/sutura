@@ -523,6 +523,28 @@ mod tests {
     }
 
     #[test]
+    fn a_directory_that_is_absent_discovers_nothing_rather_than_refusing() {
+        // The OTHER half of the `NotFound`-versus-anything-else split at `walk`'s `read_dir`, and
+        // the half nothing held: neutralising that guard with `&& false` left `just test` at 2523
+        // passed, exit 0, byte-identical to a clean run. A door pointed at a directory this tree
+        // does not have must DISCOVER NOTHING - `Refusal::Empty`, which each gate then decides
+        // about - and not report the absence as a subject it failed to reach, or every gate
+        // scoped to an optional directory refuses on a tree that is merely smaller.
+        let root = std::env::temp_dir().join(format!("sutura-absent-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a scratch tree");
+
+        let refused = super::collect_files(&root, &root.join("no-such-dir"), &["rs"]).inspect(&[], |_| super::Looked::Judged);
+
+        let _swept = std::fs::remove_dir_all(&root);
+        match refused {
+            Err(super::Refusal::Empty) => {}
+            Err(other) => panic!("an ABSENT directory is not an unreachable one: {}", other.describe()),
+            Ok(inspected) => panic!("an empty discovery produced a verdict: {}", inspected.verdict()),
+        }
+    }
+
+    #[test]
     fn a_directory_the_walk_cannot_open_is_a_refusal_rather_than_a_shorter_list() {
         // THE defect, and deterministic on every platform: `read_dir` on a regular file fails with
         // something other than `NotFound`, which is exactly the class `chmod 000` produces. It used

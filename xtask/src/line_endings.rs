@@ -36,6 +36,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let anchored = census.inspect(&["flake.nix"], |rel| {
         let path = root.join(rel);
         match std::fs::read(&path) {
+            // ABSENT is not unreachable - the same split `repo::walk` makes at its `read_dir` and
+            // `check-expect-thresholds` now makes at its own read. This gate prints NO count, so
+            // an out-of-scope subject here really is silent: what still refuses is `must_judge`,
+            // and a deletion that takes `flake.nix` with it is a refusal rather than a shrug.
+            Err(why) if why.kind() == std::io::ErrorKind::NotFound => repo::Looked::OutOfScope,
             Err(why) => repo::Looked::Unreachable(format!("{rel}: {why}")),
             Ok(bytes) => {
                 if !repo::is_text_file(&path) {

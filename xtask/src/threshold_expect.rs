@@ -60,6 +60,16 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // well as out of the scan. A file in scope this gate cannot read is a file it did not
         // judge, so it is a refusal.
         match std::fs::read_to_string(root.join(rel)) {
+            // ABSENT is not unreachable - `repo::walk`'s own split at its `read_dir`, which this
+            // listing needs just as much: `all_files` prefers `git ls-files`, which reads the
+            // INDEX, so a path whose working-tree file is GONE is offered here and is not a
+            // subject this gate failed to REACH. Measured without it: one tracked `.rs` deleted
+            // and the deletion not yet staged made this gate `FAILED - could not reach 1
+            // subject(s) this walk was meant to cover` at exit 1 over the whole tree, blaming the
+            // walk for what the index said. It stays VISIBLE rather than silent - an out-of-scope
+            // subject is counted, so the verdict line moves - and a deletion that takes
+            // `must_judge`'s anchor with it still refuses.
+            Err(why) if why.kind() == std::io::ErrorKind::NotFound => repo::Looked::OutOfScope,
             Err(why) => repo::Looked::Unreachable(format!("{rel}: {why}")),
             Ok(code) => {
                 let mut found = Vec::new();
