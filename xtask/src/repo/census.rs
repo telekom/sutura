@@ -145,12 +145,18 @@ impl Refusal {
 
 /// A gate whose loop has NOT been moved inside [`Census::inspect`] yet.
 ///
-/// **This is a closed, compiler-held list rather than a convention.** [`Census::into_listing`] is
-/// the transitional door out of the census and it cannot be opened without naming yourself here,
-/// so a new gate reaching for the plain `Vec` is a one-line diff in this file that a reviewer sees.
-/// And the list cannot go stale: an enum variant nothing constructs is `dead_code`, which is an
-/// error under this workspace's `-D warnings` - so the PR that migrates the last caller of a
-/// variant is *forced* to delete the variant.
+/// **A closed, declared list rather than a convention.** [`Census::into_listing`] is the
+/// transitional door out of the census and it cannot be opened without naming yourself here, so a
+/// new gate reaching for the plain `Vec` is a one-line diff in this file that a reviewer sees. A
+/// variant whose last caller migrates is then `dead_code` - `error: variant Docs is never
+/// constructed`, measured - so the migrating PR is pushed into deleting it.
+///
+/// **The limit, because that reads stronger than it is.** `dead_code` is `deny` in this
+/// workspace's `Cargo.toml` and not `forbid`, and one crate-level `#![allow(dead_code)]` makes
+/// that error disappear - measured on this branch. So the ratchet holds against FORGETTING, not
+/// against switching off, and it is strictly weaker than the two properties here that the type
+/// system holds: `error[E0624]` on [`Census::found`] from another module, and `error[E0599]:
+/// census::Census is not an iterator` on any attempt to narrow the walk.
 ///
 /// When the list is empty, `into_listing` and this enum go with it. `WarmStart` is the one entry
 /// that stays: `check-warm-start` keeps its own witness deliberately (see this module's header).
