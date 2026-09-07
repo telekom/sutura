@@ -38,7 +38,9 @@
 //! declaration somebody wrote. What it does not reach is a mutation laundered into a helper, which
 //! is stated at that variant.
 
-use std::collections::BTreeMap;
+mod bindings;
+
+use bindings::{adjudicate, bindings_of};
 
 /// Everything below a taking's root, as far as this gate reads it, capped so a missing terminator
 /// cannot walk to the end of the file.
@@ -156,6 +158,9 @@ pub(super) const MUST_READ: &[&str] = &[
     "xtask/src/worktree_state/scan.rs",
     "dev/src/scope.rs",
     "nix/run-gate.sh",
+    // The tier arm, which is the one that carries a real subject: this file holds the only
+    // worktree-keyed path in the tree that a service actually listens on.
+    "nix/postgres-tier.nix",
 ];
 
 pub(super) fn language_of(rel: &str) -> Option<Language> {
@@ -166,6 +171,23 @@ pub(super) fn language_of(rel: &str) -> Option<Language> {
     match extension {
         Some("rs") if ["crates/", "xtask/", "dev/"].iter().any(|dir| rel.starts_with(dir)) => Some(Language::Rust),
         Some("sh") if rel.starts_with("nix/") => Some(Language::Shell),
+        // A TIER, read as the shell it is. `telekom/sutura#405`'s instance 5 turns on the Postgres
+        // tier keying its data directory per worktree, and review measured that claim held by
+        // NOTHING: replacing the key with a constant left `check-worktree-state` and the whole
+        // sweep at exit 0. The reason was that `.nix` was out of scope wholesale, and **every tier
+        // this repository has is a `.nix` file** - so the shell arm above reached no real tier at
+        // all.
+        //
+        // **Only a tier, and the glob is the discrimination.** A derivation's `$TMPDIR` is the
+        // build directory, private per build, while a `writeShellApplication` a developer runs
+        // takes the machine's - and no property of the TEXT tells those apart, which is why the
+        // first version of this gate declined the whole extension. What does tell them apart is
+        // the file's ROLE, and this repository already names that: the provisioned-service chain
+        // in `crate::venues` holds that a `nix native` declaration must name an existing
+        // `nix/<service>-tier.nix`, so the naming is a mechanism rather than a habit and this glob
+        // is complete over the tiers by that gate rather than by a list here. `flake.nix` and every
+        // other module stay out, and their `$TMPDIR` uses are the private kind.
+        Some("nix") if rel.starts_with("nix/") && rel.ends_with("-tier.nix") => Some(Language::Shell),
         _ => None,
     }
 }
@@ -179,9 +201,19 @@ fn rust_root() -> String {
 /// as `/tmp` with a prefix.
 const SHARED_ROOTS: &[&str] = &["/private/tmp", "/var/tmp", "/tmp"];
 
-/// The shell spellings of the same root.
+/// The shell spellings of the same root, plus the user's home - which two worktrees also share.
+///
+/// `$HOME` is per USER rather than per machine, and that distinction buys nothing here: two
+/// checkouts by one person reach one `~/.cache`, which is the whole subject. Review measured it
+/// uncounted, so it is counted now; it fires on nothing this repository writes, which is what a
+/// refusal over a shape nobody writes should do.
 fn shell_roots() -> Vec<String> {
-    let mut roots = vec![String::from("$TMPDIR"), String::from("${TMPDIR")];
+    let mut roots = vec![
+        String::from("$TMPDIR"),
+        String::from("${TMPDIR"),
+        String::from("$HOME"),
+        String::from("${HOME"),
+    ];
     roots.extend(SHARED_ROOTS.iter().map(|root| (*root).to_owned()));
     roots
 }
@@ -292,7 +324,11 @@ fn code_of(language: Language, text: &str) -> String {
 /// The root spellings a language can take.
 fn roots_of(language: Language) -> Vec<String> {
     match language {
-        Language::Rust => vec![rust_root()],
+        // Three ways to acquire a shared root from Rust, not one. The environment reads were
+        // measured UNCOUNTED in review: `std::env::var("TMPDIR")` reached a written shared path at
+        // exit 0, and neither is narrowed by a `join` in the same statement, so both read as
+        // unkeyed - the safe direction, and neither is written anywhere in this tree today.
+        Language::Rust => vec![rust_root(), String::from("var(\"TMPDIR\")"), String::from("var(\"HOME\")")],
         Language::Shell => shell_roots(),
     }
 }
@@ -349,196 +385,6 @@ fn balanced(inside: &str) -> Option<String> {
         out.push(character);
     }
     None
-}
-
-/// How far a name is followed to the value that keys it.
-///
-/// **Bounded, and the bound is what the tree needs plus one.** The Rust shape is one hop -
-/// `let unique = format!("..{}", process::id()); temp_dir().join(unique)` - and the shell shape is
-/// two, because a tier derives `key` from `root` and `root` from `pwd -P`. A chain longer than this
-/// reads as UNKEYED, which is the safe direction: it asks for the key to be moved nearer the taking
-/// rather than reporting a green over a path nothing visibly narrows.
-const MAX_HOPS: usize = 4;
-
-/// Whose key a segment names, following a name to its binding up to [`MAX_HOPS`] times.
-///
-/// A visited set as well as a bound, because `a=$b; b=$a` is a cycle a text scan can be handed and
-/// a gate that loops on it is a gate that hangs - which `sutura/gates` records as the most
-/// expensive failure mode a check has.
-fn adjudicate(language: Language, segment: &str, at: usize, bindings: &Bindings) -> Keyed {
-    if segment.trim().is_empty() {
-        return Keyed::Shared;
-    }
-    let mut current = String::from(segment);
-    let mut seen: Vec<String> = Vec::new();
-    for _ in 0..MAX_HOPS {
-        if let Some(direct) = keyed_by(&current) {
-            return direct;
-        }
-        let Some(name) = referenced_name(language, &current) else {
-            return Keyed::Shared;
-        };
-        if seen.contains(&name) {
-            return Keyed::Shared;
-        }
-        let Some(value) = bindings.resolve(&name, at) else {
-            return Keyed::Shared;
-        };
-        seen.push(name);
-        current = value;
-    }
-    Keyed::Shared
-}
-
-/// What a piece of text names outright, with no binding to follow.
-fn keyed_by(text: &str) -> Option<Keyed> {
-    /// The spellings that name the worktree's own key, in either language. `Scope` and its two
-    /// derivations plus the digest for Rust - deliberately NOT the bare word `scope`, which appears
-    /// in `sutura-scope-<pid>` and would have reported a process key as a worktree one - and, for
-    /// shell, the two ways a script can learn where it is: `pwd -P` and `git rev-parse
-    /// --show-toplevel`. Those two are what the tiers already derive their key from.
-    const WORKTREE: &[&str] = &[
-        "digest",
-        "Scope::",
-        "state_dir",
-        "scratch",
-        "STATE_DIR",
-        "pwd -P",
-        "show-toplevel",
-    ];
-    /// The spellings that name this process. `mktemp` and a scoped temporary directory allocate
-    /// rather than derive, which is a stronger answer than a key and reads as this one.
-    const PROCESS: &[&str] = &["process::id", "mktemp", "TempDir", "tempdir", "$$"];
-    // PROCESS FIRST, because it is the more specific reading: a name carrying both `sutura-scope`
-    // and the process id is keyed by the process, and reporting the wrong holder in a verdict is
-    // the kind of confident wrong answer this whole gate is about.
-    if PROCESS.iter().any(|needle| text.contains(needle)) {
-        return Some(Keyed::Process);
-    }
-    if WORKTREE.iter().any(|needle| text.contains(needle)) {
-        return Some(Keyed::Worktree);
-    }
-    None
-}
-
-/// The single name a segment refers to, when a segment is nothing but a reference.
-///
-/// Rust: a bare identifier, with `&` and `.clone()` tolerated. Shell: the first `$name` in the
-/// word. Anything else - a literal, a call, an expression - names nothing to follow.
-fn referenced_name(language: Language, segment: &str) -> Option<String> {
-    match language {
-        Language::Rust => {
-            let bare = segment
-                .trim()
-                .trim_start_matches('&')
-                .trim_end_matches("()")
-                .trim_end_matches(".clone")
-                .trim();
-            let ident = bare.trim_start_matches("String::from(").trim_end_matches(')').trim();
-            let is_ident = !ident.is_empty()
-                && ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                && !ident.starts_with(|c: char| c.is_ascii_digit());
-            is_ident.then(|| String::from(ident))
-        }
-        Language::Shell => {
-            // THE FIRST `$` IS NOT ALWAYS A VARIABLE, and getting that wrong is what made the real
-            // tier's shape read as unkeyed: `key="$(printf '%s' "$root" | cksum ..)"` opens with a
-            // command substitution, so `$(` yielded an empty name and the chain stopped one hop
-            // short of `pwd -P`. Every `$` is tried, in order, and the first that names something
-            // wins.
-            segment.match_indices('$').find_map(|(at, _)| {
-                let rest = segment.get(at.saturating_add(1)..)?;
-                let name: String = rest
-                    .trim_start_matches('{')
-                    .chars()
-                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                    .collect();
-                (!name.is_empty()).then_some(name)
-            })
-        }
-    }
-}
-
-/// One binding: where it was written, and what it was bound to.
-type Bound = (usize, String);
-
-/// Every `name = value` this gate can follow, with where it was written.
-#[derive(Debug, Default)]
-struct Bindings {
-    /// Name to every binding of it, in source order.
-    by_name: BTreeMap<String, Vec<Bound>>,
-}
-
-impl Bindings {
-    /// The value bound to `name` most recently BEFORE `at`.
-    ///
-    /// Most recently before, rather than any binding of that name anywhere: a later binding cannot
-    /// have keyed an earlier taking, and *any binding keyed it* would be the permissive answer.
-    fn resolve(&self, name: &str, at: usize) -> Option<String> {
-        self.by_name
-            .get(name)?
-            .iter()
-            .rev()
-            .find(|(offset, _)| *offset < at)
-            .map(|(_, value)| value.clone())
-    }
-}
-
-/// Every binding in the code half of a file.
-fn bindings_of(language: Language, code: &str) -> Bindings {
-    let mut bindings = Bindings::default();
-    match language {
-        Language::Rust => {
-            for (at, _) in code.match_indices("let ") {
-                let rest = code.get(at.saturating_add(4)..).unwrap_or_default();
-                let declared = rest.trim_start().trim_start_matches("mut ").trim_start();
-                let name: String = declared
-                    .chars()
-                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                    .collect();
-                if name.is_empty() {
-                    continue;
-                }
-                let Some((_, value)) = declared.split_once('=') else {
-                    continue;
-                };
-                bindings.by_name.entry(name).or_default().push((at, truncated(value)));
-            }
-        }
-        Language::Shell => {
-            let mut offset = 0_usize;
-            for line in code.lines() {
-                if let Some((left, value)) = line.split_once('=') {
-                    let name = left.trim().trim_start_matches("export ").trim();
-                    if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-                        bindings
-                            .by_name
-                            .entry(String::from(name))
-                            .or_default()
-                            .push((offset, String::from(value)));
-                    }
-                }
-                offset = offset.saturating_add(line.len()).saturating_add(1);
-            }
-        }
-    }
-    bindings
-}
-
-/// A binding's value, bounded to the statement it opens.
-fn truncated(value: &str) -> String {
-    let mut depth = 0_i32;
-    let mut out = String::new();
-    for character in value.chars() {
-        match character {
-            '(' | '[' | '{' => depth = depth.saturating_add(1),
-            ')' | ']' | '}' => depth = depth.saturating_sub(1),
-            ';' if depth <= 0 => return out,
-            _ => {}
-        }
-        out.push(character);
-    }
-    out
 }
 
 /// The lines around a 1-based line, as one string, bounded by [`STATEMENT_LINES`].
@@ -667,6 +513,80 @@ fn materialise() -> PathBuf {
 }
 "#;
         assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn a_needle_in_a_basename_is_text_and_does_not_key_anything() {
+        // **THE DEFECT REVIEW FOUND, and the reason the first fixture could not see it.** The
+        // planted probe used `"sutura-planted-fixture"`, which contains no needle at all - so it
+        // exercised two of the three shapes property 2 claims and silently skipped this one. All
+        // three of these were written, machine-shared and at exit 0.
+        //
+        // The sharp part: `scratch` and `state_dir` are the two words `super::super::explain()`
+        // prints as the remedy, so a developer following this gate's own advice wrote a path it
+        // then accepted.
+        // A MULTI-LINE template with a token swapped in, not a one-line `format!`. A single-line
+        // literal IS a live anchor - the gate refused this very file when the fixture was written
+        // that way, which is the limit `super`'s header states demonstrating itself.
+        let template = r#"
+fn go() {
+    let dir = std::env::temp_dir().join("BASENAME");
+    std::fs::create_dir_all(&dir).unwrap();
+}
+"#;
+        for basename in ["sutura-scratch", "shared-digest-cache", "my-tempdir", "state_dir-cache"] {
+            let text = template.replace("BASENAME", basename);
+            assert_eq!(
+                only(Language::Rust, &text),
+                Keyed::Shared,
+                "`{basename}` is a basename, not a key"
+            );
+        }
+    }
+
+    #[test]
+    fn a_placeholder_inside_a_literal_is_code_and_still_keys_it() {
+        // THE INVERSE, and it is what stops the fix above from trading a fail-open for a false red:
+        // `format!("sutura-{digest}")` captures a binding, so blanking a whole literal would read a
+        // correctly keyed path as unkeyed - and a gate that reddens correct work gets disabled.
+        let text = r#"
+fn go(digest: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("sutura-{digest}"))
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Worktree);
+    }
+
+    #[test]
+    fn a_shell_derivation_inside_quotes_is_still_a_derivation() {
+        // The other half of making the blanking LANGUAGE-scoped. A shell `"$( .. )"` interpolates
+        // and executes, so `pwd -P` inside `key="$(printf '%s' "$root" | cksum ..)"` IS the tiers'
+        // own key; blanking it would have reddened both tier scripts.
+        let text = r#"
+root="$(pwd -P)"
+key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
+pg="${TMPDIR:-/tmp}/sutura-pg-$key"
+"#;
+        let found = takings("nix/postgres-tier.nix", Language::Shell, text);
+        assert!(found.iter().any(|(_, answer)| *answer == Keyed::Worktree), "{found:?}");
+        assert!(found.iter().all(|(_, answer)| !answer.is_shared()), "{found:?}");
+    }
+
+    #[test]
+    fn a_tier_is_in_scope_and_every_other_nix_file_is_not() {
+        // BLOCKING 2. `telekom/sutura#405`'s instance 5 turns on the Postgres tier keying its data
+        // directory per worktree, and that claim was held by NOTHING: `.nix` was out of scope
+        // wholesale and every tier this repository has is a `.nix` file, so the shell arm reached
+        // no real tier. A derivation's `$TMPDIR` is private per build and a tier script's is the
+        // machine's; what separates them is the file's ROLE, and `nix/<service>-tier.nix` is a
+        // naming the provisioned-service chain already holds.
+        assert_eq!(language_of("nix/postgres-tier.nix"), Some(Language::Shell));
+        assert_eq!(language_of("nix/keycloak-tier.nix"), Some(Language::Shell));
+        assert_eq!(language_of("flake.nix"), None);
+        assert_eq!(language_of("nix/cargo-env.nix"), None);
+        assert_eq!(language_of("nix/shipped.nix"), None);
+        // And the arm is anchored, so a scope that loses it refuses rather than shrinking.
+        assert!(super::MUST_READ.contains(&"nix/postgres-tier.nix"));
     }
 
     #[test]
@@ -925,10 +845,13 @@ fn go() {
         assert_eq!(language_of("xtask/src/repo.rs"), Some(Language::Rust));
         assert_eq!(language_of("dev/src/scope.rs"), Some(Language::Rust));
         assert_eq!(language_of("nix/with-tier.sh"), Some(Language::Shell));
-        // OUT of scope, each for its own reason: a `.nix` file cannot be told apart from a
-        // derivation's private temporary directory by text (the gate's stated limit), a script
-        // outside `nix/` is not a gate, and a page is prose.
-        assert_eq!(language_of("nix/postgres-tier.nix"), None);
+        // A TIER is in scope too, as the shell it is - see
+        // `a_tier_is_in_scope_and_every_other_nix_file_is_not` for why that arm exists and what it
+        // excludes. OUT of scope here, each for its own reason: a `.nix` module that is not a tier
+        // (a derivation's temporary directory is private per build), a script outside `nix/`, and a
+        // page.
+        assert_eq!(language_of("nix/postgres-tier.nix"), Some(Language::Shell));
+        assert_eq!(language_of("nix/cargo-env.nix"), None);
         assert_eq!(language_of("docs/publish.sh"), None);
         assert_eq!(language_of("AGENTS.md"), None);
     }
