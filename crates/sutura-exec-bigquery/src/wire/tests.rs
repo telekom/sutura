@@ -186,7 +186,10 @@ fn the_endpoints_own_message_is_redacted_under_debug_and_verbatim_under_display(
     assert!(!debugged.contains("Access Denied"), "{debugged}");
     // It still says the field was populated, so a reader is not left wondering.
     assert!(debugged.contains("redacted"), "{debugged}");
-    assert!(debugged.contains("accessDenied"), "the reason code is a class, not an identity: {debugged}");
+    assert!(
+        debugged.contains("accessDenied"),
+        "the reason code is a class, not an identity: {debugged}"
+    );
 
     let displayed = refused.to_string();
     assert!(
@@ -534,13 +537,19 @@ fn a_refusal_keeps_the_endpoints_reason_and_a_bounded_message() {
         } => {
             assert_eq!(status, 403);
             assert_eq!(*named, "accessDenied");
-            assert!(detail.as_str().contains("Access Denied"), "the detail lost the sentence: {detail}");
+            assert!(
+                detail.as_str().contains("Access Denied"),
+                "the detail lost the sentence: {detail}"
+            );
             assert!(
                 detail.as_str().contains("does not have permission"),
                 "the detail was truncated: {detail}"
             );
             assert!(!detail.as_str().contains('\n'), "the detail carried a newline: {detail}");
-            assert!(!detail.as_str().contains('\r'), "the detail carried a carriage return: {detail}");
+            assert!(
+                !detail.as_str().contains('\r'),
+                "the detail carried a carriage return: {detail}"
+            );
             assert!(
                 !detail.as_str().contains('\u{1b}'),
                 "the detail carried an escape sequence: {detail:?}"
