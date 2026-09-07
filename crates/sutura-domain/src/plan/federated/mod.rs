@@ -53,8 +53,9 @@ use std::collections::BTreeMap;
 
 use crate::federation::Federation;
 use crate::model::{Aggregate, MetricName, SourceName};
+use crate::plan::PlanBucket;
+use crate::plan::ResultLabel;
 use crate::plan::leg::LegPlan;
-use crate::plan::{PlanBucket, ResultLabel};
 use crate::warehouse::{RowSet, Value};
 
 pub use label::{InternalLabel, labels};

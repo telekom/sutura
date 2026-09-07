@@ -279,6 +279,12 @@ pub enum RefusalReason {
     /// a typed refusal, so a two-source question cannot be answered yet - only the compile-side is
     /// built. `answer` refuses here rather than surface the adapter's refusal as a retryable 503:
     /// this is not a data system being down, and a caller must not retry it.
+    ///
+    /// **One producer, and that is `telekom/sutura#338`.** The compile stage used to raise this too,
+    /// for a two-source plan it had built and could not then assemble - a defect in this workspace
+    /// wearing a governance refusal's clothes, which a caller could not tell from a deployment whose
+    /// adapters cannot run a leg. That failure leaves as `sutura_semantic::CompileFailure` now, so
+    /// this variant means the capability and nothing else.
     FederationNotExecutable,
     /// The question's remote dimensions join the metric's own through more than one relationship.
     ///

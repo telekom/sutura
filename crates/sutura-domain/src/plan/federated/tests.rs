@@ -5,8 +5,8 @@ use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, SourceName, TableName};
 use crate::plan::leg::LegPlan;
 use crate::plan::{
-    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanKey,
-    ResultLabel, StatementTables,
+    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanKey, ResultLabel,
+    StatementTables,
 };
 use crate::warehouse::{Real, RowSet, Value};
 
@@ -810,8 +810,9 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
     // LOOKUP leg, so `KeyNotOnLeg { side: Fact }` was the untested half of a refusal this commit
     // introduced. It is also the half that matters: the fact leg is the one the splitter builds from
     // the question's own keys, so a change there that stopped pushing `InternalLabel::Link` is what
-    // this arm exists to catch - and the only production caller erases the cause
-    // (`telekom/sutura#338`), which leaves this assertion as the whole of the diagnosis.
+    // this arm exists to catch. The only production caller no longer erases the cause
+    // (`telekom/sutura#338`): it leaves as `sutura_semantic::CompileFailure::NotAssembled`, keeping
+    // the side and the label this assertion reads.
     let unlinked = LegPlan::Fact {
         source: source(FACT_SOURCE),
         metric: metric("revenue"),

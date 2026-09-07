@@ -73,10 +73,42 @@ The refusal, if there was one.
 
 `Debug`
 
+## `enum CompileFailure`
+
+```rust
+pub enum CompileFailure
+```
+
+Why compiling failed, which is never why a question was refused.
+
+**Two arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question the
+deployment declines comes back as `Compiled::Refused`; what reaches this type is our own side
+being wrong. Those are the two ways that can happen: the pinned bundle names something it does not
+hold, and the splitter built a two-source plan that
+`FederatedPlan::new` then rejected. The second used to
+be flattened into `RefusalReason::FederationNotExecutable`, the refusal every two-source
+question already gets from a shipped binary - so a wiring defect and a governance answer arrived
+as one value, and a caller could not tell which it had.
+
+**The limit, next to the claim:** nothing provokes `NotAssembled`
+today. Every `FederatedPlanError` variant is structurally unreachable from the splitter as it
+stands - `crate::plan::PlanError` enumerates why, one variant at a time - so what this arm buys is
+that a future edit which makes one reachable surfaces as a failure rather than as a refusal a
+caller would retry.
+
+### Variants
+
+- `Bundle` - The pinned bundle names a model or a relationship it does not hold.
+- `NotAssembled` - A two-source plan this workspace compiled and could not then assemble.
+
+### Implements
+
+`Debug`, `Display`, `Error`
+
 ## `fn compile`
 
 ```rust
-pub fn compile(query: &sutura_domain::query::Query, pinned: &sutura_domain::pinned::PinnedDefinitions) -> Result<Compiled, BundleInconsistent>
+pub fn compile(query: &sutura_domain::query::Query, pinned: &sutura_domain::pinned::PinnedDefinitions) -> Result<Compiled, CompileFailure>
 ```
 
 Resolves and plans. It does not render.
@@ -91,8 +123,33 @@ Rendering now lives where the dialect is actually known: `sutura_sql::generate`,
 crate, called by the adapter that speaks that dialect. Whoever wants SQL asks for it, and
 linking this crate no longer links a SQL generator.
 
-The error type is `BundleInconsistent` rather than an enum, because after the split that is the
-only way this can fail. A refused question is not a failure and comes back as `Compiled`.
+The error type is `CompileFailure` and a refused question is not one of its arms: a refusal is
+an answer and comes back as `Compiled`.
+
+**A broken bundle is no longer the only way this can fail**, which is the change
+`telekom/sutura#338` asked for and the one thing about it a test can hold:
+
+```compile_fail
+use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::query::Query;
+use sutura_semantic::{BundleInconsistent, compile};
+
+fn _only_a_broken_bundle(query: &Query, pinned: &PinnedDefinitions) -> Option<BundleInconsistent> {
+    compile(query, pinned).err()
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::query::Query;
+use sutura_semantic::{CompileFailure, compile};
+
+fn _either_way(query: &Query, pinned: &PinnedDefinitions) -> Option<CompileFailure> {
+    compile(query, pinned).err()
+}
+```
 
 ## `use None`
 

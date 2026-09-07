@@ -87,6 +87,11 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   and the `MeasureDoesNotFederate` refusal. What keeps this row here is therefore the DEFAULT, not
   the absence of evidence: no shipped adapter sets `EXECUTES_LEGS`, so nothing published answers a
   two-source question, and both legs in that file run under one operating-system identity.
+  **`FederationNotExecutable` means that default and nothing else now.** A two-source plan the
+  splitter built and `FederatedPlan::new` rejected leaves as `CompileFailure::NotAssembled` instead
+  of wearing the same refusal - it is a defect here, not a governance answer. Nothing provokes that
+  arm today; the differential above is what would see such an edit, because it asserts the only
+  compile-side refusal a two-source corpus question may get is `MeasureDoesNotFederate`.
 - **The DataHub catalog adapter decides a whole metric, and nothing reads or serves it.**
   `sutura-catalog-datahub` provides `Structure`, `Descriptions` and `Relationships` unconditionally
   and declares the metric kinds as **declared-and-empty may-provide** kinds

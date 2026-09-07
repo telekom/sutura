@@ -38,8 +38,8 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::{
-    Aggregate, ColumnName, DatasetName, DimensionName, Grain, JoinType, MetricName, ProjectName, Qualification,
-    QualifiedTable, RelationshipName, SourceName, TableName, TableQualifier,
+    Aggregate, ColumnName, DatasetName, DimensionName, Grain, JoinType, MetricName, ProjectName, Qualification, QualifiedTable,
+    RelationshipName, SourceName, TableName, TableQualifier,
 };
 use sutura_domain::plan::{
     AmbiguousTables, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,

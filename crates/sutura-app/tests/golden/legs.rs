@@ -1,12 +1,18 @@
 //! What one leg of a federated question renders as, expanded over every dialect `sutura-sql` writes.
 //!
-//! **The fixtures are hand-built and the snapshots are not, and the split is deliberate.** There is
-//! no splitter: nothing in this workspace turns a question into legs, so a corpus of question files
-//! cannot produce a `LegPlan` the way it produces a `QueryPlan`. What this axis pins is therefore the
-//! RENDERING - `sutura_sql::generate_leg` over each shape, in each dialect, parse-checked in the
-//! dialect it was generated for - which is evidence that stands before anything executes a leg. The
-//! leg plans themselves are pinned too, as one snapshot of their serialized form, so a fixture edit
-//! is a reviewable diff rather than a Rust literal nobody reads twice.
+//! **The fixtures are hand-built and the snapshots are not, and the split is deliberate.** What this
+//! axis pins is the RENDERING - `sutura_sql::generate_leg` over each shape, in each dialect,
+//! parse-checked in the dialect it was generated for - which is evidence that stands before anything
+//! executes a leg. The leg plans themselves are pinned too, as one snapshot of their serialized form,
+//! so a fixture edit is a reviewable diff rather than a Rust literal nobody reads twice.
+//!
+//! **Why hand-built when `sutura_semantic::plan` emits these two shapes for real:** no question in
+//! the shared corpus splits over the catalog these snapshots are written against, so deriving them
+//! would mean registering `customers` on a second data system here.
+//! `crates/sutura-app/tests/differential/federated.rs` is the axis that does derive a two-source
+//! bundle, and it compares ANSWERS rather than statements. **The limit, next to the claim:** nothing
+//! holds these fixtures against what the splitter emits, which is why every reserved label below is
+//! taken from `InternalLabel` rather than spelled.
 //!
 //! **The fixtures are the federated form of questions that already exist in the corpus**, over the
 //! same telco catalog, with `customers` imagined on a second data system - which is the case
@@ -76,10 +82,10 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// The key the two legs are joined on, under the label the splitter gives it.
 ///
 /// **Taken from `InternalLabel` rather than spelled, and that is what makes the statements below
-/// evidence about the real scheme.** These fixtures are hand-built - there is no splitter to derive
-/// them from - and a hand-written link label is a place where the fixture and the splitter can
-/// disagree without any test noticing; they did, and the label the splitter chose was a legal
-/// dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
+/// evidence about the real scheme.** These fixtures are hand-built rather than derived from
+/// `sutura_semantic::plan` - this file's header says why - so a hand-written link label is a place
+/// where the fixture and the splitter can disagree without any test noticing; they did, and the
+/// label the splitter chose was a legal dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
 /// the parse check for a reserved label: `parses_in_the_dialect_it_was_generated_for` asks each of
 /// the four targets' PARSERS whether an alias in this namespace is valid there.
 ///
@@ -298,9 +304,9 @@ fn shapes() -> Vec<(&'static str, LegPlan)> {
 /// The leg plans themselves, pinned once.
 ///
 /// Dialect-independent, so it is off the per-dialect matrix: a leg plan is a function of the split
-/// and of nothing a renderer decides. It is here because the fixtures are hand-written - there is no
-/// splitter to derive them from - and a hand-written fixture that changed silently would move five
-/// statements with it.
+/// and of nothing a renderer decides. It is here because the fixtures are hand-written rather than
+/// derived - this file's header says why - and a hand-written fixture that changed silently would
+/// move five statements with it.
 #[test]
 fn every_leg_shape_is_pinned_as_a_plan() {
     for (name, leg) in shapes() {

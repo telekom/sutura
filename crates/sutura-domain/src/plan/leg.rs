@@ -1,10 +1,13 @@
 //! One source's share of a federated question, and the only thing the port can be handed.
 //!
-//! **The shapes, their closure, and nothing that produces or executes one.** There is no splitter
-//! and no combiner in this workspace, so no production code constructs a [`LegPlan`]: what is here
-//! is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
-//! before anything runs it. `.agents/skills/sutura/query-surface` carries that state, and this
-//! module says it rather than leaving it to be discovered.
+//! **The shapes, their closure, and who produces one.** `sutura_semantic::plan`'s splitter
+//! constructs both variants and `crate::plan::federated`'s combiner consumes the rows they return,
+//! so this is production vocabulary rather than a shape waiting for a caller - the sentence here
+//! that said otherwise outlived both. What is still true is the LIMIT: no shipped adapter executes
+//! a leg, because `crate::warehouse::Warehouse::EXECUTES_LEGS` is a defaulted-`false` associated
+//! constant that only a dev-only vehicle sets, so a shipped binary refuses every two-source question
+//! before a leg runs. `.agents/skills/sutura/query-surface` carries that state, and this module says
+//! it rather than leaving it to be discovered.
 //! `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 //! `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 //!
