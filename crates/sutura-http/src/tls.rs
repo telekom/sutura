@@ -261,7 +261,7 @@ impl ResolvesServerCert for Rotating {
 /// A validated TLS configuration, and the means to keep it current.
 ///
 /// **Two values because they have two owners**, the way `crate::router::Assembled` is two: the
-/// configuration goes to the listener, and the renewal goes to whatever will poll it. [`prepare`]
+/// configuration goes to the listener, and the renewal goes to whatever will poll it. [`Self::prepare`]
 /// hands both back rather than starting the poll itself, so a test can drive a rotation a step at a
 /// time instead of waiting on a wall clock.
 #[derive(Debug)]
