@@ -23,12 +23,19 @@
 //!
 //! # Why the parent's own rules could not reach it
 //!
-//! `is_literal_set` opens with `!value.is_empty()`, so `BINARIES: ""` was neither a declaration nor
-//! a failure: it was skipped. And the parent's `checked == 0` refusal - *finding none means this
-//! gate is reading nothing* - describes a state the tree cannot reach, because the two composite
-//! actions each carry a `default:` on their `binaries` input and those are counted, so `checked`
-//! never drops below 2 whatever the workflows say. *At least one row* defends nothing about WHICH
-//! row, which is the shape `refusal.rs` records one file over.
+//! `is_literal_set` opened with `!value.is_empty()`, so `BINARIES: ""` was neither a declaration
+//! nor a failure: it was skipped. And the parent's `checked == 0` refusal - *finding none means
+//! this gate is reading nothing* - describes a state the tree cannot reach, because the two
+//! composite actions each carry a `default:` on their `binaries` input and those are counted, so
+//! `checked` never drops below 2 whatever the workflows say. *At least one row* defends nothing
+//! about WHICH row, which is the shape `refusal.rs` records one file over.
+//!
+//! **THE FIRST HALF OF THAT IS HISTORY SINCE #329 AND THE SECOND IS NOT.**
+//! [`super::declaration`] classifies an empty value as a set of ZERO NAMES, so the parent's own
+//! comparison reaches every empty declaration this rule sees, at the line it was spelled on -
+//! measured with this rule stood down. Two enforcers of one key, then, rather than two keys: what
+//! this one still holds ALONE is the route no literal rule can reach, one bullet down, and the
+//! parent reports first only for the shapes it classifies as opaque.
 //!
 //! # The two rules
 //!
