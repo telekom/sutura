@@ -43,13 +43,20 @@
 //! side through [`differential`], so what differs between them is only which adapter holds the
 //! legs.
 //!
-//! **The `DuckDB` side is kept rather than replaced, and that is the whole reason there are two.**
-//! With the engine on both sides of the comparison a bug shared between the leg translation and the
-//! whole-plan translation CANCELS - the same `column`, `bucket_expression`, `term_expression` and
-//! `predicate` build both, which is what makes them agree and also what would make them agree about
-//! something wrong. The `DuckDB` pass is what keeps the corpus crossing two value mappings and two
-//! renderings, so it is the half that can still catch that class; the engine pass is the half that
-//! says a published artefact answers.
+//! **Why the `DuckDB` side is kept, corrected.** The reason first written here was that with the
+//! engine on both sides a bug shared between the leg and whole-plan translations would CANCEL, so
+//! only the `DuckDB` pass could catch that class. **That was wrong, and review measured it:** a
+//! shared defect reddens the engine pass too, because `verify_and_validate` re-executes each
+//! anchor against the registry before any comparison happens and an anchor is a literal DECLARED in
+//! the catalog - `value: 202121` in `metrics/recurring_revenue.md` - which no code under test
+//! produced. **The anchor, not the second engine, is what catches a bug shared between the two
+//! translations.**
+//!
+//! What the `DuckDB` pass actually adds is a different IMPLEMENTATION rather than a stronger oracle:
+//! its legs are rendered SQL through `sutura_sql::generate_leg`, so it is the only executed evidence
+//! that the renderer's leg path answers at all, and its rows cross that adapter's own Arrow-to-domain
+//! mapping. Deleting it would delete both. The engine pass is the half that says a PUBLISHED
+//! artefact answers.
 //!
 //! # What this does NOT establish
 //!
@@ -116,6 +123,12 @@ fn bundle(catalog: &Path) -> PinnedDefinitions {
 /// by re-executing the anchors against the registry that will answer with it - which is what
 /// makes "this side reproduces its own certified numbers" a precondition of the comparison rather
 /// than a separate test.
+///
+/// **That precondition is this file's THIRD-PARTY oracle, and it is why the comparison is not
+/// circular.** An anchor's expected figure is a literal declared in the catalog
+/// (`metrics/recurring_revenue.md`'s `value: 202121`), not a number recorded from a run - so a
+/// defect shared by every side of the comparison still reddens here, before any two answers are
+/// compared. Review measured that: a mutation to a shared expression builder fails at this call.
 fn one_source(pinned: PinnedDefinitions) -> Side<sutura_exec_datafusion::DataFusionWarehouse> {
     let (bundle, warehouses) = validating_on_one_source(&derived().data, pinned);
     Side {
@@ -288,8 +301,10 @@ fn chain(error: &dyn core::error::Error, name: &str) -> String {
 
 // ----------------------------------------------------------------------------- the instrument ---
 
-/// **Two `DuckDB` databases hold the legs.** The pass that keeps the corpus crossing two value
-/// mappings, and a development dependency: what it measures is the implemented federation path.
+/// **Two `DuckDB` databases hold the legs.** The only executed evidence that the RENDERER's leg path
+/// (`sutura_sql::generate_leg`) answers, and the only pass whose rows cross that adapter's own
+/// Arrow-to-domain mapping. A development dependency, so what it measures is the implemented
+/// federation path rather than a deployment's answer.
 #[test]
 fn a_two_source_answer_is_the_same_answer_as_one_source() {
     let derived = derived();
@@ -306,9 +321,11 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
 /// for the first time - one instance answering whole, two answering as legs, over one derived
 /// corpus.
 ///
-/// **It does not replace the `DuckDB` pass and must not**, for the reason this file's header gives:
-/// with the engine on both sides a bug shared between `crate::leg`'s translation and the whole-plan
-/// translation cancels, because the same expression builders produce both.
+/// **It does not replace the `DuckDB` pass**, for the reason this file's header gives - which is not
+/// the reason first written there: a bug shared between `crate::leg`'s translation and the whole-plan
+/// one does NOT go unseen here, because the anchor re-execution below compares against a literal the
+/// catalog declares. What the `DuckDB` pass adds is the renderer's leg path and a second
+/// Arrow-to-domain mapping.
 ///
 /// **The engine emits no SQL, so there is no golden that can see this path** - `tests/golden/legs.rs`
 /// pins rendered leg statements per dialect and the engine renders none. This cell and
@@ -461,6 +478,9 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
     ("recurring-revenue-business-only", Reached::Agreed),
     // A same-source join on the fact leg beside the remote one.
     ("recurring-revenue-by-region-and-family", Reached::Agreed),
+    // The same shape with an UNMATCHED row in that same-source join, which is the only case in this
+    // corpus that observes the leg's own join kind - see `corpus::DATA_CASES`.
+    ("two-source-a-same-source-orphan-beside-a-remote-one", Reached::Agreed),
     // Six buckets and two keys, which is where a key-then-bucket ordering could disagree.
     ("subscription-months-by-region-and-term", Reached::Agreed),
     // The whole reduction table above the legs.

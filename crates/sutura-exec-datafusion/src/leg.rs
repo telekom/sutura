@@ -62,15 +62,26 @@ pub(crate) fn joins(leg: &LegPlan) -> &[PlanJoin] {
 /// assembled), and it is matched anyway so a fourth cardinality is a compile error rather than a
 /// silently wrong plan.
 ///
-/// **Shared rather than restated, and that was MEASURED rather than assumed.** With the join type
-/// chosen separately in this module, `EngineJoin::Left` -> `EngineJoin::Inner` here reddened
-/// NOTHING: the differential corpus has no fact row missing a same-source dimension row, and the
-/// orphan it does carry is a REMOTE key the combiner left-joins above the legs. A second corpus
-/// case would have been one answer; one definition is the better one, because
+/// **Shared rather than restated, and BOTH halves of that were measured - the second one only after
+/// review pointed out that sharing is not observing.**
+///
+/// With the join kind chosen separately in this module, `EngineJoin::Left` -> `EngineJoin::Inner`
+/// here reddened NOTHING (2640 of 2640 passed): the corpus had no fact row missing a SAME-SOURCE
+/// dimension row, and the only orphan it carried was a REMOTE key the combiner left-joins above the
+/// legs. Sharing the definition alone did not fix that - it makes the two shapes *use* one arm, and
+/// leaves the leg shape's use of it observed by nothing.
+///
+/// What fixed it is one row of corpus: `corpus::DATA_CASES` appends a subscription whose
+/// `product_key` matches no product, and
+/// `two-source-a-same-source-orphan-beside-a-remote-one` groups by a column of that same-source
+/// table. Re-measured with that row present, the same mutation inlined into the leg path reddens
+/// `two_engines_answer_what_one_engine_answers`; mutating THIS function reddens
 /// `a_dimension_join_does_not_change_the_measure`
-/// (`crates/sutura-app/tests/golden/data_systems.rs`) already fails on an inner join and now fails
-/// for both shapes. It lives beside the leg path because that is the path that arrived second and
-/// would otherwise have been the copy.
+/// (`crates/sutura-app/tests/golden/data_systems.rs`) as well. So the arm is held for the whole plan
+/// and for a leg, by two different cells.
+///
+/// It lives beside the leg path because that is the path that arrived second and would otherwise
+/// have been the copy.
 pub(crate) fn dimension_join(
     builder: LogicalPlanBuilder,
     right: LogicalPlan,
@@ -142,14 +153,20 @@ pub(crate) fn logical(
     // Sorted by what it groups by and NOT limited, which is the fourth difference above. `sort_by`
     // is ascending nulls-last, which is what `generate_leg`'s `ordered_nulls_last` renders.
     //
-    // **NOTHING OBSERVES THIS ORDER, and it is measured rather than suspected.** Reversing the sort
-    // keys here reddens no test in the workspace: the combiner above the legs orders the ANSWER, so
-    // a leg's own row order does not reach any assertion, and the conformance pack's leg behaviour
-    // is content-only by design (see `sutura_conformance::execute`'s header). For the RENDERER the
-    // equivalent decision is pinned - a golden holds `generate_leg`'s `ORDER BY` text per dialect -
-    // and this path has no golden because it emits no SQL, so the two are not equally held. It is
-    // kept for `generate_leg`'s stated reason, determinism, and as the one place the two leg paths
-    // could drift without a gate saying so.
+    // **A leg's row order is UNOBSERVABLE BY CONSTRUCTION, not merely untested, and the bound is one
+    // function away.** `FederatedPlan::combine` sorts the assembled answer TOTALLY - ascending by
+    // every key cell, typed, nulls last, in key order
+    // (`sutura_domain::plan::federated::mod`'s `rows.sort_by`) - so whatever order a leg hands its
+    // rows back in cannot survive into an answer. That is a structural reason no assertion can see
+    // this, and it is stronger than the measurement that found it: reversing these sort keys reddens
+    // no test in the workspace, and the conformance pack's leg behaviour is content-only by design
+    // (see `sutura_conformance::execute`'s header) for the same reason.
+    //
+    // So it is kept for `generate_leg`'s stated reason - determinism of the leg itself, which makes a
+    // failure reproducible - and not because anything above depends on it. The RENDERER's equivalent
+    // decision IS pinned, by a golden holding `generate_leg`'s `ORDER BY` text per dialect; that
+    // golden is evidence about the text, and the combiner's sort is what makes the behaviour equal
+    // either way.
     builder
         .project(projection)
         .and_then(|projected| projected.sort_by(ordering))

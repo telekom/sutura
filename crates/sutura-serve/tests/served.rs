@@ -263,11 +263,23 @@ mod tests {
         // mixed-posture answer is unreachable on any published build. Leg 2 - a source executing AS
         // the asker - is not what this measures.
         //
-        // **There is no golden for this path and there cannot be one.** The engine emits no SQL, so
-        // `crates/sutura-app/tests/golden/legs.rs` - which pins a rendered leg per dialect - never
-        // sees it. This cell, `sutura-exec-datafusion`'s conformance binding and
-        // `crates/sutura-app/tests/differential/federated.rs`'s two-engine pass are its whole
-        // evidence.
+        // **There is no golden for this path and there cannot be one** - the engine emits no SQL, so
+        // `crates/sutura-app/tests/golden/legs.rs`, which pins a rendered leg per dialect, never sees
+        // it. **What replaces it is three oracles none of which is the code under test**, and that is
+        // the honest statement rather than the absence alone:
+        //
+        // 1. The anchor `value: 202121` is a literal DECLARED at
+        //    `examples/single-player/catalog/metrics/recurring_revenue.md:42`. The six figures below
+        //    sum to it, and this deployment re-executed that anchor at startup before it listened.
+        // 2. `crates/sutura-cli/tests/snapshots/recurring-revenue-by-region__rows.snap` holds exactly
+        //    these six rows, in this order, orphan included - produced by the SINGLE-SOURCE CLI
+        //    binary, which has no splitter, no leg and no combiner on its path.
+        // 3. `crates/sutura-conformance/src/corpus.rs`'s leg expectations are hand-written literals,
+        //    not rows recorded from a run.
+        //
+        // So the leg path is compared against a declared figure, against a different binary's
+        // committed answer, and against hand-written rows. That is a stronger position than a golden,
+        // which would only have pinned the statement text this path never produces.
         let served = start_configured("two-sources", &settings_spanning_two_sources("two-sources"));
         let reply = served.post(
             &v1(sutura_http::constants::base_paths::QUERY),
