@@ -938,14 +938,19 @@ into the trunk, malformed JSON and a missing key, and `forked` is always `merge-
 therefore always an ancestor of HEAD. The reachable failure is the degenerate endpoint INSIDE
 history: **a recorded parent whose commit CONTAINS this branch forks at HEAD**, a base equal to HEAD
 makes the diff the uncommitted working tree alone, and the gate answers *no changed tests - nothing
-to prove* at **exit 0 over every file the branch changed**. Reproduced twice, and the trigger is this
-repository's own house style rather than a corner - merge-forward-never-rebase means a parent with
-your branch merged into it is an ordinary thing to have locally, as is metadata retargeted at the
-branch above. It is `causality::stack::Origin::Contains` now, refused AHEAD of the equality because
-the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of
-HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT that compares
-NAMES enumerates one spelling of one input** - the first version did exactly that, and it was
-untested glue, which is what let the enumeration stand.
+to prove* at **exit 0 over every file the branch changed**. Reproduced twice, and the trigger is
+stacking rather than a corner - though not because a stack parent is behind you, which is the half
+a reader needs: once this branch has a commit of its own the branch BELOW cannot contain it. Two
+shapes can, and both are ordinary - metadata still naming the branch ABOVE after a retarget by
+hand, which is the branch that really does contain this one, and a branch freshly created on top
+with no commits of its own yet, whose parent's tip IS HEAD. **Merging `main` in cannot reach it at
+all:** that makes `main` an ANCESTOR of HEAD, so the fork point is `main`'s own tip rather than
+HEAD - and `CONTRIBUTING.md` rebases a branch behind `main` rather than merging it anyway. It is
+`causality::stack::Origin::Contains` now, refused AHEAD of the equality because the equality passes
+for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of HEAD, and it always
+is). **The transferable half: a guard against a degenerate COMMIT that compares NAMES enumerates
+one spelling of one input** - the first version did exactly that, and it was untested glue, which is
+what let the enumeration stand.
 
 **What is STILL not asked, and a correct base does not rule it out:** whether the reverted
 implementation is something the measured test could even read. #293's pairing was wrong in that

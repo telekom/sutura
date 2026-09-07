@@ -139,9 +139,14 @@ pub(crate) enum Origin {
     /// A base equal to HEAD makes `git diff <base> --` the uncommitted working tree alone, so the
     /// gate answers *no changed tests - nothing to prove* at exit 0 over every file the branch
     /// actually changed. Review reproduced it twice on this gate's own branch, and the trigger is
-    /// this repository's house style rather than a corner: merge-forward-never-rebase means a
-    /// parent with this branch merged INTO it is an ordinary thing to have locally, and so is
-    /// metadata retargeted at the branch above.
+    /// stacking rather than a corner - though not because a stack parent is behind you, which is
+    /// the half that has to be said: once this branch has a commit of its own the branch BELOW
+    /// cannot contain it. Two shapes can, and both are ordinary - metadata still naming the branch
+    /// ABOVE after a retarget by hand, which is the branch that really does contain this one, and
+    /// a branch freshly created on top with no commits of its own yet, whose parent's tip IS HEAD.
+    /// **Merging `main` in cannot reach it at all:** that makes `main` an ANCESTOR of HEAD, so the
+    /// fork point is `main`'s own tip rather than HEAD - and `CONTRIBUTING.md` rebases a branch
+    /// behind `main` rather than merging it anyway.
     ///
     /// **It is strictly worse than the defect this module was written for.**
     /// `github.com/telekom/sutura#358` reddened correct work loudly; this passed incorrect work in
