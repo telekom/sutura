@@ -255,6 +255,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         };
         scanned = scanned.saturating_add(1);
         let code = code_lines(&text);
+        let shadowed = shadowing(&code, rel);
         for (line, header) in trait_impls(&code) {
             impls = impls.saturating_add(1);
             if let Some((leaked, onto)) = leaked_by(&header) {
@@ -265,7 +266,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
                     onto,
                 });
             }
-            if let Some((sealed, how)) = hands_out_contents(&header) {
+            if let Some((sealed, how)) = hands_out_contents(&header, &shadowed) {
                 opened.push(Opened {
                     path: rel.clone(),
                     line,
@@ -279,7 +280,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
                 declared.push(entry.name);
             }
         }
-        exposing_methods(&code, rel, &mut opened);
+        exposing_methods(&code, rel, &shadowed, &mut opened);
     }
 
     if scanned == 0 {
@@ -356,11 +357,11 @@ fn explain_sealed(opened: &[Opened]) {
 }
 
 /// The sealed type a trait `impl` header hands the contents of, and what was written.
-fn hands_out_contents(header: &str) -> Option<(&'static str, String)> {
+fn hands_out_contents(header: &str, shadowed: &[&'static str]) -> Option<(&'static str, String)> {
     let (before, after) = header.rsplit_once(" for ")?;
     let path = trait_path(before)?;
     let trait_name = last_segment(path);
-    let sealed = sealed_target(after)?;
+    let sealed = sealed_target(after, shadowed)?;
     // The two global entries are reported by `leaked_by` already; naming them twice for one line
     // is a wall of text for one violation.
     if !SEQUENCE_TRAITS.contains(&trait_name) {
@@ -371,7 +372,15 @@ fn hands_out_contents(header: &str) -> Option<(&'static str, String)> {
 
 /// The [`SEALED`] type this `impl` target names, ignoring a reference, a lifetime and any generic
 /// arguments - so `&'a Census`, `&mut Census` and `Census<'a>` are all this type.
-fn sealed_target(target: &str) -> Option<&'static str> {
+///
+/// **`shadowed` is the names this file declares ITSELF, and it is not a nicety.** Matching is by
+/// last segment, so it is blind to modules - and the moment the trait half of this rule landed it
+/// reported `xtask/src/worktree_state.rs:205: fn missed returning &[&'static str] on Inspected`,
+/// which is #417's OWN witness type of the same name and none of this rule's business. A file that
+/// declares its own `Inspected` means that one, so the sealed name is not in scope there. The cost
+/// is precise and worth stating: a file could shadow a sealed name AND implement a leaky trait for
+/// the real one, and this would believe the shadow.
+fn sealed_target(target: &str, shadowed: &[&'static str]) -> Option<&'static str> {
     let mut rest = target.trim();
     loop {
         let trimmed = rest
@@ -388,7 +397,19 @@ fn sealed_target(target: &str) -> Option<&'static str> {
         }
     }
     let name = rest.get(..rest.find('<').unwrap_or(rest.len()))?.trim();
-    SEALED.iter().find(|entry| entry.name == name).map(|entry| entry.name)
+    SEALED
+        .iter()
+        .find(|entry| entry.name == name && !shadowed.contains(&entry.name))
+        .map(|entry| entry.name)
+}
+
+/// The [`SEALED`] names `rel` declares itself while this list says they live somewhere else.
+fn shadowing(code: &[String], rel: &str) -> Vec<&'static str> {
+    SEALED
+        .iter()
+        .filter(|entry| entry.declared_in != rel && declares(code, entry.name))
+        .map(|entry| entry.name)
+        .collect()
 }
 
 /// Does `code` declare a type called `name`?
@@ -413,14 +434,14 @@ fn declares(code: &[String], name: &str) -> bool {
 /// suite green and clippy clean. A new trait was neither of the two things being checked. The rule
 /// is now about the METHOD rather than about the trait: no method reachable through a sealed type
 /// may hand out its contents, whoever declared the signature.
-fn exposing_methods(code: &[String], rel: &str, out: &mut Vec<Opened>) {
+fn exposing_methods(code: &[String], rel: &str, shadowed: &[&'static str], out: &mut Vec<Opened>) {
     let reachable = inherent_impls(code).into_iter().chain(trait_impls(code));
     for (line, header) in reachable {
         // For a trait impl the target is after ` for `; for an inherent one it is after `impl`.
         let target = header
             .rsplit_once(" for ")
             .map_or_else(|| header.trim().strip_prefix("impl").unwrap_or(""), |(_, after)| after);
-        let Some(sealed) = sealed_target(target) else {
+        let Some(sealed) = sealed_target(target, shadowed) else {
             continue;
         };
         for (offset, signature) in method_signatures(code, line.saturating_sub(1)) {
@@ -649,14 +670,14 @@ mod tests {
         let code = code_lines(source);
         trait_impls(&code)
             .into_iter()
-            .filter_map(|(_, header)| super::hands_out_contents(&header))
+            .filter_map(|(_, header)| super::hands_out_contents(&header, &[]))
             .collect()
     }
 
     /// The sealed types a source's INHERENT methods hand out, as `(sealed, how)`.
     fn exposed(source: &str) -> Vec<(&'static str, String)> {
         let mut out = Vec::new();
-        super::exposing_methods(&code_lines(source), "probe.rs", &mut out);
+        super::exposing_methods(&code_lines(source), "probe.rs", &[], &mut out);
         out.into_iter().map(|open| (open.sealed, open.how)).collect()
     }
 
@@ -882,6 +903,34 @@ mod tests {
         assert!(exposed(debug).is_empty(), "{:?}", exposed(debug));
         let dropped = "impl Drop for Swept {\n    fn drop(&mut self) {\n        todo!()\n    }\n}\n";
         assert!(exposed(dropped).is_empty(), "{:?}", exposed(dropped));
+    }
+
+    #[test]
+    fn a_file_declaring_its_own_type_of_a_sealed_name_means_its_own() {
+        // Matching is by LAST SEGMENT, so it is blind to modules - and the trait half of this rule
+        // immediately reported `xtask/src/worktree_state.rs:205: fn missed returning
+        // &[&'static str] on Inspected`, which is #417's own witness type of the same name. A file
+        // that declares its own `Inspected` means that one.
+        let local = "pub(crate) struct Inspected {\n    missed: Vec<String>,\n}\n\nimpl Inspected {\n    fn missed(&self) -> &[String] {\n        &self.missed\n    }\n}\n";
+        let code = code_lines(local);
+        let shadowed = super::shadowing(&code, "probe.rs");
+        assert_eq!(shadowed, vec!["Inspected"], "the file's own declaration was not seen");
+        let mut out = Vec::new();
+        super::exposing_methods(&code, "probe.rs", &shadowed, &mut out);
+        assert!(out.is_empty(), "{:?}", out.iter().map(|o| o.sealed).collect::<Vec<_>>());
+
+        // And the same source WITHOUT the declaration is the real sealed type again, so the
+        // exclusion is the declaration rather than the file name.
+        assert_eq!(
+            exposed("impl Inspected {\n    fn missed(&self) -> &[String] {\n        todo!()\n    }\n}\n").len(),
+            1
+        );
+
+        // The file the list NAMES is never shadowed by its own declaration.
+        assert!(
+            super::shadowing(&code_lines("pub(crate) struct Census {\n}\n"), "xtask/src/repo/census.rs").is_empty(),
+            "the declaring file cannot shadow its own entry"
+        );
     }
 
     #[test]
