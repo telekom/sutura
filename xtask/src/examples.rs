@@ -119,17 +119,19 @@
 //! before it: no repo root, an unreadable root manifest, a member list this cannot state, a path
 //! the walk left with no verdict, and a corpus file the scan loop skipped.
 //!
-//! **The seventh arm has THREE causes and the third is a FIFTH door into this gate's whole failure
-//! mode**, found by review and reproduced on `110591d5` as well as on the branch that fixed the
-//! other four: no item under the declaration; a `#[cfg]` or `#[cfg_attr]` over the cell; and the
-//! single resolver's two halves disagreeing about a blank line - `item_below` skips one, `attached`
-//! treats one as a block boundary, so ONE blank line below a cell's attributes resolved the item
-//! and returned an EMPTY block, which reads as a cell with no attributes at all. A reach in the
-//! body of an `#[ignore]`d cell then printed `reached from 1 file - ..:120` at exit 0 with the
-//! per-line rule, the block-anchored region and the per-file floor defeated together, and
-//! `xtask hygiene: ok - 33 gate(s)` over the same tree. `attributes::cells` now requires the block
-//! to CONTAIN the declaration; see that function for why "no such spelling exists in this tree" was
-//! not allowed to be the answer.
+//! **The seventh arm has FOUR causes and the last two are one door into this gate's whole
+//! failure mode**, both found by review and reproduced on `110591d5` as well as on the branch
+//! that fixed the other four: no item under the declaration; a `#[cfg]` or `#[cfg_attr]` over
+//! the cell; ONE blank line below a cell's attributes, which `item_below` skips and `attached`
+//! treats as a block boundary, so the item resolved and the block came back EMPTY; and a
+//! `/* .. */` between an `#[ignore]` and its `#[test]`, which `attached` skips for `//` and
+//! for nothing else, so the block came back NON-EMPTY and missing the `#[ignore]`. Both read
+//! as a cell with no attributes at all: a reach in the body of an `#[ignore]`d cell printed
+//! `reached from 1 file - ..:120` at exit 0 with the per-line rule, the block-anchored region
+//! and the per-file floor defeated together, `xtask hygiene: ok - 33 gate(s)` over the same
+//! tree, and `rustc --test` calling that cell `ignored`. `attributes::cells` now requires the
+//! block to CONTAIN the declaration AND to be the whole block; see that function for why
+//! "no such spelling exists in this tree" was not allowed to be the answer.
 //!
 //! **Three of the arms are pairs rather than numbers**, and `github.com/telekom/sutura#414` is why:
 //! a gate's "how much did I read" number derived from its own loop cannot detect the loop

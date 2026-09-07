@@ -192,7 +192,13 @@ pub(super) fn item_below<'l>(lines: &[&'l str], from: usize) -> Option<(usize, &
 /// A BLANK LINE ENDS A BLOCK, so an attribute belonging to an earlier item cannot be borrowed -
 /// and so does an ITEM, which the upward walk got for free and this has to state: two `#[test]`
 /// functions with no blank line between them must not share the first one's `#[ignore]`.
-/// Comments do not end a block: a doc comment between an attribute and its item is ordinary here.
+/// A `//` COMMENT DOES NOT END A BLOCK - a doc comment between an attribute and its item is
+/// ordinary here - AND NO OTHER SPELLING IS TRANSPARENT. A `/* .. */` line reaches the `else`
+/// below and CLEARS the block, so an `#[ignore]` above one is dropped while the `#[test]`
+/// under it stays: the block comes back NON-EMPTY and wrong, which is a different failure
+/// from the empty one and invisible to a caller that only asks whether the declaration is
+/// in it. [`cells`] refuses on that as well, by asking the blanked image where a comment
+/// has already gone rather than teaching this walk a second comment lexer.
 ///
 /// THAT RULE IS RIGHT HERE AND DISAGREES WITH [`item_below`], WHICH IS THE CALLER'S PROBLEM AND NOT
 /// THIS FUNCTION'S. The question `super::scoped` asks is *what is attached to this item*, and for
@@ -259,8 +265,10 @@ pub(crate) struct Cells {
     /// fails on the variant.
     undecidable: Vec<String>,
     /// Tests this cannot say run or not, each with the reason: no item under the declaring
-    /// attribute, or an attribute in the block that DECIDES whether the test runs and that this
-    /// cannot evaluate. Both mean nothing may be claimed about the lines around them.
+    /// attribute, a block that does not reach the item the walk resolved, or an attribute a
+    /// comment pushed out of that block. All three mean nothing may be claimed about the
+    /// lines around them, and none of them is `Self::undecidable`, which is a cell this CAN
+    /// see and whose RUN is what it cannot decide.
     ///
     /// The reason travels with the entry because the two ask for opposite things - one is fixed in
     /// this scanner and one in the tree - and a caller printing "could not resolve the item" over
@@ -397,6 +405,46 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
             // mechanism, so it may not be one here either.
             found.unresolved.push(format!(
                 "the attribute block of `{written}` at line {} does not reach its item",
+                index.saturating_add(1)
+            ));
+            continue;
+        }
+
+        // AND IT MUST BE THE WHOLE BLOCK, which is the same door one comment token further
+        // out and the one the guard above cannot see: it asks whether the block CONTAINS the
+        // declaration, and this shape gives a block that contains it and is MISSING an
+        // attribute. [`attached`] is transparent to a `//` comment and to nothing else, so a
+        // `/* .. */` line between an `#[ignore]` and its `#[test]` CLEARS the block: the
+        // `#[ignore]` goes, the `#[test]` stays, and the cell counted as a run. Measured on
+        // `110591d5` and on the commit that closed the blank line, with the reach in the BODY
+        // of the `#[ignore]`d cell and the other cell left running so the per-file floor
+        // could not fire: `reached from 1 file - ..multi_player.rs:120` at exit 0, with
+        // `rustfmt --edition 2024 --check` exit 0, `xtask fmt --check` exit 0 and
+        // `xtask hygiene: ok - 33 gate(s)` over the same tree, and `rustc --test` reporting
+        // that same cell as `ignored`. Not over-determined, and rustfmt-stable in the
+        // single-line spelling - it DELETES a blank line between two attributes but keeps a
+        // comment, which is why this spelling is the sharp one.
+        //
+        // The blanked image is where a comment has already gone, so this asks that rather
+        // than teaching the walk `super::scoped` shares a second comment lexer: a line blank
+        // THERE and non-blank HERE is a comment, whatever its spelling.
+        let top = block.first().map_or(index, |(line, _)| *line);
+        let mut above = top;
+        while above > 0
+            && blanked
+                .get(above.saturating_sub(1))
+                .is_some_and(|line| line.trim().is_empty())
+            && lines.get(above.saturating_sub(1)).is_some_and(|line| !line.trim().is_empty())
+        {
+            above = above.saturating_sub(1);
+        }
+        if above > 0
+            && lines
+                .get(above.saturating_sub(1))
+                .is_some_and(|line| line.trim().starts_with("#["))
+        {
+            found.unresolved.push(format!(
+                "an attribute above a comment is outside the block of `{written}` at line {}",
                 index.saturating_add(1)
             ));
             continue;
@@ -648,6 +696,55 @@ mod tests {
             "#[test]\n#[ignore]\n/// What this would prove.\nfn t() {}\n",
             "#[test]\n#[ignore]\n// a line comment\n/* and a block one */\nfn t() {}\n",
             "#[test]\n#[ignore]\n#[expect(clippy::x, reason = \"..\")]\nfn t() {}\n",
+        ] {
+            let found = of_file(source);
+            assert!(found.unresolved().is_empty(), "{source} -> {found:?}");
+            assert!(found.nothing_runs(), "{source} -> {found:?}");
+        }
+    }
+
+    #[test]
+    fn an_attribute_a_comment_pushed_out_of_the_block_is_unresolved_rather_than_running() {
+        // THE SAME DOOR ONE COMMENT TOKEN FURTHER OUT, and the guard above is blind to it by
+        // construction: it asks whether the block CONTAINS the declaration, and here the
+        // block contains the declaration and is MISSING an attribute. `attached` skips a
+        // `//` line and clears on every other, so a `/* .. */` between an `#[ignore]` and its
+        // `#[test]` deletes the `#[ignore]` while leaving the cell resolvable. Measured
+        // through `crate::examples` on `110591d5` and on the commit that closed the blank
+        // line: the reach in the BODY of the `#[ignore]`d cell, the other cell left running
+        // so the per-file floor could not fire, printed
+        // `multi-player: reached from 1 file - ..multi_player.rs:120` at exit 0 with
+        // `rustfmt --edition 2024 --check` exit 0, `xtask fmt --check` exit 0 and
+        // `xtask hygiene: ok - 33 gate(s)` over the same tree - and `rustc --test` reports
+        // that cell as `ignored`, so the published reach really is inside a test no run
+        // here reaches.
+        for source in [
+            "#[ignore]\n/* held */\n#[test]\nfn t() {\n    let p = 1;\n}\n",
+            "#[cfg(feature = \"x\")]\n/* held */\n#[test]\nfn t() {\n    let p = 1;\n}\n",
+            // Several comment lines, and a block comment spanning them: the blanked image
+            // has lost all of it, so the walk up reaches the attribute either way.
+            "#[ignore]\n/* held\n   over two lines */\n#[test]\nfn t() {}\n",
+            "#[ignore]\n// a line comment\n/* and a block one */\n#[test]\nfn t() {}\n",
+        ] {
+            let found = of_file(source);
+            assert_eq!(found.runs(), 0, "{source} -> {found:?}");
+            assert_eq!(found.unresolved().len(), 1, "{source} -> {found:?}");
+            assert!(
+                found
+                    .unresolved()
+                    .first()
+                    .is_some_and(|entry| entry.contains("outside the block")),
+                "{source} -> {found:?}"
+            );
+        }
+        // AND THE HEALTHY SHAPES MUST NOT MOVE, or this is a false red on every file that
+        // writes a comment near a test: a comment BELOW the block is where `item_below`
+        // answers and the block above it is whole, and a `//` or `///` line inside the block
+        // is skipped rather than cleared, so neither is an attribute pushed out of anything.
+        for source in [
+            "#[test]\n#[ignore]\n/* and a block one */\nfn t() {}\n",
+            "#[ignore]\n// held\n#[test]\nfn t() {}\n",
+            "#[ignore]\n/// held\n#[test]\nfn t() {}\n",
         ] {
             let found = of_file(source);
             assert!(found.unresolved().is_empty(), "{source} -> {found:?}");
