@@ -46,10 +46,10 @@
 //! * a **[`Carried::Opaque`]** - anything else. Refused, because a value the gate can neither
 //!   compare nor attribute is exactly the state that moved the count in silence.
 //! * a **[`Carried::Undefaulted`]** - an input declaring this key with a body and no `default:`.
-//!   There is nothing to compare, so it is a NAMED row: the fourth class exists because the
+//!   Nothing here spells the set, so it is a REFUSAL: the fourth class exists because the
 //!   predicate it replaced returned `None`, and deleting a live `default:` therefore moved the
 //!   literal count with no line saying which comparison had stopped - #329's own symptom, one
-//!   function below the one that was rewritten.
+//!   function below the one that was rewritten. See [`read`] for the limit that costs.
 //!
 //! # And a class the reader has to SEE before it can classify it
 //!
@@ -102,6 +102,9 @@
 //!   this rests on the declaration, as [`super::loops`] does: a key declared with no value is not
 //!   a shipped set whatever it resolves to.
 
+mod sighting;
+
+use sighting::sighted;
 use std::collections::BTreeMap;
 
 /// What one in-scope declaration of the shipped set carries.
@@ -116,11 +119,11 @@ pub(super) enum Carried {
     Opaque(String),
     /// An input declaring this key with a body and NO `default:` in it.
     ///
-    /// Nothing here can say what a caller must then pass, so there is genuinely nothing to
-    /// compare - but it is a ROW rather than a `None`, because **a predicate's `false` branch is
-    /// where a declaration goes to disappear** and #329's symptom was still reachable through
-    /// this one: deleting a live `default:` from an action printed `ok - 3 literal(s)` at exit 0,
-    /// the count moved, and no line said which comparison had stopped.
+    /// Nothing here spells the set, so there is nothing to compare - and it is a CLASS rather
+    /// than a `None`, because **a predicate's `false` branch is where a declaration goes to
+    /// disappear** and #329's symptom was still reachable through this one: deleting a live
+    /// `default:` from an action printed `ok - 3 literal(s)` at exit 0, the count moved, and no
+    /// line said which comparison had stopped. [`read`] refuses it, and states what that costs.
     /// `github.com/telekom/sutura#414`.
     Undefaulted,
 }
@@ -206,50 +209,6 @@ pub(super) fn carried(value: &str) -> Carried {
     } else {
         Carried::Opaque(String::from(value))
     }
-}
-
-/// Every line a substring search sees this set's key in KEY POSITION, 1-based.
-///
-/// **THE FLOOR, TAKEN BEFORE THE KEY READER GETS THE LINE**, which is `workflows::reach::scan`'s
-/// `sighted` list one gate over and exists for the same reason: a spelling the reader does not
-/// recognise has to COUNT, or it is invisible rather than uncounted - and a shape that was never
-/// counted is out of reach of the row floor as well. `github.com/telekom/sutura#414`.
-///
-/// BROADER than [`spelled`]'s own match in four ways, each of them a declaration that would
-/// otherwise be neither compared, reported nor counted: any number of `- ` sequence markers
-/// (`- binaries: ...` is how a `strategy.matrix` entry spells this set, the shape `release.yml`
-/// names in prose, and it was measured invisible at exit 0 with a verdict byte-identical to a
-/// clean tree's); a quoted key; whitespace before the colon; and any case.
-///
-/// NARROWER than a bare `contains`, and that is measured rather than cautious: `.github` holds
-/// seven prose mentions of the word today - `attest-and-sign/action.yml:16` and
-/// `release-performance.yml:19` among them - so a floor that sighted those would redden a correct
-/// tree, which is how a gate gets disabled. A comment line is not a declaration either.
-fn sighted(text: &str) -> Vec<usize> {
-    let mut out = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let mut head = line.trim();
-        if head.starts_with('#') {
-            continue;
-        }
-        // ANY number of markers: `- - binaries:` is a nested sequence item, and one strip is
-        // precisely what cannot see it.
-        while let Some(rest) = head.strip_prefix('-').and_then(|rest| rest.strip_prefix([' ', '\t'])) {
-            head = rest.trim_start();
-        }
-        let head = head.trim_start_matches(['"', '\'']);
-        let after = super::KEYS.iter().find_map(|key| {
-            let start = head.get(..key.len())?;
-            start.eq_ignore_ascii_case(key).then(|| head.get(key.len()..)).flatten()
-        });
-        let Some(after) = after else {
-            continue;
-        };
-        if after.trim_start_matches(['"', '\'']).trim_start().starts_with(':') {
-            out.push(index.saturating_add(1));
-        }
-    }
-    out
 }
 
 /// One declaration of the shipped set, with the line it was spelled on and what it carries.
@@ -500,10 +459,6 @@ pub(super) struct Read {
     /// One row per reference to this same set. Compared to nothing by design, and NAMED so the
     /// count is not the only thing that moves when a declaration stops being compared.
     pub(super) references: Vec<String>,
-    /// One row per input declaring this key with a body and no `default:` in it. Compared to
-    /// nothing, for the reason [`Carried::Undefaulted`] states, and NAMED for the same reason the
-    /// references are.
-    pub(super) undefaulted: Vec<String>,
     /// The literal sets that disagree with `nix/shipped.nix`.
     pub(super) mismatches: Vec<Mismatch>,
     /// How many files were OFFERED - counted over the caller's whole map by [`in_scope`], which is
@@ -606,11 +561,13 @@ pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Opt
     let mut read = Read {
         literals: Vec::new(),
         references: Vec::new(),
-        undefaulted: Vec::new(),
         mismatches: Vec::new(),
         offered: offered.len(),
     };
     let mut opaque: Vec<String> = Vec::new();
+    // A LOCAL AND NOT A FIELD, because a `Read` value cannot carry one: this is a refusal below,
+    // so anything that reaches the caller has none. The arm exists so the match stays exhaustive.
+    let mut undefaulted: Vec<String> = Vec::new();
     for (name, set) in walk.rows {
         let at = format!("{name}:{}", set.line);
         match set.carries {
@@ -625,7 +582,7 @@ pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Opt
             }
             Carried::Reference(expression) => read.references.push(format!("{at} -> {expression}")),
             Carried::Opaque(value) => opaque.push(format!("{at} carries `{value}`")),
-            Carried::Undefaulted => read.undefaulted.push(at),
+            Carried::Undefaulted => undefaulted.push(at),
         }
     }
 
@@ -642,6 +599,35 @@ pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Opt
         eprintln!("  SKIPPED: the printed count moved and no line said which comparison had stopped -");
         eprintln!("  `github.com/telekom/sutura#329`. Spell the set out, or reference it under a name");
         eprintln!("  whose last segment is one of: {}.", super::KEYS.join(" "));
+        return None;
+    }
+
+    // A REFUSAL AND NOT A ROW, which is `github.com/telekom/sutura#329` closed rather than
+    // reported. Deleting a live `default:` from an action's `binaries:` input printed
+    // `ok - 3 literal(s)` at exit 0 - the count moved with no line saying which comparison had
+    // stopped, which is the sentence this whole change opens with - and the predicate whose
+    // `false` branch dropped it lived one function below the one #329 rewrote. A named row said
+    // WHICH, and still let the release path lose a comparison at exit 0.
+    //
+    // **The limit, next to the claim:** this makes the gate stricter than the release path
+    // strictly needs. An action wanting the set from a caller and refusing to name a default is
+    // now a verdict, and the remedy is the direction this gate exists for - spell the set, or
+    // reference it. Every `binaries:` input under `.github` states a default today, so nothing
+    // correct reddens; the first one that wants otherwise argues it here.
+    if !undefaulted.is_empty() {
+        eprintln!(
+            "xtask check-shipped-binaries: FAILED - {} input(s) declare this set and no default",
+            undefaulted.len()
+        );
+        for row in &undefaulted {
+            eprintln!("  {row} declares `{}` with a body and no `default:`", super::KEYS[1]);
+        }
+        eprintln!();
+        eprintln!("  So nothing here spells the shipped set, and a comparison that used to be made");
+        eprintln!("  stops being made while every count above still agrees - which is exactly");
+        eprintln!("  `github.com/telekom/sutura#329`, at the one place its symptom survived the fix.");
+        eprintln!("  Give the input a `default:` spelling the set, or a `default:` referencing it");
+        eprintln!("  under a name whose last segment is one of: {}.", super::KEYS.join(" "));
         return None;
     }
 
@@ -819,35 +805,6 @@ mod tests {
     }
 
     #[test]
-    fn a_walk_that_keeps_the_name_and_drops_the_parse_is_still_a_verdict() {
-        // WHAT THE FILE-NAME PAIR CANNOT REACH, and the reason a second predicate exists. The two
-        // sides of `inspected == offered` are both keyed on the NAME, so a mutation that keeps the
-        // name in the witness and hands the parse nothing satisfies both. The substring sighting
-        // does not: it reads the file's TEXT, so the key is seen whatever the parse did with it.
-        let files = std::collections::BTreeMap::from([(
-            String::from(".github/workflows/a.yml"),
-            String::from("env:\n  BINARIES: sutura\n"),
-        )]);
-        // The mutation, spelled here rather than described: the name enters, the parse returns
-        // nothing. The floor is subtracted at the call site from the same `text`, so it survives.
-        let text = &files[".github/workflows/a.yml"];
-        let dropped = super::Spellings {
-            found: Vec::new(),
-            accounted: Vec::new(),
-        };
-        assert!(dropped.found.is_empty());
-        let unaccounted: Vec<usize> = super::sighted(text)
-            .into_iter()
-            .filter(|line| !dropped.accounted.contains(line))
-            .collect();
-        assert_eq!(unaccounted, vec![2], "the sighting has to survive an emptied parse");
-        // And on the real walk there is nothing left over, because the parse read it.
-        let walk = super::declarations(&files);
-        assert_eq!(walk.rows.len(), 1, "{:?}", walk.rows);
-        assert!(walk.unaccounted.is_empty(), "{:?}", walk.unaccounted);
-    }
-
-    #[test]
     fn a_sequence_item_spelling_of_the_key_is_a_declaration_and_not_a_silence() {
         // MEASURED as the only route held by nothing: a `strategy.matrix` entry spells this set as
         // `- binaries: ...`, and the key had to be the first thing on the trimmed line - so the set
@@ -880,35 +837,6 @@ mod tests {
     }
 
     #[test]
-    fn a_key_the_reader_does_not_recognise_is_counted_rather_than_dropped() {
-        // THE FLOOR FROM THE OTHER PREDICATE. Each of these spells the key in key position and is
-        // a shape the reader does not classify, so each has to arrive as an unaccounted LINE - a
-        // declaration nobody compared is invisible rather than uncounted otherwise, which is what
-        // put the sequence-item shape out of reach of every count in the verdict.
-        for yaml in [
-            "  \"binaries\": sutura\n", // a quoted key
-            "  binaries : sutura\n",    // a space before the colon
-            "  - - binaries: sutura\n", // a nested sequence item
-            "  Binaries: sutura\n",     // a case neither key spells
-        ] {
-            let spellings = super::spelled(yaml);
-            assert!(spellings.found.is_empty(), "{yaml:?} was classified: {spellings:?}");
-            assert!(spellings.accounted.is_empty(), "{yaml:?}: {spellings:?}");
-            assert_eq!(super::sighted(yaml), vec![1], "{yaml:?} went uncounted");
-        }
-        // And prose is NOT sighted, because a floor that reddens a correct tree gets disabled:
-        // `.github` holds seven mentions of the word today and none of them declares anything.
-        for prose in [
-            "  # how many binaries ship. A `list`'s name is\n",
-            "      # many binaries ship: `release.yml` writes\n",
-            "            echo \"## Binaries\"\n",
-            "      - name: Say where the binaries went\n",
-        ] {
-            assert!(super::sighted(prose).is_empty(), "{prose:?} was sighted as a declaration");
-        }
-    }
-
-    #[test]
     fn an_input_block_with_a_body_and_no_default_is_a_row_rather_than_a_drop() {
         // The predicate's `false` branch, which was a bucket: `(!self.nested).then(...)` returned
         // `None`, so deleting a live `default:` from an action moved the literal count with no
@@ -930,10 +858,13 @@ mod tests {
                 String::from("env:\n  BINARIES: sutura\n"),
             ),
         ]);
-        let read = super::read(&files, &expected).expect("an undefaulted input is not a refusal");
-        assert_eq!(read.undefaulted, [".github/actions/build/action.yml:2"]);
-        assert_eq!(read.literals, [".github/workflows/release.yml:2"]);
-        assert!(read.mismatches.is_empty(), "{:?}", read.mismatches);
+        // AND IT IS A REFUSAL, not a shorter literal list: #329's symptom is that a comparison
+        // stops while every count still agrees, and a printed row said WHICH without stopping the
+        // run. `None` is what `run` turns into exit 1.
+        assert!(
+            super::read(&files, &expected).is_none(),
+            "an input declaring this set and no default has to be a verdict"
+        );
     }
 
     #[test]

@@ -549,8 +549,9 @@ therefore does not see.
 - **A `bool` FIELD AND A `matches!` ARE WHERE A NEW STATE ARRIVES ALREADY EXEMPT.** Two arms of the
   same fix, both held by the compiler rather than by a test: an open block's body became an
   `enum { Nothing, Deeper }` so its closing decision is an exhaustive `match`, and the
-  classification gained a fourth class so a declaration the gate cannot compare is a printed row
-  instead of a `None`. Proof, rather than an assertion: adding a fifth class gives
+  classification gained a fourth class so an input declaring the set and no default is a refusal
+  instead of a `None` - the one place #329's symptom survived its own fix, and a *named row* was
+  measured saying WHICH while still letting the release path lose a comparison at exit 0. Proof, rather than an assertion: adding a fifth class gives
   `error[E0004]: non-exhaustive patterns` in **both** consumers, and collapsing the fourth back
   into the empty set gives `error: variant ... is never constructed` under `-D warnings`.
   **A `_ =>` arm on an *is this comparable* decision is the same defect as the predicate that

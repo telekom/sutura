@@ -61,8 +61,9 @@
 //! which is why the count could not have been the control. Every in-scope value is now a set
 //! (compared, and ZERO NAMES IS A SET), a reference naming this same set (named in the verdict),
 //! or a refusal, and the verdict prints the ROWS behind the count. A fourth class - an input
-//! declaring the key with a body and no `default:` - is a printed row rather than a `None` since
-//! `#414`, because the predicate's `false` branch was where #329's symptom survived. **What it
+//! declaring the key with a body and no `default:` - is a REFUSAL rather than a `None` since
+//! `#414`, because the predicate's `false` branch is where #329's symptom survived the first fix:
+//! deleting a live `default:` moved the count with nothing saying which comparison had stopped. **What it
 //! still does not reach:** whether a reference resolves to the literal it names, and a set spelled
 //! under some third key. A set spelled where neither key reaches at the head of its line IS
 //! counted now - a sequence item, a quoted key, a space before the colon and an unexpected case
@@ -379,7 +380,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let declaration::Read {
         literals,
         references,
-        undefaulted,
         mismatches,
         offered,
     } = read;
@@ -424,13 +424,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
     for row in &references {
         println!("  reference: {row}");
-    }
-    // The fourth bucket, and it is a row for the reason the other two are: a live `default:`
-    // deleted from an action's `binaries:` input used to move the literal count with no line
-    // saying which comparison had stopped. Nothing here reddens a correct tree - see
-    // `declaration::Carried::Undefaulted` for what it deliberately does not assert.
-    for row in &undefaulted {
-        println!("  undefaulted: {row}");
     }
     for row in &probed {
         println!("  probed: {row}");
@@ -844,7 +837,7 @@ mod tests {
         // rather than a literal count quietly moving from 4 to 3.
         assert!(
             undefaulted.is_empty(),
-            "an input declaring the shipped set now states no default: {undefaulted:?}"
+            "an input declaring the shipped set states no default, which the gate refuses: {undefaulted:?}"
         );
     }
 
