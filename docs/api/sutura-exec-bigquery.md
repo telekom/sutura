@@ -985,10 +985,10 @@ The one constructor, and every non-default setting below is a decision:
 
 `Clone`, `Debug`
 
-### `enum WireError`
+### `struct EndpointMessage`
 
 ```rust
-pub enum WireError<C>
+pub struct EndpointMessage
 ```
 
 Why the endpoint did not answer with rows.
@@ -1002,6 +1002,54 @@ generics exists to keep.
 the shape *Structured Errors* asks for at a boundary: the variant is ours, the chain still walks,
 and a caller who knows the transport can downcast. It is boxed because it is much larger than
 every other variant and `clippy::result_large_err` is on.
+The endpoint's own message on a refusal: free text, and the one field here that can name an
+account.
+
+**A type rather than a `String`, because the rule it carries is about RENDERING and a rule about
+rendering cannot be held at call sites.** `Display` is the message; `Debug` is redacted. That is
+the whole mechanism, and it is here because the alternative was asking fourteen acceptance legs
+to remember which formatter they used.
+
+**Measured, which is why this exists.** A leg ending `.expect("the endpoint answered")` formats
+its error with `Debug`, and `Debug` walks the struct: on a real refusal that printed
+`Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
+legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
+`::add-mask::` step covers the project, the dataset and the table - **not an account**.
+`Display` keeps the message because a `400` with only a reason code is undiagnosable, and the
+outer `BigQueryError::Endpoint`'s own `Display` does not interpolate its cause - so a caller that
+wants the sentence has to ask for it by name.
+
+It is already bounded and stripped on the way in - see `Self::bounded`.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The message itself, for a caller that has decided it may render it.
+
+Named rather than reached through `Deref`, which `cargo xtask check-newtype-leaks` refuses:
+a wrapper you can forget you are holding is not a wrapper.
+
+```rust
+pub fn bounded(message: Option<String>) -> Self
+```
+
+The endpoint's message, capped and stripped of anything that could forge a log line.
+
+Infallible: an absent message is an empty one, which is honest - the status is what is
+guaranteed.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+### `enum WireError`
+
+```rust
+pub enum WireError<C>
+```
 
 #### Variants
 
