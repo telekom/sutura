@@ -138,15 +138,15 @@ pub(crate) enum Origin {
     /// **The degenerate endpoint of *the diff can only shrink*, and shrinking to EMPTY is a pass.**
     /// A base equal to HEAD makes `git diff <base> --` the uncommitted working tree alone, so the
     /// gate answers *no changed tests - nothing to prove* at exit 0 over every file the branch
-    /// actually changed. Review reproduced it twice on this gate's own branch, and the trigger is
-    /// stacking rather than a corner - though not because a stack parent is behind you, which is
-    /// the half that has to be said: once this branch has a commit of its own the branch BELOW
-    /// cannot contain it. Two shapes can, and both are ordinary - metadata still naming the branch
-    /// ABOVE after a retarget by hand, which is the branch that really does contain this one, and
-    /// a branch freshly created on top with no commits of its own yet, whose parent's tip IS HEAD.
-    /// **Merging `main` in cannot reach it at all:** that makes `main` an ANCESTOR of HEAD, so the
-    /// fork point is `main`'s own tip rather than HEAD - and `CONTRIBUTING.md` rebases a branch
-    /// behind `main` rather than merging it anyway.
+    /// actually changed. Review reproduced it twice on this gate's own branch. **The trigger is a
+    /// condition, not a list of shapes: it fires whenever HEAD is an ancestor of the recorded
+    /// parent's commit** - reflexively, so a parent sitting exactly ON HEAD counts. Ordinary states
+    /// that satisfy it include metadata still naming the branch ABOVE after a hand retarget, and a
+    /// branch with no commit of its own yet whose parent's tip IS HEAD; there are others, and
+    /// counting them here would be the mistake recorded below in a second spelling. Once this
+    /// branch has a commit of its own a parent STRICTLY behind it cannot fire, which is why merging
+    /// `main` into such a branch does not reach this arm: `main` becomes an ancestor of HEAD and
+    /// the fork point is `main`'s own tip.
     ///
     /// **It is strictly worse than the defect this module was written for.**
     /// `github.com/telekom/sutura#358` reddened correct work loudly; this passed incorrect work in
