@@ -146,6 +146,29 @@ Read these before spending an hour on a class of bug this repo has met.
 | A dependency compiled several times in one CI run | a check not sharing `cargoArtifacts` |
 | `401` on a `.narinfo` while `nix-cache-info` succeeds | the cache reads anonymously; artifacts need netrc credentials |
 | A detector reports its own source | the pattern matches the file that defines it |
+| A lock "released on drop" is still held, and the refusal names THIS process | `flock` lives on the open file DESCRIPTION, so a `close` releases it only when the last descriptor on that description goes. Every `Command::spawn` duplicates the whole table at `fork` and `FD_CLOEXEC` only fires at `exec`, so any spawn in flight holds a copy of every lock. Unlock explicitly rather than relying on the close |
+| A harness reads a child's output and the LAST line is missing, under load | it drained the channel once `try_wait` said the process exited. Exited is not READ: the threads reading its pipes may still be in flight, and the last thing a process writes is usually the sentence the assertion is about - so the failure reads as *it never said that* rather than as a lost line. Keep the reader `JoinHandle`s, join, then drain |
+
+**`nextest`'s process-per-test does NOT contain the lock one, and believing it did cost a wrong
+diagnosis on `github.com/telekom/sutura#328`.** The reasoning that fails is *the duplicate must come
+from another test's fork, so isolating tests removes it*. The forking process is usually **this**
+one: a single test that acquires, is refused, drops and re-acquires already forks in between,
+because the refusal path probes the holder with `lsof`. Measured on one test per process, single
+threaded, with `lsof` unreachable: **6 spurious refusals in 200 runs** before the fix, **0 in 200**
+after. Concurrency raises the rate; it is not the cause.
+
+**A FAILING exec is the widest window, so a missing tool makes this MORE likely, not less** - the
+opposite of the intuition, and the reason the Nix build sandbox was where it kept appearing. Over
+3000 iterations: spawning a program that does not exist gave 29-807 refusals, spawning a present
+`lsof` gave 0, spawning nothing gave 0. A child replaced by `exec` drops the copy at once; a child
+that fails to exec is torn down instead, and outlived the parent's close by 544 us mean and 5.9 ms
+worst here.
+
+The half of that which generalises past the lock: **a flake whose rate scales with load or with
+concurrency makes a single green run a bad control** for *this change breaks N tests* - its
+greenness is luck in either direction, so it can make the base look broken as easily as it can make
+a change look innocent. And when a venue seems to be exempt from a failure, measure the venue rather
+than reasoning about its isolation model.
 
 ## Do not
 
