@@ -135,10 +135,12 @@ pub enum InconsistentDefinitions {
     EmptyAllowlist { metric: MetricName, dimension: DimensionName },
     /// More declared values than [`MAX_VALUES_PER_DIMENSION`].
     ///
-    /// Checked here rather than at [`DimensionValue::parse`], because a count is not a fact about one
-    /// value: each of ten thousand values can be inside every per-value bound and the list of them is
-    /// still the whole of one dimension's line in a rendered prompt. Same reason
-    /// [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] is checked over a bundle rather than over a note.
+    /// Checked here rather than at
+    /// [`DimensionValue::parse`](crate::catalog::DimensionValue::parse), because a count is not a
+    /// fact about one value: each of ten thousand values can be inside every per-value bound and
+    /// the list of them is still the whole of one dimension's line in a rendered prompt. Same
+    /// reason [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] is checked over a bundle rather than over a
+    /// note.
     #[error("dimension {dimension} of metric {metric} declares {count} values, and at most {limit} may be declared")]
     TooManyValues {
         metric: MetricName,

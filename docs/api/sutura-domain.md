@@ -2767,7 +2767,7 @@ pub fn every() -> impl Iterator<Item>
 Every capability there is, in declaration order.
 
 Derived from `Self::next` rather than listed, and seeded by the one variant
-`Self::previous` answers `None` for - which is asserted where this enum is declared rather
+`previous` answers `None` for - which is asserted where this enum is declared rather
 than assumed by whoever reads the line.
 
 #### Implements
@@ -4219,11 +4219,11 @@ assert!(
 
 The contribution manifest: which metadata sources composed a bundle, and what each declared.
 
-`PinnedDefinitions`' digest is taken over a canonical form of the definitions, the knowledge
-and this manifest, so the digest covers the **composition** and not only the assembly -
-`docs/adr/0011`'s "two different compositions that assemble identically are indistinguishable"
-is the gap this closes. Decision and serialized form: `docs/adr/0011`, *The contribution
-manifest is built, and its serialized form is decided*.
+`PinnedDefinitions`' digest is taken over a canonical form
+of the definitions, the knowledge and this manifest, so the digest covers the **composition**
+and not only the assembly - `docs/adr/0011`'s "two different compositions that assemble
+identically are indistinguishable" is the gap this closes. Decision and serialized form:
+`docs/adr/0011`, *The contribution manifest is built, and its serialized form is decided*.
 
 **The manifest says what was configured and reached, not what a source returned.** Each entry is
 the source's own declared capability list, its required-or-optional declaration, and whether it
@@ -5730,7 +5730,7 @@ Every table one statement reads, and the guarantee that the statement can tell t
 
 A column in a plan is qualified by a table's BARE name - `PlanColumn` holds a `TableName` - and
 the reason is that `FROM a.b.orders` gives the reference an implicit alias of `orders` in every
-target this workspace renders for. `crate::model::qualified` argues that at length and it is
+target this workspace renders for. `crate::model::QualifiedTable` argues that at length and it is
 right; what it does not do is say what happens when TWO of the tables in one statement end their
 paths with the same name.
 
@@ -5913,7 +5913,7 @@ request side wanted it too. It does, for four reasons, and the last one is the d
   one field held to a laxer rule was the asymmetry, not the fix.
 * **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
   used to be compared against the allowlist and refused, having been read, cloned into
-  `Self::literals` and rendered into whatever an audit sink keeps.
+  `Query::literals` and rendered into whatever an audit sink keeps.
 * **A second character rule is a rule nothing compares against the first.** `crate::text` exists
   because one such rule was written down twice and the copies drifted. A request-side value type
   with its own idea of what a value may hold would be that mistake, deliberately, in a place where
