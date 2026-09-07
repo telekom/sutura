@@ -266,11 +266,26 @@ fn vendored_tree_problems(root: &Path, package: &str) -> Vec<String> {
 
     let children = match std::fs::read_dir(root.join(VENDOR)) {
         Ok(entries) => {
-            let mut found: Vec<String> = entries
-                .flatten()
-                .filter(|entry| entry.path().is_dir())
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect();
+            // EVERY IMMEDIATE CHILD, never only the directories. The claim is about a COPY, and a
+            // copied file is attributed by the same catch-all as a copied tree: measured on this
+            // branch, one header-less `.rs` dropped straight into `vendor/` left the gate at
+            // `ok - 33 gate(s)`, exit 0, while byte-identical content one directory deeper
+            // refused - so `is_dir()` made the rule's set smaller than the sentence over it. It
+            // also answered `false` for any child whose metadata could not be read, which is an
+            // absence standing in for a fault; both are gone with the filter.
+            let mut found = Vec::new();
+            for entry in entries {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        problems.push(format!(
+                            "{VENDOR}/ holds an entry that could not be read: {error} - so whether a copied tree is attributed to us is unread rather than clean"
+                        ));
+                        return problems;
+                    }
+                };
+                found.push(entry.file_name().to_string_lossy().into_owned());
+            }
             found.sort();
             found
         }
@@ -287,7 +302,7 @@ fn vendored_tree_problems(root: &Path, package: &str) -> Vec<String> {
         }
     };
 
-    // ONE: every copied tree is narrowed.
+    // ONE: every copied thing is narrowed.
     for child in &children {
         let under = format!("{VENDOR}/{child}");
         let narrowed = narrowing
@@ -295,7 +310,7 @@ fn vendored_tree_problems(root: &Path, package: &str) -> Vec<String> {
             .any(|(_, path)| path == &under || path.starts_with(&format!("{under}/")));
         if !narrowed {
             problems.push(format!(
-                "{VENDOR}/{child} is a vendored tree and {PACKAGE} narrows nothing under it, so the `path = \"**\"` catch-all attributes every file in it to the sutura authors - append an `[[annotations]]` block for `{under}/**` after the catch-all, and record the copy in {VENDOR_RECORD}"
+                "{VENDOR}/{child} is a copied path and {PACKAGE} narrows nothing under it, so the `path = \"**\"` catch-all attributes it to the sutura authors - append an `[[annotations]]` block covering `{under}` after the catch-all, suffixed `/**` if it is a directory, and record the copy in {VENDOR_RECORD}"
             ));
         }
     }
@@ -323,7 +338,7 @@ fn vendored_tree_problems(root: &Path, package: &str) -> Vec<String> {
             for child in &children {
                 if !record.contains(&format!("{VENDOR}/{child}")) {
                     problems.push(format!(
-                        "{VENDOR}/{child} is a vendored tree and {VENDOR_RECORD} does not name it - a copy makes us its security response permanently, and that is the file where somebody can find out"
+                        "{VENDOR}/{child} is a copied path and {VENDOR_RECORD} does not name it - a copy makes us its security response permanently, and that is the file where somebody can find out"
                     ));
                 }
             }
@@ -560,7 +575,7 @@ mod tests {
         assert!(
             found
                 .iter()
-                .any(|p| p.contains("vendor/unnarrowed") && p.contains("attributes every file in it")),
+                .any(|p| p.contains("vendor/unnarrowed") && p.contains("narrows nothing under it")),
             "{found:?}"
         );
 
@@ -571,7 +586,7 @@ mod tests {
             "| `vendor/tree/**` | upstream | MIT |\n| `vendor/unnarrowed/**` | upstream | MIT |\n",
         );
         let found = problems(&scratch);
-        assert!(found.iter().any(|p| p.contains("attributes every file in it")), "{found:?}");
+        assert!(found.iter().any(|p| p.contains("narrows nothing under it")), "{found:?}");
         assert!(!found.iter().any(|p| p.contains("does not name it")), "{found:?}");
         std::fs::remove_dir_all(scratch.join("vendor/unnarrowed")).expect("the second tree");
         write(&scratch.join(VENDOR_RECORD), "| `vendor/tree/**` | upstream | MIT |\n");
@@ -621,6 +636,44 @@ mod tests {
         std::fs::remove_file(scratch.join(VENDOR_RECORD)).expect("the record");
         let found = problems(&scratch);
         assert!(found.iter().any(|p| p.contains("VENDOR.md could not be read")), "{found:?}");
+
+        // 6. A COPIED FILE, NOT A TREE. The rule's sentence is about a copy, and the catch-all
+        //    attributes a loose file exactly as it attributes a directory - so a subject set of
+        //    "the children that are directories" is smaller than the claim over it. Measured
+        //    before the fix: a header-less `.rs` dropped into `vendor/` left `just hygiene` at
+        //    `ok - 33 gate(s)`, exit 0, while byte-identical content one directory deeper
+        //    refused. This is the half `is_dir()` could not see.
+        write(&scratch.join(VENDOR_RECORD), "| `vendor/tree/**` | upstream | MIT |\n");
+        write(&scratch.join("vendor/upstream.rs"), "fn upstream() {}\n");
+        let found = problems(&scratch);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("vendor/upstream.rs") && p.contains("narrows nothing under it")),
+            "{found:?}"
+        );
+        // AND THE REMEDY IT PRINTS HAS TO BE THE ONE THAT WORKS: a file is narrowed by its own
+        // path, so a remedy naming `vendor/upstream.rs/**` would send a reader to a block that
+        // matches nothing.
+        assert!(found.iter().any(|p| p.contains("covering `vendor/upstream.rs`")), "{found:?}");
+        // Narrowed by its exact path, it is answered - the file case is held in both directions.
+        write(
+            &scratch.join(PACKAGE),
+            concat!(
+                "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+                "[[annotations]]\npath = \"**\"\n",
+                "[[annotations]]\npath = \"vendor/tree/**\"\n",
+                "[[annotations]]\npath = \"vendor/upstream.rs\"\n",
+            ),
+        );
+        write(
+            &scratch.join(VENDOR_RECORD),
+            "| `vendor/tree/**` | upstream | MIT |\n| `vendor/upstream.rs` | upstream | MIT |\n",
+        );
+        let found = problems(&scratch);
+        assert!(!found.iter().any(|p| p.contains("vendor/upstream.rs")), "{found:?}");
+        std::fs::remove_file(scratch.join("vendor/upstream.rs")).expect("the copied file");
+        write(&scratch.join(PACKAGE), catch_all_and_one_block);
 
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
