@@ -956,5 +956,12 @@ mod inbound;
 /// documentation names: the parse is here, the combination checks are there.
 mod posture;
 
+/// Which `SUTURA__*` variables a PROCESS has, for a refusal that has to name them. Carved out
+/// because this file hit the line limit again, on the seam the two above use: nothing there parses
+/// or refuses anything, it reads an environment and filters names.
+mod overlay;
+
+pub use overlay::configuration_variables_from_process;
+
 #[cfg(test)]
 mod tests;
