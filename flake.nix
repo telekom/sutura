@@ -771,10 +771,8 @@
           '');
         };
 
-        # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376. Its own
-        # app for the two-principal app's reason, and here it is the claim: this is the only leg
-        # holding no principal's key. **No workflow invokes it** - `tests/exchanged_identity.rs`
-        # says which two of the five values it needs are absent from `bq-test`, and why.
+        # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376: the only
+        # leg holding no principal's key. **No workflow invokes it**, and its own header says why.
         apps.bigquery-exchanged-identity = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-exchanged-identity" ''

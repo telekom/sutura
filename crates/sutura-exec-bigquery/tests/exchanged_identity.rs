@@ -436,9 +436,19 @@ mod tests {
     #[test]
     fn the_leg_that_dies_goes_through_that_shape_rather_than_rendering_the_error() {
         // **The half the test above cannot reach, and a mutation found it missing.** That one holds
-        // `refusal_shape`; this holds that `identity_or_die` USES it. Without this, restoring
-        // `panic!("{refused}")` - which is what `.expect()` did - leaves the suite green and the
-        // leak back.
+        // `refusal_shape`; this holds that `identity_or_die` USES it, so a call site that stopped
+        // going through it cannot leave the suite green.
+        //
+        // **Two renderings, and only one of them leaked - an earlier comment here conflated them.**
+        // The original defect was `.expect(..)`, which formats the error with **`Debug`**: that
+        // walks the struct and prints `detail` verbatim. `panic!("{refused}")` is **`Display`**, and
+        // `BigQueryError::Endpoint`'s is the fixed string *the data system did not answer* with no
+        // `{cause}` in it - so that form leaks nothing and loses the actionable class instead. Both
+        // regressions are refused here, by the two assertions below, and a mutation drives each:
+        // restoring `.expect` reddens the first (its run really does print the account), restoring
+        // `Display` reddens the second. Which rendering does which is the point - one is a
+        // disclosure, the other is only unhelpful, and the same is why `two_principals.rs`'s
+        // `{refused}` panics are safe as they stand.
         //
         // `AssertUnwindSafe` because the transport's error is not `UnwindSafe`: it carries a
         // `Box<dyn Error + Send + Sync>` from `ureq`. The assertion it makes is sound HERE - the

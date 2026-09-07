@@ -52,6 +52,14 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     passes at exit 0. What the gate holds is that a venue's state is consistent with what CI runs;
     that a row describes the thing it names is read by a person.
 
+    **And *the two columns of a row are read together* buys less than it sounds like, measured.**
+    `Where it runs` has no external anchor either - it is prose on this page, editable in the same
+    diff as the cell it guards. Overstating the row-grant claim took three edits before that rule
+    and takes **two** after it: change a `Where it runs` cell from *nowhere yet* to *a GitHub
+    environment, on demand*, then change the verdict. `check-venues` exits 0 on the pair with a
+    byte-identical summary. The rule raises the cost of the overstatement; it does not make it
+    impossible, and only a run named beside a `yes` does that.
+
 ## The venues
 
 | Venue | Where it runs | What it costs | Reached by |
@@ -109,6 +117,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no | **only here** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **unrun** - the standing test is here and nothing has run it |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - one key is one identity | no - two keys is two credentials nobody asked for | no | **unrun** - the standing test is here and nothing has run it |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
 

@@ -787,7 +787,15 @@ bigquery-acceptance:
     echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
     echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'not binary(two_principals)'
+    # **The filter is the same one `apps.bigquery-acceptance` uses, and the two are held apart by
+    # nothing but this line.** Adding the exchanged-identity target without this exclusion made the
+    # task run that cell's `#[ignore]`d legs: red for every developer, because it fails on an
+    # environment value that does not exist rather than skipping - and where the two `_EMAIL`
+    # variables ARE set, it ran the exchange venue's control leg under the acceptance task's name,
+    # which is the venue confusion `docs/where-identity-is-proven.md` exists to prevent. It also
+    # made the echo above false. Nothing derives one filter from the other; see telekom/sutura#430.
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
+      -E 'not binary(two_principals) and not binary(exchanged_identity)'
 
 # The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
 # amendment and issue #123.
