@@ -24,6 +24,16 @@ use crate::repo;
 /// message builds the `clippy::` prefix so this source cannot report itself.
 const FORBIDDEN: &[&str] = &["too_many_lines", "too_many_arguments", "cognitive_complexity"];
 
+/// Rust source, and nothing else. A [`repo::Scope`]: a bare `fn`, so it cannot count subjects and
+/// cannot see content - an ordinal narrowing has nowhere to keep its counter, and a scope decision
+/// can never stand in for a read that failed.
+fn rust_source(rel: &str) -> bool {
+    std::path::Path::new(rel)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|ext| ext == "rs")
+}
+
 /// One banned attribute, located for the report.
 struct Violation {
     /// 1-based line of the `#[expect(`.
@@ -40,45 +50,34 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
-    let root = census.root().to_path_buf();
 
     let mut violations: Vec<(String, Violation)> = Vec::new();
     // The loop lives inside `inspect`, so this gate never holds the listing and `.take(n)` has
     // nowhere to be written. `rs_files` is gone with it: the count in the success line is now the
     // census's own length rather than a local this loop increments.
     //
+    // **And the read lives there too.** This closure used to open the file and then classify what
+    // happened, which put all three instruments behind one arm it wrote itself: answering `Judged`
+    // for a file it could not open discharged the anchor, moved the numerator and printed a
+    // verdict byte-identical to a clean tree's at exit 0. It cannot make that claim now - it is
+    // handed the bytes of a subject the census opened, and it returns nothing.
+    //
     // `must_judge` replaces the `rs_files == 0` floor, and is strictly stronger than it. A floor
     // over a count is satisfiable by reading almost anything; naming a file the gate cannot have a
     // verdict without survives a scope predicate that stopped matching. This one is the gate
     // registry itself: every `.rs` scan in the tree can name it, and it is `max-lines`-capped, so
     // it will not vanish.
-    let inspected = match census.inspect(&["xtask/src/main.rs"], |rel| {
-        if std::path::Path::new(rel).extension().and_then(|e| e.to_str()) != Some("rs") {
-            return repo::Looked::OutOfScope;
-        }
-        // Was `else { continue; }`, which dropped an unreadable file out of the denominator as
-        // well as out of the scan. A file in scope this gate cannot read is a file it did not
-        // judge, so it is a refusal.
-        match std::fs::read_to_string(root.join(rel)) {
-            // ABSENT is not unreachable - `repo::walk`'s own split at its `read_dir`, which this
-            // listing needs just as much: `all_files` prefers `git ls-files`, which reads the
-            // INDEX, so a path whose working-tree file is GONE is offered here and is not a
-            // subject this gate failed to REACH. Measured without it: one tracked `.rs` deleted
-            // and the deletion not yet staged made this gate `FAILED - could not reach 1
-            // subject(s) this walk was meant to cover` at exit 1 over the whole tree, blaming the
-            // walk for what the index said. It stays VISIBLE rather than silent - an out-of-scope
-            // subject is counted, so the verdict line moves - and a deletion that takes
-            // `must_judge`'s anchor with it still refuses.
-            Err(why) if why.kind() == std::io::ErrorKind::NotFound => repo::Looked::OutOfScope,
-            Err(why) => repo::Looked::Unreachable(format!("{rel}: {why}")),
-            Ok(code) => {
-                let mut found = Vec::new();
-                scan(&code, &mut found);
-                for v in found {
-                    violations.push((String::from(rel), v));
-                }
-                repo::Looked::Judged
-            }
+    // Named with its type at the call site: a [`repo::Scope`] is a bare `fn` pointer, so a
+    // closure - the only place an ordinal counter could live - does not compile here.
+    let scope: repo::Scope = rust_source;
+    let inspected = match census.inspect(&["xtask/src/main.rs"], scope, |rel, bytes| {
+        // Lossy rather than `read_to_string`, which used to turn a `.rs` file that is not valid
+        // UTF-8 into an `Unreachable` - a file that WAS reached, and that rustc would reject on its
+        // own. A subject the census opened is judged; how well is this gate's business.
+        let mut found = Vec::new();
+        scan(&String::from_utf8_lossy(bytes), &mut found);
+        for v in found {
+            violations.push((String::from(rel), v));
         }
     }) {
         Ok(inspected) => inspected,
