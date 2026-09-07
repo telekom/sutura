@@ -53,8 +53,10 @@ it costs; the two reasons it was absent are answered rather than repealed:
    `BigQueryWarehouse::load_fixture`, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 
-So this crate is still built and not wired - see `.agents/skills/sutura/query-surface` - and nothing here may be cited
-as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
+So nothing here may be cited as an invariant. `sutura-serve` DOES link this adapter and dispatch
+`kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
+records the day the last *not wired* was spent, and the two sentences that used to stand here
+said the opposite. What is still true is that a default build links none of it,
 and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
 last one has changed rather than gone away.** It was *a cell that has never executed reads as
 coverage*; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
@@ -812,9 +814,10 @@ What the suite beside this module proves is separate and unchanged: that *this c
 request it says it builds and reads the answer it says it reads*, over documents that are not the
 service's.
 
-So: still built and not wired - `.agents/skills/sutura/query-surface` - two lines further along. `sutura-serve` links no
-`BigQuery` adapter and refuses `kind: bigquery` by name, and the `data_systems:` axis of the
-golden matrix still gains no entry - one live statement is not a registered data system.
+So: one live statement is not a registered data system, and the `data_systems:` axis of the
+golden matrix still gains no entry. `sutura-serve` DOES link this adapter and dispatch
+`kind: bigquery` behind its default-off `bigquery` feature; the sentence that used to stand here
+said it linked none, which `docs/adr/0017`'s second amendment had already spent.
 
 # What this module decides, and every one of them is pinned by a TYPE or by a test
 

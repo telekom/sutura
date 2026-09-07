@@ -47,9 +47,10 @@ types it speaks in:
   absence.
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
 - `federation` is how a measure survives being computed in pieces: which aggregates descend
-  into a leg, which one descends decomposed, and which needs its rows pulled up. Nothing executes
-  it yet - there is no splitter and no combiner - so it is a classification with no production
-  caller, and its own header says so.
+  into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
+  (`sutura_semantic::plan`) and the combiner (`plan::FederatedPlan::combine`) both exist and
+  both call it, so it has a production caller; what no SHIPPED binary does is EXECUTE a leg, and
+  its own header names the two mechanisms that hold that.
 - `catalog` is what a catalog says, and where its cross-references are checked.
 - `knowledge` is what a catalog says ABOUT what it defines - the glossary, the caveats, the
   terms deliberately left undefined, the worked questions - checked against a `catalog` and read
@@ -1792,11 +1793,17 @@ derived column that belongs upstream, which is what `docs/adr/0001` says about t
 How a measure federates: what descends into a leg, and the one computation that happens above
 them.
 
-**This module is a classification and a rule, and nothing executes it.** There is no leg plan
-type, no splitter and no combiner in this workspace yet, so nothing here has a production
-caller: the same shape `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory describes for the
-authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
-classification that looks wired is worse than one that says it is not.
+**This module is a classification and a rule, and the splitter above it reads them.**
+`crate::plan::LegPlan` is the leg plan type; the splitter is `sutura_semantic::plan`, which
+calls `Federation::of` on the measure it resolves; and the combiner above the legs is
+`crate::plan::FederatedPlan::combine`, called from `sutura_app::federated`. So this has a
+production caller, and the sentence that used to stand here said it had none - the correction is
+recorded rather than quietly applied, because *a classification with no production caller* is
+what a reader would otherwise still plan against.
+
+What remains true is one step lower: no SHIPPED binary EXECUTES a leg, because
+`Warehouse::EXECUTES_LEGS` defaults to `false` and only the dev-only `DuckDB` vehicle sets it.
+`.agents/skills/sutura/query-surface` carries that state.
 
 **The problem it answers.** Grouping a fact leg by a remote join key is a strictly finer grouping
 than the answer, so a combine above the legs has to aggregate again - and whether that is correct
@@ -5351,10 +5358,14 @@ under the metric's own certified name, which `FederatedPlan`'s `measure_label` h
 
 One source's share of a federated question, and the only thing the port can be handed.
 
-**The shapes, their closure, and nothing that produces or executes one.** There is no splitter
-and no combiner in this workspace, so no production code constructs a `LegPlan`: what is here
-is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
-before anything runs it. `.agents/skills/sutura/query-surface` carries that state, and this
+**The shapes and their closure. A splitter produces one; no SHIPPED binary executes one.** The
+splitter is `sutura_semantic::plan`, reached through `sutura_semantic::compile`, and the
+combiner above the legs is `FederatedPlan::combine`, called from `sutura_app::federated` - so
+production code DOES construct a `LegPlan`, and the sentence that used to stand here said
+otherwise. What holds the narrower claim is two mechanisms rather than an absence: `sutura` and
+`sutura-serve` link only `sutura-exec-datafusion`, and `Warehouse::EXECUTES_LEGS` defaults to
+`false` with only the dev-only `DuckDB` vehicle setting it, so a shipped binary reaches the
+refusal rather than the leg. `.agents/skills/sutura/query-surface` carries that state, and this
 module says it rather than leaving it to be discovered.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.

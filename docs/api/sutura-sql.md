@@ -19,8 +19,12 @@ the crate root because it is this crate's output rather than any one module's de
 from a `QueryPlan`; `generate_leg` renders one leg of a federated question from a `LegPlan`.
 They share every decision that could drift - the quoting, the placeholder style, the bucket, the
 joins, how a term renders - and differ in the four ways `generate_leg`'s own documentation
-lists. Nothing in a binary calls the second one yet: there is no splitter, so
-`.agents/skills/sutura/query-surface`'s built-and-not-wired section is where its state is
+lists. Library code calls the second one - `sutura-exec-duckdb` does, in its `Executable::Leg`
+arm - and no SHIPPED binary reaches it: `sutura` and `sutura-serve` link only
+`sutura-exec-datafusion`, and `Warehouse::EXECUTES_LEGS` defaults to `false` with only the
+dev-only `DuckDB` vehicle setting it. Those two are what hold the claim; *there is no splitter*
+used to, and has not been true since the splitter landed.
+`.agents/skills/sutura/query-surface`'s built-and-not-wired section is where that state is
 recorded.
 
 # Why this is its own crate and not the compiler's last stage
@@ -424,8 +428,22 @@ Why a dialect name was not recognised.
 
 Every dialect, for iterating a golden suite over all of them.
 
-A `const` rather than a derive, so a new variant that is not added here fails the exhaustiveness
-test below rather than being silently untested.
+A `const` rather than a derive, and **the compiler is what holds a new variant rather than the
+test below.** A fifth variant does not compile until seven production exhaustive matches over
+`Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`, `date_trunc_shape`,
+`qualification` and `identifier_case` in this file, and `dialect_type` in
+`mod@crate::generate`. So a data system cannot arrive without somebody deciding how it renders.
+
+**What is held by review and by nothing else is the edge from the enum to this list**, and this
+paragraph used to promise the opposite. `every_dialect_is_in_all` restates the four names by
+hand, so a fifth variant added to the enum and OMITTED here leaves it green while the golden
+suite iterates four of five and reads as covered; a variant added to both turns it red on the
+length assertion until the literal is bumped. `crates/sutura-app/tests/golden/dialects.rs` does
+not close the edge either - it compares this list against that suite's own registry, never the
+enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
+`match` over `Dialect` is what BUILDS the list to compare against; a restated array anywhere in
+that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
+test body is not the fix. `github.com/telekom/sutura#410` carries the measurement.
 
 ## Module `expression`
 
@@ -854,9 +872,14 @@ Everything else is shared with `generate` on purpose - `column`, `aliased`, `agg
 change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
 path and not the other.
 
-**Nothing calls this from a binary.** There is no splitter, so no `LegPlan` is constructed
-outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
-statement per shape per dialect, parse-checked in the dialect it was generated for.
+**No SHIPPED binary calls this, and library code does.** `sutura-exec-duckdb` calls it in its
+`Executable::Leg` arm, and the splitter constructs a `LegPlan` in production - so the
+conclusion survives for a different reason than the one written here before, which rested on
+*there is no splitter*. What holds it is that `sutura` and `sutura-serve` link only
+`sutura-exec-datafusion`, and that `Warehouse::EXECUTES_LEGS` defaults to `false` with only the
+dev-only `DuckDB` vehicle setting it. What pins the rendering is the golden family under
+`crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+dialect it was generated for.
 
 ### `fn generate_key_probe`
 
