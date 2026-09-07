@@ -60,11 +60,24 @@ pub(super) const VERDICTS: &[&str] = &["only here", "redundant", "unrun", "wired
 pub(super) const NOT_BUILT: &str = "not built";
 
 /// The word a venue's `Where it runs` cell uses when it runs nowhere.
-///
-/// **The page's own vocabulary rather than a new one**, matched as a substring because the cell is
-/// a sentence: *nowhere yet* and *nowhere yet - the leg exists and nothing can point it at a
-/// subject* are the two forms on the page and both mean the same thing.
 pub(super) const NOWHERE: &str = "nowhere";
+
+/// Every place a venue may say it runs, longest first for [`VERDICTS`]' reason.
+///
+/// **A CLOSED vocabulary, one review after [`VERDICTS`] became one, and for the same cell's sake.**
+/// [`Venue::runs_nowhere`] matched the SUBSTRING `nowhere` in free prose, and that predicate is the
+/// only remaining guard on `yes` for the row carrying leg 2. Measured on the merged tree at
+/// `d5bd307`, one edit, page restored after: spell `nowhere yet` as `not anywhere yet`, point the
+/// exchange venue's `Reached by` at a real CI-invoked lint, and *whether two subjects read two
+/// different row sets* publishes **yes** at exit 0. With the word kept, exit 1. A free-prose cell
+/// cannot be the guard on a citation, so a cell stating none of these is refused.
+///
+/// **What a vocabulary does NOT reach, stated where the claim is:** it holds that a cell means
+/// something, never that it is TRUE. `in process, every run` written on the exchange venue passes
+/// this - and that is the same limit the page already states beside `Reached by`, where pointing a
+/// row at an unrelated CI-invoked app is review's to catch. What is closed is the SYNONYM, which is
+/// the form that reads as a copy-edit rather than as a claim.
+pub(super) const RUN_SITES: &[&str] = &["a github environment", "in process", NOWHERE];
 
 /// One row of the venues table.
 pub(super) struct Venue {
@@ -82,14 +95,22 @@ pub(super) struct Venue {
 }
 
 impl Venue {
+    /// Which of [`RUN_SITES`] this row's `Where it runs` cell states, or `None` for a sentence.
+    pub(super) fn site(&self) -> Option<&'static str> {
+        stated(&self.runs, RUN_SITES)
+    }
+
     /// Does the row say this venue runs nowhere?
     ///
     /// **Separate from [`Self::is_built`] on purpose, and the difference is a real state:** a venue
     /// can have a written test and a task that reaches it and still run nowhere, because nothing
     /// can point that task at anything. That is exactly what `unrun` is for - so this does not
     /// refuse `unrun`, and it does refuse every verdict that claims a run happened or is about to.
+    ///
+    /// Through [`Self::site`] rather than a `contains`, because a substring of free prose is a
+    /// guard one synonym turns off - see [`RUN_SITES`] for the measurement.
     pub(super) fn runs_nowhere(&self) -> bool {
-        self.runs.to_lowercase().contains(NOWHERE)
+        self.site() == Some(NOWHERE)
     }
 
     /// Does anything run this venue?
@@ -193,10 +214,19 @@ fn states(normalized: &str, word: &str) -> bool {
     rest.is_empty() || rest.starts_with([' ', ',', '-', '(', '.', ';', ':'])
 }
 
+/// Which word of `vocabulary` this cell states, or `None` when it states something else.
+///
+/// One normalization for the two closed vocabularies on this page, because *a cell states a word
+/// from a list* was about to be written twice - and the copy is what decides whether `**nowhere**`
+/// and `nowhere` are the same answer.
+fn stated(cell: &str, vocabulary: &[&'static str]) -> Option<&'static str> {
+    let normalized = cell.replace(['*', '_'], "").trim().to_lowercase();
+    vocabulary.iter().copied().find(|word| states(&normalized, word))
+}
+
 /// The verdict a cell states, or `None` when it states something else.
 pub(super) fn verdict(cell: &str) -> Option<&'static str> {
-    let normalized = cell.replace(['*', '_'], "").trim().to_lowercase();
-    VERDICTS.iter().copied().find(|word| states(&normalized, word))
+    stated(cell, VERDICTS)
 }
 
 /// Every test name the page cites: a backticked `snake_case` identifier long enough not to be a

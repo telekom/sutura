@@ -5,18 +5,23 @@
 //! true of the workspace the page describes - which tests exist, and which tasks CI actually runs.
 //!
 //! Split out when `venues.rs` crossed the unexemptable 1000-line gate a second time, and split at
-//! this seam because these four items are the only ones there that read the TREE rather than the
-//! page. Every `#[test]` stayed in the parent, which is what `.agents/skills/sutura/gates`
-//! prescribes: a file that adds an assertion is never reverted, so moving the harness orphans
-//! nothing.
+//! this seam because these items are the only ones there that read the TREE rather than the page.
+//! The split MOVED no assertion, which is what `.agents/skills/sutura/gates` prescribes: a file
+//! that adds an assertion is never reverted, so moving the harness orphans nothing. A rule written
+//! here since then is asserted here, beside the escape it closes.
 //!
-//! # The reading that was wrong, and it was wrong in the direction that passes
+//! # The reading that was wrong, twice, and both times in the direction that passes
 //!
 //! [`invoked`] used to scan each non-comment line of a CI source for the substring `just ` or
 //! `nix run .#`. A comment was the only prose it excluded - so
 //! `echo to run this leg locally use nix run .#bigquery-two-principals please` resolved that name,
 //! and a venue no job runs could claim a wiring at exit 0 with a summary byte-identical to the
 //! honest one. [`starts_a_command`] reads a command instead.
+//!
+//! That fix then split the raw line on [`SEGMENTS`] to find where a command starts, so every one of
+//! those tokens written inside somebody's quoted sentence was a boundary and the same prose
+//! resolved one layer down. [`command_spans`] tracks the quoting, and its documentation carries the
+//! five shapes measured on the merged tree.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -81,7 +86,114 @@ pub(super) fn invocation(span: &str) -> Option<&str> {
 /// A vocabulary rather than a parser, for `acceptance::shape::traces`' reason: what is needed is
 /// *does a command start here*, and the shapes that start one in this tree are a line, a pipe, a
 /// conjunction, a subshell, a `run:` key and the two verbs that prefix a command without being one.
-const SEGMENTS: &[&str] = &["&&", "||", "|", ";", "$(", "(", ")", "{", "}", "`", "run:", "&"];
+///
+/// **Every one of them separates only where the shell would let it**, which is [`command_spans`]:
+/// splitting the raw line on this list is what made a `;`, an `&&` or a `(` written inside somebody's
+/// quoted sentence a command boundary.
+const SEGMENTS: &[&str] = &["&&", "||", "|", ";", "(", ")", "{", "}", "run:", "&"];
+
+/// The quoting one byte of a line sits in. Only `Bare` lets a [`SEGMENTS`] token separate.
+#[derive(Clone, Copy, PartialEq)]
+enum Quoting {
+    /// Outside every quote: a separator separates, and a ` #` begins a comment.
+    Bare,
+    /// Inside `'…'`, where the shell expands and separates nothing at all.
+    Single,
+    /// Inside `"…"`, where no separator separates and a `$(` still opens a command.
+    Double,
+}
+
+/// What one token of a line does to the scan: how far it reaches, whether a command begins after
+/// it, and the quoting it leaves behind. `None` ends the line, which is a comment.
+type Step = Option<(usize, bool, Quoting)>;
+
+/// Every span of one line that a command could begin at.
+///
+/// **The reading this replaces, and it was wrong in the direction that passes.** [`invoked`] split
+/// each line on [`SEGMENTS`] and read the head of every piece, so a token inside a quoted sentence
+/// was a command boundary. Measured on the merged tree at `d5bd307`, one line appended to `ci.yml`
+/// at a time: a backticked name in a single-quoted `echo`, a `;`, an `&&`, a `(` and a `printf` of
+/// a markdown table cell each resolved `bigquery-two-principals` and each moved the count from 18
+/// to 19 - which refuses the honest `unrun` cell and instructs `wired`, at exit 0.
+///
+/// So the quoting is tracked. A `'…'` span contributes nothing; a `"…"` span separates nothing but
+/// still opens a command at a `$(` or a backtick, because both really do run one there; and a `#`
+/// after whitespace ends the line, which subsumes the whole-line-comment rule `invoked` used to
+/// carry and closes the trailing-comment form of it.
+///
+/// **A bare backtick is PROSE here, deliberately**, and it is the one place this departs from
+/// shell: an unquoted `` `x` `` is a legacy substitution that `shellcheck` refuses (SC2006) and
+/// that no body in this tree writes, while `` `just test` `` inside a YAML `name:` or a heredoc'd
+/// markdown bullet is ordinary writing. Read the other way round, every such sentence resolves.
+///
+/// **What it still does not reach**, since a false negative fails closed and a false positive does
+/// not: a heredoc body is read as commands, so a line of quoted markdown that BEGINS with `just `
+/// resolves; and an apostrophe in unquoted prose opens a `Single` span that swallows the rest of
+/// the line, which drops invocations rather than inventing them.
+fn command_spans(line: &str) -> Vec<&str> {
+    let mut spans = Vec::new();
+    let (mut start, mut at, mut state) = (0usize, 0usize, Quoting::Bare);
+    // The quoting each open `$(` or backtick was written in, so its close returns to it.
+    let mut opened: Vec<(Quoting, bool)> = Vec::new();
+    while let Some(rest) = line.get(at..).filter(|rest| !rest.is_empty()) {
+        let head = rest.chars().next().unwrap_or(' ');
+        // One character, so an advance always lands on a boundary and the slices below resolve.
+        let one = head.len_utf8();
+        let step: Step = match (state, head) {
+            (Quoting::Single, '\'') | (Quoting::Double, '"') => Some((one, false, Quoting::Bare)),
+            (Quoting::Single, _) | (Quoting::Bare, '\'') => Some((one, false, Quoting::Single)),
+            (Quoting::Bare, '"') => Some((one, false, Quoting::Double)),
+            // A substitution runs a command wherever it is written, so it opens one - and its
+            // close puts the scan back in the quoting the opener was written in.
+            (Quoting::Bare | Quoting::Double, '$') if rest.starts_with("$(") => {
+                opened.push((state, false));
+                Some((2, true, Quoting::Bare))
+            }
+            (Quoting::Double, '`') => {
+                opened.push((state, true));
+                Some((one, true, Quoting::Bare))
+            }
+            (Quoting::Bare, '`') if opened.last().is_some_and(|(_, backtick)| *backtick) => {
+                Some((one, true, opened.pop().map_or(Quoting::Bare, |(outer, _)| outer)))
+            }
+            (Quoting::Bare, ')') => Some((
+                one,
+                true,
+                opened
+                    .pop_if(|(_, backtick)| !*backtick)
+                    .map_or(Quoting::Bare, |(outer, _)| outer),
+            )),
+            // The rest of the line is a comment, in a workflow's YAML and in a shell body alike.
+            (Quoting::Bare, '#') if line.get(..at).is_none_or(begins_a_word) => None,
+            (Quoting::Bare, _) => Some(
+                SEGMENTS
+                    .iter()
+                    .find(|token| rest.starts_with(**token))
+                    .map_or((one, false, Quoting::Bare), |token| (token.len(), true, Quoting::Bare)),
+            ),
+            (Quoting::Double, _) => Some((one, false, Quoting::Double)),
+        };
+        let Some((width, separates, next)) = step else {
+            break;
+        };
+        if separates {
+            spans.push(line.get(start..at).unwrap_or_default());
+        }
+        at = at.saturating_add(width);
+        if separates {
+            start = at;
+        }
+        state = next;
+    }
+    spans.push(line.get(start..at).unwrap_or_default());
+    spans
+}
+
+/// Would the next character start a word? A `#` there begins a comment; one glued to a word - the
+/// `.#` of `nix run .#app`, or a fragment in a URL - does not.
+fn begins_a_word(before: &str) -> bool {
+    before.is_empty() || before.ends_with(char::is_whitespace)
+}
 
 /// The words that may sit in front of a command without making it text.
 const PREFIXES: &[&str] = &["- ", "exec ", "sudo ", "time ", "then ", "else ", "do ", "eval "];
@@ -150,8 +262,9 @@ pub(super) fn starts_a_command(segment: &str) -> Option<&str> {
 /// A comment is not an invocation, matching `crate::workflows::collect`'s own rule: `ci.yml` and
 /// `docs.yml` both discuss tasks in prose, and a gate that read those would refuse an `unrun` cell
 /// because somebody explained the job in a comment. **Neither is a word inside a command's
-/// arguments** - see [`starts_a_command`], which is the review finding that a comment was the only
-/// prose this excluded while `echo <the same sentence>` was not.
+/// arguments** - see [`starts_a_command`] - and **neither is a word inside somebody's QUOTES**,
+/// which is [`command_spans`] and the finding one review later: the comment rule was a whole-line
+/// `starts_with('#')` while five other prose shapes went on resolving.
 ///
 /// `None` only when the scan itself is broken, which its caller turns into a failure rather than an
 /// empty set: a set that found nothing would make every `unrun` cell pass, and *a scan that passes
@@ -161,15 +274,8 @@ pub(super) fn invoked(root: &Path) -> Option<BTreeSet<String>> {
     let mut out = BTreeSet::new();
     for source in &read {
         for line in source.text.lines() {
-            if line.trim_start().starts_with('#') {
-                continue;
-            }
-            let mut segments: Vec<&str> = vec![line];
-            for token in SEGMENTS {
-                segments = segments.iter().flat_map(|part| part.split(token)).collect();
-            }
-            for segment in segments {
-                if let Some(name) = starts_a_command(segment) {
+            for span in command_spans(line) {
+                if let Some(name) = starts_a_command(span) {
                     out.insert(name.to_owned());
                 }
             }
@@ -190,4 +296,57 @@ pub(super) fn cited_invocations(reached: &str) -> BTreeSet<String> {
         .filter_map(|span| invocation(span.trim()))
         .map(str::to_owned)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{command_spans, starts_a_command};
+
+    /// The task name every shape below tries to resolve, spelled once.
+    const TASK: &str = "bigquery-two-principals";
+
+    /// Does any span of this line begin a command that invokes `TASK`?
+    fn resolves(line: &str) -> bool {
+        command_spans(line)
+            .into_iter()
+            .any(|span| starts_a_command(span) == Some(TASK))
+    }
+
+    #[test]
+    fn a_separator_inside_somebody_s_quoted_sentence_is_not_a_command_boundary() {
+        // The first five moved the invocation count from 18 to 19 on the merged tree, which refuses
+        // the honest `unrun` cell and instructs `wired` - measured one appended `ci.yml` line at a
+        // time. The backtick pair is the one that reads most like an explanation of the gap.
+        for prose in [
+            "      - run: echo 'not wired yet - run `just bigquery-two-principals` by hand.'",
+            "      - run: echo \"the leg is not wired; just bigquery-two-principals is the task\"",
+            "      - run: echo \"not wired && just bigquery-two-principals is how you run it\"",
+            "      - run: echo \"run it by hand (just bigquery-two-principals) for now\"",
+            "      - run: printf '| a venue | just bigquery-two-principals |\\n'",
+            "      - run: echo 'nothing runs `nix run .#bigquery-two-principals` yet'",
+            "      - run: nix build .#checks.x86_64-linux.hygiene # just bigquery-two-principals",
+            "      # just bigquery-two-principals is the task",
+            "        name: Run `just bigquery-two-principals`",
+        ] {
+            assert!(!resolves(prose), "{prose}");
+        }
+    }
+
+    #[test]
+    fn a_command_still_resolves_wherever_the_shell_would_run_one() {
+        // The other direction, which is the one that gets a gate deleted: a false negative refuses
+        // a correct `wired` cell. A substitution inside double quotes really does run its command,
+        // and `devenv shell -- just <task>` is the real invocation the first hardening lost.
+        for command in [
+            "      - run: just bigquery-two-principals",
+            "      - run: set -eu; just bigquery-two-principals",
+            "      - run: nix run .#just -- bigquery-two-principals",
+            "      - run: echo \"$(just bigquery-two-principals)\"",
+            "      - run: echo \"two `just bigquery-two-principals` keys\"",
+            "      - run: devenv shell -- just bigquery-two-principals",
+            "          if [ -n \"$X\" ]; then just bigquery-two-principals; fi",
+        ] {
+            assert!(resolves(command), "{command}");
+        }
+    }
 }
