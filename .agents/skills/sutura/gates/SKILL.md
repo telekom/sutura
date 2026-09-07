@@ -943,14 +943,15 @@ condition, not a list of shapes: it fires whenever HEAD is an ancestor of the re
 commit** - reflexively, so a parent sitting exactly ON HEAD counts. Ordinary states that satisfy it
 include metadata still naming the branch ABOVE after a hand retarget, and a branch with no commit
 of its own yet whose parent's tip IS HEAD; there are others, and counting them would be the mistake
-this arm exists to record, in a second spelling. Once this branch has a commit of its own a parent
-STRICTLY behind it cannot fire, which is why merging `main` into such a branch does not reach this
-arm: `main` becomes an ancestor of HEAD and the fork point is `main`'s own tip. It is
-`causality::stack::Origin::Contains` now, refused AHEAD of the equality because the equality passes
-for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of HEAD, and it always
-is). **The transferable half: a guard against a degenerate COMMIT that compares NAMES enumerates
-one spelling of one input** - the first version did exactly that, and it was untested glue, which is
-what let the enumeration stand.
+this arm exists to record, in a second spelling. A parent STRICTLY behind HEAD cannot fire, and
+strictly is the load-bearing word: merging `main` into a branch that has a commit of its own leaves
+`main` a strict ancestor of the merge commit, so the fork point is `main`'s own tip and this arm is
+not reached - while `main` FAST-FORWARDED onto that same branch satisfies *ancestor* without the
+strictness, and fires. It is `causality::stack::Origin::Contains` now, refused AHEAD of the
+equality because the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is
+an ancestor of HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT
+that compares NAMES enumerates one spelling of one input** - the first version did exactly that, and
+it was untested glue, which is what let the enumeration stand.
 
 **What is STILL not asked, and a correct base does not rule it out:** whether the reverted
 implementation is something the measured test could even read. #293's pairing was wrong in that

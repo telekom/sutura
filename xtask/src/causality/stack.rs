@@ -143,10 +143,12 @@ pub(crate) enum Origin {
     /// parent's commit** - reflexively, so a parent sitting exactly ON HEAD counts. Ordinary states
     /// that satisfy it include metadata still naming the branch ABOVE after a hand retarget, and a
     /// branch with no commit of its own yet whose parent's tip IS HEAD; there are others, and
-    /// counting them here would be the mistake recorded below in a second spelling. Once this
-    /// branch has a commit of its own a parent STRICTLY behind it cannot fire, which is why merging
-    /// `main` into such a branch does not reach this arm: `main` becomes an ancestor of HEAD and
-    /// the fork point is `main`'s own tip.
+    /// counting them here would be the mistake recorded below in a second spelling. A parent
+    /// STRICTLY behind HEAD cannot fire, and strictly is the load-bearing word: merging `main` into
+    /// a branch that has a commit of its own leaves `main` a strict ancestor of the merge commit,
+    /// so the fork point is `main`'s own tip and this arm is not reached - while `main`
+    /// FAST-FORWARDED onto that same branch satisfies *ancestor* without the strictness, and
+    /// fires.
     ///
     /// **It is strictly worse than the defect this module was written for.**
     /// `github.com/telekom/sutura#358` reddened correct work loudly; this passed incorrect work in
