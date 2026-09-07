@@ -139,6 +139,25 @@ pub(super) struct Taking {
 /// own machine rather than inside a nix sandbox, so a path one of them writes is exactly as shared
 /// as a Rust one; a `.nix` file is NOT, and that is the gate's largest stated limit - see the
 /// module header of `super`.
+/// Files this gate MUST have read, one per arm of [`language_of`].
+///
+/// **AN ANCHOR SET RATHER THAN A COUNT, and the difference is what a count cannot see.** A floor of
+/// *at least one taking* is satisfied by a scope predicate that stopped matching most of the tree,
+/// because the remainder still holds takings - so the verdict comes out over a subset with nothing
+/// in the output saying so. An anchor names subjects that must be judged, so the refusal does not
+/// depend on anybody reading a number; it generalises `crate::warm_start`'s `flake.nix` anchor.
+///
+/// One entry per arm, deliberately: three directories and one extension pair, so a predicate that
+/// lost `dev/` or lost `.sh` fails here rather than shrinking quietly. `corpus.rs` is in the list
+/// even though it now takes no shared root at all - what is anchored is that the gate READ the file
+/// `telekom/sutura#405`'s instance 1 lives in, which is the file a regression would land in.
+pub(super) const MUST_READ: &[&str] = &[
+    "crates/sutura-conformance/src/corpus.rs",
+    "xtask/src/worktree_state/scan.rs",
+    "dev/src/scope.rs",
+    "nix/run-gate.sh",
+];
+
 pub(super) fn language_of(rel: &str) -> Option<Language> {
     // Extension by suffix, deliberately case-SENSITIVE: `.RS` is not a file this repository writes,
     // and a case-folding comparison would put a scope decision at the mercy of the filesystem the
@@ -782,7 +801,7 @@ fn go() {
     }
 
     #[test]
-    fn a_mutation_ABOVE_the_literal_is_still_a_mutation() {
+    fn a_mutation_above_the_literal_is_still_a_mutation() {
         // THE FALSE NEGATIVE THE STATEMENT WINDOW EXISTS FOR. The formatter breaks a call so the
         // opening sits above its argument, and reading forwards from the literal's own line answered
         // `Unwritten` over a statement that writes - the wrong direction for this gate. Both
@@ -878,6 +897,26 @@ fn go() {
         let found = takings("crates/x/src/lib.rs", Language::Rust, text);
         assert_eq!(found.len(), 2, "{found:?}");
         assert_eq!(offered(Language::Rust, text), 2);
+    }
+
+    #[test]
+    fn every_anchor_is_a_file_this_gate_s_own_predicate_puts_in_scope() {
+        // The anchor set is only worth what the predicate says about it: an entry the predicate
+        // does not match would be an anchor that can never be satisfied, which turns the gate into
+        // a permanent red rather than a floor. One entry per arm is asserted too, because an anchor
+        // set that lost its `dev/` or its `.sh` entry stops covering the arm it was written for.
+        for anchor in super::MUST_READ {
+            assert!(
+                language_of(anchor).is_some(),
+                "`{anchor}` is anchored and out of scope - the gate could never satisfy it"
+            );
+        }
+        for prefix in ["crates/", "xtask/", "dev/", "nix/"] {
+            assert!(
+                super::MUST_READ.iter().any(|anchor| anchor.starts_with(prefix)),
+                "no anchor under `{prefix}` - that arm of the scope can shrink unnoticed"
+            );
+        }
     }
 
     #[test]

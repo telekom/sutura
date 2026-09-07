@@ -78,14 +78,24 @@ use crate::{Verdict, repo};
 /// **Per file**, and this is the level a single law cannot see. A floor computed off the same
 /// traversal the loop uses moves WITH the loop: measured on a sibling gate the night this landed, a
 /// guard of `lines > files * 4` gave a floor of 624 against a control of 115088, so `.take(100)`
-/// dropped 99.46% of the walk at exit 0 with 1030 of 1030 tests green. So `offered_files` is
-/// counted over the CALLER's whole list by its own expression, before the in-scope vector is built
-/// at all, and `read_files` is incremented inside the loop. The repository's own words:
+/// dropped 99.46% of the walk at exit 0 with 1030 of 1030 tests green. So the offered count is
+/// taken over the CALLER's whole list by its own expression, before the in-scope vector is built at
+/// all, and the read list is collected inside the loop. The repository's own words:
 /// *"counting both off one filter is how a walk narrowed to one directory passed at exit 0 with a
 /// real defect outside it."*
 ///
+/// # And an ANCHOR, because neither law can see the predicate shrink
+///
+/// Both counts come off `scan::language_of`. If that predicate stops matching most of the tree the
+/// two numbers agree, the remainder still holds takings, every floor is satisfied and the verdict
+/// is over a subset with nothing saying so. `scan::MUST_READ` is the answer: named subjects the
+/// walk has to have read, one per arm of the predicate, so the refusal does not depend on anybody
+/// reading a number. **That is the point of the anchor - not a better floor, but the count ceasing
+/// to be the control.**
+///
 /// The pattern is `crate::causality::isolation::Isolated` and `crate::conformance::Reconciled`, for
 /// the same reason: an invariant a caller has to remember is one the compiler is not holding.
+#[derive(Debug)]
 struct Inspected {
     /// Files the caller's own list offered, counted before the loop's list existed.
     offered_files: usize,
@@ -100,13 +110,26 @@ struct Inspected {
 impl Inspected {
     /// The only constructor. Refuses unless the walk reached every file and every taking has
     /// exactly one answer.
-    fn of(offered_files: usize, read_files: usize, discovered: usize, adjudicated: Vec<(Taking, Keyed)>) -> Result<Self, String> {
+    fn of(offered_files: usize, read: &[String], discovered: usize, adjudicated: Vec<(Taking, Keyed)>) -> Result<Self, String> {
+        let read_files = read.len();
         if offered_files != read_files {
             return Err(format!(
                 "{offered_files} file(s) are in this gate's scope and the walk read {read_files}. \
                  A narrowed walk is a verdict about a tree the message names and the scan never \
                  reached"
             ));
+        }
+        // AN ANCHOR, and it is the arm neither count can reach: both numbers come off
+        // `scan::language_of`, so a predicate that stopped matching leaves them agreeing over a
+        // subset. `telekom/sutura#414`'s reframing - the count stops being the control.
+        for anchor in scan::MUST_READ {
+            if !read.iter().any(|rel| rel == anchor) {
+                return Err(format!(
+                    "the walk did not read `{anchor}`, which this gate's scope must reach. An \
+                     anchor rather than a count, because a predicate that stopped matching leaves \
+                     the counts agreeing over a subset"
+                ));
+            }
         }
         if discovered != adjudicated.len() {
             return Err(format!(
@@ -193,7 +216,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     let mut offered = 0_usize;
-    let mut read_files = 0_usize;
+    let mut read: Vec<String> = Vec::new();
     let mut adjudicated: Vec<(Taking, Keyed)> = Vec::new();
     let mut languages: Vec<(&'static str, usize)> = Vec::new();
     for (rel, language) in &in_scope {
@@ -205,7 +228,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             eprintln!("  A file in scope that this gate cannot open is a verdict over a subset.");
             return Verdict::Fail;
         };
-        read_files = read_files.saturating_add(1);
+        read.push(rel.clone());
         offered = offered.saturating_add(scan::offered(*language, &text));
         adjudicated.extend(scan::takings(rel, *language, &text));
         let label = language.label();
@@ -228,7 +251,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let inspected = match Inspected::of(offered_files, read_files, offered, adjudicated) {
+    let inspected = match Inspected::of(offered_files, &read, offered, adjudicated) {
         Ok(witness) => witness,
         Err(why) => {
             eprintln!("xtask check-worktree-state: FAILED - {why}");
@@ -304,6 +327,11 @@ fn explain() {
 mod tests {
     use super::{Inspected, Keyed, Taking, scan};
 
+    /// Every anchor, as the read list a satisfied walk would hand the constructor.
+    fn anchors() -> Vec<String> {
+        scan::MUST_READ.iter().map(|rel| String::from(*rel)).collect()
+    }
+
     /// A taking, as a value, so the witness can be tested without a tree.
     fn taking(line: usize) -> Taking {
         Taking {
@@ -322,7 +350,10 @@ mod tests {
         // offered taking has exactly one answer, so `inspected N of N` is a precondition of the
         // type rather than a sentence beside it.
         let one = vec![(taking(1), Keyed::Process)];
-        assert!(Inspected::of(1, 1, 2, one).is_err(), "a subset must not mint a witness");
+        assert!(
+            Inspected::of(1, &anchors(), 2, one).is_err(),
+            "a subset must not mint a witness"
+        );
     }
 
     #[test]
@@ -333,7 +364,7 @@ mod tests {
         // satisfied and only this one can refuse.
         let one = vec![(taking(1), Keyed::Process)];
         assert!(
-            Inspected::of(156, 100, 1, one).is_err(),
+            Inspected::of(156, &anchors(), 1, one).is_err(),
             "a narrowed walk must not mint a witness"
         );
     }
@@ -341,10 +372,10 @@ mod tests {
     #[test]
     fn the_witness_prints_the_numbers_its_scan_reached() {
         let two = vec![(taking(1), Keyed::Process), (taking(9), Keyed::Worktree)];
-        let witness = Inspected::of(7, 7, 2, two).expect("two offered, two adjudicated");
+        let witness = Inspected::of(anchors().len(), &anchors(), 2, two).expect("two offered, two adjudicated");
         assert_eq!(witness.discovered(), 2);
         assert_eq!(witness.inspected(), 2);
-        assert_eq!(witness.files(), (7, 7));
+        assert_eq!(witness.files(), (anchors().len(), anchors().len()));
         assert!(witness.shared().is_empty());
         assert_eq!(witness.by_holder(), vec![("process", 1), ("worktree", 1)]);
     }
@@ -356,11 +387,24 @@ mod tests {
             (taking(4), Keyed::Unwritten),
             (taking(7), Keyed::Shared),
         ];
-        let witness = Inspected::of(2, 2, 3, mixed).expect("three offered, three adjudicated");
+        let witness = Inspected::of(anchors().len(), &anchors(), 3, mixed).expect("three offered, three adjudicated");
         let shared = witness.shared();
         assert_eq!(shared.len(), 2);
         assert_eq!(shared.iter().map(|t| t.line).collect::<Vec<usize>>(), vec![1, 7]);
         assert_eq!(witness.by_holder(), vec![("nothing", 2), ("unwritten", 1)]);
+    }
+
+    #[test]
+    fn the_witness_refuses_a_walk_that_missed_an_anchor() {
+        // THE ARM NEITHER COUNT CAN REACH. Both numbers agree here and the taking is adjudicated,
+        // so every conservation law is satisfied - what is wrong is that the walk never read a
+        // subject this gate's scope must cover, which is what a predicate that stopped matching
+        // looks like from the inside. `telekom/sutura#414`'s reframing: the point is that the count
+        // stops being the control.
+        let short: Vec<String> = anchors().into_iter().skip(1).collect();
+        let one = vec![(taking(1), Keyed::Process)];
+        let refused = Inspected::of(short.len(), &short, 1, one).expect_err("an anchor was missed");
+        assert!(refused.contains(scan::MUST_READ[0]), "{refused}");
     }
 
     #[test]
@@ -423,7 +467,7 @@ mod tests {
         // would still be a hole, so this walks the whole set and asserts each one lands somewhere
         // a reader sees: either in the violation list or in the holder breakdown.
         for keyed in [Keyed::Worktree, Keyed::Process, Keyed::Unwritten, Keyed::Shared] {
-            let witness = Inspected::of(1, 1, 1, vec![(taking(1), keyed)]).expect("one and one");
+            let witness = Inspected::of(anchors().len(), &anchors(), 1, vec![(taking(1), keyed)]).expect("one and one");
             assert_eq!(
                 witness.shared().len(),
                 usize::from(keyed.is_shared()),
