@@ -24,6 +24,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 // `PublishedKeySet` is deliberately absent: the tests own the key set's lifetime, because which
@@ -202,6 +203,10 @@ pub(crate) struct Served {
     pub(crate) startup: Vec<String>,
     /// Everything it writes afterwards.
     lines: Receiver<String>,
+    /// The two threads feeding `lines`, kept so [`Served::terminate`] can join them.
+    ///
+    /// Emptied by that join, which is also what makes a second `terminate` a no-op here.
+    readers: Vec<JoinHandle<()>>,
     config_dir: PathBuf,
     reaped: bool,
 }
@@ -223,6 +228,44 @@ where
             return;
         }
     }
+}
+
+/// Waits until every stream reader has returned.
+///
+/// **This is the only thing that means "both readers have seen end-of-file", and a comment saying so
+/// was what this file had instead** - `github.com/telekom/sutura#387`. A reaped child says the
+/// process exited; it says nothing about whether the threads reading its pipes have pushed the last
+/// bytes into the channel, and the last thing a refusing deployment writes is the refusal.
+/// [`forward`] returns only at end-of-file or on a closed channel, so a join is exactly the
+/// statement that nothing is in flight.
+///
+/// The panic a reader carried is discarded rather than resumed: a reader only panics on something
+/// this harness did wrong, and the caller is on its way to an assertion that prints what it read.
+///
+/// **Unbounded, and that is the limit worth stating rather than hiding.** A reader returns at
+/// end-of-file, and a pipe reaches it when every writer is closed - so this is bounded by the reaped
+/// child being the only one, which it is because `sutura-serve` spawns no subprocess. A deployment
+/// that did fork one would hang here instead of losing a line, and no budget on this path would say
+/// so. Losing the line is the failure that was actually happening; a hang is at least loud.
+pub(crate) fn joined(readers: Vec<JoinHandle<()>>) {
+    for reader in readers {
+        drop(reader.join());
+    }
+}
+
+/// Everything a finished process wrote, collected once its readers have been joined.
+///
+/// The pair is one function because the order is the whole property: `try_recv` is non-blocking and
+/// stops at the first empty channel, so draining BEFORE the join returns the log minus whatever was
+/// still in flight - and a test asserting on a refusal's own sentence then fails as *the deployment
+/// did not refuse*, which is the one diagnosis nobody should be given wrongly.
+pub(crate) fn drained(readers: Vec<JoinHandle<()>>, lines: &Receiver<String>) -> Vec<String> {
+    joined(readers);
+    let mut said = Vec::new();
+    while let Ok(line) = lines.try_recv() {
+        said.push(line);
+    }
+    said
 }
 
 /// A fresh configuration directory holding `settings` as this deployment's own `base.yaml`.
@@ -267,8 +310,11 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
     let stderr = spawned.child.stderr.take().expect("standard error was piped");
     let (sender, lines) = channel();
     let second = sender.clone();
-    drop(std::thread::spawn(move || forward(stdout, &sender)));
-    drop(std::thread::spawn(move || forward(stderr, &second)));
+    // KEPT rather than dropped, because the collection below is only sound if these can be joined.
+    let readers = vec![
+        std::thread::spawn(move || forward(stdout, &sender)),
+        std::thread::spawn(move || forward(stderr, &second)),
+    ];
 
     let deadline = Instant::now() + START_BUDGET;
     let status = loop {
@@ -283,12 +329,9 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
         );
         std::thread::sleep(Duration::from_millis(25));
     };
-    // Collected after the wait, so both reader threads have seen end-of-file and nothing the
-    // process wrote is still in flight.
-    let mut said = Vec::new();
-    while let Ok(line) = lines.try_recv() {
-        said.push(line);
-    }
+    // Joined and then drained - see [`drained`]. This used to be a bare `try_recv` sweep under a
+    // comment claiming the readers had finished, which is `github.com/telekom/sutura#387`.
+    let said = drained(readers, &lines);
     assert!(
         !status.success(),
         "the deployment started on settings it must refuse:\n{}",
@@ -353,8 +396,13 @@ pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
     let stderr = child.stderr.take().expect("standard error was piped");
     let (sender, lines) = channel();
     let second = sender.clone();
-    drop(std::thread::spawn(move || forward(stdout, &sender)));
-    drop(std::thread::spawn(move || forward(stderr, &second)));
+    // KEPT rather than dropped: `Served::terminate` joins them, which is what makes `Served::log`
+    // complete after a stop rather than whatever happened to have arrived.
+    // `github.com/telekom/sutura#387`.
+    let readers = vec![
+        std::thread::spawn(move || forward(stdout, &sender)),
+        std::thread::spawn(move || forward(stderr, &second)),
+    ];
 
     let mut startup = Vec::new();
     let deadline = Instant::now() + START_BUDGET;
@@ -371,6 +419,7 @@ pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
                 address,
                 startup,
                 lines,
+                readers,
                 config_dir,
                 reaped: false,
             };
@@ -454,6 +503,10 @@ impl Served {
         loop {
             if let Some(status) = self.child.try_wait().expect("the child is waitable") {
                 self.reaped = true;
+                // The reaped child's pipes are at end-of-file, so this returns as soon as the
+                // readers have pushed the last lines in - which is what makes `log` below complete
+                // rather than best-effort. Issue 387 is the same defect on the refusing path.
+                joined(std::mem::take(&mut self.readers));
                 return status;
             }
             assert!(
@@ -467,9 +520,15 @@ impl Served {
 
     /// The startup log, plus everything written since.
     ///
-    /// Non-blocking: whatever has arrived by now is the answer. Called after
-    /// [`Served::terminate`] has reaped the process, so the reader threads have already seen
-    /// end-of-file.
+    /// **Complete after [`Served::terminate`] and best-effort before it, and the distinction is the
+    /// correction `github.com/telekom/sutura#387` paid for.** This used to say the readers "have
+    /// already seen end-of-file" because the process had been reaped, which reaping does not establish: a
+    /// `try_recv` sweep stops at the first empty channel, so the lines a process writes as it dies
+    /// can still be in flight. `terminate` JOINS the readers, so a call after it cannot miss one.
+    ///
+    /// Before a `terminate` it stays non-blocking on purpose - joining a running deployment's
+    /// readers would never return - and the one caller that reads it that way asserts on two lines
+    /// that were already read into `startup` before the deployment was handed over.
     pub(crate) fn log(&self) -> Vec<String> {
         let mut out = self.startup.clone();
         loop {

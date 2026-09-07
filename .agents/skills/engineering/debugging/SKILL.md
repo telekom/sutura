@@ -147,6 +147,7 @@ Read these before spending an hour on a class of bug this repo has met.
 | `401` on a `.narinfo` while `nix-cache-info` succeeds | the cache reads anonymously; artifacts need netrc credentials |
 | A detector reports its own source | the pattern matches the file that defines it |
 | A lock "released on drop" is still held, and the refusal names THIS process | `flock` lives on the open file DESCRIPTION, so a `close` releases it only when the last descriptor on that description goes. Every `Command::spawn` duplicates the whole table at `fork` and `FD_CLOEXEC` only fires at `exec`, so any spawn in flight holds a copy of every lock. Unlock explicitly rather than relying on the close |
+| A harness reads a child's output and the LAST line is missing, under load | it drained the channel once `try_wait` said the process exited. Exited is not READ: the threads reading its pipes may still be in flight, and the last thing a process writes is usually the sentence the assertion is about - so the failure reads as *it never said that* rather than as a lost line. Keep the reader `JoinHandle`s, join, then drain |
 
 **`nextest`'s process-per-test does NOT contain the lock one, and believing it did cost a wrong
 diagnosis on `github.com/telekom/sutura#328`.** The reasoning that fails is *the duplicate must come
