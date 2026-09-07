@@ -71,6 +71,42 @@ it and this one is private. `.../info/github.com/telekom/sutura` answers HTTP 40
 reason. Both become real when the repository is made public; the badge is added now rather than
 gated behind that flip.
 
+### No copied tree can arrive attributed to us
+
+**`REUSE.toml` already stated this hazard in prose, named the remedy, and nothing held it.**
+Verbatim from its own header: *a newly vendored third-party file is **silently attributed to the
+sutura authors*** until the narrowing block is appended, and *adding a vendored tree means appending
+a block, never editing the catch-all*. A rule with no mechanism is a wish, so it is a gate now: every
+immediate child of `vendor/` must be narrowed by an `[[annotations]]` block **and** recorded in
+`VENDOR.md`, and - the other direction, on `check-skills`' precedent - every `vendor/` block must
+name a child that exists, so a block cannot outlive its tree while keeping its dated paragraph.
+
+**This is deliberately NOT the mechanism `nix/reuse.nix` weighs and rejects**, and the difference is
+what makes it sound. That one was *every path `VENDOR.md` names must have its own block*, which is
+wrong because most of what that file lists is recorded *"Rewritten, not copied"* and is therefore
+correctly ours - a gate demanding a foreign licence would fail on correct code. This reads a narrower
+subject in the other direction: the `vendor/` **directory**, where a true copy lands, so every
+subject of the rule is a copy by construction.
+
+**Its limit, stated because `vendor/` is a convention rather than a type:** `.agents/skill-library/`
+is also a copy, narrowed by hand and outside this rule's reach, and nothing here would notice a copy
+placed somewhere new. Telling a copy from a rewrite in general remains the review question
+`nix/reuse.nix` describes. What is closed is the case that recurs.
+
+### So what the badge asserts, exactly
+
+* **It does assert** that every file's licence is *declared* - REUSE compliance, held by
+  `checks.reuse` inside the required `ci` job - and, now, that no tree under `vendor/` is unnarrowed
+  or unrecorded.
+* **It does not assert per-file provenance.** A first-party file with no header still passes, by
+  design; the catch-all answers for it. It says nothing about a file *inside* a narrowed tree, and
+  nothing about a copy placed outside `vendor/`.
+
+That is the whole claim. Keeping the catch-all was chosen over per-file headers because the
+alternative does not close the hole either: `REUSE.toml`'s header records that 420 `.snap` files,
+100 of 155 markdown files and the vendored trees cannot carry a header at all, so headers everywhere
+would still need three exception groups **plus** a mechanical edit to 485 files.
+
 ## ORT: declined, and here is the gap that remains
 
 Declined. Not because licence compliance is uninteresting - it is most of what this repository

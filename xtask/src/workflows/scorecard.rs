@@ -27,6 +27,13 @@
 //! * **The REUSE badge needs a live licence check.** It may only be claimed while `flake.nix`
 //!   declares `checks.reuse` AND some file CI invokes something from actually builds it. A badge
 //!   asserting compliance while nothing measures it is the exact defect above.
+//! * **No copied tree can arrive attributed to us.** `REUSE.toml`'s catch-all makes an unnarrowed
+//!   file OURS by default, and that file's own header says so - *a newly vendored third-party file
+//!   is silently attributed to the sutura authors*, with *adding a vendored tree means appending a
+//!   block* as the remedy. That remedy was held by recall. Now every immediate child of `vendor/`
+//!   must be narrowed and recorded in `VENDOR.md`, and every `vendor/` block must name a child that
+//!   exists. See [`vendored_tree_problems`], including why this is not the mechanism
+//!   `nix/reuse.nix` weighs and rejects.
 //! * **Both badges name THIS repository.** The slug comes from `REUSE.toml`'s
 //!   `SPDX-PackageDownloadLocation`, so a badge copied from another project - which would render
 //!   somebody else's score under our name - is a failure rather than a puzzle.
@@ -41,7 +48,10 @@
 //! * **Not that the REUSE lint is INFORMATIVE.** It holds that the check exists and is invoked.
 //!   `REUSE.toml`'s `path = "**"` catch-all means an unheadered file PASSES that lint - measured,
 //!   and stated in `nix/reuse.nix` - so the badge is a true statement about REUSE compliance and
-//!   not a statement that the declarations are correct.
+//!   not a statement that the declarations are correct. **What the vendored-tree rule adds is
+//!   narrow and worth stating exactly:** no tree under `vendor/` can be unnarrowed or unrecorded.
+//!   It says nothing about a FILE inside a narrowed tree, nothing about a first-party file with no
+//!   header, and nothing about a copy placed outside `vendor/`.
 //! * **Not that the workflow ever runs, or that anyone looks.** It reports no status context on a
 //!   pull request and the only required context is `ci`. A falling score blocks nothing.
 //! * **Not what the third party does with what it receives.** The record is a dated reading of the
@@ -77,6 +87,14 @@ const REUSE_BADGE: &str = "https://api.reuse.software/badge/";
 
 /// The flake check the REUSE badge stands on, as `flake.nix` declares it.
 const CHECK: &str = "reuse";
+
+/// Where a COPIED third-party tree lands. The catch-all in `REUSE.toml` attributes anything
+/// unnarrowed to us, so an unnarrowed tree here is the one way that file can state a falsehood.
+const VENDOR: &str = "vendor";
+
+/// Where a copied tree is recorded in prose - `AGENTS.md`: *vendor only to move fast and record it
+/// in `VENDOR.md`*.
+const VENDOR_RECORD: &str = "VENDOR.md";
 
 /// And as a workflow, action or CI script has to build it.
 const REUSE_CHECK: &str = "checks.x86_64-linux.reuse";
@@ -155,7 +173,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     }
 
     if readme.contains(REUSE_BADGE) {
-        problems.extend(reuse_badge_problems(root, &readme, &slug));
+        problems.extend(reuse_badge_problems(root, &readme, &slug, &package));
     }
 
     problems
@@ -166,7 +184,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
 /// Two reads rather than one, because a declaration nothing invokes is the failure this rule
 /// exists for - the same distinction `crate::venues` draws between a venue existing and CI
 /// reaching it.
-fn reuse_badge_problems(root: &Path, readme: &str, slug: &str) -> Vec<String> {
+fn reuse_badge_problems(root: &Path, readme: &str, slug: &str, package: &str) -> Vec<String> {
     let mut problems = Vec::new();
 
     if !readme.contains(&format!("{REUSE_BADGE}github.com/{slug}")) {
@@ -203,7 +221,137 @@ fn reuse_badge_problems(root: &Path, readme: &str, slug: &str) -> Vec<String> {
         )),
     }
 
+    problems.extend(vendored_tree_problems(root, package));
+
     problems
+}
+
+/// Can `REUSE.toml` still be TRUE about the copied trees, or only complete?
+///
+/// **This is the one way that file can state a falsehood, and its own header says so** - the
+/// catch-all resolves anything unnarrowed to Apache-2.0 and the sutura authors, so *a newly
+/// vendored third-party file is silently attributed to the sutura authors* until a narrowing block
+/// is appended. That sentence is in `REUSE.toml`, next to *adding a vendored tree means appending a
+/// block* - the hazard named, the remedy named, and until now the remedy held by recall.
+///
+/// **NOT the mechanism `nix/reuse.nix` weighs and rejects, and the difference decides whether this
+/// is sound.** That one was *every path `VENDOR.md` names must have its own block*, which is wrong
+/// because most of what that file lists is recorded *"Rewritten, not copied"* and is therefore
+/// correctly ours - a gate demanding a foreign licence would fail on correct code. This reads the
+/// other direction and a narrower subject: the `vendor/` DIRECTORY, which is where a true copy
+/// lands, so every subject of the rule is a copy by construction and no rewritten tree is in scope.
+///
+/// **Its limit, and it is the reason the rejected variant was tempting:** `vendor/` is a
+/// convention, not a type. `.agents/skill-library/` is also a copy and is narrowed by hand; nothing
+/// here would notice a copy placed somewhere new. Telling a copy from a rewrite in general remains
+/// the review question `nix/reuse.nix` describes. What this closes is the case that recurs - a tree
+/// dropped into `vendor/` and the block forgotten.
+///
+/// Both directions, on `check-skills`' precedent: a child with no block, and a block naming no
+/// child. One-way, this would go green the day a vendored tree is removed and its block left
+/// behind, still permitting nothing.
+fn vendored_tree_problems(root: &Path, package: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+
+    let narrowing = narrowing_paths(package);
+    if narrowing.is_empty() {
+        // FAIL CLOSED: this file always carries narrowing blocks, so reading none is the scanner
+        // broken rather than the tree clean - and a scan that finds nothing must not be how the
+        // rule goes unchecked again.
+        problems.push(format!(
+            "{PACKAGE} yielded no narrowing `path =` annotation - the reader stopped matching it, so which trees are narrowed is unknown rather than answered"
+        ));
+        return problems;
+    }
+
+    let children = match std::fs::read_dir(root.join(VENDOR)) {
+        Ok(entries) => {
+            let mut found: Vec<String> = entries
+                .flatten()
+                .filter(|entry| entry.path().is_dir())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect();
+            found.sort();
+            found
+        }
+        // NO VENDORED TREE AT ALL is a legitimate state, and only `NotFound` says so. Every other
+        // error is a fault - the same seam `crate::arrow_major` draws between configuration and an
+        // input it could not read. A stale block is still caught below, because the loop over the
+        // annotations runs against an empty child set.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            problems.push(format!(
+                "{VENDOR}/ could not be read: {error} - so whether a copied tree is attributed to us is unread rather than clean"
+            ));
+            return problems;
+        }
+    };
+
+    // ONE: every copied tree is narrowed.
+    for child in &children {
+        let under = format!("{VENDOR}/{child}");
+        let narrowed = narrowing
+            .iter()
+            .any(|(_, path)| path == &under || path.starts_with(&format!("{under}/")));
+        if !narrowed {
+            problems.push(format!(
+                "{VENDOR}/{child} is a vendored tree and {PACKAGE} narrows nothing under it, so the `path = \"**\"` catch-all attributes every file in it to the sutura authors - append an `[[annotations]]` block for `{under}/**` after the catch-all, and record the copy in {VENDOR_RECORD}"
+            ));
+        }
+    }
+
+    // TWO: every narrowing block about a copied tree names one that exists.
+    for (line, path) in &narrowing {
+        let Some(rest) = path.strip_prefix(&format!("{VENDOR}/")) else {
+            continue;
+        };
+        let Some(named) = rest.split('/').next().filter(|part| !part.is_empty() && *part != "**") else {
+            continue;
+        };
+        if !children.iter().any(|child| child == named) {
+            problems.push(format!(
+                "{PACKAGE}:{line} narrows `{path}` and {VENDOR}/{named} does not exist - a block permitting nothing keeps its dated paragraph, which is the reasoning a reviewer reads to decide the exception is still earned"
+            ));
+        }
+    }
+
+    // THREE: every copied tree is recorded in prose, which is `AGENTS.md`'s own rule -
+    // *vendor only to move fast and record it in `VENDOR.md`*. Cheap here because the child
+    // listing is already in hand; unreadable is a fault, for the reason above.
+    match std::fs::read_to_string(root.join(VENDOR_RECORD)) {
+        Ok(record) => {
+            for child in &children {
+                if !record.contains(&format!("{VENDOR}/{child}")) {
+                    problems.push(format!(
+                        "{VENDOR}/{child} is a vendored tree and {VENDOR_RECORD} does not name it - a copy makes us its security response permanently, and that is the file where somebody can find out"
+                    ));
+                }
+            }
+        }
+        Err(error) => problems.push(format!(
+            "{VENDOR_RECORD} could not be read: {error} - so whether each copied tree is recorded is unread rather than clean"
+        )),
+    }
+
+    problems
+}
+
+/// Every `path = "..."` in `REUSE.toml` that narrows rather than catches all, with its line.
+///
+/// The line is carried because a refusal a reader cannot open is a refusal they have to search for.
+/// The catch-all is excluded by value: it is the thing the narrowing blocks exist to override, so
+/// counting it as one would make every tree look narrowed.
+fn narrowing_paths(package: &str) -> Vec<(usize, String)> {
+    package
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim_start().starts_with('#'))
+        .filter_map(|(index, line)| {
+            let rest = line.trim().strip_prefix("path")?.trim_start().strip_prefix('=')?;
+            let value = rest.trim().trim_matches('"');
+            (value != "**" && !value.is_empty()).then(|| (index + 1, String::from(value)))
+        })
+        .collect()
 }
 
 /// `<owner>/<repo>`, out of `REUSE.toml`'s declared download location.
@@ -292,10 +440,19 @@ mod tests {
         );
         let publishing = "    with:\n      publish_results: true\n";
 
+        // A REUSE.toml with the catch-all AND a narrowing block, a vendored tree under it, and a
+        // VENDOR.md naming that tree - the shape `vendored_tree_problems` needs to be silent, so
+        // every mutation below is the only difference. Its own rules have their own test.
         write(
             &scratch.join(PACKAGE),
-            "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+            concat!(
+                "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+                "[[annotations]]\npath = \"**\"\n",
+                "[[annotations]]\npath = \"vendor/tree/**\"\n",
+            ),
         );
+        std::fs::create_dir_all(scratch.join("vendor/tree")).expect("the vendored tree");
+        write(&scratch.join(VENDOR_RECORD), "| `vendor/tree/**` | upstream | MIT |\n");
         write(&scratch.join(RECORD), "# decided 2026-09-07\n");
         write(
             &scratch.join("flake.nix"),
@@ -360,6 +517,110 @@ mod tests {
         );
         let found = problems(&scratch);
         assert!(found.iter().any(|p| p.contains("measures nothing")), "{found:?}");
+
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+    }
+
+    #[test]
+    fn a_copied_tree_cannot_arrive_attributed_to_us() {
+        // THROUGH `problems`, not through `vendored_tree_problems`: a falsifier has to call the
+        // production entry point, or a `reuse_badge_problems` that stopped making the call would
+        // pass this test.
+        let scratch = std::env::temp_dir().join(format!("sutura-vendor-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        std::fs::create_dir_all(scratch.join("vendor/tree")).expect("the vendored tree");
+        let write = |path: &std::path::Path, text: &str| std::fs::write(path, text).expect("the scratch file");
+
+        let catch_all_and_one_block = concat!(
+            "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+            "[[annotations]]\npath = \"**\"\n",
+            "[[annotations]]\npath = \"vendor/tree/**\"\n",
+        );
+        write(&scratch.join(PACKAGE), catch_all_and_one_block);
+        write(&scratch.join(VENDOR_RECORD), "| `vendor/tree/**` | upstream | MIT |\n");
+        write(
+            &scratch.join(README),
+            "<img src=\"https://api.reuse.software/badge/github.com/telekom/sutura\">\n",
+        );
+        write(
+            &scratch.join("flake.nix"),
+            "        checks = {\n          reuse = licensing.check;\n        };\n",
+        );
+        write(
+            &workflows.join("ci.yml"),
+            "        run: nix build .#checks.x86_64-linux.reuse -L\n",
+        );
+        assert!(problems(&scratch).is_empty(), "{:?}", problems(&scratch));
+
+        // 1. A new copied tree with nothing narrowing it - the case `REUSE.toml`'s own header
+        //    names, and the one it says is held by appending a block and nothing else.
+        std::fs::create_dir_all(scratch.join("vendor/unnarrowed")).expect("the second tree");
+        let found = problems(&scratch);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("vendor/unnarrowed") && p.contains("attributes every file in it")),
+            "{found:?}"
+        );
+
+        // 2. Recorded in prose and STILL unnarrowed: the two rules are independent, and only the
+        //    licence one is about attribution.
+        write(
+            &scratch.join(VENDOR_RECORD),
+            "| `vendor/tree/**` | upstream | MIT |\n| `vendor/unnarrowed/**` | upstream | MIT |\n",
+        );
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("attributes every file in it")), "{found:?}");
+        assert!(!found.iter().any(|p| p.contains("does not name it")), "{found:?}");
+        std::fs::remove_dir_all(scratch.join("vendor/unnarrowed")).expect("the second tree");
+        write(&scratch.join(VENDOR_RECORD), "| `vendor/tree/**` | upstream | MIT |\n");
+
+        // 3. THE OTHER DIRECTION: a block naming a tree that is gone permits nothing while keeping
+        //    its dated paragraph. One-way, this is exactly what would have stayed green.
+        write(
+            &scratch.join(PACKAGE),
+            concat!(
+                "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+                "[[annotations]]\npath = \"**\"\n",
+                "[[annotations]]\npath = \"vendor/tree/**\"\n",
+                "[[annotations]]\npath = \"vendor/removed/**\"\n",
+            ),
+        );
+        let found = problems(&scratch);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("vendor/removed") && p.contains("does not exist")),
+            "{found:?}"
+        );
+        // AND IT NAMES THE LINE, because a refusal a reader cannot open is one they search for.
+        // Line 7 of the text above: the fourth `path` value. An exact string, so an
+        // off-by-one in the reader fails here - it did, on this test's first run, and the
+        // ASSERTION was what was wrong rather than the rule.
+        assert!(found.iter().any(|p| p.contains("REUSE.toml:7")), "{found:?}");
+
+        // 4. A copied tree nobody recorded - `AGENTS.md`'s own rule about vendoring.
+        write(&scratch.join(PACKAGE), catch_all_and_one_block);
+        write(&scratch.join(VENDOR_RECORD), "nothing about any tree\n");
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("VENDOR.md does not name it")), "{found:?}");
+
+        // 5. FAIL CLOSED ON EITHER INPUT. A `REUSE.toml` this reader gets nothing out of is the
+        //    scanner broken rather than the tree clean, and an unreadable record is a fault rather
+        //    than a smaller scan - the distinction only three of this repo's gates draw.
+        write(&scratch.join(VENDOR_RECORD), "| `vendor/tree/**` | upstream | MIT |\n");
+        write(
+            &scratch.join(PACKAGE),
+            "SPDX-PackageDownloadLocation = \"https://github.com/telekom/sutura\"\n",
+        );
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("yielded no narrowing")), "{found:?}");
+
+        write(&scratch.join(PACKAGE), catch_all_and_one_block);
+        std::fs::remove_file(scratch.join(VENDOR_RECORD)).expect("the record");
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("VENDOR.md could not be read")), "{found:?}");
 
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
