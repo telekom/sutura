@@ -307,18 +307,44 @@ pub(super) fn takings(path: &str, language: Language, text: &str) -> Vec<(Taking
 }
 
 /// The code half of a file: comments gone, and whatever else a language's lexer removes.
+///
+/// **EVERY NEWLINE SURVIVES, in both arms, and that is a load-bearing property rather than a
+/// nicety.** A reported line number is the line a reader opens, and [`covered`] is a conservation
+/// law over exactly this: `telekom/sutura#414` measured that truncating extraction to forty lines a
+/// file left both of the other laws agreeing and every anchor satisfied, over 40 of 67 takings
+/// unread - because **an anchor asserts a file was OPENED, never read in full.** So the shell arm
+/// splits INCLUSIVELY and emits a blanked comment's terminator rather than dropping it.
 fn code_of(language: Language, text: &str) -> String {
     match language {
         Language::Rust => crate::serde_parse::scan::code_lines(text).join("\n"),
         Language::Shell => text
-            .lines()
-            .map(|line| match line.find('#') {
-                Some(at) if line.get(..at).is_some_and(|before| before.trim().is_empty()) => String::new(),
-                _ => String::from(line),
+            .split_inclusive('\n')
+            .map(|piece| {
+                let body = piece.strip_suffix('\n');
+                let line = body.unwrap_or(piece);
+                let commented = line
+                    .find('#')
+                    .is_some_and(|at| line.get(..at).is_some_and(|before| before.trim().is_empty()));
+                let kept = if commented { "" } else { line };
+                if body.is_some() {
+                    format!("{kept}\n")
+                } else {
+                    String::from(kept)
+                }
             })
-            .collect::<Vec<String>>()
-            .join("\n"),
+            .collect(),
     }
+}
+
+/// How much of a file the lexer reached, as a pair of newline counts.
+///
+/// **The third conservation law, and the one neither of the others can see.** Both the offered
+/// count and the loop read `code_of`, so a truncation inside it moves them together - measured on a
+/// sibling gate and now on this one. Newlines are the unit because both arms of `code_of` preserve
+/// them exactly, so the two numbers are equal for any input and unequal the moment extraction stops
+/// early. It says nothing about a file the walk never opened; that is what `MUST_READ` is for.
+pub(super) fn covered(language: Language, text: &str) -> (usize, usize) {
+    (text.matches('\n').count(), code_of(language, text).matches('\n').count())
 }
 
 /// The root spellings a language can take.
@@ -683,6 +709,30 @@ fn new() -> Self {
 }
 "#;
         assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn the_lexer_reaches_every_line_of_a_file_in_both_languages() {
+        // `telekom/sutura#414`'s shape: both other laws take their numbers from `code_of`, so a
+        // truncation inside it moves them together and 40 of 67 takings went unread at exit 0 with
+        // every anchor satisfied - an anchor asserts a file was OPENED, not read in full.
+        let rust = r#"
+// a comment
+fn go() {
+    let dir = std::env::temp_dir().join(format!("x-{}", std::process::id()));
+}
+"#;
+        let (raw, lexed) = super::covered(Language::Rust, rust);
+        assert_eq!(raw, lexed, "the Rust lexer lost a line");
+        let shell = r#"# a comment
+root="$(pwd -P)"
+log="$root/x"
+"#;
+        let (raw, lexed) = super::covered(Language::Shell, shell);
+        assert_eq!(raw, lexed, "the shell reader lost a line");
+        // And a file with no trailing newline, which is where an off-by-one would hide.
+        let (raw, lexed) = super::covered(Language::Shell, "root=\"$(pwd -P)\"");
+        assert_eq!(raw, lexed);
     }
 
     #[test]

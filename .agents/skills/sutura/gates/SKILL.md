@@ -748,6 +748,16 @@ Three things worth carrying:
   a violation is reported AHEAD of a missed anchor, through an exhaustive `Decision` a test can
   read. **A fail-closed precondition placed ahead of the rule turns a rule-refusal into an
   input-refusal, and nothing but reading the verdict will tell you.**
+- **A NEEDLE HAS TO BE CODE, and the two words the gate's own remedy printed were the ones that
+  defeated it.** `check-worktree-state` matched its key spellings as substrings of the raw path
+  expression, so `temp_dir().join("sutura-scratch")` passed - the word was in the BASENAME, not in a
+  derivation - and so did `"shared-digest-cache"` and `"my-tempdir"`: three written, machine-shared
+  paths at exit 0. `scratch` and `state_dir` are exactly what its `explain()` tells a developer to
+  use, so following the printed remedy produced a path it then accepted. **And the planted fixture
+  could not see it**, because the basename it used (`"sutura-planted-fixture"`) contained no needle -
+  a fixture that cannot express the shape it covers is the recurring failure here. The blanking is
+  language-scoped (`"$( .. )"` in shell still executes) and keeps `{..}` placeholders, which are
+  code: dropping those would redden `format!("sutura-{digest}")`.
 - **A `/tmp/` literal cannot be judged from a line, and the measurement is why the gate does not
   try.** Every rooted literal in this workspace is a fixture value that never reaches a filesystem
   - `cargo xtask check-worktree-state` prints the count, so no figure is copied here;
