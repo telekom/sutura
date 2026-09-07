@@ -5351,11 +5351,12 @@ under the metric's own certified name, which `FederatedPlan`'s `measure_label` h
 
 One source's share of a federated question, and the only thing the port can be handed.
 
-**The shapes, their closure, and nothing that produces or executes one.** There is no splitter
-and no combiner in this workspace, so no production code constructs a `LegPlan`: what is here
-is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
-before anything runs it. `.agents/skills/sutura/query-surface` carries that state, and this
-module says it rather than leaving it to be discovered.
+**The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
+`sutura_app::answer_federated` hands it to an adapter, and
+`FederatedPlan::combine` - a function in this crate -
+assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
+builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+published artefact reaches, and this module says the shape rather than the state.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 

@@ -72,8 +72,9 @@ mod tests {
     // The harness, next door. It holds no assertion - see its own module documentation for why the
     // split moved this direction and not the other.
     use crate::harness::{
-        RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, drained, example_root, position, question,
-        recurring_revenue_june, refused_to_start, settings_declaring_inbound, start, start_configured, v1,
+        LOCAL_SOURCE, LOOKUP_SOURCE, RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, drained, example_root, position,
+        question, recurring_revenue_by_region, recurring_revenue_june, refused_to_start, settings_declaring_inbound,
+        settings_spanning_two_sources, start, start_configured, v1,
     };
 
     // ------------------------------------------------------------------- the harness itself ---
@@ -230,6 +231,103 @@ mod tests {
         assert_eq!(
             body["executed_as"],
             serde_json::json!([{ "source": "local", "posture": "shared-service-user" }])
+        );
+    }
+
+    #[test]
+    fn a_served_deployment_answers_a_question_spanning_two_sources() {
+        // **The sentence `telekom/sutura#112` asks for.** Before `DataFusionWarehouse` declared
+        // `Warehouse::EXECUTES_LEGS`, this deployment answered `409 federation_not_executable`:
+        // `answer_federated` reads that constant at its first gate, every adapter a release links
+        // took the port's default `false`, and the only adapter setting it was a development
+        // dependency. So no published artefact could answer a two-source question whatever its
+        // sources were, and this is the venue that says otherwise - the real binary, two adapters
+        // opened by the real composition root, the real splitter, two real executions and the
+        // combiner, over HTTP.
+        //
+        // **Why the numbers are the assertion and not just a `200`.** The grouped figures are the
+        // example's own, pinned by `crates/sutura-cli/tests/snapshots/
+        // recurring-revenue-by-region__rows.snap` where ONE data system answers them whole - so
+        // asserting them here is a cross-topology claim rather than a recording of whatever came
+        // back. And they sum to `202121`, which is the ungrouped June figure
+        // `a_configured_deployment_answers_a_certified_question_over_http` above pins and which
+        // `recurring_revenue`'s anchor re-executed at startup: a leg translation that dropped a
+        // group, double-counted a join or lost the orphan row would still be a `200` and would not
+        // reconcile.
+        //
+        // **The identity limit, next to the claim.** `executed_as` carries TWO legs and both are
+        // `shared-service-user`. This is single-player federation: two sources are not two
+        // identities. `DataFusionWarehouse::IMPERSONATION` is `NoPlaceForASubject`, and
+        // `sutura_domain::source::deliverable_by` refuses `impersonation-at-source` against it in
+        // both composition roots - so a `files` source declaring anything else does not start, and a
+        // mixed-posture answer is unreachable on any published build. Leg 2 - a source executing AS
+        // the asker - is not what this measures.
+        //
+        // **There is no golden for this path and there cannot be one.** The engine emits no SQL, so
+        // `crates/sutura-app/tests/golden/legs.rs` - which pins a rendered leg per dialect - never
+        // sees it. This cell, `sutura-exec-datafusion`'s conformance binding and
+        // `crates/sutura-app/tests/differential/federated.rs`'s two-engine pass are its whole
+        // evidence.
+        let served = start_configured("two-sources", &settings_spanning_two_sources("two-sources"));
+        let reply = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            &recurring_revenue_by_region(),
+        );
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body["outcome"], "answer", "{}", reply.body);
+        assert_eq!(
+            body["columns"],
+            serde_json::json!(["region", "period", "recurring_revenue"]),
+            "{}",
+            reply.body
+        );
+        // Ordered, because the plan claims an order: ascending by the grouping columns with the
+        // orphan customer's absent region LAST, which is what the combiner above the two legs has to
+        // reproduce and what `telekom/sutura#325`'s F6 got backwards.
+        //
+        // The absent region is the STRING `"null"` and not JSON's `null`, which is this transport's
+        // shape rather than this question's: every cell crosses as text, the same way the measure
+        // does. Pinned as it is served, because that is what a client parses.
+        assert_eq!(
+            body["rows"],
+            serde_json::json!([
+                ["central", "2026-06-01", "51739"],
+                ["east", "2026-06-01", "32598"],
+                ["north", "2026-06-01", "42157"],
+                ["south", "2026-06-01", "21203"],
+                ["west", "2026-06-01", "49425"],
+                ["null", "2026-06-01", "4999"],
+            ]),
+            "{}",
+            reply.body
+        );
+        // The reconciliation, computed rather than restated: these six subgroups add up to the
+        // ungrouped certified figure. Written as a sum so a copied row cannot satisfy it.
+        let total: i64 = body["rows"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|row| row[2].as_str().and_then(|cell| cell.parse::<i64>().ok()))
+            .sum();
+        assert_eq!(
+            total, 202_121,
+            "the two-source subgroups do not add up to the certified June figure: {}",
+            reply.body
+        );
+        // **BOTH legs, each under the posture its source was opened with.** One entry would mean the
+        // question was answered whole by one adapter and this deployment is not the topology under
+        // test. Source order is the record's own - `ExecutedAs` keeps its legs in a `BTreeMap`.
+        assert_eq!(
+            body["executed_as"],
+            serde_json::json!([
+                { "source": LOOKUP_SOURCE, "posture": "shared-service-user" },
+                { "source": LOCAL_SOURCE, "posture": "shared-service-user" },
+            ]),
+            "{}",
+            reply.body
         );
     }
 
