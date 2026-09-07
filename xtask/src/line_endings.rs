@@ -18,7 +18,7 @@ use crate::repo;
 ///
 /// A [`repo::Scope`], so it is a bare `fn` with nothing captured: it cannot count subjects and it
 /// cannot see content, which is what stops a scope decision standing in for a failed read.
-fn every_text_candidate(_rel: &str) -> bool {
+const fn every_text_candidate(_rel: &str) -> bool {
     true
 }
 

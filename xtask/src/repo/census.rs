@@ -220,7 +220,13 @@ pub(crate) enum Unmigrated {
 ///
 /// **The limit:** this is an equality, not a ratchet. Raising it is a one-line diff, exactly like
 /// adding a variant - what changed is that there is now a line to diff.
-pub(crate) const UNMIGRATED_DOORS: usize = 41;
+///
+/// It counts textual occurrences in blanked code, and `serde_parse::scan::code_lines` blanks the
+/// interior of a MULTI-line string only - so a single-line fixture spelling the call reads as one.
+/// Measured on the first run of this test, which reported 45 against 44 real call sites; the extra
+/// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
+/// fixtures already avoid reporting their own source.
+pub(crate) const UNMIGRATED_DOORS: usize = 44;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
@@ -441,6 +447,10 @@ mod tests {
         false
     }
 
+    fn nix_file(rel: &str) -> bool {
+        Path::new(rel).extension().is_some_and(|found| found == "nix")
+    }
+
     #[test]
     fn an_unreachable_subject_refuses_before_the_closure_runs() {
         // THE measured defect: `chmod 000 .github/actions` gave `ok - 2 literal(s) across 8
@@ -594,7 +604,7 @@ mod tests {
         let at = tree("anchor-ok", &[("flake.nix", "{}\n"), ("a.md", "text\n")]);
 
         let inspected = census_in(&at.0, &["flake.nix", "a.md"], &[])
-            .inspect(&["flake.nix"], |rel| rel.ends_with(".nix"), |_, _| {})
+            .inspect(&["flake.nix"], nix_file, |_, _| {})
             .expect("the anchor was judged");
 
         assert_eq!(

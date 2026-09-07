@@ -530,9 +530,15 @@ mod tests {
         }
     }
 
-    /// One `git ls-files --stage` line, NUL-terminated the way `-z` writes them.
+    /// One `git ls-files --stage` line per path, NUL-terminated the way `-z` writes them.
     fn staged(paths: &[&str]) -> String {
-        paths.iter().map(|p| format!("100644 abc123 0\t{p}\0")).collect()
+        let mut listing = String::new();
+        for path in paths {
+            listing.push_str("100644 abc123 0\t");
+            listing.push_str(path);
+            listing.push('\0');
+        }
+        listing
     }
 
     #[test]
