@@ -82,7 +82,7 @@ pub const MAX_RANGE_DAYS: i32 = 3653;
 ///   one field held to a laxer rule was the asymmetry, not the fix.
 /// * **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
 ///   used to be compared against the allowlist and refused, having been read, cloned into
-///   [`Self::literals`] and rendered into whatever an audit sink keeps.
+///   [`Query::literals`] and rendered into whatever an audit sink keeps.
 /// * **A second character rule is a rule nothing compares against the first.** [`crate::text`] exists
 ///   because one such rule was written down twice and the copies drifted. A request-side value type
 ///   with its own idea of what a value may hold would be that mistake, deliberately, in a place where

@@ -10,7 +10,7 @@
 //! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
 //! than read.
 //!
-//! Ten checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Eleven checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
@@ -20,10 +20,12 @@
 //! * `remedies` - the correction a failure prints, held to the standard of the prose it corrects
 //! * `advice` - a task a failure prints must exist, over every `.rs` file this repository publishes
 //! * `constants` - a doc comment naming a variant of a constant it links must name the one it holds
+//! * `absences` - a sentence saying the tree holds no such thing, held against the code that would
+//!   refute it
 //! * `hosts` - the file a sentence names as holding a mechanism must be the file that holds it
 //! * `pages` - a page's amendment ordinals and its table headers, held against the page's own shape
 //!
-//! `remedies`, `advice` and `constants` are the three that read Rust rather than prose;
+//! `remedies`, `advice`, `constants` and `absences` are the four that read Rust rather than prose;
 //! `hosts` reads prose and derives its answer from anywhere. `remedies` is here because of
 //! `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface was absent for as
 //! long as it took a person to read it, because the prose scope below never reached this binary's
@@ -67,6 +69,13 @@ mod advice;
 // which none of the tables above can express - a forbidden wording is a ratchet on a sentence
 // somebody has already got wrong, and that one was true when it was written.
 mod constants;
+// `github.com/telekom/sutura#370`, and `constants`' shape one subject over: that one resolves a
+// CONSTANT the sentence links, this one resolves an ABSENCE the sentence asserts. Its own module
+// for `constants`' reason, and the only check here that matches an authored WORDING inside a `.rs`
+// doc comment - which the scope filter below refuses for everything that judges a sentence, so the
+// narrowing that makes it safe (only `///` and `//!` are read) lives beside the check rather than
+// as an exception here.
+mod absences;
 // `github.com/telekom/sutura#297`. Prose again, so it could have been lines here - it is a module
 // because it grows by ENTRY like the tables above and this file is what has to have room for those.
 mod hosts;
@@ -75,6 +84,7 @@ mod hosts;
 // assertions are in `tests` below rather than beside it, for the reason `mod claims` gives.
 mod pages;
 
+use absences::{Reading, absence_problems};
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 use constants::constant_problems;
 use hosts::{HOSTED, host_mismatches};
@@ -486,7 +496,7 @@ fn in_scope(files: &[String]) -> Vec<String> {
 /// `ok` over a planted defect: each check is covered by its own unit tests, and the CALL was
 /// covered by nothing. `tests::a_check_dropped_from_the_run_is_caught` holds this composition over
 /// a fixture tree, so a check that stops being wired is red rather than silent.
-fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> (Vec<String>, PageCounts) {
+fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> (Vec<String>, PageCounts, Reading) {
     let mut problems = stale_phrases(root, text_files);
     problems.extend(version_mismatches(root, text_files));
     problems.extend(contradicted_claims(root, text_files));
@@ -496,11 +506,19 @@ fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> (Vec<S
     // the scope limit is about where a claim may be made rather than about what may be read.
     problems.extend(host_mismatches(root, files, text_files));
     problems.extend(dead_paths(root, text_files));
+    // `files`, and INSIDE this function rather than beside its caller in `run`. It reads a doc
+    // comment as PROSE and the code that would refute it, so neither list is `text_files` - but the
+    // reason it is here is the one this function exists for: measured in review, replacing
+    // `problems.extend(refuted)` in `run` with a discard left 1023 tests green and printed a verdict
+    // byte-identical to a clean run over a planted refutation. The CALL was covered by nothing,
+    // exactly as `page_problems`' was.
+    let (refuted, read) = absence_problems(root, files);
+    problems.extend(refuted);
     // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
     // in it: `text_files` again, because a page is where an ordinal and a table are written.
     let (page, pages) = page_problems(root, text_files);
     problems.extend(page);
-    (problems, pages)
+    (problems, pages, read)
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
@@ -517,7 +535,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // limit below is about where a CLAIM may be made, not about what may be counted.
     let text_files = in_scope(&files);
 
-    let (mut problems, pages) = tree_problems(&root, &files, &text_files);
+    let (mut problems, pages, read) = tree_problems(&root, &files, &text_files);
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
     problems.extend(remedy_problems(&root));
@@ -545,13 +563,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // nobody checks, and `{read} of {offered}` is what makes a narrowed walk visible in a
         // green run rather than only in a red one.
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} of {} page(s) lexed, {} amendment heading(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) and {} production line(s), {} of {} page(s) lexed, {} amendment heading(s)",
             text_files.len(),
             FORBIDDEN.len(),
             PINS.len(),
             CONTRADICTED.len(),
             COUNTS.len(),
             HOSTED.len(),
+            // THREE numbers from three places, and printed rather than merely held. The pair used
+            // to be statements and FILES, and review measured what that could not see: truncating
+            // the per-file line walk to two lines left both unmoved with a planted refutation
+            // unseen. `lines` is the one that drops.
+            read.stated,
+            read.files,
+            read.lines,
             pages.read,
             pages.offered,
             pages.headings
@@ -830,8 +855,14 @@ mod tests {
             "## Amendment, 2026-08-30\n\ntext\n\n## Fourth amendment\n\nA paragraph.\n| a | b |\n| --- | --- |\n",
         )
         .expect("the fixture page");
+        // THE ABSENCE HALF, and it is here because the same discard worked a second time: this
+        // fixture carries no file a registered `stated_in` glob matches, so every entry in
+        // `ABSENCES` is a gate over silence over it - which `absence_problems` reports and a
+        // dropped call does not. Measured before the check moved into `tree_problems`: replacing
+        // `problems.extend(refuted)` in `run` left 1023 tests green and the gate at exit 0 over a
+        // planted refutation, byte-identical to a clean run.
         let files = vec![rel];
-        let (problems, counts) = super::tree_problems(&dir, &files, &files);
+        let (problems, counts, read) = super::tree_problems(&dir, &files, &files);
         std::fs::remove_dir_all(&dir).unwrap_or_default();
         assert_eq!(counts.read, 1, "the fixture page was lexed");
         assert!(
@@ -844,5 +875,16 @@ mod tests {
                 .any(|p| p.contains("a table starts against the paragraph above it")),
             "the table rule must reach the run: {problems:#?}"
         );
+        assert!(
+            // `ABSENCES` by name, not the shared phrase: `PINS` emits "is a gate over silence" too
+            // and fires over this fixture, so the looser assertion passed through the wrong check.
+            problems
+                .iter()
+                .any(|p| p.contains("this entry in ABSENCES is a gate over silence")),
+            "the absence check must reach the run: {problems:#?}"
+        );
+        // And its numbers come back through this function, so a caller that stopped reading them
+        // is a compile error rather than a silent zero.
+        assert_eq!(read.stated, 0, "the fixture states no registered absence");
     }
 }

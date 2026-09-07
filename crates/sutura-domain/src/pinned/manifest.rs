@@ -1,10 +1,10 @@
 //! The contribution manifest: which metadata sources composed a bundle, and what each declared.
 //!
-//! [`PinnedDefinitions`]' digest is taken over a canonical form of the definitions, the knowledge
-//! and this manifest, so the digest covers the **composition** and not only the assembly -
-//! `docs/adr/0011`'s "two different compositions that assemble identically are indistinguishable"
-//! is the gap this closes. Decision and serialized form: `docs/adr/0011`, *The contribution
-//! manifest is built, and its serialized form is decided*.
+//! [`PinnedDefinitions`](crate::pinned::PinnedDefinitions)' digest is taken over a canonical form
+//! of the definitions, the knowledge and this manifest, so the digest covers the **composition**
+//! and not only the assembly - `docs/adr/0011`'s "two different compositions that assemble
+//! identically are indistinguishable" is the gap this closes. Decision and serialized form:
+//! `docs/adr/0011`, *The contribution manifest is built, and its serialized form is decided*.
 //!
 //! **The manifest says what was configured and reached, not what a source returned.** Each entry is
 //! the source's own declared capability list, its required-or-optional declaration, and whether it

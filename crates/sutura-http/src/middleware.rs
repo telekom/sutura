@@ -34,12 +34,12 @@
 //! an unauthenticated request was refused before it could create a bucket - so the only
 //! unauthenticated path into a limiter was liveness.
 //!
-//! [`crate::router`] now puts the limiter outside the gate, which is the point of the reordering:
-//! a wrong-token attempt has to cost a cell or it is an unlimited guessing loop. That makes every
-//! reachable path a path an unauthenticated caller can create a bucket on, and with the header
-//! keying above it is one bucket per real client rather than one per ingress. **So the reordering
-//! and [`spawn_reaper`] are one change and must not be separated:** either alone is worse than
-//! neither.
+//! [`crate::router`](mod@crate::router) now puts the limiter outside the gate, which is the point
+//! of the reordering: a wrong-token attempt has to cost a cell or it is an unlimited guessing loop.
+//! That makes every reachable path a path an unauthenticated caller can create a bucket on, and
+//! with the header keying above it is one bucket per real client rather than one per ingress. **So
+//! the reordering and [`spawn_reaper`] are one change and must not be separated:** either alone is
+//! worse than neither.
 
 use std::sync::{Arc, Weak};
 use std::time::Duration;
