@@ -94,6 +94,19 @@ pub(crate) enum Refusal {
         /// broken predicate.
         discovered: usize,
     },
+    /// Subjects were discovered and the caller judged NONE of them.
+    ///
+    /// **This arm is why deleting a gate's `== 0` floor costs nothing**, and it was added because
+    /// a mutation showed otherwise: with `must_judge` empty and the scope predicate broken,
+    /// `check-expect-thresholds` printed `0 of 1166 subject(s) judged` at exit 0, where the
+    /// `rs_files == 0` floor it replaced had refused. The two are not interchangeable and the tree
+    /// needs both, exactly as `warm_start::Swept` keeps its empty arm beside its subset arm:
+    /// **this catches a predicate that matched nothing, [`Refusal::NotJudged`] catches a predicate
+    /// that matched plenty and not the file that mattered.**
+    NothingJudged {
+        /// What the walk did reach, so a reader can tell a broken predicate from an empty tree.
+        discovered: usize,
+    },
     /// Nothing was discovered at all.
     Empty,
 }
@@ -116,6 +129,10 @@ impl Refusal {
                 "discovered {discovered} subject(s) and did not judge `{path}`, which this gate \
                  declared it cannot have a verdict without - so the scan is broken rather than the \
                  tree, whatever the count says"
+            ),
+            Self::NothingJudged { discovered } => format!(
+                "discovered {discovered} subject(s) and judged NONE of them, so this gate's own \
+                 rule never fired - the scan is broken rather than the tree satisfying it"
             ),
             Self::Empty => String::from(
                 "discovered no subject at all, so this verdict would be about an empty tree rather \
@@ -180,10 +197,10 @@ impl Census {
     /// is permitted only for a gate whose subject may legitimately be absent, and that is a
     /// reviewable choice rather than a default.
     ///
-    /// Refuses four ways before it returns, in this order: no root reached the constructor
-    /// (impossible here - [`Refusal::NoRoot`] is `repo::all_files`'), an unreachable subject from
-    /// the walk, an empty discovery, an unreachable subject from the caller's own read, and an
-    /// anchor that was never judged.
+    /// Refuses five ways before it returns, in this order: an unreachable subject from the walk,
+    /// an empty discovery, an unreachable subject from the caller's own read, a scope predicate
+    /// that judged nothing, and an anchor that was never judged. [`Refusal::NoRoot`] is
+    /// `repo::all_files`' and cannot reach here.
     pub(crate) fn inspect(
         self,
         must_judge: &[&str],
@@ -217,6 +234,9 @@ impl Census {
 
         if !unreachable.is_empty() {
             return Err(Refusal::Unreachable(unreachable));
+        }
+        if judged == 0 {
+            return Err(Refusal::NothingJudged { discovered });
         }
         if let Some(anchor) = outstanding.first() {
             return Err(Refusal::NotJudged {
@@ -342,14 +362,35 @@ mod tests {
     }
 
     #[test]
+    fn a_predicate_that_matched_nothing_refuses_even_with_no_anchor_declared() {
+        // The regression a mutation of this PR found: deleting a gate's `== 0` floor in favour of
+        // `must_judge` is only free if an EMPTY anchor set still refuses a scan that judged
+        // nothing. `check-expect-thresholds` printed `0 of 1166 subject(s) judged` at exit 0
+        // before this arm existed.
+        let refused = census(&["a.md", "b.md"], &[]).inspect(&[], |_| Looked::OutOfScope);
+        match refused {
+            Err(Refusal::NothingJudged { discovered }) => assert_eq!(discovered, 2),
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(inspected) => panic!("a predicate that matched nothing gave a verdict: {}", inspected.verdict()),
+        }
+    }
+
+    #[test]
     fn an_anchor_that_was_never_judged_refuses_whatever_the_count_says() {
-        // Strictly stronger than a `== 0` floor: the walk discovered plenty and the scope
-        // predicate stopped matching the one file the gate is about. A count floor passes this.
-        let refused = census(&["a.md", "b.md", "c.md"], &[]).inspect(&["flake.nix"], |_| Looked::OutOfScope);
+        // The other half, and the two are not interchangeable: here the predicate matched plenty
+        // and missed the one file the gate is about, which no count floor can see.
+        let refused = census(&["a.md", "flake.nix", "c.md"], &[]).inspect(&["flake.nix"], |rel| {
+            if rel.ends_with(".md") {
+                Looked::Judged
+            } else {
+                Looked::OutOfScope
+            }
+        });
         match refused {
             Err(Refusal::NotJudged { path, discovered }) => {
                 assert_eq!(path, "flake.nix");
                 assert_eq!(discovered, 3, "the refusal names what the walk DID reach");
+                // and the count floor above it was satisfied: two of three subjects were judged.
             }
             Err(other) => panic!("wrong arm: {}", other.describe()),
             Ok(inspected) => panic!("a missing anchor produced a verdict: {}", inspected.verdict()),
@@ -390,6 +431,7 @@ mod tests {
     fn every_refusal_says_what_it_refused() {
         for refusal in [
             Refusal::NoRoot,
+            Refusal::NothingJudged { discovered: 7 },
             Refusal::Unreachable(vec![String::from("x")]),
             Refusal::NotJudged {
                 path: String::from("flake.nix"),
