@@ -48,16 +48,28 @@ disallowed-methods = [
   # findable together. `sutura_runtime::spawn_carrying_span` is the same call with the span carried
   # across, and it holds the single `#[expect]` for this entry.
   { path = "tokio::task::spawn_blocking", reason = "the pool thread has no current span, so the request's context is lost; use sutura_runtime::spawn_carrying_span" },
-  # The ONE method on the `Warehouse` port that reaches a data system with no credential. It runs
-  # under whatever identity the deployment configured that adapter with, so a second call site is a
-  # second thing executing as the deployment - and `AnchorPlan` cannot stop that on its own, because
-  # every value its constructor reads is publicly constructible and Rust has no cross-crate friend
-  # visibility. What makes the path boot-only is therefore this entry: the single caller is
-  # `sutura_app::verify_anchors`, which holds the single `#[expect]`, and any other call is an error
-  # under `-D warnings` until somebody writes a second one a reviewer can see. Verified to resolve by
-  # writing the call and watching clippy reject it; the limit is that a lint is not a type, so it
-  # reaches this workspace and not a crate outside it.
-  { path = "sutura_domain::warehouse::Warehouse::verify_anchor", reason = "the only port method that executes with no credential; it belongs to the boot path alone, whose one call site holds the single #[expect]" },
+  # The TWO methods on the `Warehouse` port that reach a data system with no credential. Each runs
+  # under whatever identity the deployment configured that adapter with, so a further call site is a
+  # further thing executing as the deployment - and neither method's argument type can stop that on
+  # its own, because every value those constructors read is publicly constructible and Rust has no
+  # cross-crate friend visibility. What makes the path boot-only is therefore these entries: every
+  # other call is an error under `-D warnings` until somebody writes an `#[expect]` a reviewer can
+  # see. Verified to resolve by writing the call and watching clippy reject it; the limit is that a
+  # lint is not a type, so it reaches this workspace and not a crate outside it.
+  #
+  # **The COUNT is the part that rots**, and it did: this comment said ONE and the row below said
+  # *the only port method*, which stopped being true the moment a second credential-free method was
+  # added without an entry. That was `declared_key`, and for as long as it had no row here an
+  # unfiltered `COUNT(DISTINCT ..)` over a dimension table was callable from any request path, under
+  # the adapter's configured identity, outside every governance decision. **Nothing gates this
+  # file's completeness**, so a third such method is caught by a reviewer counting the port's
+  # credential-free methods against the rows here, and by nothing else.
+  { path = "sutura_domain::warehouse::Warehouse::verify_anchor", reason = "one of two port methods that execute with no credential; it belongs to the boot path alone, whose one call site holds an #[expect]" },
+  # The second, added with the cardinality boot check. The same argument, and one difference worth
+  # its line: an anchor is a range-filtered aggregate a catalog author chose, while this is an
+  # UNFILTERED `COUNT(DISTINCT ..)` over a whole dimension table - so an unbanned call site would be
+  # not only an ungoverned read but the most expensive shape of one.
+  { path = "sutura_domain::warehouse::Warehouse::declared_key", reason = "one of two port methods that execute with no credential; the boot check and the registry cell that measures it are the only callers, each holding an #[expect]" },
   # The one call that lets credential material out of `Secret`, and until #145 the only thing
   # holding it was its NAME. `docs/adr/0020` made logging a credential a compile error - `Secret`
   # has no `Display`, so a `%` tracing field does not build - and that record's own documentation

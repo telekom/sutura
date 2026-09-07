@@ -20,6 +20,7 @@ use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, TableName};
 use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
 use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::DataFusionError;
 
@@ -34,6 +35,22 @@ pub(crate) fn column(plan_column: &PlanColumn) -> Expr {
         Some(table_reference(plan_column.table())),
         plan_column.column().as_str(),
     ))
+}
+
+/// The two aggregates a declared key probe projects, under the domain's own labels.
+///
+/// **Aliased with `sutura-domain`'s constants rather than this crate's literals**, so the field name
+/// the engine puts on the batch is the name
+/// [`KeyUniqueness::read`](sutura_domain::warehouse::cardinality::KeyUniqueness::read) looks for -
+/// the same one-definition argument the SQL renderer makes for the same pair. Nulls are excluded by
+/// `COUNT` on both halves, which is the arithmetic the probe's own module argues for: a null key
+/// matches nothing, so two null rows duplicate nothing.
+pub(crate) fn key_counts(key: &DeclaredKey<'_>) -> Vec<Expr> {
+    let over = Expr::Column(Column::new(Some(table_reference(key.table().name())), key.column().as_str()));
+    vec![
+        count(over.clone()).alias(ROWS_LABEL),
+        count_distinct(over).alias(DISTINCT_LABEL),
+    ]
 }
 
 /// A table name, as the engine's reference type, without normalisation.
