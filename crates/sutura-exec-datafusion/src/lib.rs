@@ -251,7 +251,7 @@ mod leg;
 ///
 /// The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
 /// because it is a third seam, and because `lib.rs` is at the length gate.
-mod pool;
+pub mod pool;
 
 pub use crate::pool::WorkingSet;
 
