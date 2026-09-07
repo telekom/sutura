@@ -130,6 +130,8 @@ pub fn sql(&self) -> &str
 
 ## `use None`
 
+## `use None`
+
 ## Module `dialect`
 
 Which data system a statement is rendered for, and the two things we do not delegate.
@@ -855,3 +857,31 @@ path and not the other.
 **Nothing calls this from a binary.** There is no splitter, so no `LegPlan` is constructed
 outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
 statement per shape per dialect, parse-checked in the dialect it was generated for.
+
+### `fn generate_key_probe`
+
+```rust
+pub fn generate_key_probe(key: &sutura_domain::warehouse::cardinality::DeclaredKey<'_>, dialect: crate::dialect::Dialect) -> Result<crate::GeneratedQuery, GenerateError>
+```
+
+Renders one declared join key's uniqueness probe as one statement.
+
+**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
+`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
+and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
+`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
+answer a narrower question than the one the join path spends.
+
+**No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
+bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
+returned `GeneratedQuery` carries an empty parameter list rather than one this could fill.
+
+**No key value is projected**, which is the same decision the answer type makes and for the same
+reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
+source data copied into a sink nobody scoped for it.
+
+Shared with `generate` and `generate_leg`: `qualified`, `aliased`, `table_path` and
+`render`, so identifier quoting, column qualification and path depth cannot be one thing here
+and another there. The two aliases are `sutura-domain`'s constants rather than this crate's
+literals, so the label an adapter reads the count back under is the label the statement asked
+for.

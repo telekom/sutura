@@ -107,9 +107,12 @@ struct Leak {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-newtype-leaks: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::NewtypeLeaks)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-newtype-leaks: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
 
     let mut leaks: Vec<Leak> = Vec::new();

@@ -48,6 +48,14 @@ pub mod preflight;
 #[cfg(any(test, feature = "agreement"))]
 pub mod agreement;
 
+/// Whether a declared join key is really unique in the table it points at.
+///
+/// A module of its own for [`preflight`]'s reason - nothing in it is about a plan, a credential or
+/// a row - and its header carries the measurement that made the check necessary: one violated
+/// `many_to_one`, two topologies, two numbers, and a refusal from neither.
+pub mod cardinality;
+
+use crate::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use crate::warehouse::preflight::TablesPresent;
 
 /// A value bound to a placeholder.
@@ -814,6 +822,32 @@ pub trait Warehouse {
     /// the two and not the other is what a reviewer of that adapter has to look for.
     fn preflight_was_refused(&self, _error: &Self::Error) -> bool {
         false
+    }
+
+    /// Is a declared join key really unique in the table it points at?
+    ///
+    /// **Asked once, at boot**, for every relationship whose [`JoinType`](crate::model::JoinType)
+    /// promises that its target column identifies at most one row. The whole join path spends that
+    /// promise and spends it two different ways - a rendered `JOIN` on one data system, a lookup
+    /// leg's `GROUP BY` on two - so a table that contradicts it answers one question with two
+    /// numbers and refuses neither. [`cardinality`] carries the measurement and the arithmetic.
+    ///
+    /// **Defaulted to [`KeyUniqueness::NotAsked`], for [`preflight`](Warehouse::preflight)'s
+    /// reason**: an adapter with no cheap way to count must not be forced to answer, and the only
+    /// answers available to one that cannot look are nothing-to-report and a lie. So this is a
+    /// per-adapter capability rather than a guarantee of the port, and [`KeyUniqueness`] is shaped so
+    /// that no caller can read the default as verified.
+    ///
+    /// It takes no credential, for [`verify_anchor`](Warehouse::verify_anchor)'s reason: there is no
+    /// caller at boot. What it establishes is what the identity this adapter was configured with can
+    /// see, which is the same limit an anchor and a pre-flight each carry.
+    ///
+    /// # Errors
+    ///
+    /// A data system that could not be asked is an `Err`, never a clean count - [`TablesPresent`]'s
+    /// separation applied to this question, and for its reason.
+    fn declared_key(&self, _key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
+        Ok(KeyUniqueness::NotAsked)
     }
 }
 

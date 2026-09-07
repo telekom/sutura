@@ -424,6 +424,34 @@ therefore does not see.
   predicate answers at, and whether it is the granularity the claim is made at** - and expect the
   verdict to hide the difference, because this one stated the SCAN's size (`one of 223 test
   file(s)`) where the evidence was 16 files for one variant and exactly 1 for the other.
+- **"Does a run here reach this line" has THREE parts a per-line rule gets wrong separately**, all
+  three measured in `check-examples` at exit 0 after the first two levels were already built
+  (`telekom/sutura#400`). (1) The region must come from the attribute **BLOCK**, not from the
+  declaring attribute: `#[ignore]` is legal above `#[test]`, so a region anchored at `#[test]` left
+  the `#[ignore = ".."]` line one line above itself and a path named in the ignore's own REASON
+  STRING counted as a reach from a running test - rustfmt-stable, so nothing else moved it.
+  (2) "A run here" has a **scope**, and it is `[workspace] members`: vendored source that
+  `[workspace] exclude` keeps out of every venue still carries `#[test]`s, and a variant whose only
+  reach was `vendor/mimalloc_rust/src/lib.rs:73` passed. (3) A run-deciding attribute the scan
+  cannot evaluate - any `#[cfg(..)]` but the exact `#[cfg(test)]`, any `#[cfg_attr(..)]` - read as
+  running. **And the obvious remedy for (3) is wrong:** routing it to the gate's existing
+  fail-closed *unresolvable* arm turns the gate RED on the healthy tree, because eight cells in this
+  workspace are legitimately written under `#[cfg(feature = "bigquery")]` or its negation. Fail
+  closed for the **claim** instead - the cell is not evidence, and a variant whose only reach sits
+  in one fails on the variant - and the same attribute over a `mod` CONTAINING the cell is still
+  invisible. Transferable: when a rule is fail-closed, ask whether it fails closed on the *file* or
+  on the *claim*, because only the second one survives contact with a legitimate tree.
+- **Two counting guards, and each has an escape the other cannot see - measured as a pair.**
+  `check-examples` now compares (a) every path git publishes against the verdict each one got and
+  (b) the corpus's own length against its scan loop's counter. Both were needed: a silent
+  `continue` over 8 of 1170 paths gave `gave a verdict to 1162 of the 1170` with (a) on and
+  **exit 0 with the sentence still claiming all 1170** with (a) off; a `.take(60)` on the evidence
+  loop over 250 corpus files gave `looked at 60 of the 250` with (b) on and **exit 0** with (b)
+  off, and no other arm saw it because both variants' evidence sat inside the first 60. The third
+  instrument is the one a pair of counts cannot replace: a **set of names**, the manifest's member
+  list against the members the scan reached, which is what catches a SCOPE predicate that stopped
+  matching - `is_rust` narrowed to `lib.rs` leaves both counts equal and names two barren members.
+  See `telekom/sutura#414` for the class.
 - **`nix eval` is the authority for a flake's outputs and cannot be the mechanism here.** Weighed
   and rejected once, so it does not need weighing again: `check-workflows` runs inside
   `checks.hygiene`, a derivation with no nix and no network, and evaluating `checks` needs the

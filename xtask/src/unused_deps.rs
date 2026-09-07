@@ -52,7 +52,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         let Some(crate_dir) = Path::new(manifest).parent() else {
             continue;
         };
-        let identifiers = rust_identifiers_in(&root, crate_dir);
+        let identifiers = match rust_identifiers_in(&root, crate_dir) {
+            Ok(identifiers) => identifiers,
+            Err(why) => {
+                eprintln!("xtask unused-deps: FAILED - {name}: {why}");
+                return Verdict::Fail;
+            }
+        };
         let dependencies = package.get("dependencies").and_then(|d| d.as_array());
         for dependency in dependencies.into_iter().flatten() {
             let Some(dep_name) = dependency.get("name").and_then(|n| n.as_str()) else {
@@ -150,16 +156,22 @@ fn workspace_dependency_keys(manifest: &str) -> Vec<String> {
 /// Comments count as source, so naming a real dependency anywhere in a crate - including in
 /// a doc comment like this one - is enough to make it look used. That is why the names in
 /// this module's prose and fixtures are fictional.
-fn rust_identifiers_in(root: &Path, crate_dir: &Path) -> BTreeSet<String> {
-    let mut files = Vec::new();
-    repo::collect_files(root, crate_dir, &["rs"], &mut files);
+///
+/// Fails rather than returning a short set: this gate's whole answer is *no source names this
+/// dependency*, so a crate whose sources it could not enumerate reports every dependency as
+/// unused, and a crate it enumerated only PART of reports the rest as unused. Either way the
+/// verdict is about a tree it did not read.
+fn rust_identifiers_in(root: &Path, crate_dir: &Path) -> Result<BTreeSet<String>, String> {
+    let (_root, files) = repo::collect_files(root, crate_dir, &["rs"])
+        .into_listing(repo::Unmigrated::UnusedDeps)
+        .map_err(|why| why.describe())?;
     let mut identifiers = BTreeSet::new();
     for rel in &files {
         if let Ok(text) = std::fs::read_to_string(root.join(rel)) {
             identifiers.extend(tokenize(&text));
         }
     }
-    identifiers
+    Ok(identifiers)
 }
 
 /// Split text into maximal runs of `[A-Za-z0-9_]`.

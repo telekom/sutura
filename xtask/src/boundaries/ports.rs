@@ -94,9 +94,9 @@ pub(super) struct Report {
 
 /// Every caller of the driving port, scanned.
 pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        return Err(String::from("could not determine the repo root"));
-    };
+    let (root, files) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::Boundaries))
+        .map_err(|why| why.describe())?;
     let callers = callers_of_the_application(meta, &root)?;
     let mut problems = Vec::new();
     let mut declared: BTreeSet<(String, String)> = BTreeSet::new();

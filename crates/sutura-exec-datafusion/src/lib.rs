@@ -48,11 +48,12 @@ use std::sync::Arc;
 use datafusion::common::JoinType as EngineJoin;
 use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
-use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext};
+use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::{JoinType, QualifiedTable, SourceName, TableName};
 use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, RowSet, Value, Warehouse};
 
 /// Why this data system could not answer.
@@ -172,6 +173,16 @@ pub enum DataFusionError {
     /// and answering from it would return a number from a column nobody chose.
     #[error("the result columns are {actual:?}, and the plan's labels are {expected:?}")]
     SchemaMismatch { expected: Vec<String>, actual: Vec<String> },
+    /// A key probe's result was not the pair of counts its aggregate projects.
+    ///
+    /// A defect in this crate's aliasing or in its value mapping rather than anything about the
+    /// data - two aggregates over no group produce one row of two integers - and it travels as an
+    /// `Err` from the port, which the boot path reads as *this declaration went unchecked*.
+    #[error("the key probe did not come back as two counts")]
+    KeyCounts {
+        #[source]
+        cause: CountsNotRead,
+    },
     /// A predicate named a parameter index the plan does not have.
     ///
     /// Predicates are resolved by their recorded index rather than by position, so this is what a
@@ -256,7 +267,7 @@ pub mod pool;
 pub use crate::pool::WorkingSet;
 
 use crate::collect::{cell, outputs};
-use crate::translate::{bucket_expression, column, measure_expression, predicate, table_reference};
+use crate::translate::{bucket_expression, column, key_counts, measure_expression, predicate, table_reference};
 
 /// An in-process engine, behind the [`Warehouse`] port.
 pub struct DataFusionWarehouse {
@@ -611,29 +622,68 @@ impl DataFusionWarehouse {
         // then the two are compared. Building the result set from `result_labels` directly would
         // make a projection that came back a different shape look correct.
         let expected = plan.result_labels();
-        let actual: Vec<String> = frame
-            .schema()
-            .fields()
-            .iter()
-            .map(|f| String::from(f.name().as_str()))
-            .collect();
+        let actual = labels_of(&frame);
         if actual != expected {
             return Err(DataFusionError::SchemaMismatch { expected, actual });
         }
 
-        let batches = frame.collect().await.map_err(|cause| DataFusionError::Execute { cause })?;
-        let mut out: Vec<Vec<Value>> = Vec::new();
-        for batch in &batches {
-            for row in 0..batch.num_rows() {
-                let mut cells = Vec::with_capacity(batch.num_columns());
-                for (array, label) in batch.columns().iter().zip(actual.iter()) {
-                    cells.push(cell(label, array.as_ref(), row)?);
-                }
-                out.push(cells);
-            }
-        }
-        RowSet::new(actual, out).map_err(|cause| DataFusionError::Shape { cause })
+        collected(frame, actual).await
     }
+
+    /// Counts a declared join key's values and its distinct values, in one aggregate.
+    ///
+    /// No filter, no group and no ordering: what a `many_to_one` promises is unconditional, so a
+    /// probe that narrowed itself would answer a different question than the one the join path
+    /// spends. The two aggregates carry the domain's own labels - `translate::key_counts` is where -
+    /// so the field names on the batch are the ones the counts are read back under.
+    async fn key_uniqueness(&self, key: &DeclaredKey<'_>) -> Result<KeyUniqueness, DataFusionError> {
+        let scan = self.scan(key.table()).await?;
+        let logical = LogicalPlanBuilder::from(scan)
+            .aggregate(Vec::<Expr>::new(), key_counts(key))
+            .and_then(LogicalPlanBuilder::build)
+            .map_err(|cause| DataFusionError::Build { cause })?;
+        let frame = self
+            .context
+            .execute_logical_plan(logical)
+            .await
+            .map_err(|cause| DataFusionError::Analyze { cause })?;
+        let labels = labels_of(&frame);
+        let rows = collected(frame, labels).await?;
+        KeyUniqueness::read(&rows).map_err(|cause| DataFusionError::KeyCounts { cause })
+    }
+}
+
+/// The field names a frame's own schema carries, which is what a result set is labelled by.
+///
+/// Read off the frame rather than off whatever asked for it, so a projection that came back a
+/// different shape cannot be relabelled into the shape the caller wanted.
+fn labels_of(frame: &DataFrame) -> Vec<String> {
+    frame
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| String::from(f.name().as_str()))
+        .collect()
+}
+
+/// A frame's batches, as one result set under `labels`.
+///
+/// **One collector for both the answer path and the boot probe**, so the Arrow-to-domain mapping
+/// cannot be one thing for a question and another for a check. `labels` is passed in rather than
+/// re-read because the answer path has already compared it against the plan's own.
+async fn collected(frame: DataFrame, labels: Vec<String>) -> Result<RowSet, DataFusionError> {
+    let batches = frame.collect().await.map_err(|cause| DataFusionError::Execute { cause })?;
+    let mut out: Vec<Vec<Value>> = Vec::new();
+    for batch in &batches {
+        for row in 0..batch.num_rows() {
+            let mut cells = Vec::with_capacity(batch.num_columns());
+            for (array, label) in batch.columns().iter().zip(labels.iter()) {
+                cells.push(cell(label, array.as_ref(), row)?);
+            }
+            out.push(cells);
+        }
+    }
+    RowSet::new(labels, out).map_err(|cause| DataFusionError::Shape { cause })
 }
 
 impl Warehouse for DataFusionWarehouse {
@@ -709,6 +759,19 @@ impl Warehouse for DataFusionWarehouse {
     /// [`AnchorRows`] is what keeps the result from being handed back to a caller as an answer.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         self.runtime()?.block_on(self.rows(plan.plan())).map(AnchorRows::of)
+    }
+
+    /// Counts a declared join key's values and its distinct values, in this process.
+    ///
+    /// **Overridden rather than defaulted, and this is the adapter where it matters most:** it is
+    /// what a released binary links, so without it the check would exist on nothing a deployment
+    /// runs. The cost argument the missing `dry_run` makes does not apply - a probe is one aggregate
+    /// over one column, not most of an answer computed twice.
+    ///
+    /// No credential, for [`Warehouse::verify_anchor`]'s reason: there is no caller at boot, and for
+    /// this adapter that is not a limitation but the only truth available.
+    fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
+        self.runtime()?.block_on(self.key_uniqueness(&key))
     }
 
     /// The one question the domain asks about this adapter's error, answered from the one variant

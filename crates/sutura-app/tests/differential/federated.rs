@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_app::Validated;
 use sutura_domain::model::SourceName;
-use sutura_domain::pinned::{PinnedDefinitions, Provenance, SemanticCatalog as _};
+use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::{RowSet, Value};
@@ -60,7 +60,10 @@ use crate::adapters::{a_caller, posture, shared_credential, source, version};
 #[path = "federated/corpus.rs"]
 mod corpus;
 
-use corpus::{LOOKUP_SOURCE, derived, derived_question, every_question, lookup_source};
+use corpus::{
+    A_DUPLICATED_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, every_question, lookup_source, violated,
+    with_null_keys,
+};
 
 /// An amount of working set no question in this corpus comes near, so only a defect refuses.
 ///
@@ -69,6 +72,13 @@ use corpus::{LOOKUP_SOURCE, derived, derived_question, every_question, lookup_so
 const BUDGET: u64 = 1 << 30;
 
 // ------------------------------------------------------------------------- opening the sides ---
+
+/// A bundle that may not have validated, beside the registry that judged it.
+///
+/// A named pair rather than an inline tuple, which the complexity threshold in `clippy.toml` catches
+/// and is right to: the two halves are *what the boot path decided* and *what it asked*, and a bare
+/// two-element tuple says which is which nowhere.
+type Attempted<W> = (Result<Validated<PinnedDefinitions>, NotValidated>, sutura_app::Warehouses<W>);
 
 /// One bundle, loaded through the real markdown adapter over a derived catalog.
 fn bundle(catalog: &Path) -> PinnedDefinitions {
@@ -84,6 +94,18 @@ fn bundle(catalog: &Path) -> PinnedDefinitions {
 /// makes "this side reproduces its own certified numbers" a precondition of the comparison rather
 /// than a separate test.
 fn one_source(pinned: PinnedDefinitions) -> Side<sutura_exec_datafusion::DataFusionWarehouse> {
+    let (bundle, warehouses) = validating_on_one_source(&derived().data, pinned);
+    Side {
+        bundle: bundle.expect("the anchors and the declarations hold on one source"),
+        warehouses,
+    }
+}
+
+/// The one-source registry, and whatever the bundle validated to.
+///
+/// Split out of [`one_source`] so the violated corpus can read the `Err` this one unwraps. Nothing
+/// else differs: the same engine, the same tables, the same one call that mints the proof.
+fn validating_on_one_source(data: &Path, pinned: PinnedDefinitions) -> Attempted<sutura_exec_datafusion::DataFusionWarehouse> {
     let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
     let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
         source(),
@@ -91,14 +113,14 @@ fn one_source(pinned: PinnedDefinitions) -> Side<sutura_exec_datafusion::DataFus
         sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
     )
     .expect("an in-process engine starts");
-    for (table, csv) in tables_on(&source(), &pinned) {
+    for (table, csv) in tables_on(data, &source(), &pinned) {
         engine
             .attach_csv(&table, &csv)
             .unwrap_or_else(|e| panic!("the engine could not attach {}: {e}", csv.display()));
     }
     let warehouses = sutura_app::Warehouses::of(engine);
-    let bundle = sutura_app::verify_and_validate(pinned, &warehouses).expect("the anchors hold on one source");
-    Side { bundle, warehouses }
+    let validated = sutura_app::verify_and_validate(pinned, &warehouses);
+    (validated, warehouses)
 }
 
 /// The two-source side: one `DuckDB` per source, each holding only its own tables.
@@ -107,11 +129,21 @@ fn one_source(pinned: PinnedDefinitions) -> Side<sutura_exec_datafusion::DataFus
 /// split: neither statement CAN reach the other side's table, so a join across them has to
 /// happen above the port or not at all.
 fn two_sources(pinned: PinnedDefinitions) -> Side<sutura_exec_duckdb::DuckDbWarehouse> {
-    let warehouses = sutura_app::Warehouses::of(duckdb_on(&source(), &pinned))
-        .and(duckdb_on(&lookup_source(), &pinned))
+    let (bundle, warehouses) = validating_on_two_sources(&derived().data, pinned);
+    Side {
+        bundle: bundle.expect("the anchors and the declarations hold on two sources"),
+        warehouses,
+    }
+}
+
+/// The two-source registry, and whatever the bundle validated to. [`validating_on_one_source`]'s
+/// twin, for its reason.
+fn validating_on_two_sources(data: &Path, pinned: PinnedDefinitions) -> Attempted<sutura_exec_duckdb::DuckDbWarehouse> {
+    let warehouses = sutura_app::Warehouses::of(duckdb_on(data, &source(), &pinned))
+        .and(duckdb_on(data, &lookup_source(), &pinned))
         .expect("two sources, one registry");
-    let bundle = sutura_app::verify_and_validate(pinned, &warehouses).expect("the anchors hold on two sources");
-    Side { bundle, warehouses }
+    let validated = sutura_app::verify_and_validate(pinned, &warehouses);
+    (validated, warehouses)
 }
 
 /// One side of the differential: a bundle whose anchors it reproduced, and what answers it.
@@ -120,9 +152,9 @@ struct Side<W> {
     warehouses: sutura_app::Warehouses<W>,
 }
 
-fn duckdb_on(name: &SourceName, pinned: &PinnedDefinitions) -> sutura_exec_duckdb::DuckDbWarehouse {
+fn duckdb_on(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> sutura_exec_duckdb::DuckDbWarehouse {
     let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory(name.clone(), posture()).expect("an in-memory database opens");
-    let attached = tables_on(name, pinned);
+    let attached = tables_on(data, name, pinned);
     assert!(!attached.is_empty(), "no model in the derived bundle sits on {name}");
     for (table, csv) in attached {
         warehouse
@@ -133,7 +165,10 @@ fn duckdb_on(name: &SourceName, pinned: &PinnedDefinitions) -> sutura_exec_duckd
 }
 
 /// Every table on one data system, and the CSV behind it.
-fn tables_on(name: &SourceName, pinned: &PinnedDefinitions) -> Vec<(sutura_domain::model::TableName, PathBuf)> {
+///
+/// The data directory is a parameter rather than [`derived`]'s, because this file now derives two
+/// corpora: the one every question is answered over, and the one whose `many_to_one` is violated.
+fn tables_on(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> Vec<(sutura_domain::model::TableName, PathBuf)> {
     pinned
         .definitions()
         .models()
@@ -141,7 +176,7 @@ fn tables_on(name: &SourceName, pinned: &PinnedDefinitions) -> Vec<(sutura_domai
         .filter(|model| model.source() == name)
         .map(|model| {
             let table = model.table_name().clone();
-            let csv = derived().data.join(format!("{table}.csv"));
+            let csv = data.join(format!("{table}.csv"));
             (table, csv)
         })
         .collect()
@@ -443,6 +478,131 @@ fn a_subgroup_with_no_denominator_is_null_and_its_neighbours_are_not() {
         cells.iter().any(|cell| !matches!(**cell, Value::Null)),
         "{name}: every subgroup was null, so this says nothing about a zero reaching its neighbours: {rows:?}"
     );
+}
+
+/// **`telekom/sutura#354`, from both ends: a violated `many_to_one` and no answer at all.**
+///
+/// The corpus this reads is [`violated`] - the shared one plus a second, identical row for a
+/// customer key that already had one. Before the boot check, both topologies ANSWERED it and their
+/// answers were different numbers: the one-source `JOIN` matched twice and added the measure twice,
+/// while the two-source lookup leg's `GROUP BY` collapsed the pair first, so the same question came
+/// back as `29138` and as `22765` and neither side refused. `AmbiguousLink` cannot close that
+/// half - it fires on lookup rows that DISAGREE, and this pair agrees.
+///
+/// What is asserted is therefore the thing that makes the two topologies agree again: **neither
+/// bundle validates**, both name the same relationship, the same table and the same column, and no
+/// key value appears in either message. A deployment that moves the dimension model to a second data
+/// system gets the same refusal it got before it moved.
+///
+/// **What this does NOT establish**, and it is the same limit the rest of this file carries: both
+/// sides run under one operating-system identity, and `DuckDB` is a development dependency. What is
+/// measured is the implemented path. It also measures exactly two adapters - the engine a release
+/// links and the embedded database this differential runs legs on; an adapter that takes the port's
+/// default answers `NotAsked` and this bundle would validate on it.
+#[test]
+fn a_violated_cardinality_declaration_is_refused_by_both_topologies() {
+    let violated = violated();
+    // The instrument's own control: the derived corpus really does hold two rows for one key, so a
+    // refusal below is about the declaration rather than about a corpus that failed to derive.
+    let duplicated = std::fs::read_to_string(violated.data.join(A_DUPLICATED_KEY.0))
+        .expect("the violated corpus has a dimension file")
+        .matches(A_DUPLICATED_KEY.1.trim_end())
+        .count();
+    assert_eq!(
+        duplicated, 2,
+        "the violated corpus must hold the duplicated dimension row twice, or nothing below is about a \
+         violated declaration"
+    );
+
+    let (one, _) = validating_on_one_source(&violated.data, bundle(&violated.one_source));
+    let (two, _) = validating_on_two_sources(&violated.data, bundle(&violated.two_source));
+    for (topology, refused) in [("one source", one), ("two sources", two)] {
+        let refused = refused
+            .err()
+            .unwrap_or_else(|| panic!("{topology}: a bundle whose declared join key the data contradicts must not validate"));
+        let NotValidated::DeclaredKeyNotUnique(ref violation) = refused else {
+            panic!("{topology}: a violated declaration is refused as one, not as {refused:?}");
+        };
+        assert_eq!(violation.relationship().as_str(), "subscription_customer", "{topology}");
+        assert_eq!(violation.column().as_str(), "customer_key", "{topology}");
+        // Forty customers and one of them twice, which is the corpus this derivation makes.
+        assert_eq!(violation.counts().rows(), 41, "{topology}");
+        assert_eq!(violation.counts().distinct(), 40, "{topology}");
+        // The counts locate the table, and the message names it.
+        let said = refused.to_string();
+        assert!(said.contains("dim_customer"), "{topology}: {said}");
+        // **What this does NOT prove, said here rather than left to read as proof.** An earlier
+        // version asserted `!said.contains("C0002")` and review pointed out that it is structurally
+        // unfailable: `KeyNotUnique` is built from a `DeclaredKey` plus two integers, so no field on
+        // it can hold a cell of the dimension table and no edit to this file could make that
+        // assertion fail. The claim *no key value reaches an operator's log* is held by the TYPE -
+        // its five fields and its `Display` - and by review of them, not by a line here. What is
+        // asserted instead is the positive half, which can fail: every part of the message is one of
+        // those five fields.
+        for part in ["subscription_customer", "customers", "customer_key", "41", "40"] {
+            assert!(said.contains(part), "{topology}: the refusal must name {part}: {said}");
+        }
+    }
+}
+
+/// **A dimension row whose join key is ABSENT is not a duplicate, and the probe must not say it is.**
+///
+/// The other half of the arithmetic the boot check rests on. `COUNT(col)` beside
+/// `COUNT(DISTINCT col)` skips nulls on both sides; a probe written with `COUNT(*)` would count the
+/// two appended rows and refuse this deployment over rows that can join to nothing - a FALSE refusal
+/// at startup, which is the loud direction but still a deployment that will not start.
+///
+/// **The control comes first**, because the assertion is that something did NOT happen: without it,
+/// a corpus that failed to derive would pass this cell by holding no null key at all. So the file is
+/// read and the two facts the case needs are asserted on it - two rows with an empty key, and no
+/// duplicate among the rest - before either topology is asked.
+#[test]
+fn a_dimension_row_with_no_join_key_is_not_counted_as_a_duplicate() {
+    let corpus = with_null_keys();
+    let text =
+        std::fs::read_to_string(corpus.data.join(NULL_DIMENSION_KEYS.0)).expect("the null-key corpus has a dimension file");
+    let keys: Vec<&str> = text
+        .lines()
+        .skip(1)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.split(',').next().unwrap_or_default())
+        .collect();
+    let absent = keys.iter().filter(|key| key.is_empty()).count();
+    let mut present: Vec<&&str> = keys.iter().filter(|key| !key.is_empty()).collect();
+    let rows_with_a_key = present.len();
+    present.sort_unstable();
+    present.dedup();
+    assert_eq!(
+        absent, 2,
+        "the null-key corpus must hold two rows with no join key, or this proves nothing"
+    );
+    assert_eq!(
+        present.len(),
+        rows_with_a_key,
+        "the null-key corpus must hold no DUPLICATE key, or a refusal below would be about the wrong thing"
+    );
+    // The number a `COUNT(*)` probe would compare against `COUNT(DISTINCT ..)`, stated so the
+    // difference this cell is about is visible rather than implied.
+    assert_eq!(
+        keys.len(),
+        present.len() + absent,
+        "the two counts a wrong probe would disagree on are these"
+    );
+
+    for (topology, validated) in [
+        (
+            "one source",
+            validating_on_one_source(&corpus.data, bundle(&corpus.one_source)).0,
+        ),
+        (
+            "two sources",
+            validating_on_two_sources(&corpus.data, bundle(&corpus.two_source)).0,
+        ),
+    ] {
+        if let Err(refused) = validated {
+            panic!("{topology}: a null join key duplicates no fact row, so this bundle must validate: {refused}");
+        }
+    }
 }
 
 enum Federated {

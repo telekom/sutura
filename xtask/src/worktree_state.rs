@@ -67,7 +67,7 @@
 
 mod scan;
 
-use scan::{Keyed, Language, Taking};
+use scan::{Keyed, Taking};
 
 use crate::{Verdict, repo};
 
@@ -107,9 +107,8 @@ use crate::{Verdict, repo};
 /// the same reason: an invariant a caller has to remember is one the compiler is not holding.
 #[derive(Debug)]
 struct Inspected {
-    /// Files the caller's own list offered, counted before the loop's list existed.
-    offered_files: usize,
-    /// Files the loop actually read.
+    /// Files the loop read. Kept for the anchor check and the verdict line; the file-level
+    /// CONSERVATION is `crate::repo::census`'s now - see [`Inspected::of`].
     read_files: usize,
     /// What the independent per-taking count offered.
     discovered: usize,
@@ -123,32 +122,28 @@ struct Inspected {
 }
 
 impl Inspected {
-    /// The only constructor. Refuses unless the walk reached every file and every taking has
+    /// The only constructor. Refuses unless the lexer reached every line and every taking has
     /// exactly one answer.
-    fn of(
-        offered_files: usize,
-        read: &[String],
-        lines: (usize, usize),
-        discovered: usize,
-        adjudicated: Vec<(Taking, Keyed)>,
-    ) -> Result<Self, String> {
+    ///
+    /// **The per-FILE law left this type in #419's merge, and it went somewhere stronger.** It
+    /// compared two numbers this gate derived itself, so it could only see a loop this gate
+    /// narrowed - never a walk that failed to OFFER a file, which is the 86-files-vanish finding
+    /// this PR published as a stated limit. `crate::repo::census::Census` holds that level now:
+    /// the loop lives inside `inspect`, so `.take(n)` has nowhere to be written, and an
+    /// unreachable subject from the walk itself is a refusal rather than a silent `continue`.
+    /// Restating it here would be a second derivation of a weaker claim.
+    fn of(read: &[String], lines: (usize, usize), discovered: usize, adjudicated: Vec<(Taking, Keyed)>) -> Result<Self, String> {
         let read_files = read.len();
-        // THE THIRD LAW, over how much of each file the lexer reached. `telekom/sutura#414`
-        // measured a truncated extraction leaving the other two agreeing and every anchor
-        // satisfied, because both of them take their numbers from the same lexer and an anchor
-        // asserts a file was OPENED rather than read in full.
+        // THE LINE LAW, over how much of each file the lexer reached. `telekom/sutura#414`
+        // measured a truncated extraction leaving the file law and every anchor satisfied,
+        // because both take their numbers from the same lexer and an anchor asserts a file was
+        // OPENED rather than read in full. The census cannot see this either: a file judged to
+        // hold no taking is judged, whatever fraction of it was lexed.
         if lines.0 != lines.1 {
             return Err(format!(
                 "the files in scope hold {} line(s) and the lexer reached {}. A verdict over part \
                  of a file is the same subset defect one level down from a narrowed walk",
                 lines.0, lines.1
-            ));
-        }
-        if offered_files != read_files {
-            return Err(format!(
-                "{offered_files} file(s) are in this gate's scope and the walk read {read_files}. \
-                 A narrowed walk is a verdict about a tree the message names and the scan never \
-                 reached"
             ));
         }
         if discovered != adjudicated.len() {
@@ -160,7 +155,6 @@ impl Inspected {
             ));
         }
         Ok(Self {
-            offered_files,
             read_files,
             lines,
             // AN ANCHOR, and it is the arm neither count can reach: both numbers come off
@@ -188,10 +182,11 @@ impl Inspected {
         self.discovered
     }
 
-    /// How many files were offered, and how many the walk read - equal by construction, printed
-    /// as a pair for the same reason the taking counts are.
-    const fn files(&self) -> (usize, usize) {
-        (self.read_files, self.offered_files)
+    /// How many files this gate judged. The file-level conservation is the census's, so this is
+    /// the read count alone rather than a pair: printing `N of N` here would restate a law this
+    /// type no longer holds.
+    const fn files(&self) -> usize {
+        self.read_files
     }
 
     /// How many were adjudicated. Equal to [`Inspected::discovered`] by construction, and printed
@@ -271,70 +266,85 @@ fn decide(inspected: &Inspected) -> Decision {
 
 /// The gate.
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-worktree-state: could not determine the repo root");
-        return Verdict::Fail;
+    let census = match repo::all_files() {
+        Ok(census) => census,
+        Err(refusal) => {
+            eprintln!("xtask check-worktree-state: FAILED - {}", refusal.describe());
+            return Verdict::Fail;
+        }
     };
-
-    // THE FILE FLOOR IS COUNTED OVER THE CALLER'S OWN LIST, before the loop's list exists - see
-    // `Inspected`'s header for the measurement that makes this a separate expression rather than
-    // `in_scope.len()`.
-    let offered_files = files.iter().filter(|rel| scan::language_of(rel).is_some()).count();
-
-    let in_scope: Vec<(String, Language)> = files
-        .iter()
-        .filter_map(|rel| scan::language_of(rel).map(|language| (rel.clone(), language)))
-        .collect();
-
-    // FAIL CLOSED ON AN EMPTY SCOPE. This gate's subject is first-party Rust and the shell that
-    // gates it; a tree holding neither is not a clean tree, it is a tree this gate has not read.
-    if in_scope.is_empty() {
-        eprintln!("xtask check-worktree-state: FAILED - no file in this gate's scope");
-        eprintln!("  It reads `.rs` under crates/, xtask/ and dev/, and `.sh` under nix/.");
-        eprintln!("  A scan that opened none of those attests nothing. Check the workspace root.");
-        return Verdict::Fail;
-    }
+    // Cloned before `inspect` consumes the census, because the closure needs a root to join to
+    // and `Census` deliberately hands out no iterator to carry one alongside.
+    let root = census.root().to_path_buf();
 
     let mut offered = 0_usize;
     let mut read: Vec<String> = Vec::new();
     let mut lines = (0_usize, 0_usize);
     let mut adjudicated: Vec<(Taking, Keyed)> = Vec::new();
     let mut languages: Vec<(&'static str, usize)> = Vec::new();
-    for (rel, language) in &in_scope {
-        // FAIL CLOSED ON ONE UNREADABLE FILE, not only on every file being unreadable.
-        // `sutura/gates` records that exact difference three times: *cannot say which* closed and
-        // *cannot look at all* left open, with the floor satisfied by the files that did read.
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            eprintln!("xtask check-worktree-state: FAILED - could not read {rel}");
-            eprintln!("  A file in scope that this gate cannot open is a verdict over a subset.");
-            return Verdict::Fail;
+
+    // **`must_judge` IS EMPTY HERE, AND THAT IS THE ONE REVIEWABLE CHOICE IN THIS MIGRATION.**
+    // `crate::repo::census` refuses a missed anchor INSIDE `inspect`, ahead of the caller's rule.
+    // This gate cannot take that order: `dd5a7348` fixed a defect of exactly that shape, where an
+    // anchor refusal sitting ahead of the rule made the verdict over `crate::falsifier`'s tree -
+    // where no anchor can exist - come from a MISSING INPUT rather than from this gate's own rule,
+    // which is precisely the distinction `telekom/sutura#405`'s property 4 asks for and which only
+    // three of the registered gates manage. So the SAME anchor set, `scan::MUST_READ`, is still
+    // checked - carried by `Inspected` and reported by `decide` AFTER a violation. Same subjects,
+    // same strictness, and the precedence the issue requires.
+    let counted = census.inspect(&[], |rel| {
+        let Some(language) = scan::language_of(rel) else {
+            return repo::Looked::OutOfScope;
         };
-        read.push(rel.clone());
-        let (raw, lexed) = scan::covered(*language, &text);
+        // FAIL CLOSED ON ONE UNREADABLE FILE, not only on every file being unreadable.
+        // `sutura/gates` records that exact difference three times. It is `Looked::Unreachable`
+        // rather than this gate's own `eprintln!` now, so the refusal is the census's and a
+        // mis-labelled `OutOfScope` would be the only way to hide it - which is review's business,
+        // as that type's own header says.
+        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+            return repo::Looked::Unreachable(format!(
+                "could not read `{rel}`, a file in this gate's scope - a verdict over a subset"
+            ));
+        };
+        read.push(String::from(rel));
+        let (raw, lexed) = scan::covered(language, &text);
         lines = (lines.0.saturating_add(raw), lines.1.saturating_add(lexed));
-        offered = offered.saturating_add(scan::offered(*language, &text));
-        adjudicated.extend(scan::takings(rel, *language, &text));
+        offered = offered.saturating_add(scan::offered(language, &text));
+        adjudicated.extend(scan::takings(rel, language, &text));
         let label = language.label();
         match languages.iter_mut().find(|(name, _)| *name == label) {
             Some((_, count)) => *count = count.saturating_add(1),
             None => languages.push((label, 1)),
         }
-    }
+        repo::Looked::Judged
+    });
+    // The file half of the witness is the census's now, and it is STRICTLY STRONGER than the law
+    // it replaces: this gate's own per-file law compared two numbers it derived itself, so it could
+    // not see a walk that never offered the file - the 86-files-vanish finding this PR published as
+    // a limit. `Refusal::NothingJudged` is also the empty-scope arm this gate used to spell itself.
+    let counted = match counted {
+        Ok(counted) => counted,
+        Err(refusal) => {
+            eprintln!("xtask check-worktree-state: FAILED - {}", refusal.describe());
+            return Verdict::Fail;
+        }
+    };
 
-    // FAIL CLOSED ON AN EMPTY SCAN. Measured on the tree this landed on: 36 root takings and 19
-    // rooted literals. A run that found none read something other than this repository, and
-    // `ok - 0 taking(s)` is a sentence about a tree it never saw.
+    // FAIL CLOSED ON AN EMPTY SCAN. Measured on the tree this landed on: dozens of takings. A run
+    // that found none read something other than this repository, and `ok - 0 taking(s)` is a
+    // sentence about a tree it never saw. The census cannot see this: it counts FILES judged, and
+    // a file judged to hold no taking is judged.
     if offered == 0 {
         eprintln!(
             "xtask check-worktree-state: FAILED - no taking of a machine-shared root in {} file(s)",
-            in_scope.len()
+            read.len()
         );
         eprintln!("  This workspace has dozens. A scan that found none is a broken scan, not a");
         eprintln!("  clean tree - the rule would then be checking nothing at all.");
         return Verdict::Fail;
     }
 
-    let inspected = match Inspected::of(offered_files, &read, lines, offered, adjudicated) {
+    let inspected = match Inspected::of(&read, lines, offered, adjudicated) {
         Ok(witness) => witness,
         Err(why) => {
             eprintln!("xtask check-worktree-state: FAILED - {why}");
@@ -355,16 +365,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // ONE EXHAUSTIVE MATCH over `Decision`, so a fourth outcome cannot be answered by an `else`.
     match decide(&inspected) {
         Decision::Clean => {
-            let (read, offered_files) = inspected.files();
             let (offered_lines, lexed_lines) = inspected.lines();
             println!(
-                "xtask check-worktree-state: ok - inspected {} of {} taking(s) ({}) over {read} of \
-                 {offered_files} file(s) ({}), {lexed_lines} of {offered_lines} line(s) lexed",
+                "xtask check-worktree-state: ok - inspected {} of {} taking(s) ({}) over {} file(s) \
+                 ({}), {lexed_lines} of {offered_lines} line(s) lexed",
                 inspected.inspected(),
                 inspected.discovered(),
                 holders.join(", "),
+                inspected.files(),
                 scanned.join(", ")
             );
+            // THE CENSUS'S OWN SENTENCE, printed rather than paraphrased: `judged + out_of_scope
+            // == discovered` is its invariant and it owns the wording, so this gate cannot state a
+            // file-level number the walk did not reach.
+            println!("  discovery: {}", counted.verdict());
             Verdict::Pass
         }
         Decision::MissedAnchors => {
@@ -455,7 +469,7 @@ mod tests {
         // type rather than a sentence beside it.
         let one = vec![(taking(1), Keyed::Process)];
         assert!(
-            Inspected::of(1, &anchors(), (9, 9), 2, one).is_err(),
+            Inspected::of(&anchors(), (9, 9), 2, one).is_err(),
             "a subset must not mint a witness"
         );
     }
@@ -467,8 +481,8 @@ mod tests {
         // OPENED rather than read in full. Measured on a sibling: 40 of 67 takings unread at exit 0
         // with every floor satisfied.
         let one = vec![(taking(1), Keyed::Process)];
-        let refused = Inspected::of(anchors().len(), &anchors(), (115_088, 624), 1, one)
-            .expect_err("a partially lexed tree must not mint a witness");
+        let refused =
+            Inspected::of(&anchors(), (115_088, 624), 1, one).expect_err("a partially lexed tree must not mint a witness");
         assert!(
             refused.contains("part \nof a file") || refused.contains("part of a file"),
             "{refused}"
@@ -476,25 +490,12 @@ mod tests {
     }
 
     #[test]
-    fn the_witness_refuses_a_walk_that_read_fewer_files_than_the_scope_offered() {
-        // THE SECOND LAW, at the level a single one cannot see. Measured on a sibling gate: a floor
-        // computed off the loop's own traversal moved WITH a `.take(100)` and 99.46% of the walk
-        // was dropped at exit 0. Both takings here are adjudicated, so the per-taking law is
-        // satisfied and only this one can refuse.
-        let one = vec![(taking(1), Keyed::Process)];
-        assert!(
-            Inspected::of(156, &anchors(), (9, 9), 1, one).is_err(),
-            "a narrowed walk must not mint a witness"
-        );
-    }
-
-    #[test]
     fn the_witness_prints_the_numbers_its_scan_reached() {
         let two = vec![(taking(1), Keyed::Process), (taking(9), Keyed::Worktree)];
-        let witness = Inspected::of(anchors().len(), &anchors(), (9, 9), 2, two).expect("two offered, two adjudicated");
+        let witness = Inspected::of(&anchors(), (9, 9), 2, two).expect("two offered, two adjudicated");
         assert_eq!(witness.discovered(), 2);
         assert_eq!(witness.inspected(), 2);
-        assert_eq!(witness.files(), (anchors().len(), anchors().len()));
+        assert_eq!(witness.files(), anchors().len());
         assert!(witness.shared().is_empty());
         assert_eq!(witness.by_holder(), vec![("process", 1), ("worktree", 1)]);
     }
@@ -506,7 +507,7 @@ mod tests {
             (taking(4), Keyed::Unwritten),
             (taking(7), Keyed::Shared),
         ];
-        let witness = Inspected::of(anchors().len(), &anchors(), (9, 9), 3, mixed).expect("three offered, three adjudicated");
+        let witness = Inspected::of(&anchors(), (9, 9), 3, mixed).expect("three offered, three adjudicated");
         let shared = witness.shared();
         assert_eq!(shared.len(), 2);
         assert_eq!(shared.iter().map(|t| t.line).collect::<Vec<usize>>(), vec![1, 7]);
@@ -523,7 +524,7 @@ mod tests {
         // number.
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let one = vec![(taking(1), Keyed::Process)];
-        let witness = Inspected::of(short.len(), &short, (9, 9), 1, one).expect("the counts agree");
+        let witness = Inspected::of(&short, (9, 9), 1, one).expect("the counts agree");
         assert_eq!(witness.missed(), [scan::MUST_READ[0]]);
         assert_eq!(super::decide(&witness), super::Decision::MissedAnchors);
     }
@@ -538,7 +539,7 @@ mod tests {
         // file and its line. `telekom/sutura#405`'s property 4 is exactly that distinction.
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let shared = vec![(taking(2), Keyed::Shared)];
-        let witness = Inspected::of(short.len(), &short, (9, 9), 1, shared).expect("the counts agree");
+        let witness = Inspected::of(&short, (9, 9), 1, shared).expect("the counts agree");
         assert!(!witness.missed().is_empty(), "the fixture must also miss an anchor");
         assert_eq!(super::decide(&witness), super::Decision::Violations);
     }
@@ -546,7 +547,7 @@ mod tests {
     #[test]
     fn a_clean_scan_that_read_every_anchor_is_the_only_pass() {
         let one = vec![(taking(1), Keyed::Process)];
-        let witness = Inspected::of(anchors().len(), &anchors(), (9, 9), 1, one).expect("the counts agree");
+        let witness = Inspected::of(&anchors(), (9, 9), 1, one).expect("the counts agree");
         assert!(witness.missed().is_empty());
         assert_eq!(super::decide(&witness), super::Decision::Clean);
     }
@@ -611,7 +612,7 @@ mod tests {
         // would still be a hole, so this walks the whole set and asserts each one lands somewhere
         // a reader sees: either in the violation list or in the holder breakdown.
         for keyed in [Keyed::Worktree, Keyed::Process, Keyed::Unwritten, Keyed::Shared] {
-            let witness = Inspected::of(anchors().len(), &anchors(), (9, 9), 1, vec![(taking(1), keyed)]).expect("one and one");
+            let witness = Inspected::of(&anchors(), (9, 9), 1, vec![(taking(1), keyed)]).expect("one and one");
             assert_eq!(
                 witness.shared().len(),
                 usize::from(keyed.is_shared()),

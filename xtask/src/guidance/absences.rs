@@ -732,9 +732,9 @@ mod tests {
         // three entries the gate actually ships were exercised by nothing. Every sibling in this
         // gate has this test - `constants.rs`, `advice.rs`, `claims.rs`, `guidance.rs` - and each
         // states its floor rather than only its emptiness.
-        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
-            panic!("could not locate the repo");
-        };
+        let (root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
+            .expect("could not locate the repo");
         assert!(!super::ABSENCES.is_empty(), "the shipped table is what this is about");
         let (problems, reading) = absence_problems(&root, &files);
         assert!(problems.is_empty(), "{problems:#?}");
