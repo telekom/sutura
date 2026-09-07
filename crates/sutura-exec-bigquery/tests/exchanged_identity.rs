@@ -74,6 +74,20 @@
 //! `docs/where-identity-is-proven.md` carries both beside the venue's row, in the words that page
 //! uses for *written and never run*.
 //!
+//! # What this cell does NOT constrain about the token it hands over
+//!
+//! **Nothing here reads or asserts an `iss`.** The subject assertion is taken from the environment
+//! and passed to the exchange as-is, so this cell cannot tell one issuer from another: whichever
+//! issuers the workload-identity pool's provider is configured to trust are the issuers this leg
+//! would accept, and a token from any of them that the provider verifies would produce a green run
+//! exactly as the intended one does. That is a property of the POOL's configuration, which lives in
+//! the stack and not in this repository, and it is not observable from here.
+//!
+//! It matters because the claim is about *which principal the source executed as*: a green run says
+//! the exchange produced the expected account, and says nothing about who was entitled to ask for
+//! it. Constraining the issuer would mean this leg verifying the assertion itself, which is leg 1's
+//! job and `sutura_http`'s - see that crate's inbound gate, where an `iss` really is checked.
+//!
 //! # Why nothing here prints an identity
 //!
 //! This cell's venue is a CI job whose log is public on a public repository, and the one thing
@@ -81,6 +95,18 @@
 //! interpolates what came back: every leg is judged by [`who_answered`], which reduces an answer to
 //! one of four verdicts carrying no text, and a test below holds that property against the verdicts
 //! themselves. `BigQueryError::NoIdentityInTheAnswer` is the same decision one layer down.
+//!
+//! **And the claim that used to end *and nowhere else* was false, which review measured.** The
+//! disclosure is not a property of this file: any leg that formats a `BigQueryError<WireError<_>>`
+//! with `Debug` prints it, and **ten of the fourteen legs `nix run .#bigquery-acceptance` invokes
+//! were in that shape** - `.expect("the endpoint answered")` and siblings, into a public workflow
+//! log whose `::add-mask::` step covers the project, the dataset and the table but **not an
+//! account**. Two tests over one function in one file is not a control over that.
+//!
+//! So the fix moved to where it can hold: `wire::EndpointMessage` renders redacted under `Debug`
+//! and verbatim under `Display`, so every leg is covered by the type rather than by remembering
+//! which formatter it used. What is left here is this cell's own choice to print the *class* -
+//! status and reason code - which is a readability decision rather than the safety one.
 //!
 //! **That sentence used to stop at the assertions, and the FAILURE path is where the leak was.**
 //! Review measured it: `session_user(..).expect("the endpoint answered the identity read")` renders
@@ -137,7 +163,7 @@ mod tests {
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
     use sutura_exec_bigquery::BigQueryError;
-    use sutura_exec_bigquery::wire::{StsOverHttp, WireAgent, WireError};
+    use sutura_exec_bigquery::wire::{EndpointMessage, StsOverHttp, WireAgent, WireError};
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
     use crate::support::{Connection, bounds, named, opened, opened_as, presented};
@@ -317,7 +343,13 @@ mod tests {
     /// answer would be `TheExpectedPrincipal` for both legs and the cell would report the strongest
     /// possible pass over a fixture that proves nothing.
     fn two_expectations_that_differ(expected_a: &str, expected_b: &str) -> bool {
-        !expected_a.trim().eq_ignore_ascii_case(expected_b.trim()) && !expected_a.trim().is_empty()
+        // BOTH tested for emptiness, not just the first: an empty `expected_b` differs from a
+        // populated `expected_a`, so the one-sided version accepted a half-configured pair and
+        // let the B leg assert against nothing. Review found it; `named` would usually have
+        // refused an empty value first, which is exactly why this must not depend on that.
+        !expected_a.trim().is_empty()
+            && !expected_b.trim().is_empty()
+            && !expected_a.trim().eq_ignore_ascii_case(expected_b.trim())
     }
 
     // --------------------------------------------------------------- controls on this harness ---
@@ -416,9 +448,9 @@ mod tests {
             cause: WireError::Refused {
                 status: 403,
                 named: String::from("accessDenied"),
-                detail: String::from(
+                detail: EndpointMessage::bounded(Some(String::from(
                     "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
-                ),
+                ))),
             },
         };
         let said = refusal_shape(refused, "principal A");
@@ -458,9 +490,9 @@ mod tests {
             cause: WireError::Refused {
                 status: 403,
                 named: String::from("accessDenied"),
-                detail: String::from(
+                detail: EndpointMessage::bounded(Some(String::from(
                     "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
-                ),
+                ))),
             },
         });
         let previous = std::panic::take_hook();
@@ -524,6 +556,9 @@ mod tests {
             " Principal-A@example.com "
         ));
         assert!(!two_expectations_that_differ("", ""));
+        // Either side empty, which the one-sided guard accepted.
+        assert!(!two_expectations_that_differ("principal-a@example.com", ""));
+        assert!(!two_expectations_that_differ("", "principal-b@example.com"));
     }
 
     // ------------------------------------------------------------------------------ the cell ---

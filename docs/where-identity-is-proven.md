@@ -69,7 +69,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
 | **A real dataset under two keys** | a GitHub environment, on demand | two more service-account keys, and a row access policy per principal | `just bigquery-two-principals` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
-| **A real token exchange, and two grants** | nowhere yet - the leg exists and nothing can point it at a subject | a workload-identity pool, and a subject assertion per principal that nothing mints | `just bigquery-exchanged-identity` |
+| **A real token exchange, and two grants** | nowhere yet - the leg exists and nothing can point it at a subject | a subject assertion per principal that nothing mints, and a hop to a service account that nothing implements - **the pool itself is already provisioned** | `just bigquery-exchanged-identity` |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -390,6 +390,11 @@ already holds. It also does not move this cell, twice over - a hand-run is invis
 performs none of.
 
 ### Why nothing reaches it, which is a finding rather than a schedule
+
+**The pool is not what is missing, and an earlier version of this section implied it was.** The
+stack provisions a `WorkloadIdentityPool` and an OIDC provider, and the audience they export is the
+`SUTURA_BQ_WORKLOAD_AUDIENCE` this cell reads. Two other things are missing, and they are the ones
+below.
 
 **Two subject assertions do not exist, and cannot be derived from the CI workload identity with what
 this adapter ships.** A plain RFC 8693 exchange yields exactly one identity per subject token -

@@ -283,6 +283,71 @@ impl DryRun {
 /// the shape *Structured Errors* asks for at a boundary: the variant is ours, the chain still walks,
 /// and a caller who knows the transport can downcast. It is boxed because it is much larger than
 /// every other variant and `clippy::result_large_err` is on.
+/// The endpoint's own message on a refusal: free text, and the one field here that can name an
+/// account.
+///
+/// **A type rather than a `String`, because the rule it carries is about RENDERING and a rule about
+/// rendering cannot be held at call sites.** `Display` is the message; `Debug` is redacted. That is
+/// the whole mechanism, and it is here because the alternative was asking fourteen acceptance legs
+/// to remember which formatter they used.
+///
+/// **Measured, which is why this exists.** A leg ending `.expect("the endpoint answered")` formats
+/// its error with `Debug`, and `Debug` walks the struct: on a real refusal that printed
+/// `Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
+/// legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
+/// `::add-mask::` step covers the project, the dataset and the table - **not an account**.
+/// `Display` keeps the message because a `400` with only a reason code is undiagnosable, and the
+/// outer `BigQueryError::Endpoint`'s own `Display` does not interpolate its cause - so a caller that
+/// wants the sentence has to ask for it by name.
+///
+/// It is already bounded and stripped on the way in - see [`Self::bounded`].
+#[derive(Clone, PartialEq, Eq)]
+pub struct EndpointMessage(String);
+
+impl EndpointMessage {
+    /// The endpoint's message, capped and stripped of anything that could forge a log line.
+    ///
+    /// Infallible: an absent message is an empty one, which is honest - the status is what is
+    /// guaranteed.
+    #[must_use]
+    pub fn bounded(message: Option<String>) -> Self {
+        /// Long enough for the endpoint's own sentences, short enough that a log line stays a line.
+        const MAX_DETAIL_CHARS: usize = 400;
+
+        Self(
+            message
+                .unwrap_or_default()
+                .chars()
+                .filter(|c| c.is_ascii_graphic() || *c == ' ')
+                .take(MAX_DETAIL_CHARS)
+                .collect(),
+        )
+    }
+
+    /// The message itself, for a caller that has decided it may render it.
+    ///
+    /// Named rather than reached through `Deref`, which `cargo xtask check-newtype-leaks` refuses:
+    /// a wrapper you can forget you are holding is not a wrapper.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl core::fmt::Display for EndpointMessage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl core::fmt::Debug for EndpointMessage {
+    /// Redacted, and it says how much it is hiding so a reader knows the field was populated.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "<the endpoint's own message, {} char(s), redacted>", self.0.len())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum WireError<C>
 where
@@ -356,7 +421,11 @@ where
     /// and never `detail` for the same reason. A caller that logs this variant has to decide which
     /// of the three fields it is allowed to render.
     #[error("the endpoint refused the job with {status}: {named}: {detail}")]
-    Refused { status: u16, named: String, detail: String },
+    Refused {
+        status: u16,
+        named: String,
+        detail: EndpointMessage,
+    },
     /// The answer was not the document a query response is.
     #[error("the endpoint's answer was not a query response")]
     NotADocument {
