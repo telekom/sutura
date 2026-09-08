@@ -576,6 +576,37 @@ lint:
     }
 
     #[test]
+    fn ci_preserves_a_failed_build_even_if_an_offline_retry_would_pass() {
+        let root = super::repo::root().expect("the repo root is discoverable");
+        let body = super::recipe_body(&root, "ci").expect("the ci recipe is readable").join("\n");
+        // Execute the real recipe with a fake Nix command: no build or network is reached.
+        for first_exit in [0, 23] {
+            let script = format!(
+                "next_exit={first_exit}\n\
+                 nix() {{\n\
+                   local code=$next_exit\n\
+                   next_exit=0\n\
+                   return \"$code\"\n\
+                 }}\nPATH=''\n{body}"
+            );
+            let output = std::process::Command::new("bash")
+                .args(["--noprofile", "--norc", "-c", &script])
+                .env_remove("BASH_ENV")
+                .env("SUTURA_NIX_SYSTEM", "fixture")
+                .current_dir(&root)
+                .output()
+                .expect("the recipe runs under bash");
+            assert_eq!(
+                output.status.code(),
+                Some(first_exit),
+                "a later success must not erase the first failure: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
     fn this_repos_own_justfile_passes() {
         // The rules judge the real file, not only fixtures. This is the test that was RED before
         // `just check` printed its scope, and it is what fails if the notice is deleted later.
