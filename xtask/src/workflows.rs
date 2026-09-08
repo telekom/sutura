@@ -83,6 +83,14 @@ mod sast;
 // the name list it is limited to and why a job-level condition is deliberately not accepted.
 mod cache_scope;
 
+// DOES THE 2/4 CROSS MATRIX STILL SPLIT BY EVENT? A single inline ternary on
+// `jobs.link.strategy.matrix.target` once chose the set with no structural gate reading it - the
+// M1 gap `#477`'s own review found. This module pins that ternary: exact `A && B || C` shape,
+// the `pull_request` predicate token-for-token, and both leg lists order-sensitively. Its own
+// file because it reads `cross-link.yml`'s structure (a matrix literal, not a flake reference) and
+// holds nothing about resolution, cache writes or badges. See its header for what it cannot hold.
+mod cross_link;
+
 // READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
 // 1000-line cap the moment two changes registered a rule module in the same window. The seam is
 // the question, not the line count: that module answers *which attributes does this block
@@ -274,6 +282,27 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("A run restores caches from its own ref or the default branch, so an entry a pull");
         eprintln!("request writes is readable by exactly one pull request and is then pruned. Restore");
         eprintln!("everywhere, save only from a push to main - see .github/actions/nix-store-cache.");
+        return Verdict::Fail;
+    }
+
+    // WHICH SET AN EVENT RUNS. `cross-link.yml`'s matrix literal once chose two aarch64 legs on a
+    // pull request and four on `main` with nothing holding it - every gate stayed green on a
+    // 4-on-PR regression. `#477`'s own review rated that M1 gap compute-only, not blocking, but
+    // called it a claim no mechanism held. This pins the ternary.
+    let cross = cross_link::problems(&root);
+    if !cross.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} cross-matrix rule(s) broken\n",
+            cross.len()
+        );
+        for problem in &cross {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A pull request proves the two aarch64 triples the native ci job never compiles,");
+        eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
+        eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
+        eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
         return Verdict::Fail;
     }
 
