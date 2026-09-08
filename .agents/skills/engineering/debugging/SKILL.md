@@ -132,6 +132,24 @@ Measured on this repo: a bypass-reproduction script reverted two uncommitted doc
 files it mutated, and nothing was red afterwards - it was found by re-grepping for a sentence that
 should have been there. **Commit before running one**, and prefer a script that restores from a copy
 it made itself; the same class as any `git checkout` in a shared or automated context.
+
+**AND A RESULT FILE WITH A FIXED NAME CANNOT SAY WHICH RUN WROTE IT.** Detaching a long gate and
+reading its exit code from a file is the right shape - a pipeline's last stage is the status of
+`tail`, not of the gate - but a waiter that fires on `<name>.exit` gets whatever run wrote it last.
+**Measured twice in one session, and neither was noticed by care:** a mutation harness that verified
+the clean tree only at the END, so a restore that did not take left a mutation behind and the next
+mutation adopted it as pristine, reporting `anchor missing` while an unrelated test was red; and a
+`ship-check` waiter that reported the PREVIOUS commit's exit 0 as this commit's, because the new run
+had not yet replaced the file. Each was caught by a SECOND number disagreeing - the harness's own
+`clean tree: red` line, and a metadata file naming a commit that was not `HEAD`.
+
+**So put what is being measured into the artifact's NAME and check it before believing the number**
+(`logs/ship-<sha>.exit`), and have a harness snapshot its inputs ONCE rather than re-reading them
+per step. The same habit catches the other half: more than one copy of a gate running in one
+worktree. `cargo xtask test-causality` creates and removes `target/causality-worktree` and both runs
+share one target directory, so two of them clobber each other's reconstruction and NEITHER verdict
+is about the tree - three were found running here at once. `pgrep` for the gate before starting one.
+
 ## Failure modes already understood here
 
 Read these before spending an hour on a class of bug this repo has met.
@@ -148,6 +166,8 @@ Read these before spending an hour on a class of bug this repo has met.
 | A detector reports its own source | the pattern matches the file that defines it |
 | A lock "released on drop" is still held, and the refusal names THIS process | `flock` lives on the open file DESCRIPTION, so a `close` releases it only when the last descriptor on that description goes. Every `Command::spawn` duplicates the whole table at `fork` and `FD_CLOEXEC` only fires at `exec`, so any spawn in flight holds a copy of every lock. Unlock explicitly rather than relying on the close |
 | A harness reads a child's output and the LAST line is missing, under load | it drained the channel once `try_wait` said the process exited. Exited is not READ: the threads reading its pipes may still be in flight, and the last thing a process writes is usually the sentence the assertion is about - so the failure reads as *it never said that* rather than as a lost line. Keep the reader `JoinHandle`s, join, then drain |
+| A gate's exit code is the previous run's | the artifact has a fixed name; nothing ties it to the commit it measured |
+| Two runs of one gate disagree in one worktree | both create and remove `target/causality-worktree`; neither verdict is about the tree |
 
 **`nextest`'s process-per-test does NOT contain the lock one, and believing it did cost a wrong
 diagnosis on `github.com/telekom/sutura#328`.** The reasoning that fails is *the duplicate must come
