@@ -53,7 +53,7 @@
 //!   reaches is `unrun`, and a `wired` that nothing reaches would be the softer spelling this whole
 //!   vocabulary exists to refuse.
 //! * **A venue's `Where it runs` cell states a place from a closed vocabulary**, because it decides
-//!   whether the row may be cited at all and was free prose. [`RUN_SITES`] has the measurement.
+//!   whether the row may be cited at all and was free prose. [`page::RUN_SITES`] has the measurement.
 //! * **A venue nothing runs claims nothing**, and a venue that IS reached and answers no claim is
 //!   a row with no reason to be there.
 //! * **Every venue has its own section**, and every `##` section is a venue's or one of the three
@@ -104,61 +104,23 @@ mod environment;
 // 1000-line gate is what forced it here too: every `#[test]` stayed, only the parsing moved.
 mod page;
 
-use page::{NOT_BUILT, RUN_SITES, STRUCTURAL, VERDICTS, Venue, cited_tests, claims, key, section_body, venues, verdict};
+use page::{NOT_BUILT, STRUCTURAL, VERDICTS, Venue, cited_tests, claims, key, section_body, venues, verdict};
 
 // What the TREE holds - which tests exist, and which tasks CI really runs - as against what the
 // page says about it. The third side of the seam `mod page;` opens, and the 1000-line gate is what
 // forced it: every `#[test]` stayed here, only the readers moved.
+// What a venues ROW must HOLD before a verdict rule may read one. Split out when this file
+// reached the 1000-line gate a third time; every `#[test]` stayed here.
+mod rows;
+
+use rows::row_problems;
+
 mod sources;
 
 use sources::{cited_invocations, invoked, test_names};
 
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
-
-/// Everything wrong with a venues ROW, as against the matrix cells that read one.
-///
-/// Two rules over the two cells every verdict rule resolves, and they are one argument: a row
-/// states its own state in prose, and prose that nothing can classify is a state nothing can judge.
-/// Their own function rather than a loop inside [`page_problems`], which is at the line budget.
-///
-/// **`Reached by` was the cheapest bypass on the page, and it predates `wired`.** Every such rule
-/// resolves that cell through [`cited_invocations`], which wants a backticked `just <task>` or
-/// `nix run .#<app>` - so dropping that prefix made the cell resolve to nothing and the venue's
-/// verdict permanent at exit 0, whatever CI ran. **`Where it runs` is the same shape one cell
-/// over**, found by review of the change that made it load-bearing: [`Venue::runs_nowhere`] read
-/// the SUBSTRING `nowhere`, so a synonym turned off the only remaining guard on `yes` for leg 2.
-/// [`RUN_SITES`] carries the measurement and the limit a vocabulary does not reach.
-fn row_problems(listed: &[Venue]) -> Vec<String> {
-    let mut problems: Vec<String> = listed
-        .iter()
-        .filter(|venue| venue.site().is_none())
-        .map(|venue| {
-            format!(
-                "{PAGE}: `{}` says `{}` about where it runs, which is not one of {RUN_SITES:?}. \
-                 That cell decides whether this venue may be cited at all, so it states a place \
-                 from a closed list or it is a sentence nothing reads - its claims cells' own rule",
-                venue.name, venue.runs
-            )
-        })
-        .collect();
-    problems.extend(
-        listed
-            .iter()
-            .filter(|venue| venue.is_built() && cited_invocations(&venue.reached).is_empty())
-            .map(|venue| {
-                format!(
-                    "{PAGE}: `{}` is reached by `{}`, which names no `just <task>` and no \
-                     `nix run .#<app>` in backticks - every rule that decides this venue's state \
-                     resolves that cell, so a `Reached by` nothing can resolve is a venue whose \
-                     state cannot be judged. Either name the invocation the way this page names \
-                     one, or the cell is `{NOT_BUILT}`",
-                    venue.name, venue.reached
-                )
-            }),
-    );
-    problems
-}
 
 /// Everything the two un-citable verdicts have to be consistent with, for the venues stating them.
 ///
