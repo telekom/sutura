@@ -54,7 +54,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 
 ### Variants
 
-- `Compile`
+- `Compile` - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.
 - `Warehouse`
 - `Federated` - The federated combiner could not assemble the two legs' rows.
 - `Broker` - The credential broker could not mint. Nothing about the question was wrong.
@@ -348,7 +348,7 @@ means rather than a field added to one.
 
 #### Variants
 
-- `Compile`
+- `Compile` - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.
 - `Warehouse`
 - `Broker` - The credential broker did not answer, so nothing could be executed as the asking subject.
 - `Miswired` - Credentials came back that do not fit the request: a wiring defect on this side.

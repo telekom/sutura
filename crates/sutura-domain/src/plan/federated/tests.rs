@@ -5,7 +5,7 @@ use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, SourceName, TableName};
 use crate::plan::leg::LegPlan;
 use crate::plan::{
-    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanKey,
+    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanKey, ResultLabel,
     StatementTables,
 };
 use crate::warehouse::{Real, RowSet, Value};
@@ -23,6 +23,10 @@ fn metric(name: &str) -> MetricName {
 
 fn column(name: &str) -> ColumnName {
     ColumnName::parse(name).expect("a test column is a column")
+}
+
+fn dimension(name: &str) -> DimensionName {
+    DimensionName::parse(name).expect("a test dimension is a dimension")
 }
 
 fn term(aggregate: Aggregate, name: &str) -> Term {
@@ -46,7 +50,10 @@ fn range() -> TimeRange {
 }
 
 fn key(name: &str, table_name: &str) -> PlanKey {
-    PlanKey::new(String::from(name), PlanColumn::new(table(table_name), column(name)))
+    PlanKey::new(
+        ResultLabel::dimension(&dimension(name)),
+        PlanColumn::new(table(table_name), column(name)),
+    )
 }
 
 /// The label the link column carries in either leg's result.
@@ -65,12 +72,15 @@ fn leaf(position: usize) -> String {
 
 /// The link key of a leg: the internal label over the physical join column `customer_key`.
 fn link_key(table_name: &str) -> PlanKey {
-    PlanKey::new(link(), PlanColumn::new(table(table_name), column("customer_key")))
+    PlanKey::new(
+        ResultLabel::internal(InternalLabel::Link),
+        PlanColumn::new(table(table_name), column("customer_key")),
+    )
 }
 
 fn bucket() -> PlanBucket {
     PlanBucket::new(
-        String::from(TIME_BUCKET_LABEL),
+        ResultLabel::bucket(),
         Grain::Month,
         PlanColumn::new(table(FACT), column("month")),
     )
@@ -106,18 +116,19 @@ fn plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> F
 
 fn try_plan_for(measure_name: &str, measure: &Measure, include_unmatched: bool) -> Result<FederatedPlan, FederatedPlanError> {
     let name = metric(measure_name);
+    let measure_label = ResultLabel::measure(&name);
     let federation = Federation::of(measure);
     FederatedPlan::new(
         name,
-        String::from(measure_name),
+        measure_label,
         bucket(),
         fact_leg(),
         lookup_leg(),
         include_unmatched,
         federation,
         vec![
-            AnswerKey::fact(String::from("product_family")),
-            AnswerKey::lookup(String::from("region")),
+            AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
+            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
         ],
     )
 }
@@ -717,13 +728,13 @@ fn a_plan_with_two_legs_on_one_source_does_not_construct() {
     // slot is the first guard to fire, before any source agreement is even compared.
     let plan = FederatedPlan::new(
         metric("revenue"),
-        String::from("revenue"),
+        ResultLabel::measure(&metric("revenue")),
         bucket(),
         lookup_leg(),
         lookup_leg(),
         true,
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
-        vec![AnswerKey::fact(String::from("product_family"))],
+        vec![AnswerKey::fact(ResultLabel::dimension(&dimension("product_family")))],
     );
     assert!(matches!(plan, Err(FederatedPlanError::NotFact { .. })));
 }
@@ -776,7 +787,7 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
     };
     let plan = FederatedPlan::new(
         metric("revenue"),
-        String::from("revenue"),
+        ResultLabel::measure(&metric("revenue")),
         bucket(),
         fact_leg(),
         unlinked,
@@ -799,8 +810,9 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
     // LOOKUP leg, so `KeyNotOnLeg { side: Fact }` was the untested half of a refusal this commit
     // introduced. It is also the half that matters: the fact leg is the one the splitter builds from
     // the question's own keys, so a change there that stopped pushing `InternalLabel::Link` is what
-    // this arm exists to catch - and the only production caller erases the cause
-    // (`telekom/sutura#338`), which leaves this assertion as the whole of the diagnosis.
+    // this arm exists to catch. The only production caller no longer erases the cause
+    // (`telekom/sutura#338`): it leaves as `sutura_semantic::CompileFailure::NotAssembled`, keeping
+    // the side and the label this assertion reads.
     let unlinked = LegPlan::Fact {
         source: source(FACT_SOURCE),
         metric: metric("revenue"),
@@ -814,7 +826,7 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
     };
     let plan = FederatedPlan::new(
         metric("revenue"),
-        String::from("revenue"),
+        ResultLabel::measure(&metric("revenue")),
         bucket(),
         unlinked,
         lookup_leg(),

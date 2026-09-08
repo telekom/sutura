@@ -98,6 +98,23 @@ mixed catalog at startup, so *two sources* means two entries of the same kind; (
 still opens one adapter for one source and refuses a multi-source catalog, pointing at the served
 surface.
 
+**A fifth, about the refusal rather than the answer, and it is `telekom/sutura#338`.**
+`FederationNotExecutable` means one thing now - this build's adapter type does not declare
+`EXECUTES_LEGS` - and it used to mean two, because a two-source plan the splitter built and
+`FederatedPlan::new` then rejected was flattened into it as well. That one leaves as
+`sutura_semantic::CompileFailure::NotAssembled`, so a caller can tell *this build cannot run a leg*
+from *sutura failed to assemble a plan it had already decided on*. **Nothing holds that split.** It
+was an `invariants` row on #432 and was deleted rather than demoted, which is that table's own rule:
+flattening `federated_plan`'s `map_err` back into the refusal leaves the whole suite green - 2658
+tests, exit 0, measured. The `compile_fail` pair on `compile` holds the error TYPE, which is a weaker
+claim - the signature can stand while the value goes back to being a refusal, which is exactly what
+that mutation does. Nothing provokes the arm either: every `FederatedPlanError` variant is
+unreachable from the splitter as it stands, so the differential above is the venue an edit making
+one reachable would redden, and it does - deleting the link key from the lookup leg turns two of its
+cells red naming the assembly, measured on the same head. A gate would cost making the refusal
+vocabulary unrepresentable, which duplicates most of `RefusalReason`; until someone pays that, this
+is prose.
+
 ## Built and not wired - do not cite as an invariant
 
 Exists, is tested, has no caller from any binary. Three invariant rows once stated this as enforced;

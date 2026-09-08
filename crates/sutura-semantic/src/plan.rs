@@ -27,13 +27,12 @@
 
 use std::collections::BTreeSet;
 
-use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, StatementTables, labels, plan_measure, plan_required_filter,
+    FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
+    PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -52,6 +51,46 @@ pub(crate) enum Plan {
     Federated(Box<FederatedPlan>),
 }
 
+/// Refused, or this workspace could not assemble the plan it had just decided on.
+///
+/// **The two go to different places, and that is `telekom/sutura#338`.** A refusal becomes a result
+/// the caller reads; a plan the splitter built and [`FederatedPlan::new`] then rejected is a defect
+/// in this workspace's own wiring, which no caller can act on and none should be told to retry.
+/// They used to be one value: the assembly failure was flattened into
+/// [`RefusalReason::FederationNotExecutable`], which is ALSO the answer a build gets when its
+/// adapter type does not declare `Warehouse::EXECUTES_LEGS` - so a wiring defect here and a
+/// deployment that cannot run a leg were indistinguishable at the surface, and a refusal a caller
+/// can only tell apart by comparing two answers is not a refusal. **That was sharper before
+/// `telekom/sutura#441`**, when every published build took the default and the two were literally
+/// the same answer everywhere; it is narrower and still true now that the shipped engine executes a
+/// leg, because a build whose adapter takes the default - `BigQuery`, or a fake - still gets that
+/// refusal, and this failure must not look like it.
+///
+/// The same two arms `crate::resolve::ResolveError` already has, for the same reason. **The limit,
+/// next to the claim:** every [`FederatedPlanError`] variant is structurally unreachable from
+/// `federated_plan` as it stands - the splitter builds a `Fact` beside a `Lookup` on a source
+/// `is_remote` has already established is not its own, projects `InternalLabel::Link` onto both legs
+/// unconditionally, derives each answer key's side from the same predicate that filled that leg's
+/// keys, and refuses a `Carried::Keys` leaf before this point, so no `combine` other than `Sum`,
+/// `Min` or `Max` reaches the re-aggregation check. So this arm carries no test that can provoke it,
+/// and what it buys is that a future edit which makes one of those reachable produces an error
+/// rather than a governance refusal. `crates/sutura-app/tests/differential/federated.rs` is the
+/// venue that would see such an edit today: it asserts that the only compile-side refusal a
+/// two-source corpus question may get is `MeasureDoesNotFederate`.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PlanError {
+    #[error("the question was refused")]
+    Refused(RefusalReason),
+    #[error(transparent)]
+    NotAssembled(#[from] FederatedPlanError),
+}
+
+impl From<RefusalReason> for PlanError {
+    fn from(reason: RefusalReason) -> Self {
+        Self::Refused(reason)
+    }
+}
+
 /// Turns a resolution into a plan, or refuses it.
 ///
 /// **Two refusals are produced here and nowhere else, and both are about the SHAPE of the statement
@@ -62,7 +101,7 @@ pub(crate) enum Plan {
 /// The second one is asked TWICE, once per plan shape, and that is the type's doing rather than this
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
-pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
+pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
     // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
     // drop a source here.
@@ -74,10 +113,10 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
         0 => Ok(Plan::Mono(Box::new(mono_plan(resolution)?))),
         1 => Ok(Plan::Federated(Box::new(federated_plan(resolution)?))),
         // Two are served; three or more refused, because each source is a separate identity.
-        _ => Err(RefusalReason::PlanSpansTooManySources {
+        _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
             sources: 1 + remote.len(),
             limit: 2,
-        }),
+        })),
     }
 }
 
@@ -136,7 +175,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
     let keys: Vec<PlanKey> = resolution
         .keys
         .iter()
-        .map(|key| PlanKey::new(String::from(key.dimension.name().as_str()), column_of(key, own_table)))
+        .map(|key| PlanKey::new(ResultLabel::dimension(key.dimension.name()), column_of(key, own_table)))
         .collect();
 
     let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
@@ -157,10 +196,10 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         model.source().clone(),
         metric.name().clone(),
         tables,
-        PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column),
+        PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column),
         keys,
         measure,
-        String::from(metric.name().as_str()),
+        ResultLabel::measure(metric.name()),
         filters,
         params,
         resolution.range,
@@ -176,7 +215,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
 // The splitter builds both legs, their keys, their filters and the link in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
 // places that far apart to make a reviewer see the splitter's refusals together.
-fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalReason> {
+fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanError> {
     let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", for the reason `mono_plan` gives: the path is what a leg's `FROM`
@@ -190,10 +229,10 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         Carried::Keys { pulled, .. } => Some(pulled.above()),
         _ => None,
     }) {
-        return Err(RefusalReason::MeasureDoesNotFederate {
+        return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
             metric: metric.name().clone(),
             aggregate: keys,
-        });
+        }));
     }
 
     // One remote data system (more are refused upstream); its dimensions must all join through one
@@ -202,10 +241,10 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     // a join by construction - but a panic here would be reachable from a catalog plus a question, so
     // they refuse instead.
     let Some(first_remote) = every_remote_dimension(resolution).next() else {
-        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 });
+        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 }.into());
     };
     let Some(first_join) = first_remote.join.as_ref() else {
-        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 });
+        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 }.into());
     };
     let relationship = first_join.relationship;
     let remote_path = first_join.model.table();
@@ -216,9 +255,9 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
             continue;
         };
         if join.relationship.name() != relationship.name() {
-            return Err(RefusalReason::FederationLinkAmbiguous {
+            return Err(PlanError::Refused(RefusalReason::FederationLinkAmbiguous {
                 source: remote_source.clone(),
-            });
+            }));
         }
     }
 
@@ -227,14 +266,14 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     // labels beside it - so a metric with a legal dimension named `customer_key`, backed by a
     // different column, produced two fact columns under one label and the combiner refused the
     // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
-    let link_label = InternalLabel::Link.label();
+    let link_label = ResultLabel::internal(InternalLabel::Link);
 
     // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
     // joined to it above.
     let mut fact_keys: Vec<PlanKey> = Vec::new();
     for key in resolution.keys.iter().filter(|key| !is_remote(key, model.source())) {
         fact_keys.push(PlanKey::new(
-            String::from(key.dimension.name().as_str()),
+            ResultLabel::dimension(key.dimension.name()),
             column_of(key, own_table),
         ));
     }
@@ -251,7 +290,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     ));
     for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
         lookup_keys.push(PlanKey::new(
-            String::from(key.dimension.name().as_str()),
+            ResultLabel::dimension(key.dimension.name()),
             PlanColumn::new(remote_table.clone(), key.dimension.column().clone()),
         ));
     }
@@ -276,9 +315,9 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
     // name too, and over a 63-character metric name it also crossed the identifier limit a data
     // system truncates silently.
-    let leaf_labels: Vec<String> = labels(&federation).into_iter().map(InternalLabel::label).collect();
+    let leaf_labels = labels(&federation);
     let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
-    for (leaf, label) in federation.carried().iter().zip(leaf_labels.iter()) {
+    for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
         let plan_term = match **leaf {
             Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
                 aggregate: pushed.push(),
@@ -289,13 +328,13 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
             },
             // Unreachable: the refusal above returned for any Keys leaf.
             Carried::Keys { .. } => {
-                return Err(RefusalReason::MeasureDoesNotFederate {
+                return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
                     metric: metric.name().clone(),
                     aggregate: sutura_domain::model::Aggregate::CountDistinct,
-                });
+                }));
             }
         };
-        terms.push(LegTerm::new(plan_term, label.clone()));
+        terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
     }
 
     // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg.
@@ -321,7 +360,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     }
     joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
 
-    let bucket = PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column);
+    let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
 
     // **Where the fact leg's tables stop being a list and become a checked set - the same guard the
     // whole-answer path goes through, reached from the other plan shape.** A leg keeps every
@@ -363,7 +402,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         .keys
         .iter()
         .map(|key| {
-            let label = String::from(key.dimension.name().as_str());
+            let label = ResultLabel::dimension(key.dimension.name());
             if is_remote(key, model.source()) {
                 sutura_domain::plan::AnswerKey::lookup(label)
             } else {
@@ -374,7 +413,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
 
     FederatedPlan::new(
         metric.name().clone(),
-        String::from(metric.name().as_str()),
+        ResultLabel::measure(metric.name()),
         bucket,
         fact,
         lookup,
@@ -384,17 +423,14 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         federation,
         answer_keys,
     )
-    // **The cause is erased here, and the binding no longer claims otherwise.** It was `_never`,
-    // which asserted the arm was unreachable; `NotFact`, `NotLookup` and `SameSource` are indeed
-    // structurally impossible from this call site, but `KeyNotOnLeg { side, label }` is not - it
-    // fires if a change above stops projecting `InternalLabel::Link` onto one of the two legs it
-    // builds. Flattened into `FederationNotExecutable`, which is ALSO the refusal every federated
-    // question already gets from a shipped binary (`EXECUTES_LEGS` is defaulted-`false`), such a
-    // wiring defect would be indistinguishable from the ordinary refusal: no side, no label, no log.
-    // `telekom/sutura#338` carries the two remedies and why neither is a line - one needs a new
-    // `RefusalReason` and everything downstream of the vocabulary, the other a `tracing` edge on a
-    // crate whose two dependencies `cargo xtask check-boundaries` holds.
-    .map_err(|_unassemblable| RefusalReason::FederationNotExecutable)
+    // **The cause is no longer erased, and this is the whole of `telekom/sutura#338`.** It used to
+    // become `RefusalReason::FederationNotExecutable`, which is ALSO what a build whose adapter does
+    // not declare `EXECUTES_LEGS` gets - so a plan this workspace could not assemble read exactly
+    // like the deployment simply not being able to execute a leg. It leaves as an error now, keeping
+    // the typed cause, because a defect in our own wiring is not a governance answer and a caller
+    // must not be handed one it could retry. `PlanError` carries what a reader needs, including
+    // which variants are reachable from here today, and that is none of them.
+    .map_err(PlanError::NotAssembled)
 }
 
 /// The predicates a statement carries, paired with the parameters they bind.
