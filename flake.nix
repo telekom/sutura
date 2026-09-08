@@ -205,13 +205,7 @@
         nightlyToolchain = (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly;
 
         # The pinned cargo, for the one workflow that has to touch Cargo.lock.
-        cargoWrapper = pkgs.writeShellApplication {
-          name = "sutura-cargo";
-          text = ''
-            export PATH="${rustToolchain}/bin:$PATH"
-            exec cargo "$@"
-          '';
-        };
+        cargoWrapper = import ./nix/cargo-wrapper.nix { inherit pkgs rustToolchain; };
 
         # WRITES the committed API pages, and `checks.api-docs` below is the gate that fails when
         # they fall behind - the two must agree byte for byte, which is why one file defines the
