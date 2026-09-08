@@ -75,16 +75,27 @@ const NO_RESTORE_ONLY: [&str; 1] = ["DeterminateSystems/magic-nix-cache-action"]
 /// Over the whole closure rather than one file name, for `super::reach`'s reason: a hard line cap
 /// moves steps between files, and a refusal that names a file stops covering the step that left it.
 pub(super) fn problems(closure: &Closure) -> Vec<String> {
+    let files: Vec<(&str, &str)> = closure.inspected().iter().map(|file| (file.label(), file.text())).collect();
+    judge(&files)
+}
+
+/// The same rules over labelled text, so the ANCHOR can be tested.
+///
+/// Split from [`problems`] because the anchor is the one rule a provocation on the real tree cannot
+/// exercise: with the store cache deleted, `ci.yml`'s two correctly gated `cachix/cachix-action`
+/// steps satisfied a floor written over every writer, and the gate stayed GREEN. Fixtures are the
+/// only way to hold *a gated writer that is not the store cache does not count* as a test rather
+/// than as a paragraph - see `a_gated_hosted_cache_does_not_satisfy_the_store_anchor`.
+fn judge(files: &[(&str, &str)]) -> Vec<String> {
     let mut out = Vec::new();
     let mut store = 0_usize;
 
-    for file in closure.inspected() {
-        for step in steps(file.text()) {
+    for (label, text) in files {
+        for step in steps(text) {
             let Some(uses) = step.uses() else { continue };
             if let Some(refused) = NO_RESTORE_ONLY.iter().find(|name| uses.starts_with(**name)) {
                 out.push(format!(
-                    "{}:{}  {refused} has no restore-only mode, so it may not run in ordinary CI",
-                    file.label(),
+                    "{label}:{}  {refused} has no restore-only mode, so it may not run in ordinary CI",
                     step.line
                 ));
                 continue;
@@ -99,13 +110,11 @@ pub(super) fn problems(closure: &Closure) -> Vec<String> {
                     }
                 }
                 Some(gate) => out.push(format!(
-                    "{}:{}  {uses} is gated on `{gate}`, which is not `{MAIN_PUSH}` plus `&&` conjuncts",
-                    file.label(),
+                    "{label}:{}  {uses} is gated on `{gate}`, which is not `{MAIN_PUSH}` plus `&&` conjuncts",
                     step.line
                 )),
                 None => out.push(format!(
-                    "{}:{}  {uses} can write the Actions cache on any event - it needs `save:` or `if:` gated on `{MAIN_PUSH}`",
-                    file.label(),
+                    "{label}:{}  {uses} can write the Actions cache on any event - it needs `save:` or `if:` gated on `{MAIN_PUSH}`",
                     step.line
                 )),
             }
@@ -326,6 +335,64 @@ mod tests {
                 "a comment is not a step: {uses}"
             );
         }
+    }
+
+    /// One step naming `action` with `key: gate` under `with:`, at a job's indentation.
+    fn step_using(action: &str, key: &str, gate: &str) -> String {
+        format!("      - uses: {action}@bbbb # v1\n        with:\n          {key} {gate}\n")
+    }
+
+    #[test]
+    fn a_gated_hosted_cache_does_not_satisfy_the_store_anchor() {
+        // THE HOLE THIS GATE WAS FIRST WRITTEN WITH, FOUND BY PROVOCATION AND NOW HELD BY A TEST.
+        // `ci.yml` gates two `cachix/cachix-action` steps correctly, and a floor written over every
+        // writer counted them - so deleting the store cache outright left the gate green. That is a
+        // floor counted off the same derivation as its own loop, and no provocation on the real
+        // tree can show it, because the real tree has both.
+        let hosted = step_using("cachix/cachix-action", "if:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        let found = super::judge(&[("ci.yml", &hosted)]);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(
+            found.first().is_some_and(|problem| problem.contains(super::STORE_CACHE)),
+            "a correctly gated hosted cache is not a store cache: {found:#?}"
+        );
+
+        // The same file plus a gated store cache is the shape this repository has, and it passes.
+        let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        let both = format!("{hosted}\n{store}");
+        let clean = super::judge(&[("ci.yml", &both)]);
+        assert!(clean.is_empty(), "{clean:#?}");
+    }
+
+    #[test]
+    fn an_ungated_writer_is_named_with_its_file_and_line() {
+        // The message a reader acts on, and the arm a `None => {}` mutation would silence. Asserted
+        // on the text because the label and line moved when `problems` was split from `judge`, and
+        // a refusal that names nothing openable is half a gate.
+        let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        let ungated = format!("{store}\n{}", step_using("actions/cache", "path:", "/nix/store"));
+        let found = super::judge(&[("ci.yml", &ungated)]);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let problem = found.first().map_or("", String::as_str);
+        assert!(problem.starts_with("ci.yml:5  actions/cache"), "{problem}");
+        assert!(problem.contains("can write the Actions cache on any event"), "{problem}");
+    }
+
+    #[test]
+    fn a_writer_with_no_restore_only_mode_is_refused_by_name() {
+        // The arm that keeps `magic-nix-cache-action` out, in a fixture rather than only as a
+        // provocation on `ci.yml` - so neutralising the name list is red without an edit to a
+        // workflow.
+        let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        let back = format!(
+            "{store}\n      - uses: DeterminateSystems/magic-nix-cache-action@908b263f # v14\n"
+        );
+        let found = super::judge(&[("ci.yml", &back)]);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(
+            found.first().is_some_and(|p| p.contains("has no restore-only mode")),
+            "{found:#?}"
+        );
     }
 
     #[test]
