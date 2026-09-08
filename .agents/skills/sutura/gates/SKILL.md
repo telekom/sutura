@@ -132,17 +132,19 @@ unset them.** No gate can see a build somewhere else, which is exactly why it is
 The `ci` profile inherits `dev`, so anything building `--profile ci` locally - the causality gate
 included - hits the same cranelift problem and needs `nix/stable-env.sh` first.
 
-**The local channel split is not uniform, and the non-obvious half is which hooks are which.** On
-stable: every `just` task and devenv script, the commit and push clippy hooks, and the coverage hook
-- that last one from **absence** rather than preference, because `-C instrument-coverage` does not
-exist under cranelift, so `cargo xtask crap` re-establishes stable itself rather than trusting its
-caller. On the shell's nightly: the `fmt`, `check-changed` and doctest commit hooks, and anything you
-type yourself. Anything that only CODEGENS is faster on cranelift and its verdict does not depend on
-the channel, which is why iteration stays there deliberately. Two things where it does depend:
-clippy's lint set (above), and rustfmt's *output* - the two channels agree byte-for-byte over this
-tree today, so the commit hook is left fast and a push hook builds the exact check CI runs. The
-separate target directory is not optional: alternating compilers in one directory invalidates every
-artifact in it.
+**Local Rust gates require configured stable tools.** The formatter, changed-package, doctest and
+clippy hook entries source `nix/stable-env.sh`, as do the corresponding `just` tasks. The helper
+terminates the caller when `SUTURA_STABLE_BIN` is absent, empty or lacks a required executable;
+returning an error alone would not stop the hooks' semicolon-separated commands. Enter the dev
+shell to obtain the pinned configuration. This trusts that environment: it is not attestation of
+arbitrary wrappers or compiler overrides. Nightly remains the interactive cranelift toolchain and
+the API JSON writer's requirement, not a second formatter whose output is assumed equal.
+
+**Pinned Nix routes do not require that local variable.** `nix/run-gate.sh` sends unconfigured Rust
+cases to their existing Nix fallback without probing host cargo, and refuses if Nix is absent too.
+It clears the same two inherited cranelift variables before either route. Secret scanning and the
+push-tier format check need no local Rust toolchain. The configured path keeps stable artifacts
+separate from nightly's; this does not make repeated sourcing target-directory-idempotent.
 
 ## Direction is per-gate, and each one says so at its own decision
 

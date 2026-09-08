@@ -174,13 +174,9 @@ repos:
 
       # Formatting, on the channel CI uses.
       #
-      # THE SPLIT THIS EXISTS FOR: local tasks build on the cranelift nightly for speed, and CI
-      # is the authority and runs stable. That is deliberate, and for anything that CODEGENS it
-      # costs nothing but time. rustfmt is different - its OUTPUT can differ between channels, so
-      # the commit-stage `rust-fmt` hook above can be green on nightly while `checks.fmt` is red.
-      # Today the two agree byte-for-byte over this tree, so this is latent rather than live, and
-      # a latent divergence only CI can see is the exact shape of the clippy incident this repo
-      # already had.
+      # The commit-stage formatter already requires configured stable tools. The push-stage
+      # flake check reaches CI's own pinned formatter, without assuming nightly/stable output
+      # equality or needing the local dev-shell toolchain.
       #
       # Push is the right tier for the same reason the whole-tree secret sweep is here: it is the
       # last local chance to see what CI will see. And it is CHEAP - `run-gate.sh fmt-parity`
