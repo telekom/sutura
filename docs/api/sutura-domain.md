@@ -48,9 +48,10 @@ types it speaks in:
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
 - `federation` is how a measure survives being computed in pieces: which aggregates descend
   into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
-  (`sutura_semantic::plan`) and the combiner (`plan::FederatedPlan::combine`) both exist and
-  both call it, so it has a production caller; what no SHIPPED binary does is EXECUTE a leg, and
-  its own header names the two mechanisms that hold that.
+  and the combiner (`plan::FederatedPlan::combine`) both call it, and since
+  `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS` a published build answers a
+  two-source question end to end - so this is a classification on the answer path rather than
+  one with no production caller, which is what this line used to say.
 - `catalog` is what a catalog says, and where its cross-references are checked.
 - `knowledge` is what a catalog says ABOUT what it defines - the glossary, the caveats, the
   terms deliberately left undefined, the worked questions - checked against a `catalog` and read
@@ -1801,8 +1802,10 @@ production caller, and the sentence that used to stand here said it had none - t
 recorded rather than quietly applied, because *a classification with no production caller* is
 what a reader would otherwise still plan against.
 
-What remains true is one step lower: no SHIPPED binary EXECUTES a leg, because
-`Warehouse::EXECUTES_LEGS` defaults to `false` and only the dev-only `DuckDB` vehicle sets it.
+And it is on the answer path of a published build, not merely in library code:
+`sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS`, so `sutura` and `sutura-serve`
+execute a leg. What the defaulted-`false` constant still holds is the OTHER direction - an
+adapter with no leg venue refuses rather than half-answering.
 `.agents/skills/sutura/query-surface` carries that state.
 
 **The problem it answers.** Grouping a fact leg by a remote join key is a strictly finer grouping
@@ -5278,10 +5281,15 @@ Both are accepted and both come back with the field names the statement asked fo
 documented restriction is on a **declared column** and not on a quoted alias.
 
 **The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
-Neither has an execution venue for a LEG - the whole federated path is gated by a
-defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle sets - so what stands
-for them is a quoted-identifier argument rather than a run. Read the row above for what each one
-is worth.
+Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
+so what stands for them is a quoted-identifier argument rather than a run. Read the row above
+for what each one is worth.
+
+**The reason that sentence changed rather than the claim:** it used to say *the whole federated
+path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
+sets*, which stopped being true when the engine declared the constant and a published build
+began answering two sources. The limit for these two dialects is unaffected - it never rested on
+the path being gated, only on neither having a venue.
 
 **Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
 range is a wiring defect the combiner reports as a missing column, not a label this type could
@@ -5358,15 +5366,12 @@ under the metric's own certified name, which `FederatedPlan`'s `measure_label` h
 
 One source's share of a federated question, and the only thing the port can be handed.
 
-**The shapes and their closure. A splitter produces one; no SHIPPED binary executes one.** The
-splitter is `sutura_semantic::plan`, reached through `sutura_semantic::compile`, and the
-combiner above the legs is `FederatedPlan::combine`, called from `sutura_app::federated` - so
-production code DOES construct a `LegPlan`, and the sentence that used to stand here said
-otherwise. What holds the narrower claim is two mechanisms rather than an absence: `sutura` and
-`sutura-serve` link only `sutura-exec-datafusion`, and `Warehouse::EXECUTES_LEGS` defaults to
-`false` with only the dev-only `DuckDB` vehicle setting it, so a shipped binary reaches the
-refusal rather than the leg. `.agents/skills/sutura/query-surface` carries that state, and this
-module says it rather than leaving it to be discovered.
+**The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
+`sutura_app::answer_federated` hands it to an adapter, and
+`FederatedPlan::combine` - a function in this crate -
+assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
+builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+published artefact reaches, and this module says the shape rather than the state.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 

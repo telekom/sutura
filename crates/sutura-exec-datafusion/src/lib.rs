@@ -45,13 +45,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use datafusion::common::JoinType as EngineJoin;
 use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::{JoinType, QualifiedTable, SourceName, TableName};
-use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
+use sutura_domain::model::{QualifiedTable, SourceName, TableName};
+use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, RowSet, Value, Warehouse};
@@ -197,22 +196,6 @@ pub enum DataFusionError {
     /// about an unbounded scan.
     #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
     NoPredicate,
-    /// One leg of a federated answer, which this adapter has nothing to assemble above.
-    ///
-    /// **Not a refusal and not a default body.** [`Warehouse::execute`] takes an
-    /// [`Executable`](sutura_domain::plan::Executable), so this adapter's match over what it can be
-    /// handed is exhaustive - which is the mechanism, and this variant is what it costs today.
-    /// The splitter constructs a [`LegPlan`](sutura_domain::plan::LegPlan) in production and the
-    /// combiner above it is built and called, so what keeps a code path off this arm is neither of
-    /// those absences: it is this adapter leaving `Warehouse::EXECUTES_LEGS` at its default `false`,
-    /// which `sutura_app`'s federated path reads and refuses on before it splits. The day this
-    /// adapter declares otherwise, this arm is where the engine's leg path lands - and until then an
-    /// error naming the leg is more honest than a silently non-federating default.
-    ///
-    /// It carries the table rather than a sentence, because that is the one thing a reader chasing
-    /// this needs and the message may be reworded.
-    #[error("this adapter executes a whole plan, and the leg against {table} needs a combiner above it")]
-    LegWithoutCombiner { table: String },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     ///
     /// **An `Err` and never a refusal, and the direction is the point.** Nothing about the question
@@ -259,6 +242,10 @@ mod translate;
 /// A result becomes domain rows here. The mirror half, which never reads a plan except for its
 /// labels.
 mod collect;
+
+/// One LEG becomes expressions here, which is `translate`'s sibling rather than a part of it: what
+/// differs from a whole plan is the SHAPE of the plan, not how a piece of one renders.
+mod leg;
 
 /// The working-set ceiling.
 ///
@@ -537,27 +524,17 @@ impl DataFusionWarehouse {
 
         for join in plan.joins() {
             let right = self.scan(join.table()).await?;
-            let on = column(join.origin()).eq(column(join.target()));
-            // A LEFT join, always, matching the SQL path - and there it was a bug before it was a
-            // decision. An INNER join drops every fact row whose dimension row is missing, so a
-            // grouped answer totals less than the ungrouped one with nothing raising an error. The
-            // catalog`s duplication check cannot see it: that guard is about fan-out, not about
-            // elimination. `a_dimension_join_does_not_change_the_measure` asserts the reconciliation
-            // over real data, and it fails on an inner join.
-            //
-            // `OneToMany` never reaches here: a join that can duplicate the metric's rows is refused
-            // when the definitions are assembled. Matched exhaustively anyway, so a fourth
-            // cardinality is a compile error rather than a silently wrong plan.
-            builder = match join.join_type() {
-                JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => builder
-                    .join_on(right, EngineJoin::Left, [on])
-                    .map_err(|cause| DataFusionError::Build { cause })?,
-            };
+            // The SHARED decision, in `leg::dimension_join`: a LEFT join, always, matching the SQL
+            // path. Both plan shapes call it, so the join kind cannot be one thing for a whole
+            // answer and another for one source's share of one - `a_dimension_join_does_not_change_the_measure`
+            // fails on an inner join and now fails for either. That module documents what was
+            // measured before the two were shared.
+            builder = leg::dimension_join(builder, right, join)?;
         }
 
         let mut conjuncts = Vec::with_capacity(plan.filters().len());
         for filter in plan.filters() {
-            conjuncts.push(predicate(plan, filter.predicate())?);
+            conjuncts.push(predicate(plan.params(), filter.predicate())?);
         }
         let mut remaining = conjuncts.into_iter();
         let Some(first) = remaining.next() else {
@@ -611,9 +588,34 @@ impl DataFusionWarehouse {
         Ok(frame.into_unoptimized_plan())
     }
 
-    /// Runs the plan and collects its rows.
-    async fn rows(&self, plan: &QueryPlan) -> Result<RowSet, DataFusionError> {
-        let logical = self.logical_plan(plan).await?;
+    /// One leg, as a logical plan.
+    ///
+    /// The scans are resolved here because a table lookup needs this adapter's session, and nothing
+    /// else about a leg does - so everything that turns the leg's own vocabulary into nodes is
+    /// [`crate::leg::logical`], which takes no session and is synchronous. The order is the one that
+    /// function documents: the leg's own table first, then one per same-source hop.
+    async fn leg_plan(&self, leg: &LegPlan) -> Result<LogicalPlan, DataFusionError> {
+        let from = self.scan(leg.table()).await?;
+        let hops = leg::joins(leg);
+        let mut joined = Vec::with_capacity(hops.len());
+        for join in hops {
+            joined.push((join, self.scan(join.table()).await?));
+        }
+        leg::logical(leg, from, joined)
+    }
+
+    /// Runs whatever was handed to the port and collects its rows.
+    ///
+    /// **One execution and one schema check for both plan shapes**, and the two shapes differ only
+    /// in the plan that is built. [`Executable::result_labels`] is the domain's own definition of
+    /// what each shape projects, so a leg cannot be read back under labels a whole answer's
+    /// arithmetic derived - and the comparison below is the same one, once, rather than two copies
+    /// that could drift.
+    async fn rows(&self, executable: Executable<'_>) -> Result<RowSet, DataFusionError> {
+        let logical = match executable {
+            Executable::Query(plan) => self.logical_plan(plan).await?,
+            Executable::Leg(leg) => self.leg_plan(leg).await?,
+        };
         let frame = self
             .context
             .execute_logical_plan(logical)
@@ -623,7 +625,7 @@ impl DataFusionWarehouse {
         // The columns come from the frame's own schema rather than from the labels we asked for, and
         // then the two are compared. Building the result set from `result_labels` directly would
         // make a projection that came back a different shape look correct.
-        let expected = plan.result_labels();
+        let expected = executable.result_labels();
         let actual = labels_of(&frame);
         if actual != expected {
             return Err(DataFusionError::SchemaMismatch { expected, actual });
@@ -702,6 +704,26 @@ impl Warehouse for DataFusionWarehouse {
     /// `impersonation-at-source` on this adapter does not start.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
 
+    /// **This engine runs one source's share of a two-source answer, and it is the only adapter a
+    /// release links that does.** Declared rather than defaulted, and the default it overrides is
+    /// documented on the port as *a missed-optimisation default rather than a missed-security one:
+    /// the cost of being wrong is a refused question, never a wrong number* - which is precisely
+    /// what makes opting ONE adapter in an ordinary capability statement and opting every adapter in
+    /// a change of that argument.
+    ///
+    /// **What the port's default asks for, and why this adapter can answer it:** the default's own
+    /// condition is *a combiner above it to hand a leg's rows to*, and there is one - the combine is
+    /// `sutura_domain::plan::FederatedPlan::combine`, a pure domain function that no adapter is on
+    /// the path of. So the engine's role here is the data source's, not the combiner's, and
+    /// `docs/adr/0007`'s *the engine is also a data source* is the sentence that permits it.
+    ///
+    /// **The limit, next to the claim.** This is single-player federation. Two sources are not two
+    /// identities: [`Warehouse::IMPERSONATION`] above is
+    /// [`ImpersonationCapability::NoPlaceForASubject`], so every leg this adapter runs runs under
+    /// one operating-system identity and none of them runs as the asker. A two-source answer
+    /// records both legs' postures; both are the shared one.
+    const EXECUTES_LEGS: bool = true;
+
     fn source(&self) -> &SourceName {
         &self.source
     }
@@ -741,15 +763,13 @@ impl Warehouse for DataFusionWarehouse {
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })?;
+        // **Both shapes, one path, and the match stays exhaustive.** It would read more simply as a
+        // single call now that `rows` takes the `Executable` - and that is exactly what it must not
+        // be: `Executable` is the port's whole vocabulary, and the arm is what makes a third plan
+        // shape a compile error in this adapter rather than something it silently ran as one of
+        // these two.
         match executable {
-            Executable::Query(plan) => self.runtime()?.block_on(self.rows(plan)),
-            // Stated rather than defaulted. This adapter is the engine and it belongs ABOVE the
-            // port once federation lands, so a leg arriving here would mean the composition is
-            // wrong - not that the leg is unanswerable. Nothing reaches this today: there is no
-            // splitter to build a leg.
-            Executable::Leg(leg) => Err(DataFusionError::LegWithoutCombiner {
-                table: leg.table().to_string(),
-            }),
+            Executable::Query(_) | Executable::Leg(_) => self.runtime()?.block_on(self.rows(executable)),
         }
     }
 
@@ -760,7 +780,9 @@ impl Warehouse for DataFusionWarehouse {
     /// available: one process, one operating-system identity, nowhere for a subject to arrive.
     /// [`AnchorRows`] is what keeps the result from being handed back to a caller as an answer.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.runtime()?.block_on(self.rows(plan.plan())).map(AnchorRows::of)
+        self.runtime()?
+            .block_on(self.rows(Executable::Query(plan.plan())))
+            .map(AnchorRows::of)
     }
 
     /// Counts a declared join key's values and its distinct values, in this process.

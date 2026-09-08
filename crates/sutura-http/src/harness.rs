@@ -284,10 +284,13 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 
 #[tokio::test]
 async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes() {
-    // Issue #72's splitter and combiner exist and are tested, but neither shipped adapter can execute
-    // a leg yet - both answer `Executable::Leg` with a typed refusal. Until one does, `answer` keeps
-    // refusing a two-source question here rather than surfacing the adapter's refusal as a 503, the
-    // status reserved for a retryable outage. This pins the restored 409.
+    // **Still green, and it is about the FAKE rather than about the shipped set.** This runs over
+    // `fake_warehouse()`, which takes the port's defaulted `EXECUTES_LEGS`, so what it pins is the
+    // status a build whose adapter cannot run a leg gives: a 409 out of `answer`'s own gate rather
+    // than an adapter's typed refusal surfacing as a 503, the status reserved for a retryable
+    // outage. `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer
+    // reaches this branch - `sutura-exec-bigquery` and any adapter taking the default still do, and
+    // this is where the transport's half of that is held.
     let app = over(two_source_bundle(), fake_warehouse(), settings(Environment::Development, ""));
     let (status, code, detail) = refusal(
         &app,

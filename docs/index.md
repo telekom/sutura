@@ -87,9 +87,9 @@ operations that caller may invoke. What is absent is **leg 2**: no adapter in th
 for a per-subject credential to arrive, both declare so, and the broker mints what an operator
 configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
 a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
-and still read every row as one identity. Arrow results are also still ahead, and so is a shipped
-adapter that EXECUTES a federated leg - the splitter and the combiner run above the port, gated by a
-defaulted-`false` `EXECUTES_LEGS`. [The HTTP
+and still read every row as one identity. Arrow results are also still ahead. Federation is not:
+the splitter, two executions and the combiner all run in a published build, because the engine
+declares `Warehouse::EXECUTES_LEGS`. [The HTTP
 surface](serving.md) is not, and its bearer token authenticates the deployment rather than the caller.
 [What exists today](architecture.md#what-exists-today) is the honest inventory.
 

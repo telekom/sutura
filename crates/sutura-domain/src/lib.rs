@@ -39,9 +39,10 @@
 //! - [`plan`] is what we decided to execute, and the artifact the execution port speaks in.
 //! - [`federation`] is how a measure survives being computed in pieces: which aggregates descend
 //!   into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
-//!   (`sutura_semantic::plan`) and the combiner ([`plan::FederatedPlan::combine`]) both exist and
-//!   both call it, so it has a production caller; what no SHIPPED binary does is EXECUTE a leg, and
-//!   its own header names the two mechanisms that hold that.
+//!   and the combiner ([`plan::FederatedPlan::combine`]) both call it, and since
+//!   `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS` a published build answers a
+//!   two-source question end to end - so this is a classification on the answer path rather than
+//!   one with no production caller, which is what this line used to say.
 //! - [`catalog`] is what a catalog says, and where its cross-references are checked.
 //! - [`knowledge`] is what a catalog says ABOUT what it defines - the glossary, the caveats, the
 //!   terms deliberately left undefined, the worked questions - checked against a [`catalog`] and read

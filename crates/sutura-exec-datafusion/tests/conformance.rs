@@ -1,12 +1,16 @@
 //! This engine, held to the conformance packs, from its OWN crate.
 //!
-//! **The second binding of one pack, and the reason there are two in this change.** `DuckDB` and
-//! this engine are different kinds of thing behind one port - a plan is rendered into SQL and pushed
-//! down there, and executed as a logical plan over Arrow here - and they make OPPOSITE leg
-//! declarations. Binding both is what shows the pack is a statement about the port rather than a
-//! test that happens to fit one adapter, and what shows the declaration selects: the leg behaviour
-//! arrives here under the name that says it was REFUSED, and there under the name that says it was
-//! executed.
+//! **The second binding of one pack.** `DuckDB` and this engine are different kinds of thing behind
+//! one port - a plan is rendered into SQL and pushed down there, and executed as a logical plan over
+//! Arrow here - so binding both is what shows the pack is a statement about the port rather than a
+//! test that happens to fit one adapter.
+//!
+//! **The leg behaviour arrives here under the name that says it was EXECUTED**, and that is the one
+//! line in this file worth a paragraph: this engine is the only adapter a release links, so until it
+//! declared `Warehouse::EXECUTES_LEGS` no published artifact could answer a two-source question at
+//! all. The two adapters no longer make opposite leg declarations, and what still shows the
+//! declaration SELECTS is `sutura-exec-postgres`'s binding, which takes the default and gets
+//! `a_leg_is_refused` - both directions of the pack are still bound, on different crates.
 //!
 //! It also exercises the run-time declination. This adapter takes the port's default `dry_run`,
 //! because for an in-process engine checking costs what running costs - so the pre-flight behaviour
@@ -43,14 +47,21 @@ mod conformance {
         Fixture::standing(engine)
     }
 
-    // `refuses_legs`, because this adapter leaves `EXECUTES_LEGS` at its default: it is the engine
-    // and belongs ABOVE the port once federation lands, so a leg arriving here means the composition
-    // is wrong. No shipped binary builds a leg today - the splitter does, in library code - which
-    // is what makes this pack the only thing that exercises that guard.
+    // `executes_legs`, because this adapter declares `EXECUTES_LEGS`. The tag and the constant
+    // cannot disagree: a binding tagged this way over an adapter declaring `false` is torn by a
+    // `const` assertion in the pack, and one tagged `refuses_legs` over an adapter that ANSWERS a
+    // leg fails as `Fault::ALegWasAnswered` - which is what makes this line the pack's own check on
+    // the constant beside it rather than a label.
+    //
+    // What the cell asserts is the claim rather than a smoke test: the leg reads the same table over
+    // the same range as one of the whole-plan cases and must land on that case's rows, content
+    // compared. This adapter builds a logical plan for a leg (`src/leg.rs`) and NO SQL, so there is
+    // no golden that can see this path - the conformance cell and `sutura-app`'s two-source
+    // differential are its only evidence.
     sutura_conformance::execute_packs! {
         adapter: datafusion,
         warehouse: sutura_exec_datafusion::DataFusionWarehouse,
         open: crate::conformance::open,
-        refuses_legs,
+        executes_legs,
     }
 }

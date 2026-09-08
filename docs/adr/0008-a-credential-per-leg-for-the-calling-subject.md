@@ -2037,15 +2037,21 @@ below and still true for the rest.
    second one: there is no splitter and no combiner, and both `Warehouse` implementors answer a leg
    with a typed error.
 
-   > **Amended, 2026-09-08.** Two sentences above are spent, and they are kept as written because
-   > they are the premise items 2 and 3 argue from. *"Part 4's per-leg check needs a splitter, which
-   > does not exist"* and *"there is no splitter and no combiner"* were true when this record was
-   > written and stopped being true with the change that landed the splitter (`sutura_semantic::plan`)
-   > and the combiner (`FederatedPlan::combine`), both of which are now called from library code.
-   > What still holds item 3 is narrower, and it is a DIFFERENT mechanism from the one written:
-   > `Warehouse::EXECUTES_LEGS` defaults to `false` and only the dev-only `DuckDB` vehicle sets it,
-   > so `answer_federated` refuses a two-source question before it splits and no shipped adapter is
-   > handed a second leg. An absent splitter is not what holds it; a defaulted declaration is.
+   > **Amended, 2026-09-08.** Items 2 and 3 are spent, and the sentences above are kept as written
+   > because they are the premise those items argue from. *"Part 4's per-leg check needs a splitter,
+   > which does not exist"* and *"there is no splitter and no combiner"* were true when this record
+   > was written and stopped being true with the change that landed both, and *"nothing constructs a
+   > second one"* stopped being true when the engine declared `Warehouse::EXECUTES_LEGS`.
+   > `sutura_app::answer_federated` now mints ONE credential set over both sources and hands each
+   > leg its own `Presented`, and a published build executes both legs - so `LegCredentials` covers
+   > two legs on the shipped answer path rather than one in a test.
+   >
+   > **What that leaves undone is leg 2, and it is not what these items said.** The per-leg check is
+   > over a credential minted for the CALLING SUBJECT, and no shipped adapter yet has anywhere for a
+   > per-subject credential to arrive. So item 3's conclusion has moved from *nothing constructs a
+   > second leg* to *nothing yet runs one AS the caller*, which is a different claim with a
+   > different mechanism, and the reason to amend rather than rewrite is that a reader who plans
+   > from the old sentence plans for the wrong gap.
 4. **Provenance is still read off `Warehouse::posture`** rather than off `Presented::executed_as`, which
    the table at the foot of this record wants. The reason not to move it is that the posture on the
    adapter is what the composition root built, while the credential comes from a broker that read the

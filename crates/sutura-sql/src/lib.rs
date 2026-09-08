@@ -10,13 +10,13 @@
 //! from a `QueryPlan`; [`generate_leg`] renders one leg of a federated question from a `LegPlan`.
 //! They share every decision that could drift - the quoting, the placeholder style, the bucket, the
 //! joins, how a term renders - and differ in the four ways `generate_leg`'s own documentation
-//! lists. Library code calls the second one - `sutura-exec-duckdb` does, in its `Executable::Leg`
-//! arm - and no SHIPPED binary reaches it: `sutura` and `sutura-serve` link only
-//! `sutura-exec-datafusion`, and `Warehouse::EXECUTES_LEGS` defaults to `false` with only the
-//! dev-only `DuckDB` vehicle setting it. Those two are what hold the claim; *there is no splitter*
-//! used to, and has not been true since the splitter landed.
-//! `.agents/skills/sutura/query-surface`'s built-and-not-wired section is where that state is
-//! recorded.
+//! lists. **Nothing a RELEASE runs calls the second one**, and the reason is not the absence of a
+//! splitter - `sutura_semantic::federated_plan` produces a `LegPlan` and `sutura_app` executes it.
+//! It is that the one leg-executing adapter a release links is the engine, which builds a logical
+//! plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
+//! and a default-off feature. `.agents/skills/sutura/query-surface`'s federation section records
+//! that state, and it is why this crate's leg goldens are evidence about four dialects and about
+//! nothing a shipped binary executes.
 //!
 //! # Why this is its own crate and not the compiler's last stage
 //!

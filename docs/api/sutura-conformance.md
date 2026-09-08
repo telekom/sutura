@@ -789,9 +789,9 @@ pub fn a_leg_is_refused<W>(warehouse: &W) -> crate::Conformed<<W as >::Error>
 A leg is refused by an adapter that declares it does not execute one.
 
 Selected for an adapter that leaves `EXECUTES_LEGS` at its default. This is the direction
-`docs/adr/0012` calls *a declared absence with something to try*: the value of it is that no
-SHIPPED binary builds a leg today - the splitter does, in library code - so this is the only
-thing that exercises the adapter's own guard -
+`docs/adr/0012` calls *a declared absence with something to try*: a leg IS built and executed
+on the shipped answer path now, so what this direction is worth is narrower and still real -
+it is the only thing that exercises the guard of an adapter with no leg venue of its own -
 and an adapter that quietly computed one instead would be surfacing half an answer under a
 certified metric name.
 

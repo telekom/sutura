@@ -9,8 +9,10 @@
 //! recorded rather than quietly applied, because *a classification with no production caller* is
 //! what a reader would otherwise still plan against.
 //!
-//! What remains true is one step lower: no SHIPPED binary EXECUTES a leg, because
-//! `Warehouse::EXECUTES_LEGS` defaults to `false` and only the dev-only `DuckDB` vehicle sets it.
+//! And it is on the answer path of a published build, not merely in library code:
+//! `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS`, so `sutura` and `sutura-serve`
+//! execute a leg. What the defaulted-`false` constant still holds is the OTHER direction - an
+//! adapter with no leg venue refuses rather than half-answering.
 //! `.agents/skills/sutura/query-surface` carries that state.
 //!
 //! **The problem it answers.** Grouping a fact leg by a remote join key is a strictly finer grouping

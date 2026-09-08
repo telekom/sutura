@@ -584,14 +584,13 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
 /// path and not the other.
 ///
-/// **No SHIPPED binary calls this, and library code does.** `sutura-exec-duckdb` calls it in its
-/// `Executable::Leg` arm, and the splitter constructs a [`LegPlan`] in production - so the
-/// conclusion survives for a different reason than the one written here before, which rested on
-/// *there is no splitter*. What holds it is that `sutura` and `sutura-serve` link only
-/// `sutura-exec-datafusion`, and that `Warehouse::EXECUTES_LEGS` defaults to `false` with only the
-/// dev-only `DuckDB` vehicle setting it. What pins the rendering is the golden family under
+/// **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
+/// to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
+/// `sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
+/// that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+/// which builds a logical plan instead. So what pins this is the golden family under
 /// `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
-/// dialect it was generated for.
+/// dialect it was generated for - and none of those four is what a release executes.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.

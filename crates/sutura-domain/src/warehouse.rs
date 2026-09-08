@@ -608,11 +608,15 @@ pub trait Warehouse {
     /// true in the one direction nobody would notice.
     /// `docs/adr/0007-federating-across-different-data-systems.md` is the decision.
     ///
-    /// **`sutura_app`'s federated path hands an adapter a leg, and no SHIPPED binary reaches it.**
-    /// [`Self::EXECUTES_LEGS`] defaults to `false` and only the dev-only `DuckDB` vehicle sets it,
-    /// so `answer_federated` refuses a two-source question before it splits rather than handing a
-    /// leg to `sutura` or `sutura-serve`. An adapter that cannot execute one says so with a typed
-    /// error of its own rather than with a default it inherited.
+    /// **`sutura_app`'s federated path hands an adapter a leg, and a shipped binary reaches it** -
+    /// the engine declares [`Self::EXECUTES_LEGS`], so `sutura` and `sutura-serve` answer a
+    /// two-source question rather than refusing one. This paragraph twice said the opposite: first
+    /// that nothing handed any adapter a leg, then that no shipped binary did.
+    ///
+    /// [`Self::EXECUTES_LEGS`] still DEFAULTS to `false`, which is what makes the refusal the safe
+    /// direction for an adapter that has no leg venue - `answer_federated` reads it and refuses
+    /// before it splits. An adapter that cannot execute one says so with a typed error of its own
+    /// rather than with a default it inherited.
     ///
     /// # The credential is a parameter, and it cannot be omitted
     ///

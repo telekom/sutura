@@ -1,14 +1,11 @@
 //! One source's share of a federated question, and the only thing the port can be handed.
 //!
-//! **The shapes and their closure. A splitter produces one; no SHIPPED binary executes one.** The
-//! splitter is `sutura_semantic::plan`, reached through `sutura_semantic::compile`, and the
-//! combiner above the legs is `FederatedPlan::combine`, called from `sutura_app::federated` - so
-//! production code DOES construct a [`LegPlan`], and the sentence that used to stand here said
-//! otherwise. What holds the narrower claim is two mechanisms rather than an absence: `sutura` and
-//! `sutura-serve` link only `sutura-exec-datafusion`, and `Warehouse::EXECUTES_LEGS` defaults to
-//! `false` with only the dev-only `DuckDB` vehicle setting it, so a shipped binary reaches the
-//! refusal rather than the leg. `.agents/skills/sutura/query-surface` carries that state, and this
-//! module says it rather than leaving it to be discovered.
+//! **The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
+//! `sutura_app::answer_federated` hands it to an adapter, and
+//! [`FederatedPlan::combine`](crate::plan::FederatedPlan::combine) - a function in this crate -
+//! assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
+//! builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+//! published artefact reaches, and this module says the shape rather than the state.
 //! `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 //! `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 //!
