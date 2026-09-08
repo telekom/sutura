@@ -353,3 +353,41 @@ invisible to a probe that breaks on its first match - and closes a trap a person
 because the repository became public, and `CII-Best-Practices` from `0` to `2` because somebody
 registered a project. Both were predicted here as *not defects*. Had they been treated as defects,
 the work would have been spent on rows that fixed themselves.
+
+## Amendment (2026-09-08, `#464`): what the CodeQL-for-Rust recommendation ran into
+
+The recommendation above says a CodeQL Rust taint check "can fail on a real risk in this tree",
+and `#464` is the change, previously blocked on the visibility flip. The repository is public now,
+so the SARIF upload can work - and the change ran head-first into a second blocker, this one inside
+the tool. It is recorded here because it changes the recommendation's standing: **the specific
+taint flow `#464` exists to hold is not tracked by CodeQL Rust at the pinned version, so a job
+added today would be green while reporting nothing on exactly the defect it was for. That is the
+"runs and analyses nothing" shape this repository refuses, so the workflow is deliberately not
+added yet.**
+
+**The measurement.** CodeQL CLI `2.26.4` - the bundle the pinned action resolves to as of this date
+- was run over a buildless Rust database built from a realistic probe of the exact shape this tree
+compiles SQL in: a value supplied by a caller (a handler parameter) is interpolated with `format!`
+into a statement and executed by `rusqlite::Connection::execute` - *interpolated instead of bound*,
+the failure class `SECURITY.md` names. The full default Rust query suite found **no** `rust/sql-injection`
+finding. The `rust/summary/query-sinks` and `rust/summary/taint-sources` diagnostic queries confirm
+both endpoints are modelled in the same database: the remote source *is* recognised, and the
+`SqlInjection` sink *is* recognised. The taint simply never travels between them.
+
+**The cause, isolated rather than assumed.** Two controlled variants bound it precisely. A caller
+value passed to the sink argument **unchanged** (`conn.execute(caller, ...)`) is flagged. The same
+value passed **through `format!`** - or through `+` string concat - into a produced `String` that is
+then executed is **not** flagged. Reading the shipped taint library (`codeql/rust-all` 0.2.20 at
+this CLI): Rust taint propagates a value into a `format_args!` node - which is why `rust/log-injection`,
+whose sink reads the format *arguments*, does fire - but there is **no step from a `format_args!`
+node to the `String` it produces**, and that step predicate is `cached`, not `extensible`, so no
+query pack can supply it with the shipped library. Taint out of string building is the missing edge.
+
+**What this means for the recommendation.** The recommendation to add CodeQL for Rust stands, and
+the reason is now finer than "it is a real check": the tool's *source and sink modelling* for this
+class are present and correct, but the *interpolated-text* taint edge is absent, so the check cannot
+yet fail on the risk `SECURITY.md` names. A job that stops being green at a later CodeQL release
+that lands that edge - and a QL regression pinning it - is the shape to revisit, and the release to
+watch is the one whose notes mention taint through string formatting for Rust. Until then, adding
+the job would trade a recorded zero (through `#464`) for a green run that looks like coverage and
+isn't, which this record already treats as the worse error.
