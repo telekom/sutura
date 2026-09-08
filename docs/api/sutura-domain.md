@@ -121,7 +121,7 @@ the posture each leg ran under, and the expiry the credentials carried.**
 A verified subject's question can be answered under the *deployment's* own identity on a source
 declared `shared-service-user` - that is honest, acknowledged and not impersonation - and the
 incident question is then "whose access filtered these rows". The answer is
-`crate::source::ExecutedAs`, which rides on the `Provenance` an answer carries, and
+`crate::source::UniformlyExecuted`, which rides on the `Provenance` an answer carries, and
 `CallRecord::executed_as` is the accessor: a sink writing an audit line does not have to know
 that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
 
@@ -198,7 +198,7 @@ pub const fn chain(&self) -> &PrincipalChain
 Who the call is attributable to.
 
 ```rust
-pub const fn executed_as(&self) -> Option<&ExecutedAs>
+pub const fn executed_as(&self) -> Option<&UniformlyExecuted>
 ```
 
 Which identity produced each leg, where anything executed.
@@ -3764,13 +3764,15 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub const fn executed_as(&self) -> &ExecutedAs
+pub const fn executed_as(&self) -> &UniformlyExecuted
 ```
 
 What each leg of this answer ran as.
 
 Read off the posture the **adapter was handed**, never off a settings tree - see
-`crate::source`. Non-empty, because `ExecutedAs` has no empty form.
+`crate::source`. Non-empty, because `crate::source::ExecutedAs` has no empty form, and
+uniform, because `UniformlyExecuted` is the only thing `PinnedDefinitions::provenance`
+accepts.
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -3936,7 +3938,7 @@ fn _pin(
 ```
 
 ```rust
-pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance
+pub fn provenance(&self, executed_as: UniformlyExecuted) -> Provenance
 ```
 
 The provenance to attach to one answer produced from this bundle.
@@ -3951,6 +3953,40 @@ A caller that only wants to *describe* this bundle - a catalog endpoint, the age
 prompt - reads `Self::version` and `Self::digest` instead. Nothing executed for it, and a
 `Provenance` with an empty execution record would be the one shape this argument exists to
 make unrepresentable.
+
+# And a MIXED execution record is unrepresentable the same way
+
+The argument is `UniformlyExecuted` rather than `crate::source::ExecutedAs`, so an answer
+combining rows read under one posture with rows read under another cannot be built at all -
+not refused at a call site somebody may move, but absent from the type system. A record with
+two legs reaches this only through `crate::source::ExecutedAs::uniform`, which is where the
+verdict is made.
+
+**A mixed record has no way in:**
+
+```compile_fail
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::source::ExecutedAs;
+
+fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
+    pinned.provenance(both_legs)
+}
+```
+
+The compiling twin, differing by exactly the one call that makes the verdict - so the block
+above cannot be passing on a typo:
+
+```
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::source::{ExecutedAs, LegsDecideIdentityDifferently};
+
+fn _uniform(
+    pinned: &PinnedDefinitions,
+    both_legs: ExecutedAs,
+) -> Result<Provenance, LegsDecideIdentityDifferently> {
+    Ok(pinned.provenance(both_legs.uniform()?))
+}
+```
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -6060,6 +6096,7 @@ somebody else's input.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
+- `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
 
 #### Implements
 
@@ -6208,6 +6245,20 @@ executed, and provenance is read by whoever holds the answer *after* the rows we
 cannot prevent a disclosure and does not attempt to. What keeps a shared source from being served
 unnoticed is the boot refusal in `sutura_config::Settings::refusals` and the cross-check above,
 both of which happen before a listener is bound.
+
+# One answer, one kind of identity - and this half IS a control
+
+`ExecutedAs::uniform` is the verdict, and `UniformlyExecuted` is what carrying it looks like:
+`crate::pinned::PinnedDefinitions::provenance` takes only that, so an answer whose legs decide
+identity two different ways is **unconstructible** rather than merely declined. It is a control
+and the recording beside it is not, for the reason the paragraph above gives - a refusal reaches a
+caller instead of the rows, and a record reaches them after.
+
+Two things it does not reach, both worth having in front of a reader here. It compares the posture
+**variant** and never the value, because an acknowledgement is written per source and two ordinary
+shared legs are therefore two unequal values and one posture. And *same posture* is not *same
+asker*: nothing in this module or in `crate::identity` names WHICH shared identity a source is
+read as.
 
 # Nothing here is `Deserialize`, and that is the same property `crate::identity` has
 
@@ -6641,6 +6692,26 @@ pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
 
 What one source's leg ran as, if this answer has one.
 
+```rust
+pub fn uniform(self) -> Result<UniformlyExecuted, LegsDecideIdentityDifferently>
+```
+
+This record, if every leg in it decides identity the same way.
+
+**The predicate compares the VARIANT and never the value, and that distinction is the whole
+of what makes this shippable.** `SourcePosture` derives `PartialEq` and a shared source
+carries the operator's own acknowledgement, which is resolved per source - so two ordinary
+`shared-service-user` legs whose operators wrote different sentences are two *unequal*
+values and one posture. A `!=` here would refuse the only federating shape that ships.
+`SourcePosture::as_str` is the variant, so the set below has one member for any number of
+shared legs.
+
+What it decides is *same posture*, and what it cannot decide is *same asker*:
+`crate::identity::Presented::SharedServiceUser` carries the acknowledgement witness and no
+identity, and nothing here names WHICH shared identity a source is read as. So two
+`shared-service-user` legs may be two different deployment-held identities and this passes
+them. Stated with the claim, because the stronger reading is the one somebody will make.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -6652,6 +6723,87 @@ pub struct LegAlreadyRecorded
 ```
 
 A second leg was recorded for a source that already had one.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct UniformlyExecuted`
+
+```rust
+pub struct UniformlyExecuted
+```
+
+An execution record whose legs all decide identity the same way.
+
+**This exists so a mixed-posture answer is unconstructible rather than refused twice.**
+`crate::pinned::PinnedDefinitions::provenance` takes one of these, `Provenance::new` is
+private, and `ToolOutcome::Answer` carries a `Provenance` - so an answer combining two postures
+has no way to be built, whatever a call site above it forgets to ask. The refusal in the
+federated answer path is what stops the legs *running*; this is what stops rows *reaching a
+caller* if that call site is ever moved below execution.
+
+The field is private and there is no `Deserialize`, for `SharedIdentityDeclared`'s reason: a
+value that reached this type without passing `ExecutedAs::uniform` would be the one state it
+exists to make unreachable. What it does **not** claim is that the constructors are unreachable
+from another crate - `Self::of` is `pub`, because one leg cannot disagree with itself and the
+mono answer path has no error arm to write.
+
+#### Methods
+
+```rust
+pub fn legs(&self) -> impl Iterator<Item>
+```
+
+Every leg, by source, in source order.
+
+```rust
+pub fn of(source: SourceName, posture: SourcePosture) -> Self
+```
+
+One leg, which is uniform by construction.
+
+The mono answer path's door, and it returns no `Result` deliberately: a single-leg record has
+one posture, so an `Err` arm there would be a refusal nothing can provoke sitting on the path
+every question takes. Two doors, one property - the other is `ExecutedAs::uniform`.
+
+```rust
+pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
+```
+
+What one source's leg ran as, if this answer has one.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct LegsDecideIdentityDifferently`
+
+```rust
+pub struct LegsDecideIdentityDifferently
+```
+
+The legs of one answer would not all decide identity the same way.
+
+Carries the posture LABELS and never a `SourcePosture`, and that is a disclosure decision
+rather than a convenience: the shared variant holds `SharedIdentityDeclared` ->
+`AcknowledgementReason`, both `Serialize`, so a value here would publish the operator's own
+prose to whatever reads the refusal this becomes - a caller, a log, an agent's context. The
+labels come from `SourcePosture::NAMES`' closed set and say the whole of what a reader needs.
+
+#### Methods
+
+```rust
+pub fn into_postures(self) -> BTreeSet<&'static str>
+```
+
+The labels, for a refusal that carries them onward.
+
+```rust
+pub const fn postures(&self) -> &BTreeSet<&'static str>
+```
+
+The posture labels this answer would have combined, in name order.
 
 #### Implements
 
