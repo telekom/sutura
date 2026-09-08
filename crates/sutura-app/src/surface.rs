@@ -149,11 +149,22 @@ pub enum SurfaceFailure {
     /// The pinned bundle would not compile this question, or the splitter built a two-source plan
     /// this workspace could not then assemble.
     ///
-    /// **The message names neither, and that is deliberate since `telekom/sutura#338`.** It used to
-    /// say *against the pinned bundle*, which was true of the only cause it could carry and stopped
-    /// being true when `sutura_semantic::CompileFailure` gained its second arm: an assembly failure
-    /// is a defect in this workspace's own wiring, not a bundle that does not hold what it names.
-    /// The cause is kept as a `#[source]` and says which, so the sentence does not have to guess.
+    /// **The message names neither, and that is deliberate since `telekom/sutura#338`.** The three
+    /// sentences on this variant's path - this `Display`, the HTTP sink's log line and the MCP tool
+    /// result a model reads - each blamed the bundle, which was true of the only cause this could
+    /// carry and stopped being true when `sutura_semantic::CompileFailure` gained its second arm: an
+    /// assembly failure is a defect in this workspace's own wiring, not a bundle that fails to hold
+    /// what it names. The cause is kept as a `#[source]` and says which, so the sentence does not
+    /// have to guess. **No sentence on this variant's path blames the pinned bundle**, and that is
+    /// registered in `xtask`'s `ABSENCES` table rather than left to review - all three wordings are
+    /// scanned for across every crate's library source.
+    ///
+    /// **The limit, next to the claim:** nothing drives this variant through either transport. No
+    /// test builds a bundle that will not compile, or a plan that will not assemble, and asks for it
+    /// over HTTP or MCP - so the `500` an assembly failure now gets and the sentence a caller reads
+    /// with it are held by the code and by no cell. What IS measured is one layer in:
+    /// `crates/sutura-app/tests/differential/federated.rs` sees an assembly failure as a failure
+    /// rather than as a refusal.
     #[error("the question could not be compiled")]
     Compile {
         #[source]
