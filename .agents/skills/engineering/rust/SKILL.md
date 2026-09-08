@@ -257,6 +257,35 @@ Generics for a driven port and `dyn` exactly once for the driving one. No serde 
 type for a transport's convenience. And any cross-adapter edge outside the classes
 `check-boundaries` knows about, since a crate joins one by name.
 
+**Assertions over rendered text.** A substring assertion is a probabilistic one unless something
+makes it deterministic, and two properties do - **either** suffices:
+
+- the needle carries a character the **haystack's own alphabet cannot spell**. Haystack-relative, and
+  it cannot be written as a fixed list of characters: `-` and `_` are IN base64url, so `key-id` over
+  a JWK coordinate collides exactly as `kid` did, and `/`, `.` and `-` are all in a filesystem path.
+- the haystack is **deterministic** - free of nondeterministic bytes. Not "hand-written": a `Debug`
+  rendering and a line parsed out of this repository's own source both qualify. And the reason is
+  never *"the value cannot be in there"* when that is the property the assertion exists to test -
+  that argument assumes its own conclusion.
+
+Three further habits, each of which has cost a test its meaning here:
+
+- **Read the value, not the text**, wherever a parsed form is reachable - the member rather than the
+  serialized document, the field set rather than the rendered log line.
+- **Presence is not a role.** A sentence promising two numbers needs each asserted where it belongs;
+  two bare numbers pass with the two swapped.
+- **Search the words, not the lines**, over anything wrapped, or a formatter reddens the cell instead
+  of the thing it names.
+
+A **needle-side** lint would catch the first of these and needs no knowledge of haystacks - *a needle
+carries a non-alphanumeric character, or is at least N characters*. It is not here on measured cost
+rather than difficulty: over `crates/`, `xtask/` and `dev/` a `.contains("...")` literal appears 1116
+times, 268 with an alphanumeric needle, and the rule flags **52 at N=5**, 95 at N=6, 179 at N=8. The
+predicate is quoted because a bare count is not checkable, and because the figure moves with the
+tree - the same count against two merge bases four weeks apart differs by more than the rule's own
+threshold does. And the two commonest real offenders are a `const` and a `to_string()`, which a
+literal scan does not see at all. The decision is `github.com/telekom/sutura#429`.
+
 **Borrowing.** Preferring a borrow to a clone, and knowing which clones are cheap. There is no
 mechanism and there is not going to be one: a clone is a decision with a reason, and a gate cannot
 read the reason.
