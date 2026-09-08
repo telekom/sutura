@@ -379,6 +379,25 @@ mod tests {
     }
 
     #[test]
+    fn a_cleanup_argument_must_name_the_whole_file_not_a_quoted_fragment() {
+        let missed: Vec<_> = [
+            "\"$RUNNER_TEMP/bq-key.json extra\"",
+            "\"prefix $RUNNER_TEMP/bq-key.json\"",
+            "\"$RUNNER_TEMP/bq-key.json\"extra",
+            "\"$RUNNER_TEMP/bq-key.json\"'extra'",
+        ]
+        .into_iter()
+        .filter(|path| {
+            let changed = CI.replace("rm -f \"$RUNNER_TEMP/bq-key.json\"", &format!("rm -f {path}"));
+            !problems(&changed)
+                .iter()
+                .any(|p| p.contains("writes `$RUNNER_TEMP/bq-key.json` and no `rm`"))
+        })
+        .collect();
+        assert!(missed.is_empty(), "different cleanup filenames were accepted: {missed:?}");
+    }
+
+    #[test]
     fn a_secret_interpolated_into_a_shell_body_fails() {
         let interpolated = CI.replace("printenv SUTURA_BQ_KEY >", "echo '${{ secrets.a_key }}' >");
         let found = problems(&interpolated);

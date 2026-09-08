@@ -332,17 +332,39 @@ pub(super) fn under_runner_temp(path: &str) -> Option<&str> {
 /// The path below a plain or braced `$RUNNER_TEMP` expansion, with the whole word or just the
 /// directory optionally double-quoted. A single-quoted variable is literal, not this directory.
 fn named_under_runner_temp(word: &str) -> Option<&str> {
+    let quoted = word.starts_with('"');
     let word = word.strip_prefix('"').unwrap_or(word);
     let path = word
         .strip_prefix("$RUNNER_TEMP")
         .or_else(|| word.strip_prefix("${RUNNER_TEMP}"))?;
-    let file = path
-        .strip_prefix('"')
-        .unwrap_or(path)
-        .strip_prefix('/')?
-        .split(['"', '\'', ' '])
-        .next()?;
-    (!file.is_empty()).then_some(file)
+    let file = match (quoted, path.strip_prefix('"')) {
+        (true, Some(after_directory)) => after_directory.strip_prefix('/')?,
+        (true, None) => path.strip_prefix('/')?.strip_suffix('"')?,
+        (false, _) => path.strip_prefix('/')?,
+    };
+    // Keep the complete filename, including a quoted space. Concatenated quoting and escapes
+    // are outside this path grammar; accepting their prefix would name a different file.
+    (!file.is_empty() && !file.contains(['"', '\'', '\\'])).then_some(file)
+}
+
+/// Raw argument words, keeping quoted whitespace and escaped characters inside their word.
+/// This only finds boundaries: it does not expand variables or interpret the words' contents.
+fn argument_words(text: &str) -> impl Iterator<Item = &str> {
+    let mut quote = None;
+    let mut escaped = false;
+    text.split(move |character: char| {
+        if escaped {
+            escaped = false;
+            return false;
+        }
+        match (quote, character) {
+            (Some('\''), '\'') | (Some('"'), '"') => quote = None,
+            (None, '\'' | '"') => quote = Some(character),
+            (_, '\\') if quote != Some('\'') => escaped = true,
+            _ => {}
+        }
+        quote.is_none() && character.is_whitespace()
+    })
 }
 
 /// Every file below `$RUNNER_TEMP` this command redirects into.
@@ -354,7 +376,8 @@ fn named_under_runner_temp(word: &str) -> Option<&str> {
 pub(super) fn writes_under_runner_temp(line: &str) -> impl Iterator<Item = &str> {
     line.split('>')
         .skip(1)
-        .filter_map(|rest| named_under_runner_temp(rest.trim_start()))
+        .filter_map(|rest| argument_words(rest.trim_start()).next())
+        .filter_map(named_under_runner_temp)
 }
 
 /// Does this command delete `file` from `$RUNNER_TEMP`?
@@ -374,7 +397,7 @@ pub(super) fn removes(line: &str, file: &str) -> bool {
         .into_iter()
         .map(command)
         .filter_map(|invocation| invocation.strip_prefix("rm "))
-        .flat_map(str::split_whitespace)
+        .flat_map(argument_words)
         .filter_map(named_under_runner_temp)
         .any(|named| named == file)
 }
