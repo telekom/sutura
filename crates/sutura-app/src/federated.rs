@@ -6,6 +6,13 @@
 //! crate module also keeps the one decision only federation makes - an adapter may run a leg
 //! ([`Warehouse::EXECUTES_LEGS`]) or the question is refused before anything is minted - in one
 //! place.
+//!
+//! **This path is reachable from a published artefact now**, because `sutura-exec-datafusion`
+//! declares that constant and is non-optional in both shipped binaries. What that does NOT make it
+//! is two-identity: every adapter a release links declares
+//! `ImpersonationCapability::NoPlaceForASubject`, so both legs of a shipped two-source answer run
+//! under one operating-system identity and [`ExecutedAs::and`] records the same shared posture
+//! twice. Single-player federation.
 
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::SourceName;
@@ -49,8 +56,9 @@ pub(crate) type LegResult<W, B> = Result<RowSet, LegError<<W as Warehouse>::Erro
 /// Reached only from [`Compiled::Federated`]. Every data system the plan reads must be open AND be
 /// able to execute a leg (`Warehouse::EXECUTES_LEGS`), or the answer is refused as
 /// [`RefusalReason::FederationNotExecutable`]. That check here, rather than in an adapter, is what
-/// keeps a shipped binary - whose adapters declare `false` - refusing a two-source question
-/// cleanly instead of letting a typed leg refusal surface as a retryable 503.
+/// keeps a build whose adapter declares `false` refusing a two-source question cleanly instead of
+/// letting a typed leg refusal surface as a retryable 503 - which is still every build linking
+/// `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
 ///
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH
@@ -69,13 +77,12 @@ where
     B: CredentialBroker,
 {
     // The capability gate comes FIRST, and that ordering is pinned by an HTTP test: on a build whose
-    // adapters cannot run a leg (`EXECUTES_LEGS = false`), a two-source question is refused as
+    // adapter cannot run a leg (`EXECUTES_LEGS = false`), a two-source question is refused as
     // `FederationNotExecutable` no matter which sources it names - a build that cannot federate at all
     // says so deterministically, rather than first reporting one of its sources as closed. Only a
     // build that CAN execute a leg then falls through to the per-source availability check. Decided
-    // here rather than in an adapter: a shipped binary's adapters declare `false`, so this refuses
-    // cleanly before minting or running anything, instead of surfacing a typed leg refusal as a
-    // retryable 503.
+    // here rather than in an adapter, so a build that cannot federate refuses before minting or
+    // running anything instead of surfacing a typed leg refusal as a retryable 503.
     if !W::EXECUTES_LEGS {
         return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
             reason: RefusalReason::FederationNotExecutable,
@@ -501,9 +508,17 @@ mod tests {
 
     #[test]
     fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
-        // The shipped binary's adapters declare `EXECUTES_LEGS = false`, and this is what `answer` does
-        // on that build: it refuses cleanly BEFORE minting or running a leg, rather than surfacing a
-        // typed leg refusal as a retryable 503.
+        // What `answer` does on a build whose adapter declares `EXECUTES_LEGS = false`: it refuses
+        // cleanly BEFORE minting or running a leg, rather than surfacing a typed leg refusal as a
+        // retryable 503. `FixedWarehouse` below takes the port's default, which is what puts this
+        // test on that branch.
+        //
+        // **Not the shipped binary any more, and the correction matters here of all places.**
+        // `sutura-exec-datafusion` declares the constant and is non-optional in both published
+        // binaries, so a release ANSWERS a two-source question - see
+        // `crates/sutura-serve/tests/served.rs`. This cell is about the gate, not about the shipped
+        // set: what still reaches it is `sutura-exec-bigquery`, any adapter taking the default, and
+        // this fake.
         let fact_source = SourceName::parse("facts").expect("facts");
         let lookup_source = SourceName::parse("geo").expect("geo");
         let shared = shared();
