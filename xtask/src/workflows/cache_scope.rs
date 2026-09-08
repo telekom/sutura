@@ -24,6 +24,11 @@
 //!   enclosing job's `if:` or from a `needs:` chain. Narrower than the truth on purpose: the step
 //!   is where a reader looks, and a job-level condition is one refactor away from covering a step
 //!   it never meant to.
+//! * "Restore everywhere" is held too, on the wire the write-half cannot see. [`STORE_CACHE`]'s
+//!   `save:` gates the write and the anchor counts it; `if:` is how a pull request's restore is
+//!   stopped while that `save:` stays intact - either on the step itself or on the caller that
+//!   invokes [`STORE_ACTION`]. So [`judge`] also refuses an `if:` on the restore step, and on any
+//!   step that `uses` the store-cache action. A restore gated to `main` is convention closed.
 //! * Whether the entry FITS is not a question about text at all. GitHub refuses a single cache
 //!   entry over 10 GB and nothing here can weigh a store, so the run reports its own size instead -
 //!   see the summary step in `.github/actions/nix-store-cache`.
@@ -57,6 +62,15 @@ const WRITERS: [&str; 4] = [
 /// outright then left the gate GREEN, which is the shape this tree calls a floor counted off the
 /// same derivation as its own loop. Measured by provocation, not reasoned.
 const STORE_CACHE: &str = "nix-community/cache-nix-action";
+
+/// The local composite action that carries `/nix/store`, matched as `uses:` on its callers.
+///
+/// The write-half is held inside the action (`save:` gated on [`MAIN_PUSH`]), so a caller is the
+/// one place that can stop the RESTORE without tripping it: adding `if: ${{ MAIN_PUSH }}` to the
+/// caller - or `if: false` to kill it outright - leaves the store step's own `save:` gate intact
+/// and `check-workflows` green. Holding "restore everywhere" therefore pins the restore step AND
+/// its callers ungated; `save:` is the only gate any of them may carry.
+const STORE_ACTION: &str = "./.github/actions/nix-store-cache";
 
 /// Writers with no restore-only mode, refused in ordinary CI outright.
 ///
@@ -93,6 +107,19 @@ fn judge(files: &[(&str, &str)]) -> Vec<String> {
     for (label, text) in files {
         for step in steps(text) {
             let Some(uses) = step.uses() else { continue };
+            // THE RESTORE HALF, ON THE WIRE THE WRITE-HALF CANNOT SEE. A caller names no writer, so
+            // only the action's own `save:` gate protects the write - which means a caller can add
+            // `if: ${{ MAIN_PUSH }}` (or `if: false`) to stop a pull request's RESTORE while
+            // leaving `save:` intact and `check-workflows` green. `if:` on a caller is refused.
+            if uses == STORE_ACTION {
+                if step.has("if:") {
+                    out.push(format!(
+                        "{label}:{}  {uses} must carry no `if:` - it restores on every event, and gating it (e.g. `if: ${{{{ {MAIN_PUSH} }}}}`) stops a pull request's restore while the `save:` inside the action passes the write anchor",
+                        step.line
+                    ));
+                }
+                continue;
+            }
             if let Some(refused) = NO_RESTORE_ONLY.iter().find(|name| uses.starts_with(**name)) {
                 out.push(format!(
                     "{label}:{}  {refused} has no restore-only mode, so it may not run in ordinary CI",
@@ -107,6 +134,14 @@ fn judge(files: &[(&str, &str)]) -> Vec<String> {
                 Some(gate) if narrower_than_main_push(&gate) => {
                     if uses.starts_with(STORE_CACHE) {
                         store = store.saturating_add(1);
+                        // `save:` gates the write; an `if:` on the same step would stop the restore
+                        // while the anchor below still passes. So the store step may carry no `if:`.
+                        if step.has("if:") {
+                            out.push(format!(
+                                "{label}:{}  {uses} must carry no `if:` - `save:` gates the write, and an `if:` (e.g. `{MAIN_PUSH}`) would stop a pull request's restore while the write anchor passes",
+                                step.line
+                            ));
+                        }
                     }
                 }
                 Some(gate) => out.push(format!(
@@ -187,6 +222,17 @@ impl Step<'_> {
                 .unwrap_or(value);
             Some(inner.split_whitespace().collect::<Vec<_>>().join(" "))
         })
+    }
+
+    /// Whether the step carries `key` as its own key, comment lines excluded.
+    ///
+    /// Distinct from [`Step::gate`], which collapses `if:` and `save:` into one condition: the
+    /// restore-half has to know which spelling is present, because `save:` is where the write is
+    /// held and `if:` is where a restore is stopped.
+    fn has(&self, key: &str) -> bool {
+        self.lines
+            .iter()
+            .any(|line| key_of(line).is_some_and(|k| k.strip_prefix(key).is_some()))
     }
 }
 
@@ -377,6 +423,48 @@ mod tests {
             found.first().is_some_and(|p| p.contains("has no restore-only mode")),
             "{found:#?}"
         );
+    }
+
+    #[test]
+    fn a_caller_that_gates_the_store_restore_is_refused() {
+        // THE RESTORE HALF, PROVOKED. A caller names no writer (`uses: ./.github/actions/...`),
+        // so `if:` on it stops a pull request's RESTORE while the action's own `save:` keeps the
+        // write-half green - the review exercised `if: ${{ MAIN_PUSH }}` and `if: false` and both
+        // stayed GREEN before this. The ungated store step is included so the anchor is satisfied
+        // and the caller gate is the sole finding.
+        let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        for gate in [MAIN_PUSH.to_owned(), "false".to_owned()] {
+            let caller = step_using(super::STORE_ACTION, "if:", &format!("${{{{ {gate} }}}}"));
+            let found = super::judge(&[("ci.yml", &format!("{caller}{store}"))]);
+            assert_eq!(found.len(), 1, "{found:#?}");
+            assert!(found.first().is_some_and(|p| p.contains("must carry no `if:`")), "{found:#?}");
+        }
+    }
+
+    #[test]
+    fn a_store_step_gated_with_if_is_refused_even_while_save_is_the_main_push() {
+        // The pinned expression as an `if:` on the restore step itself. `save:` is where the write
+        // is held, so `if: ${{ MAIN_PUSH }}` still satisfies the anchor while never restoring on a
+        // pull request. Only the restore-half sees that, because `gate()` collapses the two into
+        // one condition that IS `MAIN_PUSH`; `has("if:")` tells them apart.
+        let store = format!(
+            "      - uses: {action}@bbbb # v1\n        if: ${{{{ {MAIN_PUSH} }}}}\n        with:\n          save: ${{{{ {MAIN_PUSH} }}}}\n",
+            action = super::STORE_CACHE,
+        );
+        let found = super::judge(&[("ci.yml", &store)]);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(found.first().is_some_and(|p| p.contains("must carry no `if:`")), "{found:#?}");
+    }
+
+    #[test]
+    fn an_ungated_store_step_and_its_ungated_caller_pass_the_restore_rule() {
+        // The shape this repository ships: a caller with no `if:` invoking the action, whose
+        // restore step carries `save:` only. Guarantees the new rules do not over-fire on the form
+        // the live tree uses.
+        let caller = format!("      - uses: {}@bbbb # v1\n", super::STORE_ACTION);
+        let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        let clean = super::judge(&[("ci.yml", &format!("{caller}{store}"))]);
+        assert!(clean.is_empty(), "{clean:#?}");
     }
 
     #[test]
