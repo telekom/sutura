@@ -828,6 +828,10 @@ mod value_mapping_tests;
 #[cfg(test)]
 mod width_tests;
 
+/// The plan every engine test drives, shared rather than duplicated - see the fixture's own header.
+#[cfg(test)]
+mod fixture;
+
 /// The posture this crate's own tests open the engine with.
 ///
 /// One definition shared by four test files, so a fixture cannot drift from the capability the adapter

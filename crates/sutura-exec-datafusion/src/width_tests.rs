@@ -22,14 +22,10 @@ use std::sync::Arc;
 use datafusion::arrow::array::{ArrayRef, Date32Array, Int64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
-use sutura_domain::plan::{
-    Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-    ResultLabel, StatementTables,
-};
-use sutura_domain::warehouse::{ParamValue, Warehouse as _};
+use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::Warehouse as _;
 
+use super::fixture::{day, question, source};
 use super::{DataFusionWarehouse, WorkingSet};
 
 /// How many callers ask at once, and how many workers the engine is given.
@@ -43,22 +39,6 @@ fn width(count: usize) -> core::num::NonZeroUsize {
 /// `pool.rs`; here it is a constructor argument and nothing more.
 fn roomy() -> WorkingSet {
     WorkingSet::of_bytes(width(64 * 1024 * 1024))
-}
-
-fn day(iso: &str) -> Date {
-    Date::parse(iso).expect("a test date is a date")
-}
-
-fn source() -> SourceName {
-    SourceName::parse("local").expect("a test source is a source")
-}
-
-fn orders() -> TableName {
-    TableName::parse("orders").expect("a test table is a table")
-}
-
-fn on(name: &str) -> PlanColumn {
-    PlanColumn::new(orders(), ColumnName::parse(name).expect("a test column is a column"))
 }
 
 /// Three rows in two regions, in memory. Enough that a result has a shape to assert on.
@@ -78,45 +58,6 @@ fn batch() -> RecordBatch {
         Field::new("amount_cents", DataType::Int64, false),
     ]);
     RecordBatch::try_new(Arc::new(schema), columns).expect("a test batch is rectangular")
-}
-
-/// Revenue by region for one month, which is the shape every question here has.
-fn question() -> QueryPlan {
-    QueryPlan::new(
-        source(),
-        MetricName::parse("revenue").expect("a test metric is a metric"),
-        StatementTables::only(orders()),
-        PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("order_date")),
-        vec![PlanKey::new(
-            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
-            on("region"),
-        )],
-        PlanMeasure::Simple {
-            term: PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: on("amount_cents"),
-            },
-        },
-        ResultLabel::measure(&MetricName::parse("revenue").expect("a test metric is a metric")),
-        vec![
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::AtOrAfter {
-                    column: on("order_date"),
-                    param: 0,
-                },
-            ),
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::Before {
-                    column: on("order_date"),
-                    param: 1,
-                },
-            ),
-        ],
-        vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
-        TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
-    )
 }
 
 fn attached(adapter: DataFusionWarehouse) -> DataFusionWarehouse {
