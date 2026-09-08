@@ -2725,7 +2725,8 @@ recorded consequence of decisions already made, and one is a real gap with a blo
 <table>
 <thead>
 <tr>
-<th>Score</th>
+<th>At 6.0</th>
+<th>Now</th>
 <th>Check</th>
 <th>What it is</th>
 </tr>
@@ -2733,54 +2734,70 @@ recorded consequence of decisions already made, and one is a real gap with a blo
 <tbody>
 <tr>
 <td><strong>-1</strong></td>
+<td><strong>10</strong></td>
 <td>CI-Tests</td>
-<td>a measurement that failed; not a defect</td>
+<td>was a 403 on a private repo; <strong>resolved by the flip, exactly as predicted</strong></td>
 </tr>
 <tr>
-<td><strong>0</strong></td>
+<td>0</td>
+<td>0</td>
 <td>Maintained</td>
 <td>the repository is under 90 days old; not a defect</td>
 </tr>
 <tr>
-<td><strong>1</strong></td>
+<td>1</td>
+<td>1</td>
 <td>Signed-Releases</td>
 <td><strong>every artefact was already signed</strong>; the row counts releases, not artefacts</td>
 </tr>
 <tr>
-<td><strong>0</strong></td>
+<td>0</td>
+<td>0</td>
 <td>Code-Review</td>
 <td>structurally unreachable while one identity does the reviewing</td>
 </tr>
 <tr>
-<td><strong>3</strong></td>
+<td>3</td>
+<td>3</td>
 <td>Branch-Protection</td>
 <td>capped by the merge-queue arrangement</td>
 </tr>
 <tr>
 <td><strong>0</strong></td>
+<td><strong>2</strong></td>
 <td>CII-Best-Practices</td>
-<td>a registration nobody has filed; 54 of 67 criteria already met</td>
+<td>the badge project now exists at <code>in_progress</code>; the questionnaire is unfinished</td>
 </tr>
 <tr>
-<td><strong>0</strong></td>
+<td>0</td>
+<td>0</td>
 <td>SAST</td>
-<td><strong>real</strong>, and the tool that would close it cannot run here yet</td>
+<td><strong>real</strong>; the tool that closes it was blocked and no longer is</td>
 </tr>
 <tr>
-<td><strong>0</strong></td>
+<td>0</td>
+<td>0</td>
 <td>Fuzzing</td>
 <td>real, and it is <code>#146</code>'s, not this record's</td>
 </tr>
 </tbody>
 </table>
+<p><strong>Re-measured at <code>52f7709c</code> (run <code>34212763873</code>), aggregate 6.1.</strong> Two rows moved without anyone
+touching a check, and both were predicted here: the visibility flip resolved <code>CI-Tests</code> outright,
+and registering the badge project moved <code>CII-Best-Practices</code> off zero. Nothing else changed, which
+is the point - the remaining zeros are the ones this record argues are not defects.</p>
 <h2 id="the-limit-that-qualifies-every-number-below">The limit that qualifies every number below<a class="headerlink" href="#the-limit-that-qualifies-every-number-below" title="Permanent link">&para;</a></h2>
-<p><strong>The run was made while the repository was private, and it is private again as a temporary
-unblock</strong> - <code>gh api repos/telekom/sutura --jq .private</code> answered <code>true</code> on 2026-09-08, after
-<code>docs/adr/0024</code>'s amendment recorded the flip to public. So:</p>
+<p><strong>The 6.0 run was made while the repository was private.</strong> It is now <strong>public</strong> - <code>.private</code> is
+<code>false</code> and <code>visibility</code> is <code>public</code>, read 2026-09-08 - so the re-measurement above is the first one
+that answers about the project rather than about its visibility. The original run's caveats were:</p>
 <ul>
-<li><strong>CI-Tests failed outright</strong> because of it, and nothing else.</li>
+<li><strong>CI-Tests failed outright</strong> because of it, and nothing else. <strong>Confirmed: it is now 10/10</strong>,
+  <em>"30 out of 30 merged PRs checked by a CI test"</em>. This is the row that proves the caveat was real
+  rather than a hedge.</li>
 <li><strong>CII-Best-Practices, Code-Review and Maintained</strong> are read from APIs that answer for a private
-  repository the same way they answer for a neglected one.</li>
+  repository the same way they answer for a neglected one. Re-taken while public, <code>Code-Review</code> and
+  <code>Maintained</code> did <strong>not</strong> move - so their zeros were never about visibility, which is what this
+  record claimed and is now measured rather than argued.</li>
 <li><strong>Signed-Releases and SAST are the two rows that do NOT depend on visibility.</strong> They read the
   release page and the workflow files, and both answer the same way public or private. Every
   conclusion in this record about those two is therefore load-bearing; every conclusion about the
@@ -2878,12 +2895,18 @@ Interprocedural taint analysis to an injection sink is exactly what CodeQL does 
 lint does, and CodeQL's Rust support has been generally available since October 2025. That is a
 real check that can fail on a real risk in this tree, which is the bar <code>#459</code> set.</p>
 <h3 id="why-it-is-not-in-this-change">Why it is not in this change<a class="headerlink" href="#why-it-is-not-in-this-change" title="Permanent link">&para;</a></h3>
-<p><strong>Code scanning cannot accept a result here.</strong> <code>gh api repos/telekom/sutura</code> answers
-<code>security_and_analysis.advanced_security.status: "disabled"</code> and <code>private: true</code>, both read on
-2026-09-08. Uploading SARIF needs code scanning, which on a private repository needs GitHub Advanced
-Security. A CodeQL workflow added today would fail on every run, and a red job nobody can fix is
-worse than a recorded zero. <strong>It becomes free the moment the repository is public</strong>, which is
-already the intended direction. <strong><code>#464</code></strong> is the change, blocked on that flip.</p>
+<p><strong>It was blocked when this record was written, and the block has since lifted.</strong> At 6.0 the API
+answered <code>advanced_security.status: "disabled"</code> with <code>private: true</code>, so a SARIF upload needed
+GitHub Advanced Security and a CodeQL workflow would have failed on every run - a red job nobody can
+fix being worse than a recorded zero. <strong>The repository is now public</strong>, <code>advanced_security</code> is no
+longer reported at all (the field is absent for public repositories, where code scanning is free),
+and the obstacle is gone.</p>
+<p>So this is a <strong>deferral whose reason is spent</strong>, not a refusal: <strong><code>#464</code></strong> is the change, it is now
+actionable, and the only reason it is not in this commit is that adding a scanner is its own
+reviewable change rather than a rider on a record. The runner-label restriction that breaks
+Scorecard's own publication does <strong>not</strong> apply - that is <code>api.scorecard.dev</code> verifying the producing
+workflow, <code>#451</code>/<code>#456</code>'s territory, and unrelated to whether CodeQL may run on a self-hosted
+runner.</p>
 <h3 id="and-when-it-is-added-deliberately-not-for-the-maximum-score">And when it is added, deliberately not for the maximum score<a class="headerlink" href="#and-when-it-is-added-deliberately-not-for-the-maximum-score" title="Permanent link">&para;</a></h3>
 <p>Scorecard's evaluation weights the check <code>codeQlWeight = 7</code> against <code>sastWeight = 3</code>, the second
 being the per-commit ratio. <strong>So a present, enabled CodeQL workflow carries 7 of the 10 points
@@ -2906,10 +2929,23 @@ still says none is configured.</strong> The last direction is deliberate - addin
 that makes this section wrong the moment it lands, so the gate refuses the combination and names
 the file to edit. Without it, the stand-in argument above was held by recall.</p>
 <h2 id="cii-best-practices-one-repository-setting-and-about-ten-sentences">CII-Best-Practices: one repository setting and about ten sentences<a class="headerlink" href="#cii-best-practices-one-repository-setting-and-about-ten-sentences" title="Permanent link">&para;</a></h2>
-<p><strong>Not a code problem and not this record's to close.</strong> The check reads <code>bestpractices.dev</code>, which
-returns <code>[]</code> for this project: nobody has registered it. Registration plus a self-certification
+<p><strong>Not a code problem and not this record's to close.</strong> Registration plus a self-certification
 questionnaire is the whole mechanism, exactly the shape the REUSE registration turned out to be in
 <code>docs/adr/0024</code>'s amendment.</p>
+<p><strong>The project now exists and the row has already moved.</strong> <code>bestpractices.dev</code> project <strong>14542</strong>
+answers with the correct <code>repo_url</code> and one match, at <code>badge_level: "in_progress"</code>, and Scorecard
+now reports <code>CII-Best-Practices = 2</code>, <em>"badge detected: InProgress"</em>. That is not a rounding
+artefact: <code>checks/evaluation/cii_best_practices.go</code> maps the levels to fixed scores -
+<code>inProgressScore = 2</code>, <code>passingScore = 5</code>, <code>silverScore = 7</code>, gold <code>10</code>. <strong>So finishing the
+questionnaire is worth three more points, not ten</strong>, and reaching gold is a different project again.</p>
+<p><strong>And the live form is not the criteria set measured below.</strong> Project 14542 carries the newer <strong>OSPS</strong>
+set (AC/BR/DO/GV/LE/QA), not the ~67-item passing list, and <strong>174 of its 196 criteria are unanswered</strong>
+on bestpractices.dev today. The per-criterion breakdown is visible only to the registering (owner)
+account, so it is not re-verified here. The sweep in the next section was made against that older
+list, so treat it
+as <strong>an evidence inventory rather than a percentage</strong>: it says which properties this repository can
+prove and where the proof lives, and most OSPS items are answerable straight from it. It does not
+predict the badge percentage, and the 28% showing today is mostly <em>unanswered</em>, not <em>unmet</em>.</p>
 <p><strong>Measured against the 67 passing-level criteria on 2026-09-08: 54 MET with citable evidence, 5 met
 but undocumented, 4 not met, 4 N/A.</strong> Per category:</p>
 <table>
@@ -2973,21 +3009,27 @@ coverage-derived CRAP gate, and clippy at <code>restriction</code> + <code>nurse
 15/15 and one N/A on signed releases with SLSA provenance and CycloneDX SBOMs, <code>unsafe_code =
 "forbid"</code>, rustls with no TLS below 1.2, a signing-algorithm parser that refuses symmetric and
 <code>none</code>, weekly <code>cargo-deny</code>, and gitleaks on every commit.</p>
-<p><strong>The four genuinely unmet, and three are one thing.</strong> <code>repo_public</code> fails because the repository is
-private; <code>report_archive</code> and <code>discussion</code> fail <em>because of that alone</em> - Issues and Discussions are
-both already enabled and well used, they are simply not publicly readable. Flipping visibility
-converts three MUST criteria at once and also switches on free secret scanning, which is currently
-<code>disabled</code>. The fourth is <code>dynamic_analysis</code>, which is <strong>SUGGESTED rather than MUST</strong> - it can be
-answered <em>Unmet, tracked as <code>#146</code></em> without losing the badge, and <code>#146</code> is where fuzzing belongs.</p>
+<p><strong>Three of the four genuinely unmet were one thing, and that thing has happened.</strong> <code>repo_public</code>
+failed because the repository was private, and <code>report_archive</code> and <code>discussion</code> failed <em>because of
+that alone</em> - Issues and Discussions were already enabled and well used, simply not publicly
+readable. <strong>The flip converted all three.</strong> Secret scanning is the one part it did not carry:
+<code>secret_scanning</code> still reads <code>disabled</code>, so that remains a setting somebody has to turn on.</p>
+<p>The fourth is <code>dynamic_analysis</code>, which is <strong>SUGGESTED rather than MUST</strong> - it can be answered
+<em>Unmet, tracked as <code>#146</code></em> without losing the badge, and <code>#146</code> is where fuzzing belongs.</p>
 <p>The five undocumented items are prose, and two are the same three lines: <code>interact</code> and
 <code>report_process</code> both want <code>README.md</code> to link the issue tracker, <code>CONTRIBUTING.md</code> and
 <code>SECURITY.md</code>. <code>report_responses</code> and <code>enhancement_responses</code> want one honest sentence that no
-external report has arrived yet - true, and unavoidable for a private repository.</p>
-<p><strong>The verdict the owner asked for: an afternoon plus one organisational decision, not a project.</strong>
-Not ten minutes, because the visibility flip is a reviewed disclosure event rather than a checkbox -
-<code>AGENTS.md</code>'s public-repository rules and <code>docs/getting-started.md</code>'s own "this note is what to
-delete when the repository becomes public" both say so. Budget the disclosure review; the badge form
-itself is short.</p>
+external report has arrived yet.</p>
+<p><strong>The verdict the owner asked for: an afternoon of form-filling, and the organisational decision
+it was waiting on is already made.</strong> Not ten minutes - 174 of 196 OSPS criteria are unanswered, and
+even at a minute each with the evidence already in hand that is a sitting, not a coffee break. But
+it is <strong>answering</strong>, not building: the sweep above found 54 of 67 old-list criteria provable from
+files that already exist, Quality and Security complete, and the three MUST failures that needed a
+disclosure review have been converted by the flip.</p>
+<p><strong>What it is worth, stated so nobody over-invests:</strong> finishing the questionnaire to <code>passing</code> moves
+Scorecard's row from 2 to 5 - <strong>three points of one check</strong> - and the aggregate by a fraction of
+that. Do it because the answers are a useful public inventory of what this repository can prove,
+not for the number.</p>
 <p>Two things worth fixing whether or not the badge is pursued, found by the same sweep: <strong><code>SECURITY.md</code>
 is absent from <code>mkdocs.yml</code>'s nav</strong>, so the vulnerability-reporting process is undiscoverable on the
 published site, and <strong><code>cliff.toml</code> has no <code>security</code> commit group</strong>, so <code>release_notes_vulns</code> has no
@@ -3024,9 +3066,10 @@ so the gap is a stated one. What removes the trade is the same second identity <
 <h2 id="the-two-that-are-not-findings">The two that are not findings<a class="headerlink" href="#the-two-that-are-not-findings" title="Permanent link">&para;</a></h2>
 <p><strong>CI-Tests = -1 is an error, not a low score.</strong> Verbatim: <code>internal error:
 Client.Repositories.ListStatuses: GET .../commits/8c8c19b8.../statuses: 403 Resource not
-accessible</code>. The commit-statuses API refused because the repository was private. <strong>Nothing is
-broken; re-measure when public.</strong> A negative score is Scorecard's own signal for <em>this check did not
-run</em>, and reading it as a finding is the mistake this row invites.</p>
+accessible</code>. The commit-statuses API refused because the repository was private. <strong>Nothing was
+broken, and re-measuring settled it: the row is now 10/10</strong>, <em>"30 out of 30 merged PRs checked by a
+CI test"</em>. A negative score is Scorecard's own signal for <em>this check did not run</em>, and reading it
+as a finding is the mistake this row invites.</p>
 <p><strong>Maintained = 0 is a young-project warning.</strong> Verbatim: <em>"project was created within the last 90
 days. Please review its contents carefully."</em> The repository was created 2026-08-24. It merged 59
 pull requests in three days. <strong>It resolves with the calendar and nothing else.</strong></p>
@@ -3037,12 +3080,16 @@ finds four rows explained and two silent will assume the silent two are the bad 
 <code>panic = abort</code> makes a panic process death</em>. Not duplicated here.</p>
 <h2 id="what-this-record-does-not-do">What this record does not do<a class="headerlink" href="#what-this-record-does-not-do" title="Permanent link">&para;</a></h2>
 <p>It does not raise the aggregate, and it would be a worse record if it did. Three of the six low rows
-are a failed measurement, a young repository and a capacity constraint; the fourth is a form nobody
-has filed; and the two with substance are a release page that was already correct and a taint
-analysis that cannot run until a visibility flip. <strong>The one change that ships signs 13 files that
-were already covered by a signature one file over, which buys nothing on the score at all</strong> - the
-<code>.sha256</code> sidecars are invisible to a probe that breaks on its first match - and closes a trap a
-person could walk into.</p>
+were a failed measurement, a young repository and a capacity constraint; the fourth is a
+questionnaire; and the two with substance were a release page that was already correct and a taint
+analysis that was blocked. <strong>The one change that ships signs 13 files that were already covered by a
+signature one file over, which buys nothing on the score at all</strong> - the <code>.sha256</code> sidecars are
+invisible to a probe that breaks on its first match - and closes a trap a person could walk into.</p>
+<p><strong>And the re-measurement is the argument for having written it down rather than acted.</strong> Between
+6.0 and 6.1 two rows moved and neither was touched by a change: <code>CI-Tests</code> went from <code>-1</code> to <code>10</code>
+because the repository became public, and <code>CII-Best-Practices</code> from <code>0</code> to <code>2</code> because somebody
+registered a project. Both were predicted here as <em>not defects</em>. Had they been treated as defects,
+the work would have been spent on rows that fixed themselves.</p>
 
 
 
