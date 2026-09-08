@@ -1636,6 +1636,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-08-a-green-publish-step-that-published-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-08: a green publish step that published nothing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment, 2026-09-08: a green publish step that published nothing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What changes, and why each is a mechanism rather than a sentence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-established-stated-rather-than-assumed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not established, stated rather than assumed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#and-the-reuse-half-which-no-code-could-have-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        And the REUSE half, which no code could have fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2585,6 +2635,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-08-a-green-publish-step-that-published-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-08: a green publish step that published nothing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment, 2026-09-08: a green publish step that published nothing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What changes, and why each is a mechanism rather than a sentence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-established-stated-rather-than-assumed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not established, stated rather than assumed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#and-the-reuse-half-which-no-code-could-have-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        And the REUSE half, which no code could have fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2868,20 +2968,117 @@ exists to be uploaded, and a format nobody consumes is a step that looks like a 
   deliberately does not run on one - the checks read what is on the default branch, so scoring a
   pull-request head would score a tree that is not the project. The only required context is <code>ci</code>.
   <strong>A falling score blocks nothing</strong>, and nothing here holds that anyone looks at it.</li>
-<li><strong>It has never run.</strong> The action is a container action and every job in this repository runs on
-  the self-hosted <code>rust-mcp</code> label; whether that runner can execute a docker container action is
-  <strong>unverified</strong> - it cannot be established from a developer machine. The first run on <code>main</code> is
-  what will say.</li>
+<li><strong>It has run, and the answer was worse than "it cannot".</strong> The container action executes fine on
+  the self-hosted label - and the publication was refused by the API for that same label. See the
+  amendment below; this bullet's original prediction ("the first run on <code>main</code> is what will say")
+  was correct about the venue and wrong about which half would fail.</li>
 <li><strong>Several checks cannot answer here.</strong> <code>Branch-Protection</code> needs an admin token for most of its
   detail and the workflow's token is not one; <code>Webhooks</code> needs admin outright. Their scores are a
   statement about the token, not about the repository.</li>
 <li><strong>A low score is not a finding.</strong> Several signals Scorecard measures - a badge, OSS-Fuzz
-  registration, a public security policy - are about being a public project, and this one is not
-  yet.</li>
+  registration, a public security policy - are about being a public project. The repository became
+  public on 2026-09-08, so these begin to answer about the project rather than about its visibility.</li>
 <li><strong>The gate does not check the third party.</strong> <code>devco/scorecard-publication</code> is a dated reading of
   the action's documentation. What <code>api.scorecard.dev</code> does with what it receives is outside
   anything in this tree.</li>
 </ul>
+<h2 id="amendment-2026-09-08-a-green-publish-step-that-published-nothing">Amendment, 2026-09-08: a green publish step that published nothing<a class="headerlink" href="#amendment-2026-09-08-a-green-publish-step-that-published-nothing" title="Permanent link">&para;</a></h2>
+<p><strong>What this record predicted would happen when the repository went public did not.</strong> <code>scorecard.yml</code>
+ran three times reporting <code>completed success</code>, and <code>api.scorecard.dev</code> held no record of this project
+at all. The three things measured from run <code>34174327175</code>'s log settle every question the record left
+open, and one of them is not about visibility.</p>
+<p><strong>1. The action does not decline to publish for a private repository - it publishes anyway and the
+API refuses.</strong> <code>options.go</code>'s <code>setPublishResults</code> computes <code>PublishResults = input &amp;&amp; !private</code>, and
+that value is only ever PRINTED: the log shows <code>Private repository: true</code> and <code>Publication enabled:
+false</code> on adjacent lines, and the publish happened regardless, because <code>main.go</code> branches on the raw
+<code>INPUT_PUBLISH_RESULTS</code> environment variable instead. So while this repository was private its score
+was signed into the <strong>public sigstore transparency log</strong> (<code>tlog entry created with index:
+2754066664</code>, three times) and POSTed to <code>api.scorecard.dev</code>. That is a disclosure this record did not
+anticipate and it happened before the flip, not after. The field carries no <code>env:</code> tag at all, so
+<code>Publication enabled:</code> is a line that always reads <code>false</code> - it is not a control and it never was.</p>
+<p><strong>2. The refusal is fail-open inside the action.</strong> <code>signing.ProcessSignature</code> retries on a backoff
+schedule and then logs <code>::warning::Unable to POST scorecard results to webapp</code> and <code>return nil</code>, so
+<code>main.go</code>'s <code>log.Fatalf</code> never fires and the step exits 0. Read at the pinned SHA
+<code>2d1146689b8cda280b9bc96326124645441f03bc</code>. <strong>The publication had no witness, and a green run said
+nothing about whether anything landed.</strong></p>
+<p><strong>3. The refusal was never about being private.</strong> Verbatim:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>http response 400 ... {"code":400,"message":"workflow verification failed: workflow verification
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>failed: scorecard job has invalid runner label: 'rust-mcp', see
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>https://github.com/ossf/scorecard-action#workflow-restrictions for details."}
+</span></code></pre></div>
+<p><code>api.scorecard.dev</code> verifies the producing workflow before accepting a score - the code is
+<code>verifyScorecardWorkflow</code> in <code>ossf/scorecard-webapp</code>, read at
+<code>9c2f66d5f6ff56ca4a4ac2fba6ec8dcc5379d31c</code>, the revision the action's own README cites - and one of
+its rules is an allowlist of runner labels: <code>ubuntu-latest</code>, <code>ubuntu-22.04</code>, <code>ubuntu-20.04</code>,
+<code>ubuntu-18.04</code>, and nothing else. <strong>So the badge could never have resolved, public or private</strong>, and
+this record's <em>"both become real when the repository is made public"</em> was wrong about the Scorecard
+half. Making it public was necessary and not sufficient.</p>
+<h3 id="what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence">What changes, and why each is a mechanism rather than a sentence<a class="headerlink" href="#what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>score</code> and <code>published</code> run on <code>ubuntu-latest</code>, and it is THE FIX rather than a preference.</strong>
+  <code>api.scorecard.dev</code> performs <em>workflow verification</em> before accepting a score, and one of its
+  rules is an allowlist of runner labels - an anti-tampering measure, documented at
+  <code>ossf/scorecard-action#workflow-restrictions</code>. <strong>Measured with the repository PUBLIC</strong>, run
+  <code>34198064772</code>, <code>completed success</code>, <code>Private repository: false</code>, <code>publish_results: true</code>:</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>error sending scorecard results to webapp: http response 400, status: 400 Bad Request,
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>error: {"code":400,"message":"workflow verification failed: workflow verification failed:
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>scorecard job has invalid runner label: 'rust-mcp',
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>see https://github.com/ossf/scorecard-action#workflow-restrictions for details."}
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>::warning::Unable to POST scorecard results to webapp: http response 400 ...
+</span></code></pre></div>
+<p>Retried three times, then a warning, and <strong>the step exited 0</strong>. So no amount of visibility or
+  permission fixes this: the label is the blocker, and the exception is a requirement of the tool.</p>
+<p><strong>A deliberate exception, not drift.</strong> Every other <code>runs-on:</code> in <code>.github/</code> stays <code>rust-mcp</code>: the
+  custom runner exists to build the Rust, and these two jobs build nothing - <code>score</code> is checkout, a
+  third-party container action and upload-artifact; <code>published</code> is one <code>gh api</code> read and one
+  <code>curl</code>. <strong>A metadata scanner needs none of the build environment</strong>, which is the whole
+  justification.</p>
+<p><strong>Nothing here asserted the label before this change</strong>, verified rather than assumed: <code>git grep
+  rust-mcp</code> over <code>xtask/</code>, <code>devco/</code>, <code>.agents/</code>, <code>nix/</code> and <code>justfile</code> returned nothing outside the
+  files this change itself adds. So no rule had to be weakened - and the new rule in
+  <code>publication.rs</code> now asserts the <em>opposite</em> direction, which is the point.</p>
+<p><strong>The one precondition no file here can read:</strong> whether GitHub-hosted runners are enabled for
+  this organisation. If they are not, the scoring job fails to start - loudly, which is the right
+  failure mode and better than the silent one it replaces.
+* <strong><code>cargo xtask check-workflows</code> now holds <code>scorecard.yml</code> against every rule that verification
+  applies</strong>, offline, inside the required <code>ci</code> job: the runner allowlist, the approved step list,
+  every step being a <code>uses:</code>, no container or services, no job-level or workflow-level <code>env:</code> or
+  <code>defaults:</code>, no workflow-level write permission, and no other job holding <code>id-token: write</code>.
+  <code>xtask/src/workflows/publication.rs</code> is the reading, with the dated revision beside each
+  constant. <strong>This is the rule whose absence let #422 ship a publication that could not land.</strong> Its
+  limit: it is a copy of a third party's source, so a label OpenSSF adds later reads as a failure
+  here until the constant is updated - the safe direction, and the reason the constant names its
+  revision.
+* <strong>The step list is the rule that shaped the fix.</strong> Verification refuses the scoring job's results
+  if it contains any step that is not a call to one of five approved actions, so the obvious
+  witness - a <code>run:</code> step after the publish - would have broken the publication it was checking.
+  The witness is therefore a separate job, and that job is the gate's own test case.
+* <strong>A <code>published</code> job reads the scoring step's own log and fails if the publication was refused.</strong>
+  The evidence was never missing - the 400 and the <code>::warning::</code> were in that step's output every
+  time, and nothing read them. So the witness binds to that, not to a poll of the API: the API
+  indexes with a lag, so <em>no record yet</em> cannot be told from <em>refused</em>, and a check on it would
+  redden on freshness. The refusal is exact, it is in the same run, and it names its own reason,
+  which the job quotes into its error. <strong>What it does not hold:</strong> it trusts the action to log its
+  own refusal, so a future image that failed silently would pass. And with no refusal logged on a
+  repository that is not public it reports <em>unverified</em> rather than success - the publication may
+  not have been attempted. It asks the API nothing at all.</p>
+<h3 id="what-is-still-not-established-stated-rather-than-assumed">What is still not established, stated rather than assumed<a class="headerlink" href="#what-is-still-not-established-stated-rather-than-assumed" title="Permanent link">&para;</a></h3>
+<p><strong>Whether <code>api.scorecard.dev</code> would ALSO refuse a private repository's score is unproven here</strong>, and
+the reason is worth keeping: the runner label was refused first, in every run, so nothing has ever
+got far enough to find out. That is why the <code>published</code> job reports <em>unverified</em> rather than
+<em>failed</em> when no refusal is logged on a repository that is not public.</p>
+<p><strong>The scan itself works and the score is obtainable.</strong> <code>34198064772</code> scored <strong>6.1</strong> with the
+repository public - so the scan was never the problem, only the publication of its result.
+<strong>What the score's low rows mean is <code>docs/adr/0025</code>'s decision, not this one's</strong>: that record reads
+the first run's zeros and says which are findings, and it cites this file for the decision to run
+and publish at all. Nothing here restates it.</p>
+<h3 id="and-the-reuse-half-which-no-code-could-have-fixed">And the REUSE half, which no code could have fixed<a class="headerlink" href="#and-the-reuse-half-which-no-code-could-have-fixed" title="Permanent link">&para;</a></h3>
+<p>The REUSE badge read <code>unregistered</code> for the reason this record gives, and the missing step was
+manual: registration at <code>api.reuse.software/register</code>, a form taking a name, an email and the
+project URL, which the service then clones to evaluate. <strong>Done on 2026-09-08</strong> - the badge now reads
+<code>compliant</code> and <code>api.reuse.software/info/github.com/telekom/sutura</code> answers HTTP 200. So that badge
+is live and unchanged by this amendment; only the Scorecard half needed a mechanism.</p>
 
 
 
