@@ -21,6 +21,11 @@
 # whole tree, so it picks this up too, which is deliberate: the nix sandbox has no docker socket, so
 # those tests skip there and the log should say so.
 
+# For complete mutation runs: NEXTEST_PROFILE=nofailfast just test.
+# A PASS line proves a cell ran; this profile still honors filters and ignored tests.
+[profile.nofailfast]
+fail-fast = false
+
 [[profile.default.overrides]]
 # The compose tier's own integration test, which is the only target that can decline. Matched by
 # binary rather than by test name, so a test added to that file is covered without a second edit -

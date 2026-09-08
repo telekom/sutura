@@ -255,11 +255,14 @@ pub(super) fn open(
 ///
 /// # Errors
 ///
-/// A dataset that REFUSED the listing - the identity may not ask - and a bundle naming a table the
-/// dataset does not hold. A dataset that could not be asked for any other reason is a standard-error
-/// line and not a refusal, because a process whose data system is briefly unreachable at startup
-/// still has to be able to serve when it comes back. `Warehouse::preflight_was_refused` is what
-/// splits the two, and the port documents why the split is the adapter's to make.
+/// A dataset that REFUSED the listing - the identity may not ask - a bundle naming a table the
+/// dataset does not hold, and a dataset whose listing did not account for every table it says it
+/// holds. The third is a refusal that names no `table:` to fix, deliberately: the catalog may be
+/// right and the listing incomplete, which is `telekom/sutura#275`. A dataset that could not be
+/// asked for any other reason is a standard-error line and not a refusal, because a process whose
+/// data system is briefly unreachable at startup still has to be able to serve when it comes back.
+/// `Warehouse::preflight_was_refused` is what splits those two, and the port documents why the split
+/// is the adapter's to make.
 #[cfg(feature = "bigquery")]
 pub(crate) fn refuse_absent_tables<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<(), String>
 where
@@ -286,7 +289,8 @@ where
 ///
 /// # Errors
 ///
-/// [`refuse_absent_tables`]'s two, unchanged: this is the same decision with the printing lifted out.
+/// [`refuse_absent_tables`]'s three, unchanged: this is the same decision with the printing lifted
+/// out.
 #[cfg(feature = "bigquery")]
 fn absent_tables_notices<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<Vec<String>, String>
 where
@@ -316,6 +320,25 @@ where
                 return Err(format!(
                     "{source} does not hold {absent}. Refusing to serve a model whose questions \
                      would fail at query time - fix the catalog's `table:`, or create the table"
+                ));
+            }
+            // **A REFUSAL, and not the `Absent` sentence above**, for `sutura-serve`'s reason: the
+            // data system said it holds more tables than it went on to name, so these are tables it
+            // did not answer about rather than tables it said it does not have. Naming a `table:` to
+            // fix here is the defect `telekom/sutura#275` is about. Three numbers for
+            // `sutura-serve`'s reason: the gap BOUNDS how many of these tables it can explain, and
+            // the bound runs both ways - a shortfall counts the whole dataset's unaccounted tables
+            // and this set is only the part the bundle names, so the clamp is `explained_by`'s.
+            Verdict::Unaccounted { tables, shortfall } => {
+                return Err(format!(
+                    "{source} did not account for {shortfall} of the table(s) it says it holds, so \
+                     at most {explained} of the {count} table(s) the catalog names here may be \
+                     sitting in that gap rather than missing: {tables}. Refusing to serve, and NOT \
+                     reporting them absent - the catalog may be right and the listing was not \
+                     whole. Start again; if it persists, this process is not reading the data \
+                     system's listing the way the data system is writing it",
+                    explained = tables.explained_by(shortfall),
+                    count = tables.len()
                 ));
             }
             // Everything else that failed - an endpoint that did not answer, a dataset that is not
@@ -470,6 +493,7 @@ mod tests {
     #[cfg(feature = "bigquery")]
     mod preflight {
         use core::cell::RefCell;
+        use core::num::NonZeroU64;
         use std::collections::BTreeSet;
 
         use sutura_app::Warehouses;
@@ -478,7 +502,7 @@ mod tests {
         use sutura_domain::pinned::PinnedDefinitions;
         use sutura_domain::plan::{AnchorPlan, Executable};
         use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-        use sutura_domain::warehouse::preflight::TablesPresent;
+        use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
         use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
         use crate::sources::bigquery::{absent_tables_notices, refuse_absent_tables};
@@ -614,6 +638,68 @@ mod tests {
             assert!(
                 !error.contains("dim_customer"),
                 "the refusal must not name a table the dataset holds: {error}"
+            );
+        }
+
+        #[test]
+        fn a_dataset_that_did_not_account_for_its_own_tables_does_not_serve_and_names_no_model() {
+            // `telekom/sutura#275` at this root: the listing said it holds four tables it then did
+            // not name, so the bundle's `fct_orders` may be one of them. The refusal names the table
+            // nothing was said about and NOT a model to fix, because the catalog may be right - and
+            // it is a refusal rather than a standard-error line, because the shape a cross-check
+            // exists to catch must not end in a process that serves.
+            let engines = opened(|asked| {
+                Ok(TablesPresent::Unaccounted {
+                    tables: UnaccountedTables::parse(asked.clone()).expect("the bundle names two tables"),
+                    shortfall: NonZeroU64::new(1).expect("one is not zero"),
+                })
+            });
+            let error = refuse_absent_tables(&bundle(), &engines)
+                .expect_err("a dataset that cannot account for its own tables has not verified this bundle");
+            assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+            assert!(
+                error.contains("fct_orders") && error.contains("dim_customer"),
+                "and both tables nothing was said about: {error}"
+            );
+            // The bound, for `sutura-serve`'s reason: a gap of one over two unnamed tables means one
+            // of them really is missing, so the set and the gap are not one quantity.
+            assert!(
+                error.contains("did not account for 1 of the table(s)") && error.contains("at most 1 of the 2 table(s)"),
+                "the refusal states the gap and what it can explain, and they are different numbers: {error}"
+            );
+            assert!(
+                !error.contains("does not hold"),
+                "nothing here established that the table is missing: {error}"
+            );
+            assert!(
+                !error.contains("named by model(s)"),
+                "and no model is at fault, so none is named: {error}"
+            );
+        }
+
+        #[test]
+        fn a_gap_bigger_than_the_bundle_does_not_claim_to_explain_more_tables_than_there_are() {
+            // The other direction of the bound, at this root: a shortfall counts the whole dataset's
+            // unaccounted tables and this set is only the part the bundle names, so the gap can be
+            // the larger number - and on the shape this check exists for it always is.
+            let engines = opened(|asked| {
+                Ok(TablesPresent::Unaccounted {
+                    tables: UnaccountedTables::parse(asked.clone()).expect("the bundle names two tables"),
+                    shortfall: NonZeroU64::new(9).expect("nine is not zero"),
+                })
+            });
+            let error = refuse_absent_tables(&bundle(), &engines).expect_err("the process is still not verified");
+            assert!(
+                error.contains("did not account for 9 of the table(s)"),
+                "the gap the dataset left is still stated as it is: {error}"
+            );
+            assert!(
+                error.contains("at most 2 of the 2 table(s)"),
+                "but what it can explain is bounded by how many tables there are: {error}"
+            );
+            assert!(
+                !error.contains("at most 9"),
+                "a gap cannot explain more tables than the listing named: {error}"
             );
         }
 
