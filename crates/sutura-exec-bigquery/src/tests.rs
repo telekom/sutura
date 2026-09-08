@@ -27,6 +27,7 @@ use crate::{BigQueryError, BigQueryWarehouse};
 
 /// The transports and fixtures these assertions are written against.
 mod fakes;
+mod results;
 
 use fakes::{
     Broken, Case, ListingRefused, Paged, Recording, Refusing, a_subject_token, day, impersonating_posture, leg_of, one_cell,
@@ -112,6 +113,152 @@ fn two_subjects_each_run_their_statement_under_the_bearer_minted_for_them() {
     assert_eq!(seen[0].subject.as_deref(), Some("exchanged-for-subject-a"));
     assert_eq!(seen[1].subject.as_deref(), Some("exchanged-for-subject-b"));
     assert_ne!(seen[0].subject, seen[1].subject);
+}
+
+/// The answer an identity read is supposed to get: one `session_user` column, one row, one cell.
+///
+/// Here rather than in `fakes`, and it is the one fixture in this file that is: `fakes` is the
+/// half a reverted implementation takes with it, so a fixture that lives there is one the causality
+/// gate cannot see these assertions using. It is also three lines, and `one_cell`'s column is named
+/// `value` - which in an identity read would read as the value-mapping table's fixture pointed at
+/// the wrong test.
+fn one_identity(cell: Cell) -> JobRows {
+    JobRows::of(
+        vec![Field::of(String::from("session_user"), FieldType::String)],
+        vec![vec![cell]],
+        1,
+    )
+}
+
+/// The same, spelled from an identifier, for the two tests that assert on the value.
+fn answered_as(who: &str) -> JobRows {
+    one_identity(Cell::Text(String::from(who)))
+}
+
+#[test]
+fn the_identity_read_goes_out_under_the_subjects_own_bearer_and_carries_no_values() {
+    // **The half of the exchanged-identity venue a fake CAN answer**, and it is the half that
+    // decides whether that venue means anything: an identity read submitted under the credential
+    // the TRANSPORT already holds would answer *the transport* every time and pass, whatever the
+    // exchange did. So what is asserted is the bearer, not the answer.
+    //
+    // The statement is asserted too, because the answer is only an identity if the question was:
+    // one fixed statement this crate renders, with no parameters, so there is no position a value
+    // from a question could occupy - the *no arbitrary SQL entry point* property `load_fixture`
+    // holds by taking a table name and a path.
+    let warehouse = open(
+        Recording::answering(answered_as("principal-a@example.com")),
+        impersonating_posture(),
+    );
+    let token = "exchanged-for-principal-a";
+    let who = warehouse
+        .session_user(&a_subject_token(token))
+        .expect("the fake answers one identity");
+    assert_eq!(who, "principal-a@example.com");
+    let seen = warehouse.transport.seen.borrow();
+    let asked = seen.first().expect("the transport was asked once");
+    assert_eq!(asked.subject.as_deref(), Some(token));
+    assert!(asked.statement.contains("SESSION_USER()"), "{}", asked.statement);
+    assert!(asked.params.is_empty(), "{:?}", asked.params);
+    assert_eq!(asked.statement.matches('?').count(), 0, "{}", asked.statement);
+}
+
+#[test]
+fn the_identity_read_under_a_shared_source_sends_no_bearer_of_its_own() {
+    // The other posture, asserted rather than assumed because the exchanged-identity venue runs a
+    // CONTROL leg under the deployment's own credential - and that leg is a control only if it
+    // really goes out as the deployment. `subject_bearer` answers `None` for a shared leg, so the
+    // transport's own identity is what the endpoint resolves, which is what makes *the deployment
+    // is neither principal* a thing that venue can find out rather than assume.
+    let warehouse = open(Recording::answering(answered_as("ci@example.com")), shared_posture());
+    let who = warehouse
+        .session_user(&leg_of(&shared_posture()))
+        .expect("the fake answers one identity");
+    assert_eq!(who, "ci@example.com");
+    let seen = warehouse.transport.seen.borrow();
+    assert_eq!(seen.first().and_then(|asked| asked.subject.clone()), None);
+}
+
+#[test]
+fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_nothing() {
+    // Three shapes that are not an identity, and one property that matters more than any of them:
+    // **the refusal carries the SHAPE and never the value.** The venue that runs this read writes
+    // to a public workflow log, and the one thing this answer can contain is an account
+    // identifier - so a refusal quoting what came back would be the disclosure the read exists to
+    // check for.
+    let two_rows = JobRows::of(
+        vec![Field::of(String::from("session_user"), FieldType::String)],
+        vec![
+            vec![Cell::Text(String::from("principal-a@example.com"))],
+            vec![Cell::Text(String::from("principal-b@example.com"))],
+        ],
+        2,
+    );
+    let two_columns = JobRows::of(
+        vec![
+            Field::of(String::from("session_user"), FieldType::String),
+            Field::of(String::from("extra"), FieldType::String),
+        ],
+        vec![vec![
+            Cell::Text(String::from("principal-a@example.com")),
+            Cell::Text(String::from("principal-b@example.com")),
+        ]],
+        1,
+    );
+    for answer in [two_rows, one_identity(Cell::Null), two_columns] {
+        let warehouse = open(Recording::answering(answer), impersonating_posture());
+        let refused = warehouse
+            .session_user(&a_subject_token("exchanged-for-principal-a"))
+            .expect_err("an answer that is not one identity is a refusal");
+        assert!(matches!(refused, BigQueryError::NoIdentityInTheAnswer { .. }), "{refused:?}");
+        let said = refused.to_string();
+        for identifier in ["principal-a@example.com", "principal-b@example.com"] {
+            assert!(
+                !said.contains(identifier),
+                "a refusal a public log will carry may not quote what came back: {said}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_identity_read_whose_page_is_short_of_its_own_total_is_the_documented_refusal() {
+    // One comparison, in one place. `Incomplete` is this crate's documented reading of *the
+    // endpoint delivered fewer rows than it reported*, and an identity read writing a second
+    // comparison of its own beside it is the two-deadlines defect `sts::clears_floor` records -
+    // two answers to one question, free to disagree.
+    let short = JobRows::of(
+        vec![Field::of(String::from("session_user"), FieldType::String)],
+        vec![vec![Cell::Text(String::from("principal-a@example.com"))]],
+        2,
+    );
+    let warehouse = open(Recording::answering(short), impersonating_posture());
+    let refused = warehouse
+        .session_user(&a_subject_token("exchanged-for-principal-a"))
+        .expect_err("a page short of its own total is refused");
+    assert!(
+        matches!(refused, BigQueryError::Incomplete { delivered: 1, total: 2 }),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn an_identity_read_whose_credential_disagrees_with_the_posture_reaches_no_endpoint() {
+    // `deliverable` is shared by every credential-taking method, and this is the one added last -
+    // so it is the one where forgetting it would be least visible. A shared source handed a
+    // subject's token is refused here exactly as `execute` refuses it, and nothing is sent.
+    let warehouse = open(Recording::empty(), shared_posture());
+    let refused = warehouse
+        .session_user(&a_subject_token("exchanged-for-principal-a"))
+        .expect_err("a subject's token at a shared source disagrees with the posture");
+    assert!(
+        matches!(refused, BigQueryError::PresentedDisagreesWithPosture { .. }),
+        "{refused:?}"
+    );
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "a leg this adapter cannot deliver may not reach the endpoint under any identity"
+    );
 }
 
 #[test]
@@ -216,277 +363,6 @@ fn a_dry_run_the_endpoint_rejects_is_not_reported_as_accepted() {
     assert!(matches!(error, BigQueryError::Endpoint { .. }), "{error:?}");
     // The cause survives, so a caller that knows the transport can still read it.
     assert!(core::error::Error::source(&error).is_some());
-}
-
-#[test]
-fn every_type_this_adapter_maps_answers_what_the_other_sql_adapter_answers() {
-    // **The value mapping as a table, and the duplication with `sutura-exec-duckdb` is deliberate.**
-    // The two `cell` functions live in crates that may not depend on each other, so the agreement is
-    // asserted as the same expected column written out in both places. Three arms below are the ones
-    // where disagreeing would produce a wrong number rather than an error, and each says so.
-    let warehouse = open(Recording::empty(), shared_posture());
-    let cases: Vec<Case> = vec![
-        (FieldType::Int64, Cell::Text(String::from("250")), Value::Integer(250)),
-        (
-            FieldType::String,
-            Cell::Text(String::from("north")),
-            Value::Text(String::from("north")),
-        ),
-        // A boolean becomes an integer, because the domain has no boolean and the other adapter maps
-        // `BOOLEAN` to `Integer(i64::from(v))`. The example catalog counts a churn flag, so the two
-        // would otherwise disagree about a metric.
-        (FieldType::Bool, Cell::Text(String::from("true")), Value::Integer(1)),
-        (FieldType::Bool, Cell::Text(String::from("false")), Value::Integer(0)),
-        // An exact decimal stays TEXT. Turning it into a double is how a total that was correct in the
-        // data system stops being correct in an answer.
-        (
-            FieldType::Numeric,
-            Cell::Text(String::from("12345.67")),
-            Value::Text(String::from("12345.67")),
-        ),
-        // A date is re-rendered from a parse, so a malformed one is an error rather than text that
-        // looks like a date downstream.
-        (
-            FieldType::Date,
-            Cell::Text(String::from("2026-06-01")),
-            Value::Text(String::from("2026-06-01")),
-        ),
-        (FieldType::Int64, Cell::Null, Value::Null),
-    ];
-    for (kind, cell, expected) in cases {
-        let rows = BigQueryWarehouse::<Recording>::rows(&one_cell(kind.clone(), cell.clone()))
-            .unwrap_or_else(|e| panic!("{kind:?} with {cell:?} should map: {e}"));
-        assert_eq!(rows.rows().first().and_then(|r| r.first()), Some(&expected), "{kind:?}");
-    }
-    // A double maps too, and is asserted separately because `Real` has no `Eq`.
-    let rows = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Float64, Cell::Text(String::from("1.5"))))
-        .expect("a finite double maps");
-    match rows.rows().first().and_then(|r| r.first()) {
-        Some(&Value::Real(real)) => assert!((real.get() - 1.5).abs() < f64::EPSILON),
-        other => panic!("expected a real, got {other:?}"),
-    }
-    drop(warehouse);
-}
-
-#[test]
-fn a_non_finite_double_is_refused_rather_than_answered() {
-    // **The arm that keeps a stored non-finite value from answering under a certified number.** A
-    // `FLOAT64` column holding a non-finite value is refused here - in GoogleSQL the unguarded `/`
-    // raises on a zero divisor, so this arm is not the ratio case that `zero_denominator: fails`
-    // carries on DuckDB; it is a STORED `Infinity`. The fixture spells the values the way the endpoint
-    // does - `Infinity`/`-Infinity`/`NaN` - rather than the standard library's `inf`, so the test
-    // keeps measuring the wire's shape.
-    for hostile in ["Infinity", "-Infinity", "NaN"] {
-        let error = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Float64, Cell::Text(String::from(hostile))))
-            .expect_err("a non-finite double is refused");
-        assert!(matches!(error, BigQueryError::NotFinite { .. }), "{hostile}: {error:?}");
-    }
-}
-
-#[test]
-fn a_type_this_adapter_does_not_map_names_itself_rather_than_answering_null() {
-    // The reason `FieldType::Unmapped` carries the endpoint's own spelling: a null here would be a
-    // wrong number, and a message that said "an unsupported type" would not say which column to fix.
-    let error = BigQueryWarehouse::<Recording>::rows(&one_cell(
-        FieldType::Unmapped(String::from("GEOGRAPHY")),
-        Cell::Text(String::from("POINT(0 0)")),
-    ))
-    .expect_err("an unmapped type is refused");
-    match error {
-        BigQueryError::UnmappedType { ref column, ref named } => {
-            assert_eq!(column, "value");
-            assert_eq!(named, "GEOGRAPHY");
-        }
-        other => panic!("expected an unmapped-type refusal, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_declared_number_that_did_not_come_back_as_one_is_refused() {
-    // The endpoint sends every value as text, so "declared INT64" and "parses as an integer" are two
-    // different facts and this is where they are reconciled.
-    // Two variants rather than one, because the CAUSE differs and each keeps its own on the chain.
-    let integer = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Int64, Cell::Text(String::from("not a number"))))
-        .expect_err("a non-numeric value in an INT64 column is refused");
-    assert!(matches!(integer, BigQueryError::NotAnInteger { .. }), "{integer:?}");
-    let double = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Float64, Cell::Text(String::from("not a number"))))
-        .expect_err("a non-numeric value in a FLOAT64 column is refused");
-    assert!(matches!(double, BigQueryError::NotADouble { .. }), "{double:?}");
-    // The standard-library cause survives, because `#[source]` is not wired for you.
-    assert!(core::error::Error::source(&integer).is_some());
-    assert!(core::error::Error::source(&double).is_some());
-    // And a boolean that is neither spelling, which carries no cause because there is no parse
-    // behind it.
-    let boolean = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Bool, Cell::Text(String::from("yes"))))
-        .expect_err("a BOOL column holding `yes` is refused");
-    assert!(matches!(boolean, BigQueryError::NotABool { .. }), "{boolean:?}");
-    // And a malformed date, which is the same argument on a different type.
-    let error = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Date, Cell::Text(String::from("2026-13-45"))))
-        .expect_err("a malformed date is refused");
-    assert!(matches!(error, BigQueryError::NotADate { .. }), "{error:?}");
-}
-
-#[test]
-fn a_row_at_the_wrong_width_is_refused_and_names_which_row() {
-    // The endpoint disagreeing with its own schema. `RowSet::new` would catch it too; this catches it
-    // first so the message can say which row, which is the difference between a usable failure and a
-    // count.
-    let rows = JobRows::of(
-        vec![
-            Field::of(String::from("a"), FieldType::Int64),
-            Field::of(String::from("b"), FieldType::Int64),
-        ],
-        vec![
-            vec![Cell::Text(String::from("1")), Cell::Text(String::from("2"))],
-            vec![Cell::Text(String::from("3"))],
-        ],
-        2,
-    );
-    let error = BigQueryWarehouse::<Recording>::rows(&rows).expect_err("a ragged result is refused");
-    match error {
-        BigQueryError::RowWidth { row, cells, columns } => {
-            assert_eq!((row, cells, columns), (1, 1, 2));
-        }
-        other => panic!("expected a row-width refusal, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_result_shorter_than_what_the_endpoint_reported_is_refused() {
-    // `jobs.query` answers ONE page; completeness is the endpoint's `totalRows`, never the rows alone.
-    // A first page, or an incomplete job's empty `rows`, would otherwise read to `answer()` as *under
-    // the cap, not truncated* - a wrong number under a certified name, through the exact row the
-    // row-cap invariant exists to hold. This is the seam refusing it.
-    let answered = JobRows::of(
-        vec![
-            Field::of(String::from("a"), FieldType::Int64),
-            Field::of(String::from("b"), FieldType::Int64),
-        ],
-        vec![
-            vec![Cell::Text(String::from("1")), Cell::Text(String::from("2"))],
-            vec![Cell::Text(String::from("3")), Cell::Text(String::from("4"))],
-        ],
-        3,
-    );
-    let error = BigQueryWarehouse::<Recording>::rows(&answered).expect_err("a partial result is refused");
-    match error {
-        BigQueryError::Incomplete { delivered, total } => assert_eq!((delivered, total), (2, 3)),
-        other => panic!("expected an incomplete-result refusal, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_federated_leg_is_refused_because_there_is_nothing_above_it_to_combine_legs() {
-    // A leg executed with nothing above it returns rows at a finer grouping than the question asked
-    // for, which is a wrong number under a certified name. Both SQL adapters answer this the same way.
-    let warehouse = open(Recording::empty(), shared_posture());
-    let leg = crate::tests::a_leg();
-    let error = warehouse
-        .execute(Executable::Leg(&leg), &leg_of(&shared_posture()))
-        .expect_err("a leg has no combiner above it");
-    match error {
-        BigQueryError::LegWithoutCombiner { ref table } => assert_eq!(table, "fct_subscription_monthly"),
-        other => panic!("expected a leg refusal, got {other:?}"),
-    }
-    assert!(warehouse.transport.seen.borrow().is_empty());
-}
-
-#[test]
-fn a_result_the_endpoint_would_not_return_at_once_is_a_size_bound_and_not_an_outage() {
-    // THE defect the second bound exists for, at the adapter. `jobs.query` answers one page - as many
-    // rows as fit the maximum permitted reply size - so a result UNDER the row cap can still be over
-    // that, and both shapes that say so used to leave here as `BigQueryError` and reach a caller as
-    // `503`: the status a dead endpoint produces, inviting a retry that returns the same page.
-    //
-    // Two shapes, and each is asked of the thing that knows. The page token is a fact about the wire
-    // document, so the transport is asked - which is why the two failing transports below are
-    // indistinguishable to `BigQueryError::Endpoint` and answer differently.
-    let paged = open(Paged, shared_posture());
-    let error = paged
-        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
-        .expect_err("a paged result is not a result");
-    assert!(
-        paged.result_did_not_fit(&error),
-        "a page of a larger result is a size bound: {error:?}"
-    );
-
-    // The control, and the reason this is not a test that says yes to everything: the same variant,
-    // an error the adapter cannot tell from the one above, and a transport that does not claim the
-    // bound. It must stay a failure.
-    let broken = open(Broken, shared_posture());
-    let refused = broken
-        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
-        .expect_err("the endpoint said no");
-    assert!(
-        !broken.result_did_not_fit(&refused),
-        "an endpoint that refused is not a result too large: {refused:?}"
-    );
-}
-
-#[test]
-fn a_page_shorter_than_the_reported_total_is_a_size_bound_and_a_longer_one_is_not() {
-    // The second shape, and this one the ADAPTER decides: a delivered count BELOW the reported total
-    // is the same bound reached without a page token, so it is a governance refusal rather than a
-    // `503`. `a_result_shorter_than_what_the_endpoint_reported_is_refused` above asserts that it is
-    // refused at all; this asserts what a caller is then told it was.
-    let warehouse = open(Recording::empty(), shared_posture());
-    assert!(
-        warehouse.result_did_not_fit(&BigQueryError::Incomplete { delivered: 2, total: 3 }),
-        "a partial page is a result too large"
-    );
-
-    // And the OTHER side of the same variant is deliberately NOT this bound. More rows delivered than
-    // the endpoint says exist is the endpoint contradicting itself - a defect, which a retry may well
-    // not repeat - so calling it a governance refusal would tell a caller not to retry the one shape
-    // here where retrying could work.
-    assert!(
-        !warehouse.result_did_not_fit(&BigQueryError::Incomplete { delivered: 3, total: 2 }),
-        "an endpoint contradicting itself is not a result too large"
-    );
-}
-
-#[test]
-fn a_schema_this_adapter_cannot_map_is_refused_whatever_the_data_happened_to_be() {
-    // **The hole review found, and it was in the comment as well as in the code.** `cell` answers a
-    // null BEFORE it reads the column's type, which is right for a null and wrong for the schema: a
-    // result with NO rows never reaches `cell` at all, and a result whose unmapped column happens to
-    // be entirely null reaches it and is answered. So a `TIMESTAMP` column came back as a successful
-    // empty `RowSet`, and whether this adapter maps a type depended on what the data happened to be.
-    //
-    // Both shapes, because they were reachable for two different reasons.
-    let empty = JobRows::of(
-        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("TIMESTAMP")))],
-        Vec::new(),
-        0,
-    );
-    match BigQueryWarehouse::<Recording>::rows(&empty).expect_err("a zero-row unmapped schema is refused") {
-        BigQueryError::UnmappedType { ref column, ref named } => {
-            assert_eq!(column, "at");
-            assert_eq!(named, "TIMESTAMP");
-        }
-        other => panic!("a zero-row unmapped schema was mapped to {other:?}"),
-    }
-
-    let all_null = JobRows::of(
-        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("BYTES")))],
-        vec![vec![Cell::Null], vec![Cell::Null]],
-        2,
-    );
-    match BigQueryWarehouse::<Recording>::rows(&all_null).expect_err("an all-null unmapped column is refused") {
-        BigQueryError::UnmappedType { ref named, .. } => assert_eq!(named, "BYTES"),
-        other => panic!("an all-null unmapped column was mapped to {other:?}"),
-    }
-
-    // A malformed type name is the same case rather than a third one: an empty `type` decodes to
-    // `Unmapped("")`, so it is named as what it is rather than read as a column that answers.
-    let malformed = JobRows::of(vec![Field::of(String::from("at"), FieldType::parse(""))], Vec::new(), 0);
-    assert!(
-        matches!(
-            BigQueryWarehouse::<Recording>::rows(&malformed),
-            Err(BigQueryError::UnmappedType { .. })
-        ),
-        "an empty type name was accepted"
-    );
 }
 
 /// One fact leg, for the arm that refuses one.

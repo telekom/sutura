@@ -201,16 +201,10 @@ struct ErrorItem {
 /// answer cannot write a newline, an escape sequence or a right-to-left override into a log; what
 /// survives is the sentence. Bounded by CHARACTERS rather than bytes, because `clippy::string_slice` is
 /// denied and a byte slice of foreign text can land inside a character.
-fn detail(message: Option<String>) -> String {
-    /// Long enough for the endpoint's own sentences, short enough that a log line stays a log line.
-    const MAX_DETAIL_CHARS: usize = 400;
-
-    message
-        .unwrap_or_default()
-        .chars()
-        .filter(|c| c.is_ascii_graphic() || *c == ' ')
-        .take(MAX_DETAIL_CHARS)
-        .collect()
+fn detail(message: Option<String>) -> super::EndpointMessage {
+    // The cap and the strip moved onto `EndpointMessage::bounded` when the message became a type:
+    // what may be RENDERED and what may be STORED are one rule, and it belongs with the value.
+    super::EndpointMessage::bounded(message)
 }
 
 /// The refusal a non-success status becomes.
@@ -224,7 +218,7 @@ where
 {
     let envelope: RefusalEnvelope = serde_json::from_str(body).unwrap_or_default();
     let (named, detail) = envelope.error.map_or_else(
-        || (String::new(), String::new()),
+        || (String::new(), super::EndpointMessage::bounded(None)),
         |error| {
             // The per-error `reason` first, because it is the specific one; the envelope's `status` is
             // the coarse fallback and is also a fixed vocabulary.

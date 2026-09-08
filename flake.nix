@@ -205,13 +205,7 @@
         nightlyToolchain = (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly;
 
         # The pinned cargo, for the one workflow that has to touch Cargo.lock.
-        cargoWrapper = pkgs.writeShellApplication {
-          name = "sutura-cargo";
-          text = ''
-            export PATH="${rustToolchain}/bin:$PATH"
-            exec cargo "$@"
-          '';
-        };
+        cargoWrapper = import ./nix/cargo-wrapper.nix { inherit pkgs rustToolchain; };
 
         # WRITES the committed API pages, and `checks.api-docs` below is the gate that fails when
         # they fall behind - the two must agree byte for byte, which is why one file defines the
@@ -750,7 +744,7 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(two_principals)' "$@"
+              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity)' "$@"
           '');
         };
         # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth
@@ -773,6 +767,20 @@
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
               --run-ignored only -E 'binary(two_principals)' "$@"
+          '');
+        };
+
+        # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376: the only
+        # leg holding no principal's key. **No workflow invokes it**, and its own header says why.
+        apps.bigquery-exchanged-identity = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-exchanged-identity" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'binary(exchanged_identity)' "$@"
           '');
         };
 

@@ -786,7 +786,15 @@ bigquery-acceptance:
     echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
     echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'not binary(two_principals)'
+    # **The filter is the same one `apps.bigquery-acceptance` uses, and the two are held apart by
+    # nothing but this line.** Adding the exchanged-identity target without this exclusion made the
+    # task run that cell's `#[ignore]`d legs: red for every developer, because it fails on an
+    # environment value that does not exist rather than skipping - and where the two `_EMAIL`
+    # variables ARE set, it ran the exchange venue's control leg under the acceptance task's name,
+    # which is the venue confusion `docs/where-identity-is-proven.md` exists to prevent. It also
+    # made the echo above false. Nothing derives one filter from the other; see telekom/sutura#430.
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
+      -E 'not binary(two_principals) and not binary(exchanged_identity)'
 
 # The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
 # amendment and issue #123.
@@ -810,6 +818,23 @@ bigquery-two-principals:
     echo "bigquery-two-principals: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "bigquery-two-principals: CI runs it through \`nix run .#bigquery-two-principals\`, in the bq-test job."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(two_principals)'
+
+# Run the exchanged-identity cell: one workload identity, exchanged per subject, against SESSION_USER().
+#
+# The only BigQuery leg that holds no principal's key - which is what separates impersonation from
+# credential selection, and the whole reason it is a cell of its own. NO WORKFLOW INVOKES IT: two of
+# the five values it is pointed at are not in the `bq-test` environment, and
+# `crates/sutura-exec-bigquery/tests/exchanged_identity.rs` carries why they cannot be derived from
+# the CI workload identity with the exchange this adapter ships. **It has never run.**
+bigquery-exchanged-identity:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "bigquery-exchanged-identity: scope sutura-exec-bigquery - one workload identity, exchanged per subject."
+    echo "bigquery-exchanged-identity: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "bigquery-exchanged-identity: no workflow runs it - see the test file's header for what is missing."
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(exchanged_identity)'
 
 # ------------------------------------------------------------------ dev flow ---
 
