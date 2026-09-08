@@ -3405,17 +3405,65 @@ bullets down:</p>
 </ul>
 </li>
 </ul>
-<p><strong>Nothing refuses on it, and that is the decision this record deliberately does not take.</strong> The
-  choice looks like <em><code>Err</code> or <code>WARN</code></em> and is not: an <code>Err</code> out of <code>preflight</code> <strong>is</strong> the warning half
-  unless <code>listing_was_refused</code> changes with it, so refusing on a shape change would move the outcome
-  from <em>deployment refused for the wrong reason</em> to <em>deployment served anyway</em> - the worse direction.
-  <code>a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named</code> pins the non-decision, so
-  whoever settles it changes a test and this record together. <strong>Tracked as telekom/sutura#275</strong>,
-  which carries the three shapes the decision has to choose between - a refusal-half <code>WireError</code>, a
-  <code>WARN</code>, or deleting the value - and why none of them is free. Until then, read this bullet as <em>the
-  input now arrives</em>, never as <em>a shape change is told apart</em>; the built-and-not-wired register in
-  <code>.agents/skills/sutura/query-surface</code> has the entry, and states that no gate notices a change that
-  wires a refusal without revisiting this paragraph.</p>
+<p><strong>The decision is taken now, and it is none of the three shapes this record deferred to.</strong>
+  telekom/sutura#275 offered a refusal-half <code>WireError</code>, a <code>WARN</code>, or deleting the value; the first
+  two share a premise that does not survive being written down. A <code>WireError</code> in the refusal half
+  makes <code>listing_was_refused</code> - documented as <em>the endpoint REFUSED</em> - answer <code>true</code> for something
+  that is not a refusal, and BOTH roots render that verdict as <em>grant this identity
+  <code>bigquery.tables.list</code></em>, which is the same defect one sentence over: an operator sent to fix a
+  thing that was never wrong. And a <code>WARN</code> is not the cheap option in this tree, it is a
+  <strong>loosening</strong> - the case refuses TODAY, for the wrong reason, so warning would let a deployment
+  serve that does not serve now, which is the direction this paragraph already named as worse.</p>
+<p><strong>So the refusal is a VALUE on the answer and not an <code>Err</code></strong> - the rule <code>ToolOutcome::Refusal</code>
+  holds on the query path, applied one port down, and it is what makes the <code>Err</code>-is-the-warning-half
+  trap irrelevant rather than worked around. <code>TablesPresent</code> gains a fourth variant,
+  <code>Unaccounted { tables, shortfall }</code>; <code>sutura_app::preflight::ask</code> maps it to a sixth <code>Verdict</code> with
+  no wildcard arm, so <strong>both composition roots failed to compile until each decided</strong>, and both
+  refuse. Neither names a model behind the tables, deliberately: nothing here establishes that a
+  <code>table:</code> is wrong.</p>
+<p><strong>And it is narrow, which is the half a blunt version would have got wrong.</strong> A table a short
+  listing NAMED is present - a listing cannot un-name an entry it carried - so a short listing that
+  still named everything the bundle asks about answers <code>All</code>, and an ordinary create-or-delete race
+  over tables nobody asked about reddens no boot. Only the tables the listing did not reach land in
+  the new answer. <code>a_listing_short_of_its_own_total_still_answers_on_the_tables_it_named</code> was the
+  pin on the non-decision and is gone, replaced by four cells: the gap, the short listing that is
+  still clean, the accounted listing that still names an absence, and the precedence between a
+  definite absence in one dataset and a gap in another.</p>
+<p><strong>Two things review broke before this was believable, and both are why the shape changed.</strong> The
+  first: <code>ListingTotal::Short</code>'s fields were public and <code>HeldTables::of</code> is a <code>pub const fn</code>, so a
+  <code>Short</code> whose reported total sat BELOW its identified count was constructible - the pre-flight then
+  saturated the subtraction to zero and <strong>fell back to reporting the bundle's tables absent</strong>, the
+  defect itself, reached through the public API without mutating anything. <code>reported &gt; identified</code>
+  was held by an <code>if</code> one module away. It is <code>transport::Shortfall</code>'s now - <code>identified</code> plus a
+  <code>NonZeroU64</code> gap, one fallible <code>parse</code>, no public fields - and the fallback that needed it is
+  deleted rather than documented. <strong>A type that forecloses a zero is worth nothing while a
+  constructor can route around it.</strong> The second: a gap of one was printed beside three unnamed
+  tables, as though the set and the shortfall were one quantity. They are not - the gap BOUNDS how
+  many of the set it can explain, so two of those three really were missing - and both roots say <em>at
+  most N of these M</em> for that reason. <strong>The third, a round later, is that bound running the other
+  way:</strong> a shortfall counts tables the data system did not account for anywhere in the DATASET while
+  the set is only the part the bundle names, so the shortfall can be the larger number - and on this
+  check's own shape it always is, since an identified count of zero makes it the dataset's whole
+  table count. Both roots printed <em>at most 9 of the 2 table(s)</em>.
+  <code>UnaccountedTables::explained_by</code> is the clamp, in the domain, because two roots each remembering
+  a <code>min</code> is the rule held by recall this repository does not accept. It hid because every cell but
+  the two that RENDER runs a gap larger than its set.</p>
+<p><strong>What the decision does NOT reach, stated where the claim is.</strong> Only <code>Short</code> is read. A service
+  that re-spells the count as well leaves <code>Unreadable</code>, which by this crate's own words is <em>itself a
+  shape change</em>, and it still answers <em>absent</em> - that is <code>telekom/sutura#443</code>, and it is out of reach
+  here rather than overlooked: <code>Unaccounted</code> carries a <code>NonZeroU64</code> shortfall and <code>Unreadable</code> has no
+  number to put in it, so covering it changes the answer's shape. <code>Unreported</code> beside no ids is
+  deliberately not in that issue, and the reason is the variant's own: <em>an empty listing and an empty
+  dataset are one value</em> there, so nothing in the document tells them apart and a refusal would be
+  taken on evidence that does not distinguish them - it is where every boot stood before the field
+  was decoded. A dataset every id of which <code>usable_table_id</code> drops is <code>Accounted</code> beside no ids and
+  is an ordinary dataset. A gap is not a diagnosis, so a
+  document whose shape changed and a table created or dropped mid-listing are one answer. A definite
+  absence outranks a gap ACROSS datasets, so where a bundle has both the gap waits for the next boot;
+  within one dataset the two numbers are carried side by side instead. Both refuse, so nothing serves
+  that would not have. And the case has still <strong>never been seen live</strong> and cannot be provoked from
+  the acceptance environment: what holds its meaning is the hermetic suite over documents, and the
+  live leg establishes only that the field arrives.</p>
 <p><strong>The correction worth recording rather than quietly making:</strong> the version of this bullet before
   #263 deferred the question to <em>the live run above</em>, and that run could not make the measurement in
   either direction - the leg asserts on <code>TablesPresent</code>, and the decoder read no such field, so no

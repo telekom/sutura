@@ -3394,12 +3394,18 @@ one.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>What one data system answered about the tables one bundle names in it.</p>
-<p><strong>Five outcomes and not three, because a root treats two of the failures differently.</strong> The port
-answers three things and fails in one way, and that one failure splits on
-<code>Warehouse::preflight_was_refused</code>: a data system that REFUSED to be listed will refuse
-identically on every launch and the fix is one grant, while one that could not be reached is a
-condition that passes. A root that collapsed them would either stop a deployment that would have
-worked or hide the check being off in the deployment least likely to read a startup log.</p>
+<p><strong>Six outcomes and not three, because a root treats two of the failures differently and one of
+the answers is not about the catalog at all.</strong> The port answers four things and fails in one way,
+and that one failure splits on <code>Warehouse::preflight_was_refused</code>: a data system that REFUSED to
+be listed will refuse identically on every launch and the fix is one grant, while one that could
+not be reached is a condition that passes. A root that collapsed them would either stop a
+deployment that would have worked or hide the check being off in the deployment least likely to
+read a startup log.</p>
+<p><strong><code>Self::Unaccounted</code> is the fourth answer and it is a REFUSAL, not the third failure.</strong> The
+data system answered; its answer did not account for its own inventory. Reading that as
+<code>Self::Absent</code> is what <code>telekom/sutura#275</code> is - a shortfall rounded down to zero and charged
+to the catalog - and reading it as <code>Self::Unverified</code> would be worse still: that is the warning
+half, so the one shape the cross-check exists to catch would end in a deployment that serves.</p>
 <p>Generic in the adapter's error so the cause travels: nothing here can read <code>W::Error</code>, and the
 root that composed the adapter is the one that can flatten it.</p>
 <h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
@@ -3407,6 +3413,7 @@ root that composed the adapter is the one that can flatten it.</p>
 <li><code>Present</code> - Asked, and every table is there. Carries how many, for a line that says so.</li>
 <li><code>NotReported</code> - The adapter did not report - <code>TablesPresent::NotAsked</code>, the port's default.</li>
 <li><code>Absent</code> - Asked, and these tables are not there. A refusal, and the models to name in it.</li>
+<li><code>Unaccounted</code> - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.</li>
 <li><code>Refused</code> - The data system refused to be asked: this identity may not list it.</li>
 <li><code>Unverified</code> - The data system could not be asked, for a reason that is not a refusal.</li>
 </ul>
