@@ -15,9 +15,11 @@
 //! legitimate pass: a tree with no text file genuinely has no over-long file and no CRLF, so only a
 //! violation falsifies them. Measured - without the seed, `max-lines`, `line-endings` and
 //! `text-hygiene` all answer `ok` here, and every other gate is falsified by the bare root alone.
-//! No extension here is `.rs`, deliberately: `check-expect-thresholds` scans Rust source, so a
-//! `.rs` file would satisfy its floor while telling it nothing about this tree - and
-//! `check-worktree-state` is the reason `nix/shared-scratch.sh` exists rather than a Rust file.
+//! No extension here is `.rs`, deliberately: `check-expect-thresholds` anchors its floor on
+//! `xtask/src/main.rs` (see `threshold_expect`), which no falsifier tree can contain, so a
+//! foreign `.rs` would no longer buy it a satisfied floor - the absent anchor still refuses it
+//! (`Refusal::NotJudged`). And `check-worktree-state` is the reason `nix/shared-scratch.sh`
+//! exists rather than a Rust file.
 //!
 //! **A seed is what makes a refusal come from a gate's OWN RULE rather than from a missing input,
 //! and only three of the gates here manage that.** Over this tree 20 refuse on an absent or

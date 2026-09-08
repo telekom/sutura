@@ -32,7 +32,7 @@ pub(super) const SURFACES: &[Surface] = &[
         // the only thing this module measures.
         label: "Rust source",
         paths: &["*.rs"],
-        hooks: &["rust-fmt", "rust-clippy", "rust-check-changed"],
+        hooks: &["rust-fmt", "rust-clippy", "rust-check-changed", "jscpd"],
         reached_by: "lint",
     },
     Surface {
