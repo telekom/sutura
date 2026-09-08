@@ -71,9 +71,10 @@ mod tests {
 
     // The harness, next door. It holds no assertion - see its own module documentation for why the
     // split moved this direction and not the other.
+    use crate::harness::reading::Reading;
     use crate::harness::{
-        LOCAL_SOURCE, LOOKUP_SOURCE, RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, drained, example_root, position,
-        question, recurring_revenue_by_region, recurring_revenue_june, refused_to_start, settings_declaring_inbound,
+        LOCAL_SOURCE, LOOKUP_SOURCE, RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, example_root, position, question,
+        recurring_revenue_by_region, recurring_revenue_june, refused_to_start, settings_declaring_inbound,
         settings_spanning_two_sources, start, start_configured, v1,
     };
 
@@ -92,11 +93,17 @@ mod tests {
         // The barrier removes the other order: the reader cannot have sent before the collection
         // begins, because it is released on the line above the call.
         //
-        // **The limit, next to the claim.** What separates the two behaviours after the barrier is
-        // an INJECTED DELAY, not an ordering a type holds: a collector that joins waits the 250ms
-        // out, one that drains what is already there returns empty in microseconds. Five orders of
-        // magnitude is evidence, not impossibility, and the honest way to red the old shape is the
-        // mutation - put the `drop`-and-sweep back into `drained` and this test fails every run.
+        // **The limit, next to the claim, and `github.com/telekom/sutura#415` is what narrowed it.**
+        // What separates the two behaviours after the barrier is an INJECTED DELAY, not an ordering a
+        // type holds: a collector that joins waits the 250ms out, one that drains what is already
+        // there returns empty in microseconds. Five orders of magnitude is evidence, not
+        // impossibility, and the honest way to red the old shape is the mutation - put the
+        // `drop`-and-sweep back inside `Reading::finished` and this test fails every run.
+        //
+        // What this test does NOT say is that either CALL SITE joins, and that was `#415`: reverting
+        // `refused_to_start` alone left the suite 10 passed, 0 failed. That half is held by
+        // `Reading`'s private fields now rather than by anything asserted here - see
+        // `served/harness/reading.rs`.
         let last = "the inbound identity declared by this deployment is not usable";
         let (sender, lines) = channel::<String>();
         let released = Arc::new(Barrier::new(2));
@@ -109,7 +116,7 @@ mod tests {
 
         released.wait();
         assert_eq!(
-            drained(vec![reader], &lines),
+            Reading::of_readers(vec![reader], lines).finished(),
             vec![String::from(last)],
             "the collector swept the channel before the reader had written the process's last line"
         );

@@ -9,14 +9,27 @@
 //! so nothing here changes what that gate can see.
 //!
 //! What lives here: the settings builders, the spawn-and-wait pair and its refusing sibling, the two
-//! guards that reap a process, the one-connection HTTP client, the log readers, the example's own
-//! question fixtures, and the mock issuer's names. What lives in `served.rs`: every `#[test]`.
+//! guards that reap a process, the one-connection HTTP client, the line forwarder and the join, the
+//! example's own question fixtures, and the mock issuer's names. What lives in `served.rs`: every
+//! `#[test]`. What lives in the `reading` child module: the refusing path's readers and their
+//! channel, together, with fields this module deliberately cannot reach -
+//! `github.com/telekom/sutura#415`.
 //!
 //! **`#[cfg(test)]` is on this module's own declaration** in `served.rs` and not only on its parent,
 //! because clippy looks for a literal `#[cfg(test)]` on an ancestor module to decide whether
 //! `allow-expect-in-tests` applies - without it every `expect` below is a lint error under
 //! `-D warnings`. That is the same measurement `served.rs` records for spelling its two `cfg`s as two
 //! attributes rather than one `all(..)`.
+
+// `#[cfg(test)]` here for the same reason it is on this module's own declaration: clippy needs a
+// literal one on an ancestor for `allow-expect-in-tests` to apply.
+//
+// `#[path]` because this file is itself loaded by one, and that changes where a child is looked for:
+// measured, `E0583` asked for `served/reading.rs` rather than `served/harness/reading.rs`. The
+// directory is named explicitly so the layout matches the module tree instead of flattening it.
+#[cfg(test)]
+#[path = "harness/reading.rs"]
+pub(crate) mod reading;
 
 use core::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
@@ -30,6 +43,8 @@ use std::time::{Duration, Instant};
 // `PublishedKeySet` is deliberately absent: the tests own the key set's lifetime, because which
 // document is published - and whether it is rotated to an unusable one - is what a case is about.
 use sutura_dev::issuer::{MockIssuer, Token};
+
+use self::reading::Reading;
 
 /// The deployment's own bearer token, which authenticates the DEPLOYMENT and not a caller.
 ///
@@ -377,21 +392,6 @@ pub(crate) fn joined(readers: Vec<JoinHandle<()>>) {
     }
 }
 
-/// Everything a finished process wrote, collected once its readers have been joined.
-///
-/// The pair is one function because the order is the whole property: `try_recv` is non-blocking and
-/// stops at the first empty channel, so draining BEFORE the join returns the log minus whatever was
-/// still in flight - and a test asserting on a refusal's own sentence then fails as *the deployment
-/// did not refuse*, which is the one diagnosis nobody should be given wrongly.
-pub(crate) fn drained(readers: Vec<JoinHandle<()>>, lines: &Receiver<String>) -> Vec<String> {
-    joined(readers);
-    let mut said = Vec::new();
-    while let Ok(line) = lines.try_recv() {
-        said.push(line);
-    }
-    said
-}
-
 /// A fresh configuration directory holding `settings` as this deployment's own `base.yaml`.
 ///
 /// One place that decides where a case's settings live, because two functions spawn the binary
@@ -451,15 +451,11 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
         config_dir,
         reaped: false,
     };
-    let stdout = spawned.child.stdout.take().expect("standard output was piped");
-    let stderr = spawned.child.stderr.take().expect("standard error was piped");
-    let (sender, lines) = channel();
-    let second = sender.clone();
-    // KEPT rather than dropped, because the collection below is only sound if these can be joined.
-    let readers = vec![
-        std::thread::spawn(move || forward(stdout, &sender)),
-        std::thread::spawn(move || forward(stderr, &second)),
-    ];
+    // The guard, and not two handles plus a channel: `Reading` owns both halves with private fields
+    // in a CHILD module, so this function cannot sweep the channel without joining - the collection
+    // below consumes it. `github.com/telekom/sutura#415` is what that replaces, and
+    // `served/harness/reading.rs` carries the measurement and the limit.
+    let reading = Reading::of(&mut spawned.child);
 
     let deadline = Instant::now() + START_BUDGET;
     let status = loop {
@@ -474,9 +470,10 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
         );
         std::thread::sleep(Duration::from_millis(25));
     };
-    // Joined and then drained - see [`drained`]. This used to be a bare `try_recv` sweep under a
-    // comment claiming the readers had finished, which is `github.com/telekom/sutura#387`.
-    let said = drained(readers, &lines);
+    // Joined and then drained, because `finished` is the only thing `Reading` will hand a line to.
+    // This used to be a bare `try_recv` sweep under a comment claiming the readers had finished,
+    // which is `github.com/telekom/sutura#387`; the sweep was reachable again until `#415`.
+    let said = reading.finished();
     assert!(
         !status.success(),
         "the deployment started on settings it must refuse:\n{}",

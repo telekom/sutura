@@ -93,10 +93,56 @@ pub(crate) struct Held {
 }
 
 impl Held {
+    /// Take the kernel lock on `file`, yielding the guard that releases it - or say why not.
+    ///
+    /// **The lock is taken inside this constructor because that is what makes the release
+    /// unconditional.** `try_lock` used to be called in [`acquire_under`], several fallible
+    /// statements above the `Ok(Held { .. })` that ended it, so every `?` in between returned while
+    /// the kernel lock was held and dropped a bare [`std::fs::File`] - a close, and a close releases
+    /// nothing while any duplicate of the description is open. That is
+    /// `github.com/telekom/sutura#328` on the error path, and the trigger is realistic rather than
+    /// theoretical: the note write fails for few reasons and `ENOSPC` is the one this repository's
+    /// own validation hit three times in an evening.
+    ///
+    /// So the locking expression and the guard are now one expression. There is no program point at
+    /// which this module holds the lock and no `Held`, which is a stronger statement than any test
+    /// about the paths that exist today. **The limit:** it holds because this is the only
+    /// `try_lock` in the module, and nothing stops a future one being written elsewhere in it - the
+    /// file is private, the constructor is the only way to reach the field, and that last step is
+    /// convention.
+    ///
+    /// A failed `try_lock` took nothing, so dropping `file` here releases nothing that was held.
+    fn taken(file: std::fs::File, path: &Path) -> Result<Self, std::fs::TryLockError> {
+        // ONE call, and its result is the guard. `try_lock` is not idempotent to ask twice: an
+        // if/else-if chain over two calls would take the lock in the first and re-ask in the second.
+        file.try_lock()?;
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+        })
+    }
+
     /// Where the lock lives. Printed, so a reader can see which file is involved.
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
+}
+
+/// Write the holder note into the already-locked file, and truncate to what was written.
+///
+/// Written first and then truncated to the written length, NOT truncated then written: between the
+/// two the file used to be observably empty, and the refusal path reads it - so a concurrent
+/// acquirer landing in that window read no holder and reported PID 0. The kernel lock is already
+/// taken here, so the reordering buys the diagnostic without touching the exclusion.
+///
+/// A free function taking the file rather than a method on [`Held`], so [`acquire_recording`] can be
+/// handed a **failing** one: the two calls below cannot be made to fail from outside the process on
+/// any host this runs on, and the failure that matters is `ENOSPC`.
+fn record(file: &std::fs::File, note: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut writer = file;
+    writer.write_all(note.as_bytes())?;
+    file.set_len(note.len() as u64)
 }
 
 impl Drop for Held {
@@ -246,6 +292,27 @@ pub(crate) fn acquire(scope: &Scope) -> Result<Held, LockError> {
 }
 
 fn acquire_under(scope: &Scope, repository: &Path) -> Result<Held, LockError> {
+    acquire_recording(scope, repository, record)
+}
+
+/// The same, with the holder note written by `record_note`.
+///
+/// **A seam over the note write and nothing else**, and it exists because the thing worth asserting
+/// here is what happens when that write FAILS. `write_all` and `set_len` on an already-open regular
+/// file fail for few reasons and the realistic one is `ENOSPC`, which no test can arrange on a host
+/// it shares with the rest of the suite; the alternatives are all worse than a parameter - a
+/// read-only file or a directory in the path fails at the `open` ABOVE the lock, so it exercises the
+/// path this defect is not on, and an `RLIMIT_FSIZE` of zero needs `libc` and therefore `unsafe`,
+/// which this workspace forbids rather than denies.
+///
+/// So the substituted step is one closure call. The open, the lock, the `Held` that takes it, the
+/// error mapping and the drop that releases are the production ones, reached through
+/// [`acquire_under`]'s own body rather than reimplemented.
+fn acquire_recording(
+    scope: &Scope,
+    repository: &Path,
+    record_note: impl FnOnce(&std::fs::File, &str) -> std::io::Result<()>,
+) -> Result<Held, LockError> {
     let dir = scope.state_dir();
     let path = dir.join(FILE);
     let unusable = |cause: std::io::Error| LockError::Unusable {
@@ -264,10 +331,10 @@ fn acquire_under(scope: &Scope, repository: &Path) -> Result<Held, LockError> {
         .open(&path)
         .map_err(unusable)?;
 
-    // ONE call, matched exhaustively. `try_lock` is not idempotent to ask twice: an if/else-if
-    // chain over two calls would take the lock in the first and re-ask in the second.
-    match file.try_lock() {
-        Ok(()) => {}
+    // Matched exhaustively, and the lock is taken INSIDE the constructor - see [`Held::taken`] for
+    // why every fallible statement after this point has to be under a guard rather than beside one.
+    let held = match Held::taken(file, &path) {
+        Ok(held) => held,
         Err(std::fs::TryLockError::WouldBlock) => {
             // Somebody holds it. The PID is only how the refusal names them, and a file that cannot
             // be read or names no PID is `None` rather than a fabricated 0 - an undetermined holder
@@ -278,21 +345,13 @@ fn acquire_under(scope: &Scope, repository: &Path) -> Result<Held, LockError> {
             return Err(LockError::Held { pid, holder: who, path });
         }
         Err(std::fs::TryLockError::Error(cause)) => return Err(unusable(cause)),
-    }
+    };
 
-    // Ours. Record who, for the next run's refusal message. Written first and then truncated to the
-    // written length, NOT truncated then written: between the two the file used to be observably
-    // empty, and the refusal path reads it - so a concurrent acquirer landing in that window read
-    // no holder and reported PID 0. The kernel lock was already taken here, so the reordering buys
-    // the diagnostic without touching the exclusion.
+    // Ours. Record who, for the next run's refusal message - through the guard, so this `?` returns
+    // an UNLOCK rather than a close. See [`record`] for why the order inside it matters.
     let note = format!("pid={}\nroot={}\n", std::process::id(), scope.root().display());
-    {
-        use std::io::Write as _;
-        let mut writer = &file;
-        writer.write_all(note.as_bytes()).map_err(unusable)?;
-    }
-    file.set_len(note.len() as u64).map_err(unusable)?;
-    Ok(Held { file, path })
+    record_note(&held.file, &note).map_err(unusable)?;
+    Ok(held)
 }
 
 #[cfg(test)]
@@ -301,7 +360,7 @@ mod tests {
 
     use sutura_dev::scope::Scope;
 
-    use super::{Holder, LockError, acquire, acquire_under, holder, recorded_pid, working_dir};
+    use super::{Holder, LockError, acquire, acquire_recording, acquire_under, holder, recorded_pid, working_dir};
 
     fn temp_worktree(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("sutura-lock-{}-{tag}", std::process::id()));
@@ -385,6 +444,51 @@ mod tests {
         let duplicate = held.file.try_clone().expect("a descriptor is cloneable");
         drop(held);
         drop(acquire(&scope).expect("dropping the lock releases it, whoever else holds a copy"));
+        drop(duplicate);
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_note_write_that_fails_releases_the_lock_it_had_already_taken() {
+        // `github.com/telekom/sutura#416`: the ERROR path between the lock and the `Ok`, which the
+        // fix for `#328` left behind. The kernel lock is taken, the holder note is written, and a
+        // `?` there used to drop a bare `File` - a close, which releases an `flock` only once the
+        // LAST descriptor on the open file description is gone.
+        //
+        // **Two things make this deterministic, and both are the point of the test rather than
+        // decoration.**
+        //
+        // * The failure is INJECTED at the note write, because it cannot be arranged from outside:
+        //   a read-only file or a directory in the path fails at the `open` above the lock, and an
+        //   `RLIMIT_FSIZE` of zero needs `unsafe`. `StorageFull` is the error the real trigger
+        //   produces - see [`acquire_recording`], which substitutes this one step and nothing else.
+        // * The DUPLICATE is what makes it a test about the unlock rather than about the close. It
+        //   is taken inside the recorder, so it exists at exactly the moment the guard is dropped,
+        //   with no spawn and no timing - the same construction
+        //   `a_dropped_lock_is_released_even_when_a_duplicate_descriptor_outlives_it` uses for the
+        //   success path. Without it a close would pass this test while the defect stood.
+        let dir = temp_worktree("note-fails");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+
+        let mut duplicate = None;
+        let refused = acquire_recording(&scope, scope.root(), |file, _note| {
+            duplicate = Some(file.try_clone().expect("a descriptor is cloneable"));
+            Err(std::io::Error::from(std::io::ErrorKind::StorageFull))
+        });
+        match refused {
+            Err(LockError::Unusable { ref path, ref cause }) => {
+                assert_eq!(path, &scope.state_dir().join(super::FILE), "the refusal names the lock file");
+                assert_eq!(
+                    cause.kind(),
+                    std::io::ErrorKind::StorageFull,
+                    "the filesystem's own error survives"
+                );
+            }
+            ref other => panic!("a note write that fails makes the lock file unusable, got {other:?}"),
+        }
+        let duplicate = duplicate.expect("the recorder ran, so the kernel lock had been taken before it failed");
+
+        drop(acquire(&scope).expect("a failed note write must not leave the lock held"));
         drop(duplicate);
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
