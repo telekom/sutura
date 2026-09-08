@@ -122,22 +122,30 @@ fn is_vendored_prose(path: &str) -> bool {
 /// interleaved with upstream's changes. Vendoring exists to hold someone else's code exactly
 /// as they published it, so a gate that rewrites it defeats the purpose.
 ///
+/// `fuzz/seeds/**` is the same property arrived at from the other direction, and it is why this
+/// list is no longer named after vendoring. A fuzz seed IS its bytes: the file is an input
+/// handed to a parser, and the seeds that matter most are crash reproducers - the exact input
+/// that once made a process abort. Appending a final newline to one of those changes the input
+/// and can un-reproduce the crash it was committed to hold, so the gate that reformats it
+/// silently destroys the regression. Measured when this entry landed: nine of the fourteen seeds
+/// end without a final newline, because a JWT, a JSON body and a JWKS document all do.
+///
 /// WIDER than `VENDORED_PROSE`, which exempts only the em dash: this also exempts the
 /// whitespace and final-newline rules. Conflict markers and the size limit still apply,
 /// because those are about a file being well-formed rather than about its formatting - a bad
 /// merge in a vendored tree is still a bad merge, and an enormous blob is still a problem.
-const VENDORED_SOURCE: &[&str] = &["vendor/"];
+const BYTE_EXACT: &[&str] = &["vendor/", "fuzz/seeds/"];
 
-/// Is this path vendored third-party source, exempt from the formatting rules?
-fn is_vendored_source(path: &str) -> bool {
-    VENDORED_SOURCE.iter().any(|prefix| path.starts_with(prefix))
+/// Is this path one whose bytes must not be reformatted?
+fn is_byte_exact(path: &str) -> bool {
+    BYTE_EXACT.iter().any(|prefix| path.starts_with(prefix))
 }
 
 pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     // Both mean "do not reformat these bytes": a generated file is rewritten by its own
     // generator, and a vendored file has to keep matching the upstream artifact it records.
-    let byte_exact = is_generated(text) || is_vendored_source(path);
+    let byte_exact = is_generated(text) || is_byte_exact(path);
     let prose_exempt = byte_exact || is_vendored_prose(path);
 
     for (i, line) in text.lines().enumerate() {
@@ -182,7 +190,7 @@ pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
 pub(crate) fn fixed(path: &str, text: &str) -> String {
     // Returned byte for byte: `--fix` must never be the thing that makes a vendored tree
     // differ from the upstream release it records.
-    if is_generated(text) || is_vendored_source(path) {
+    if is_generated(text) || is_byte_exact(path) {
         return String::from(text);
     }
     let mut out = String::with_capacity(text.len());
@@ -405,6 +413,28 @@ mod tests {
                 .iter()
                 .any(|f| matches!(*f, Finding::ConflictMarker { .. })),
             "conflict markers are still reported in vendored source"
+        );
+    }
+
+    #[test]
+    fn a_fuzz_seed_keeps_the_bytes_that_reproduce_a_crash() {
+        // A seed IS an input. The one that matters is a crash reproducer, and appending a final
+        // newline to it changes the input the parser sees - so `--fix` here can un-reproduce the
+        // crash the seed was committed to hold, silently, and the regression stops existing.
+        let seed = "fuzz/seeds/bearer_token/three-part-es256";
+        let exact = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJhIn0.";
+        assert_eq!(inspect(seed, exact), vec![], "a missing final newline is part of the input");
+        assert_eq!(fixed(seed, exact), exact, "`--fix` returns a seed's bytes unchanged");
+        assert!(!inspect(ANY, exact).is_empty(), "our own files still need a final newline");
+
+        // Narrow, for the reason the vendored case is: a conflict marker in a seed is a bad
+        // merge, not an input.
+        let conflicted = "<<<<<<< HEAD\n{}\n>>>>>>> theirs\n";
+        assert!(
+            inspect(seed, conflicted)
+                .iter()
+                .any(|f| matches!(*f, Finding::ConflictMarker { .. })),
+            "conflict markers are still reported in a seed"
         );
     }
 

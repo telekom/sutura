@@ -1,0 +1,133 @@
+# Generated input against the parsers that read input this deployment does not write.
+#
+# WHY THIS FILE EXISTS AT ALL. Every other check in this repository is static: clippy at
+# `-D warnings`, zizmor, `cargo deny` and ~34 structural gates read the tree and reason about it.
+# None of them generates an input, so none of them can find a parser that panics on one - and the
+# shipped profiles compile with `panic = "abort"`, so such a panic is the process dying rather than
+# an error a caller sees. `fuzz/` is the only thing here that produces adversarial input.
+#
+# WHY THE SCHEDULE IS THE POINT, and the pull-request leg is not. Fuzzing is unbounded by nature: a
+# fixed budget on every push buys a few thousand executions of an already-explored corpus, and a
+# run that fails a merge on a fresh random path is a check that gets disabled - after which nothing
+# generates input at all. So the two triggers have different jobs to do, the way
+# `security-audit.yml` splits the same way:
+#
+#   - schedule       -> spend a real budget per target and let the corpus grow.
+#   - harness change -> did the change keep every committed seed passing its assertions?
+#
+# NOT A REQUIRED CONTEXT. `devco/required-contexts` records that `ci` is the only one the ruleset
+# requires, and both jobs here are classified `[advisory]` there. That is the status quo made
+# visible rather than a recommendation: what IS gated on every pull request is
+# `cargo xtask check-fuzz`, inside the hygiene sweep, which costs milliseconds and fails when a
+# target stops being declared, seeded, or run by this file.
+#
+# THIRD-PARTY ACTIONS: pinned by digest, as everywhere else here.
+name: fuzz
+
+on:
+  # Only the harness's own files. A change to `crates/` is not path-scoped here on purpose: that
+  # would put a nightly sanitizer build of the whole dependency graph on the critical path of
+  # nearly every pull request, which is what the header argues against.
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - "nix/fuzz.nix"
+      - "nix/run-fuzz.sh"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    # Wednesday 03:23 UTC. Off the hour for `security-audit.yml`'s reason - scheduled jobs on the
+    # hour queue behind everyone else's - and midweek so a finding lands on a working day.
+    - cron: "23 3 * * 3"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Budget per target, in seconds
+        required: false
+        default: "900"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The deterministic half. Every committed seed executed once, no mutation, so the verdict is a
+  # function of the files in the tree - which is what makes it safe to run on a pull request.
+  smoke:
+    runs-on: rust-mcp
+    # A cold nightly build with a sanitizer over this dependency graph is the cost here, not the
+    # replay: the replay itself is a few hundred executions.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # BEFORE nix installs, for the reason `ci.yml` states at its own call: the runner ships
+      # ~20 GB of SDKs this repository does not use, and a sanitizer build is not small.
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately absent,
+          # for the reason `security-audit.yml` gives: with it, a pull request could add a
+          # substituter and a trusted key and have CI fetch attacker-built store paths.
+          extra_nix_config: |
+            fallback = true
+
+      - name: Replay the committed corpus
+        run: bash nix/run-fuzz.sh smoke
+
+  # The half that finds things. One leg per target so four budgets run in parallel rather than in
+  # series, and so a crash names its target in the job list.
+  fuzz:
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: rust-mcp
+    timeout-minutes: 120
+    strategy:
+      # No fail-fast: a crash in one target must not cancel the budget of the other three.
+      fail-fast: false
+      matrix:
+        # THE LIST `cargo xtask check-fuzz` HOLDS against `fuzz/fuzz_targets/`. A target added
+        # there and not here would be a target nothing ever runs, with every check green - which
+        # is the failure this workflow's own gate exists for.
+        target:
+          - bearer_token
+          - catalog_document
+          - keyset
+          - question_body
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+
+      - name: Fuzz ${{ matrix.target }}
+        run: bash nix/run-fuzz.sh run "${SECONDS_BUDGET}" "${{ matrix.target }}"
+        env:
+          SECONDS_BUDGET: ${{ github.event.inputs.seconds || '900' }}
+
+      # The crash artifact and the input that produced it, or the run is a red line in a log and
+      # nothing a person can act on. `if: failure()` rather than `always()`: on a green run there
+      # is nothing here worth an upload, and the grown corpus is deliberately NOT published - a
+      # corpus entry enters the tree through a pull request somebody read.
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: warn
+          retention-days: 14

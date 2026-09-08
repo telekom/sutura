@@ -1,0 +1,1 @@
+{"metric":"active_subscriptions","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"],"filters":[{"dimension":"segment","value":"business"}]}

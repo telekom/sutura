@@ -1,0 +1,78 @@
+# The fuzz crate: libFuzzer targets over the parsers that read input this deployment does not write.
+#
+# ITS OWN WORKSPACE, and that is not cargo-fuzz boilerplate copied in. Three consequences are all
+# deliberate:
+#
+#   * `#![no_main]` and `libfuzzer-sys` never enter the shipped workspace's dependency graph, so
+#     `cargo build` and every nix check are unchanged by this directory existing.
+#   * the root workspace's `[profile.*]` tables do not reach here, so the panic strategy this
+#     harness measures under is the one declared below rather than one inherited by accident.
+#   * a second `Cargo.lock`. `cargo xtask check-fuzz` fails if it is missing, because a fuzz run
+#     against an unlocked graph is not reproducible - but `cargo deny` reads the ROOT lock only, so
+#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the six direct dependencies
+#     below, four are first-party path dependencies and the two third-party ones are
+#     `libfuzzer-sys` and `serde_json`.
+# An empty table, which is what makes this directory a workspace root of its own. Without it
+# cargo refuses outright: "current package believes it's in a workspace when it's not".
+[workspace]
+
+[package]
+name = "sutura-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "libFuzzer targets over the parsers that read untrusted input."
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sutura-catalog-local = { path = "../crates/sutura-catalog-local" }
+sutura-config = { path = "../crates/sutura-config" }
+sutura-domain = { path = "../crates/sutura-domain" }
+sutura-http = { path = "../crates/sutura-http" }
+serde_json = "1"
+
+# `panic = "abort"`, matching every shipped profile in the root manifest - which is the whole
+# argument this directory exists for. A harness that unwound where the deployment aborts would be
+# measuring a build nobody runs.
+#
+# MEASURED, because the interaction is the thing that could have made this harness blind:
+# `libfuzzer-sys`'s `fuzz_target!` installs a panic hook that calls `abort()` regardless, and
+# libFuzzer handles `SIGABRT` by default - so the crash is still attributed to the input that
+# caused it and the artifact is still written under `fuzz/artifacts/<target>/`. Setting the
+# strategy explicitly changes what is compiled, not whether a finding is reportable.
+#
+# No `debug` key: cargo-fuzz passes `--config profile.release.debug="line-tables-only"` on the
+# command line, which wins over the manifest, so one written here would be a value with no effect.
+[profile.release]
+panic = "abort"
+
+[[bin]]
+name = "keyset"
+path = "fuzz_targets/keyset.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bearer_token"
+path = "fuzz_targets/bearer_token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "question_body"
+path = "fuzz_targets/question_body.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "catalog_document"
+path = "fuzz_targets/catalog_document.rs"
+test = false
+doc = false
+bench = false

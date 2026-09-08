@@ -51,6 +51,25 @@ paths = [
     '''\.sutura-dev/.*''',
     '''\.devenv/.*''',
     '''\.pixi/.*''',
+    # The token fuzzer's seeds, and ONLY that one directory. A seed for `fuzz_targets/bearer_token`
+    # is a JWT by construction - that is what the target parses - so the `jwt` rule matches its
+    # SHAPE while nothing there is a credential: the header/claims are `example.com` fixtures and
+    # the signature segment is padding no key produced.
+    #
+    # MEASURED on the way in: `fuzz/seeds/bearer_token/alg-none` (an `{"alg":"none"}` header over
+    # a `user@example.com` subject and an empty signature) tripped the `jwt` rule, so the commit
+    # hook, `just secrets` and `just validate` all went red on a file that is a parser input.
+    #
+    # WHY A PATH AND NOT A `betterleaks:allow` COMMENT, which is the escape hatch this file prefers:
+    # a seed has no comment syntax, and `fuzz/seeds/**` is byte-exact in `text-hygiene` precisely
+    # because a crash reproducer stops reproducing if anything edits it.
+    #
+    # DELIBERATELY NARROW, and the narrowness is the control: the other three seed directories are
+    # still scanned, so a credential pasted into a JSON or catalog seed is still a finding. What
+    # this DOES walk past is a real token committed into this one directory - stated rather than
+    # implied, because `cargo xtask check-fuzz` reads seed directories for emptiness and never
+    # reads their content.
+    '''fuzz/seeds/bearer_token/.*''',
     '''target/.*''',
     '''result(-[a-z0-9-]+)?/.*''',
 ]

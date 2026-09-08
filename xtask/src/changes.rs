@@ -367,15 +367,24 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
 
 /// Paths whose owning package is not a workspace member, so `cargo check -p` cannot take it.
 ///
-/// A path dependency inside the repository has a real `Cargo.toml` with a real package name,
-/// so `owning_package` finds it - but `[workspace] exclude` keeps it out of the member list and
-/// `cargo check -p libmimalloc-sys` then fails with "did not match any packages". That is what
-/// broke the commit hook the moment mimalloc was vendored.
+/// A directory inside the repository has a real `Cargo.toml` with a real package name, so
+/// `owning_package` finds it - but the root workspace does not list it as a member and
+/// `cargo check -p <that name>` then fails with "did not match any packages". Both entries here
+/// are that failure, arrived at twice:
+///
+/// * `vendor/` - `[workspace] exclude` keeps the vendored allocator out of the member list, and
+///   this broke the commit hook the moment mimalloc was vendored.
+/// * `fuzz/` - the fuzz crate is a workspace **of its own** (`fuzz/Cargo.toml` opens with an
+///   empty `[workspace]` table, which is what cargo requires of a `cargo-fuzz` crate), so
+///   `sutura-fuzz` is not a member of this one. Measured on the commit that added it:
+///   `error: package ID specification `sutura-fuzz` did not match any packages`, from the
+///   `rust-check-changed` hook.
 ///
 /// Skipped rather than treated as an orphan: an orphan widens to checking everything, which is
-/// right when the workspace layout surprised us and wrong here, where the answer is simply that
-/// third-party source is not ours to compile-check.
-const NON_MEMBER_PATHS: &[&str] = &["vendor/"];
+/// right when the workspace layout surprised us and wrong here, where the answer is that the root
+/// workspace's cargo cannot compile these at all - third-party source in one case, and a crate
+/// only `nix run .#fuzz` builds in the other.
+const NON_MEMBER_PATHS: &[&str] = &["vendor/", "fuzz/"];
 
 /// Is this path outside every workspace member?
 ///
@@ -469,7 +478,7 @@ pub(crate) fn run_changed_packages(args: &[String]) -> Verdict {
     }
 
     if skipped > 0 {
-        println!("xtask changed-packages: skipped {skipped} vendored file(s); not workspace members");
+        println!("xtask changed-packages: skipped {skipped} file(s) outside every workspace member");
     }
 
     // A .rs file no package owns means the workspace layout changed under us. Widen rather
@@ -769,6 +778,21 @@ mod tests {
         assert_eq!(package_name("[workspace]\nmembers = []\n"), None);
         // A `name` under another table must not be mistaken for the package name.
         assert_eq!(package_name("[dependencies]\nname = \"nope\"\n"), None);
+    }
+
+    #[test]
+    fn a_path_outside_every_member_is_skipped_rather_than_compiled() {
+        use super::is_non_member;
+
+        // Both entries exist because `cargo check -p <name>` failed on a real commit: the vendored
+        // allocator is `[workspace] exclude`d, and the fuzz crate is a workspace of its own. Their
+        // manifests declare a package name, so `owning_package` finds one and the hook would then
+        // ask cargo for a package this workspace does not have.
+        assert!(is_non_member("vendor/mimalloc_rust/libmimalloc-sys/src/lib.rs"));
+        assert!(is_non_member("fuzz/fuzz_targets/keyset.rs"));
+        // Everything cargo CAN take is still attributed, or the narrowed check stops checking.
+        assert!(!is_non_member("crates/sutura-domain/src/lib.rs"));
+        assert!(!is_non_member("xtask/src/fuzz.rs"));
     }
 
     #[test]

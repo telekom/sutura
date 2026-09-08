@@ -973,6 +973,7 @@ economise.
    | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
    | `check-devenv-shell` | `devenv.nix` and every module its `imports` reach - which attributes assign a shell body, and whether the value goes through the wrapper ShellCheck reads |
+   | `check-fuzz` | `fuzz/` - the target sources, the fuzz crate's manifest and lock, each target's tracked seeds - against the target matrix in `.github/workflows/fuzz.yml` |
    | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares - plus `devco/required-contexts` for which jobs gate, and `README.md`, `REUSE.toml` and `devco/scorecard-publication` for whether a badge's claim has a mechanism behind it |
 
    **Reads prose.** Each of these reads at least one file such a diff CAN change, so skipping one

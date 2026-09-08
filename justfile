@@ -610,6 +610,17 @@ attribution:
 licences:
     nix run .#reuse -- lint
 
+# Fuzz every target, or one of them, with a time budget. `just fuzz 600 keyset`
+# NOT A GATE, deliberately: a run that fails a merge on a fresh random path is a gate that gets
+# turned off, and then nothing generates input at all. `nix/fuzz.nix` argues the provisioning;
+# each `fuzz/fuzz_targets/*.rs` header says what it covers and what it does not.
+fuzz seconds="300" target="":
+    bash nix/run-fuzz.sh run "{{ seconds }}" "{{ target }}"
+
+# Replay every committed corpus seed, mutating nothing - the regression half of fuzzing.
+fuzz-smoke:
+    bash nix/run-fuzz.sh smoke
+
 # ------------------------------------------------------------------ tooling ---
 
 # Scan the whole worktree for secrets. The hook already covers each commit.

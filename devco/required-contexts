@@ -153,3 +153,11 @@ docs.yml:publish
 # had classified it, and `ci.yml`'s own trigger comment already says that making this required
 # would need a `merge_group` trigger added here.
 security-audit.yml:audit
+
+# Generated input against the parsers that read untrusted input. BOTH jobs advisory, and the
+# `fuzz` matrix does not report on a pull request at all - `.github/workflows/fuzz.yml` argues why
+# a time-budgeted fuzz run must not gate a merge, and the entry is here so that argument is a
+# classification rather than an omission. What IS gated on every pull request is `check-fuzz`
+# inside the hygiene sweep, which reads the harness and costs milliseconds.
+fuzz.yml:smoke
+fuzz.yml:fuzz
