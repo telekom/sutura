@@ -1224,7 +1224,7 @@ from inside the decision and no test could see it - so the mechanism the argumen
 rests on was held by review, which `AGENTS.md` does not accept as held.
 
 `sutura_domain::warehouse::Warehouse::preflight` is the port, and its own documentation carries
-why the answer has three shapes and why *could not verify* is an `Err` rather than a fourth.
+why an answered inventory and *could not verify* are different outcomes.
 
 **The limit, stated with the claim:** what a pre-flight establishes is that a table EXISTS. Not
 that the columns a model names are on it, and not that a question's identity may read it - a
@@ -1239,15 +1239,15 @@ pub enum Verdict<E>
 
 What one data system answered about the tables one bundle names in it.
 
-**Six outcomes and not three, because a root treats two of the failures differently and one of
-the answers is not about the catalog at all.** The port answers four things and fails in one way,
+A root treats two failures differently, and an incomplete or unreadable inventory is not a
+finding about the catalog. The port answers five things and fails in one way,
 and that one failure splits on `Warehouse::preflight_was_refused`: a data system that REFUSED to
 be listed will refuse identically on every launch and the fix is one grant, while one that could
 not be reached is a condition that passes. A root that collapsed them would either stop a
 deployment that would have worked or hide the check being off in the deployment least likely to
 read a startup log.
 
-**`Self::Unaccounted` is the fourth answer and it is a REFUSAL, not the third failure.** The
+**`Self::Unaccounted` is a REFUSAL, not a failure to get an answer.** The
 data system answered; its answer did not account for its own inventory. Reading that as
 `Self::Absent` is what `telekom/sutura#275` is - a shortfall rounded down to zero and charged
 to the catalog - and reading it as `Self::Unverified` would be worse still: that is the warning
@@ -1261,6 +1261,7 @@ root that composed the adapter is the one that can flatten it.
 - `Present` - Asked, and every table is there. Carries how many, for a line that says so.
 - `NotReported` - The adapter did not report - `TablesPresent::NotAsked`, the port's default.
 - `Absent` - Asked, and these tables are not there. A refusal, and the models to name in it.
+- `UnreadableInventory` - An unreadable inventory established neither presence nor absence for these tables. A refusal without a count or model names: no catalog declaration was shown wrong.
 - `Unaccounted` - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.
 - `Refused` - The data system refused to be asked: this identity may not list it.
 - `Unverified` - The data system could not be asked, for a reason that is not a refusal.

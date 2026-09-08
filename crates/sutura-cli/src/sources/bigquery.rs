@@ -341,6 +341,13 @@ where
                     count = tables.len()
                 ));
             }
+            Verdict::UnreadableInventory(tables) => {
+                return Err(format!(
+                    "{source} reported a table count this process could not read and no readable table IDs. \
+                     Refusing to serve: presence or absence was not established for {tables}. Check how this \
+                     process reads the data system's listing; no catalog table declaration was shown wrong"
+                ));
+            }
             // Everything else that failed - an endpoint that did not answer, a dataset that is not
             // there - is the soft outcome, because a process whose data system is briefly
             // unreachable still has to be able to serve when it comes back.
@@ -701,6 +708,33 @@ mod tests {
                 !error.contains("at most 9"),
                 "a gap cannot explain more tables than the listing named: {error}"
             );
+        }
+
+        #[test]
+        fn an_unreadable_inventory_refuses_without_a_count_or_catalog_blame() {
+            let engines = opened(|asked| {
+                Ok(TablesPresent::UnreadableInventory(
+                    UnaccountedTables::parse(asked.clone()).expect("nonempty"),
+                ))
+            });
+            let error = refuse_absent_tables(&bundle(), &engines).expect_err("an unreadable inventory must refuse");
+            assert!(
+                error.contains("warehouse") && error.contains("dim_customer") && error.contains("fct_orders"),
+                "{error}"
+            );
+            assert!(
+                error.contains("could not read") && error.contains("no readable table IDs"),
+                "{error}"
+            );
+            for wrong in [
+                "does not hold",
+                "named by model(s)",
+                "at most",
+                "did not account for",
+                "serving anyway",
+            ] {
+                assert!(!error.contains(wrong), "the count-free refusal must not say {wrong}: {error}");
+            }
         }
 
         #[test]

@@ -526,12 +526,10 @@ reason.** The set alone cannot tell an EMPTY dataset from a document whose shape
 changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
 absent*. `ListingTotal` is what the two can be told apart by.
 
-**And exactly that far, which is the limit next to the claim.** It reaches a shape change the
-same document still reports a readable count beside: a service that re-spelled `totalItems` as
-well leaves `ListingTotal::Unreported` or `ListingTotal::Unreadable`, and those say *nothing
-to compare* rather than *empty dataset*. Nor does it reach a dataset every one of whose ids this
-crate drops - that is `ListingTotal::Accounted` beside no ids, deliberately, because it is an
-ordinary dataset no model in the bundle could have named anyway.
+A readable total can expose a shortfall. An unreadable total beside zero readable IDs exposes
+an inventory this adapter could not read, without supplying a count. `ListingTotal::Unreported`
+still cannot distinguish an empty dataset from a changed document. Readable IDs dropped by name
+filtering remain identified, so an ordinary dataset of unsupported names is not that finding.
 
 **Why it travels on the answer rather than being decided here, now that it IS decided on:** the
 decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
@@ -586,8 +584,8 @@ What a listing's own reported total said, against the entries of the same docume
 id it could read.
 
 **Four variants rather than an `Option<u64>`, because each says something different about what a
-caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
-have merged with the answer. A reader has to name the case, for the reason
+caller may conclude** - a missing total and an unreadable one cannot carry the same decision.
+A reader has to name the case, for the reason
 `sutura_domain::source::AnchorIdentity` names `NoneDeclared` rather than answering `None`.
 
 **The comparison is against the entries that carried a table id this crate could READ - neither
@@ -602,8 +600,8 @@ the shape signal; an id `usable_table_id` rejected is the legitimate drop, and i
 
 The same cross-check one document over is `crate::BigQueryError::Incomplete`, which compares
 `delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
-here so a reader who greps one finds the other: that one refuses because a short result set is a
-wrong number, and this one cannot, because a short listing is a boot warning.
+here so a reader who greps one finds the other. This type carries the inventory evidence;
+preflight decides whether it leaves a requested table unaccounted for and refuses through a value.
 
 #### Variants
 

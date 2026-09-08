@@ -786,11 +786,9 @@ where
     /// for it - a dataset answering with no readable id beside a non-zero total refused the boot
     /// saying every table it names is missing. `telekom/sutura#275`.
     ///
-    /// **What that does NOT cover, next to the claim.** Only [`ListingTotal::Short`] is read.
-    /// [`ListingTotal::Unreadable`] is *itself a shape change* by that type's own words and still
-    /// answers *absent* - `telekom/sutura#443`, out of reach here rather than overlooked, since
-    /// [`TablesPresent::Unaccounted`] carries a shortfall and a total nothing could read has no
-    /// number. `Unreported` beside no ids is where every boot stood before the field was decoded -
+    /// An unreadable total beside zero readable IDs answers [`TablesPresent::UnreadableInventory`]
+    /// without inventing a count. Readable IDs rejected by name filtering still count as identified.
+    /// `Unreported` beside no ids is where every boot stood before the field was decoded -
     /// that variant's own words are that an empty listing and an empty dataset are ONE value, so
     /// nothing in the document tells them apart - and `Accounted` beside no NAMED ids is a dataset
     /// every id of which `usable_table_id` drops. And a gap explains a table's absence
@@ -815,6 +813,7 @@ where
         }
         let mut grouped: ByDataset<'_> = BTreeMap::new();
         let mut absent: BTreeSet<QualifiedTable> = BTreeSet::new();
+        let mut unreadable: BTreeSet<QualifiedTable> = BTreeSet::new();
         // **The gap: a set and a count in ONE binding, written together or not at all.** Two locals
         // is how a shortfall of one comes to describe three tables, and it is also how a count
         // computed by arithmetic gets to disagree with the set beside it - review found both shapes.
@@ -854,22 +853,23 @@ where
                         gap = Some(Gap::widened(gap, unnamed, short.unaccounted()));
                     }
                 }
-                // Every other reading is *nothing to compare*, and it leaves the pre-flight exactly
-                // where it was: a dataset whose listing reported no total, or one this crate could
-                // not read, still answers *this table is not here*. Stated as an exhaustive match
-                // rather than a wildcard so a fifth reading has to be decided here.
-                ListingTotal::Accounted { .. } | ListingTotal::Unreported | ListingTotal::Unreadable => {
+                ListingTotal::Unreadable { identified: 0 } => unreadable.extend(unnamed),
+                // Readable IDs survive this decision even when name filtering drops all of them.
+                ListingTotal::Accounted { .. } | ListingTotal::Unreported | ListingTotal::Unreadable { .. } => {
                     absent.extend(unnamed);
                 }
             }
         }
-        // **A definite absence wins, and both outcomes stop a boot** - so nothing serves that would
-        // not have. It is the more actionable sentence of the two: a table a listing that accounted
-        // for itself did not name is one an operator fixes in the catalog or in the dataset, while a
-        // gap is a thing to look at. The unaccounted-for set is reported on the next boot, which is
-        // the same *first problem wins* both roots already apply across data systems.
+        // Among successful listings, report a definite absence first: it gives an operator a table
+        // to fix. Unreadable inventories and counted gaps also stop startup and wait for the next
+        // boot. A transport error above still short-circuits the walk; this orders answers only.
         if !absent.is_empty() {
             return Ok(TablesPresent::of(absent));
+        }
+        // Among answered inventories, diagnose an unreadable one before a counted gap. Keep its
+        // tables separate: the unreadable total says nothing about another dataset's shortfall.
+        if let Ok(tables) = UnaccountedTables::parse(unreadable) {
+            return Ok(TablesPresent::UnreadableInventory(tables));
         }
         // **There is no route from here to `AllBut`, and that is the point.** The version review
         // broke fell back to `TablesPresent::of(unaccounted_for)` when a count arrived as zero -

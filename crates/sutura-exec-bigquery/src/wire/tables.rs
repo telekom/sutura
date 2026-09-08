@@ -164,8 +164,8 @@ const MAX_TABLE_ID_BYTES: usize = 1024;
 /// **Infallible by construction, and that is the property rather than an implementation detail.**
 /// Every way the field can arrive that this crate cannot read as a count lands on
 /// [`ListingTotal::Unreadable`] - a float, a negative, an object, a number past `u64`, a string that
-/// is not a number - so the field can neither refuse a listing nor be mistaken for one of the two
-/// answers that mean something. [`Listing::total_items`] argues why that matters and why a quoted
+/// is not a number - so the field cannot discard the listing or masquerade as a readable total.
+/// [`Listing::total_items`] argues why that matters and why a quoted
 /// count is read too.
 ///
 /// **A JSON `null` is [`ListingTotal::Unreported`] and has no arm of its own**, which review had to
@@ -193,7 +193,7 @@ fn reported_total(field: Option<&serde_json::Value>, identified: usize) -> Listi
     // closing a door rather than a style preference: the variant's fields were public, so
     // `reported > identified` held by this `if` was reachable around. `Ok` is the shortfall, `Err`
     // is the reading that says nothing is missing.
-    reported.map_or(ListingTotal::Unreadable, |reported| {
+    reported.map_or(ListingTotal::Unreadable { identified }, |reported| {
         Shortfall::parse(reported, identified).map_or(ListingTotal::Accounted { reported }, ListingTotal::Short)
     })
 }
@@ -403,11 +403,21 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use sutura_domain::model::{QualifiedTable, SourceName};
+    use sutura_domain::source::SourcePosture;
+    use sutura_domain::warehouse::Warehouse as _;
+    use sutura_domain::warehouse::preflight::TablesPresent;
+
     use super::{
         Accumulating, Listing, MAX_PAGE_TOKEN_BYTES, MAX_PAGES, MAX_TABLE_ID_BYTES, PAGE_SIZE, WireError, page_url,
         usable_table_id, usable_token, was_refused,
     };
-    use crate::transport::{DatasetAddress, DatasetId, HeldTables, ListingTotal, ProjectId, Shortfall};
+    use crate::BigQueryWarehouse;
+    use crate::transport::{
+        DatasetAddress, DatasetId, HeldTables, JobRequest, JobRows, JobTransport, ListingTotal, ProjectId, Shortfall,
+    };
 
     /// The shortfall a listing that reported more than it named has, for an assertion that reads.
     fn short(reported: u64, identified: u64) -> ListingTotal {
@@ -426,6 +436,94 @@ mod tests {
             listing.absorb(page);
         }
         listing.finish()
+    }
+
+    /// Carries the real decoder's answer through the port without a network or a second decoder.
+    struct ListingAnswer(HeldTables);
+
+    impl JobTransport for ListingAnswer {
+        type Error = FakeCause;
+
+        fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+            Err(FakeCause)
+        }
+
+        fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+            Err(FakeCause)
+        }
+
+        fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
+            Ok(self.0.clone())
+        }
+
+        #[cfg(feature = "fixtures")]
+        fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+            Err(FakeCause)
+        }
+    }
+
+    fn read_for_boot(pages: &[&str]) -> TablesPresent {
+        let warehouse = BigQueryWarehouse::new(
+            SourceName::parse("warehouse").expect("a source name"),
+            SourcePosture::ImpersonationAtSource,
+            ProjectId::parse("acme-analytics").expect("a project id"),
+            DatasetId::parse("warehouse").expect("a dataset id"),
+            ListingAnswer(read(pages)),
+        );
+        let asked = BTreeSet::from([QualifiedTable::parse("dim_customer").expect("a table path")]);
+        warehouse.preflight(&asked).expect("the listing answered")
+    }
+
+    #[test]
+    fn an_unreadable_total_without_readable_ids_cannot_blame_the_catalog() {
+        for body in [
+            r#"{"totalItems":-1,"tables":[]}"#,
+            r#"{"totalItems":1.5,"tables":[]}"#,
+            r#"{"totalItems":true,"tables":[]}"#,
+            r#"{"totalItems":{"count":2},"tables":[]}"#,
+            r#"{"totalItems":[2],"tables":[]}"#,
+            r#"{"totalItems":"18446744073709551616","tables":[]}"#,
+            r#"{"totalItems":"many","tables":[{"renamedReference":{"tableId":"dim_customer"}}]}"#,
+        ] {
+            let answered = read_for_boot(&[body]);
+            assert!(answered.was_asked(), "the dataset answered: {body}");
+            assert_ne!(answered, TablesPresent::All, "nothing verified this table: {body}");
+            assert!(
+                answered.absent().is_none(),
+                "the listing did not establish absence: {body}: {answered:?}"
+            );
+        }
+        for body in [
+            r#"{"tables":[]}"#,
+            r#"{"totalItems":null,"tables":[]}"#,
+            r#"{"totalItems":0,"tables":[]}"#,
+            r#"{"totalItems":1,"tables":[{"tableReference":{"tableId":"dim-customer"}}]}"#,
+            r#"{"totalItems":"many","tables":[{"tableReference":{"tableId":"dim-customer"}}]}"#,
+            r#"{"totalItems":"many","tables":[{"tableReference":{"tableId":"dim_other"}}]}"#,
+        ] {
+            let answered = read_for_boot(&[body]);
+            assert!(
+                answered.absent().is_some(),
+                "the existing absence reading stays unchanged: {body}"
+            );
+        }
+        assert_eq!(
+            read_for_boot(&[
+                r#"{"totalItems":"many","tables":[],"nextPageToken":"more"}"#,
+                r#"{"tables":[{"tableReference":{"tableId":"dim_customer"}}]}"#,
+            ]),
+            TablesPresent::All,
+            "a later page's readable requested id remains present despite the unreadable total"
+        );
+        assert!(
+            read_for_boot(&[
+                r#"{"totalItems":"many","tables":[],"nextPageToken":"more"}"#,
+                r#"{"tables":[{"tableReference":{"tableId":"dim-customer"}}]}"#,
+            ])
+            .absent()
+            .is_some(),
+            "a later page's readable but rejected id counts before filtering"
+        );
     }
 
     /// A CROSS-PROJECT address, and the two projects differ on purpose.
@@ -605,7 +703,11 @@ mod tests {
             r#"{"totalItems":"","tables":[]}"#,
             r#"{"totalItems":"two","tables":[]}"#,
         ] {
-            assert_eq!(read(&[spelling]).total(), ListingTotal::Unreadable, "{spelling}");
+            assert_eq!(
+                read(&[spelling]).total(),
+                ListingTotal::Unreadable { identified: 0 },
+                "{spelling}"
+            );
         }
         // THE control, without which the loop above is a function that answers `Unreadable` to
         // everything: a count spelled as a string is read. `Listing::total_items` says why one can
@@ -625,7 +727,7 @@ mod tests {
         ] {
             let held = read(&[hostile]);
             assert!(held.holds("dim_customer"), "the ids survived the unreadable total: {hostile}");
-            assert_eq!(held.total(), ListingTotal::Unreadable, "{hostile}");
+            assert_eq!(held.total(), ListingTotal::Unreadable { identified: 1 }, "{hostile}");
         }
     }
 
