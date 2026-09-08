@@ -23,7 +23,7 @@
 //! and the rule is not hypothetical for any: `sutura_app::prompt`'s test builds one instance of every
 //! variant to check that every refusal has guidance; the two transports' refusal tests hand every
 //! variant to their mappers; and - the two that make the rule necessary rather than tidy - **the
-//! rendered prompt, snapshotted twice under `crates/sutura-cli/tests/snapshots/`, lists all seventeen
+//! rendered prompt, snapshotted twice under `crates/sutura-cli/tests/snapshots/`, lists all eighteen
 //! refusal guides by name.** Without the census rule those two snapshots alone would make every
 //! variant look provoked, and this gate would be decoration.
 //!

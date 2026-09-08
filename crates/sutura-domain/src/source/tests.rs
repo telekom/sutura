@@ -2,7 +2,7 @@
 
 use super::{
     AcknowledgementReason, AnchorIdentity, ConflictingSourceIdentity, ExecutedAs, ImpersonationCapability, InvalidOperatorText,
-    SharedIdentityDeclared, SourceIdentity, SourcePosture, VerificationIdentity,
+    SharedIdentityDeclared, SourceIdentity, SourcePosture, UniformlyExecuted, VerificationIdentity,
 };
 use crate::model::SourceName;
 
@@ -241,4 +241,78 @@ fn an_execution_record_cannot_claim_that_nothing_ran_and_cannot_record_a_source_
         .and(local, SourcePosture::ImpersonationAtSource)
         .expect_err("one source is one leg");
     assert!(error.to_string().contains("local"), "{error}");
+}
+
+#[test]
+fn two_shared_sources_with_different_acknowledgements_are_still_one_posture() {
+    // **The cell that fails if the predicate is `posture_a != posture_b`.** `SourcePosture` derives
+    // `PartialEq` and carries the operator's own acknowledgement, which is resolved PER SOURCE - so
+    // two ordinary shared legs whose operators wrote different sentences are two unequal values and
+    // one posture. Comparing values would refuse the only federating shape that ships today: every
+    // adapter a release links declares it has nowhere for a subject to arrive, so both legs of a
+    // shipped two-source answer are `shared-service-user`.
+    let one = shared("a directory of CSVs this deployment owns");
+    let other = shared("a reference dataset every team reads");
+    assert_ne!(one, other, "the values differ, which is exactly the trap");
+
+    let uniform = ExecutedAs::of(source("facts"), one)
+        .and(source("geo"), other)
+        .expect("two sources are two legs")
+        .uniform()
+        .expect("two shared legs decide identity the same way");
+    assert_eq!(uniform.legs().count(), 2);
+    assert_eq!(
+        uniform.posture(&source("geo")).map(SourcePosture::as_str),
+        Some("shared-service-user")
+    );
+}
+
+#[test]
+fn an_answer_whose_legs_would_run_under_two_postures_is_unconstructible() {
+    // The type half. `PinnedDefinitions::provenance` takes a `UniformlyExecuted`, `Provenance::new`
+    // is private and `ToolOutcome::Answer` carries a `Provenance` - so this `Err` is the only door
+    // a two-leg answer has, and a mixed record has none. The `compile_fail` doctest with its
+    // compiling twin lives on `provenance` itself.
+    let differently = ExecutedAs::of(source("facts"), shared("a directory of CSVs"))
+        .and(source("warehouse"), SourcePosture::ImpersonationAtSource)
+        .expect("two sources are two legs")
+        .uniform()
+        .expect_err("one answer does not combine two identities");
+    assert_eq!(
+        differently.postures().iter().copied().collect::<Vec<&str>>(),
+        vec!["impersonation-at-source", "shared-service-user"],
+        "both labels, in name order, off the closed set"
+    );
+
+    // **And it carries no acknowledgement text.** `SourcePosture` and `AcknowledgementReason` both
+    // derive `Serialize`, so a posture VALUE here would publish an operator's prose to every caller,
+    // log and agent context that reads the refusal this becomes. `Debug` is the rendering that
+    // reaches a log by accident, so it is the one to assert on, and `Display` is what an operator
+    // reads.
+    for rendered in [format!("{differently:?}"), differently.to_string()] {
+        assert!(
+            !rendered.contains("a directory of CSVs"),
+            "the acknowledgement leaked: {rendered}"
+        );
+        assert!(rendered.contains("shared-service-user"), "{rendered}");
+        assert!(rendered.contains("impersonation-at-source"), "{rendered}");
+    }
+}
+
+#[test]
+fn one_leg_is_uniform_by_construction_and_needs_no_verdict() {
+    // The mono answer path's door, and the reason it returns no `Result`: a single-leg record has one
+    // posture, so an `Err` arm on the path every question takes would be a refusal nothing can
+    // provoke. Asserted through both doors, so the two cannot disagree about a one-leg record.
+    let local = source("local");
+    let direct = UniformlyExecuted::of(local.clone(), SourcePosture::ImpersonationAtSource);
+    let via_verdict = ExecutedAs::of(local.clone(), SourcePosture::ImpersonationAtSource)
+        .uniform()
+        .expect("one leg cannot disagree with itself");
+    assert_eq!(direct, via_verdict);
+    assert_eq!(
+        direct.posture(&local).map(SourcePosture::as_str),
+        Some("impersonation-at-source")
+    );
+    assert_eq!(direct.legs().count(), 1);
 }
