@@ -76,9 +76,9 @@ const TASKS: &[Task] = &[
     },
     Task {
         // The jscpd copy/paste gate (issue #474). `Reads::Code`, so a `docs/*.md`-only diff
-        // stays excluded from the docs.yml skip. See the module header for why it FAILS OPEN
-        // when `jscpd` is absent locally and FAILS CLOSED in the nix sandbox (which carries
-        // it), and for the allowlist contract.
+        // stays excluded from the docs.yml skip. See the module header for why it FAILS CLOSED
+        // when `jscpd` is absent - locally and in the nix sandbox - and for the allowlist
+        // contract.
         name: "check-jscpd",
         description: "no copied block in crates/ or xtask/ without a reason in devco/dup-ignore",
         kind: Kind::Hygiene(Reads::Code),

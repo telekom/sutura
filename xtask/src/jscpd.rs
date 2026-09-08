@@ -33,7 +33,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::{Verdict, repo};
+use crate::{Verdict, repo, repo::Unmigrated};
 
 /// The minimum lines of a clone this gate reports (jscpd's `--min-lines`).
 ///
@@ -53,6 +53,10 @@ const IGNORE_FILE: &str = "devco/dup-ignore";
 /// `wholeTree` in the nix sandbox carries `target/` build artifacts, so relying on gitignore (a
 /// `.git`-less source does not apply it) would let a 250-line generated CRC table flag itself.
 const IGNORE_GLOBS: &str = "target/**,site/**,result/**,result-*/**,.pixi/**,.sutura-dev/**,report/**,**/.prek-cache/**";
+/// First-party source that the allowlist may never excuse, mirroring `max_lines::is_unexemptable`
+/// (there under `UNEXEMPTABLE_PREFIXES`): an exemption list that can swallow `crates/` or `xtask/`
+/// is a gate that has quietly stopped gating.
+const UNEXEMPTABLE_PREFIXES: &[&str] = &["crates/", "xtask/"];
 
 /// One fragment of a clone, as jscpd's JSON reporter names it.
 #[derive(Debug, Clone)]
@@ -76,6 +80,30 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
+    // CENSUS FLOOR, decided before `jscpd` exists and independent of `--min-tokens`: this gate must
+    // scan real Rust, and an `--ignore` glob that starts matching it lets a clone hide in the
+    // skipped half. `git ls-files '*.rs'` is the independent oracle - `report.statistics.total.sources`
+    // drops files below `--min-tokens` (measured), so a sources floor would be counted off the same
+    // threshold as the scan and would not be a floor at all.
+    let files = match repo::all_files() {
+        Ok(census) => match census.into_listing(Unmigrated::Jscpd) {
+            Ok((_root, files)) => files,
+            Err(why) => {
+                eprintln!("xtask check-jscpd: FAILED - {}", why.describe());
+                return Verdict::Fail;
+            }
+        },
+        Err(why) => {
+            eprintln!("xtask check-jscpd: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
+    let rs_files: Vec<&str> = files.iter().map(String::as_str).filter(|f| is_rust(f)).collect();
+    if let Err(msg) = check_census(&rs_files, IGNORE_GLOBS) {
+        eprintln!("xtask check-jscpd: FAILED - {msg}");
+        return Verdict::Fail;
+    }
+
     // FAIL CLOSED when `jscpd` is absent: a hygiene gate that cannot attest must refuse, per
     // `github.com/telekom/sutura#371` (a green it cannot back is a green that says nothing) -
     // enforced by `every_registered_hygiene_gate_refuses_a_tree_it_cannot_attest`. Hosts running
@@ -90,7 +118,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    let allow = match load_allowlist(&root) {
+    let allow = match load_allowlist(&root, &files) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("xtask check-jscpd: FAILED - {e}");
@@ -107,9 +135,43 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
 
-    // A clone is a finding unless the allowlist grants it an audited reason.
-    let findings: Vec<Duplicate> = clones.iter().filter(|c| !allowed(c, &allow)).cloned().collect();
+    decide(&clones, &allow)
+}
 
+/// Is `path` a Rust source file, by extension (case-insensitive, like `git ls-files '*.rs'`)?
+fn is_rust(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
+}
+
+/// The census floor: the gate must scan real Rust, and an `--ignore` glob must never match an
+/// in-scope `.rs` (or a clone there could never be reported). Pure and unit-tested, so a mutation
+/// that drops or weakens it reddens the suite. `git ls-files '*.rs'` is the independent oracle -
+/// `report.statistics.total.sources` drops sub-`--min-tokens` files and would not be a floor.
+fn check_census(rs_files: &[&str], ignore_globs: &str) -> Result<(), String> {
+    if rs_files.is_empty() {
+        return Err(String::from(
+            "found zero in-scope `.rs` files, so this gate would attest over no Rust at all",
+        ));
+    }
+    let globs: Vec<&str> = ignore_globs.split(',').map(str::trim).collect();
+    if let Some(hidden) = rs_files.iter().copied().find(|f| repo::matches_any(&globs, f)) {
+        return Err(format!(
+            "`{ignore_globs}` matches {hidden}, so a clone in that file could never be reported"
+        ));
+    }
+    Ok(())
+}
+
+/// The gate's decision, computed from the raw clones and the parsed allowlist.
+///
+/// Pure and unit-tested with synthetic [`Duplicate`]s - no `jscpd` binary - so the exit code is
+/// held by a test: flipping the `Fail` arm here reddens the suite, which is the #371 refusal held
+/// by a mechanism rather than by recall (the falsifier cannot reach this branch, because
+/// `check-jscpd` refuses earlier on the missing binary and the missing allowlist file).
+fn decide(clones: &[Duplicate], allow: &Allowlist) -> Verdict {
+    let findings = findings(clones, allow);
     if findings.is_empty() {
         println!(
             "xtask check-jscpd: ok - {} clone(s) over the repo's Rust, all within {IGNORE_FILE}",
@@ -135,6 +197,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("      deduplicate it, or add an audited reason to {IGNORE_FILE}");
     }
     Verdict::Fail
+}
+
+/// The clones the allowlist does not excuse.
+fn findings(clones: &[Duplicate], allow: &Allowlist) -> Vec<Duplicate> {
+    clones.iter().filter(|c| !allowed(c, allow)).cloned().collect()
 }
 
 /// Run jscpd over [`SCAN`] and return the clones it found.
@@ -243,7 +310,13 @@ fn key(f: &Fragment) -> AllowEntry {
 
 /// Load `devco/dup-ignore`. A malformed entry is an error (fail-closed): a policy the gate
 /// cannot read grants nothing and should say so, mirroring the allowlist-discipline rules.
-fn load_allowlist(root: &Path) -> Result<Allowlist, String> {
+///
+/// The documented syntax is `<path>:<start> == <path>:<start> : <reason>` - the trailing
+/// ` : <reason>` is REQUIRED, and it is split off before the `==`, so a reason may itself contain
+/// an arrow without being mis-parsed (the old code split on `==` first and never read the reason).
+/// Each fragment must name a real file `path` (a stale entry fails, there is no inert state) and
+/// must not be first-party source under `crates/` or `xtask/`.
+fn load_allowlist(root: &Path, tree_files: &[String]) -> Result<Allowlist, String> {
     let path = root.join(IGNORE_FILE);
     let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {IGNORE_FILE}: {e}"))?;
     let mut out = Allowlist::default();
@@ -252,10 +325,20 @@ fn load_allowlist(root: &Path) -> Result<Allowlist, String> {
         if line.is_empty() {
             continue;
         }
-        // Split the two fragments on ` == `.
-        let Some((left, right)) = line.split_once("==") else {
+        // The reason after ` : ` is required, and is peeled off BEFORE the `==` split so it is
+        // never confused with the fragment separator.
+        let Some((fragments, reason)) = line.split_once(" : ") else {
             return Err(format!(
-                "{IGNORE_FILE}:{}: expected `<path>:<start> == <path>:<start> [ : <reason>]`",
+                "{IGNORE_FILE}:{}: expected `<path>:<start> == <path>:<start> : <reason>` (reason after ` : ` is required)",
+                idx + 1
+            ));
+        };
+        if reason.trim().is_empty() {
+            return Err(format!("{IGNORE_FILE}:{}: the reason after ` : ` cannot be empty", idx + 1));
+        }
+        let Some((left, right)) = fragments.split_once("==") else {
+            return Err(format!(
+                "{IGNORE_FILE}:{}: expected `<path>:<start> == <path>:<start> : <reason>`",
                 idx + 1
             ));
         };
@@ -269,9 +352,37 @@ fn load_allowlist(root: &Path) -> Result<Allowlist, String> {
                 .map_err(|_invalid| format!("{IGNORE_FILE}:{}: `{start}` is not a line number", idx + 1))?;
             Ok((path.to_owned(), start))
         };
-        out.0.push([parse(left)?, parse(right)?]);
+        let (left_path, left_start) = parse(left)?;
+        let (right_path, right_start) = parse(right)?;
+        for p in [&left_path, &right_path] {
+            if is_unexemptable(p) {
+                return Err(format!(
+                    "{IGNORE_FILE}:{}: `{p}` is first-party source under `crates/` or `xtask/` and cannot be exempted; split the file instead",
+                    idx + 1
+                ));
+            }
+            // Path-level stale check, mirroring `max_lines::inert_entries`: an entry naming a file
+            // that is not in the tree is a promise that outlived its subject (renamed or deleted),
+            // so it fails rather than lying inert. Path only - not start line - to avoid churn when
+            // an audited clone's start line shifts.
+            if !tree_files.iter().any(|f| f == p) {
+                return Err(format!(
+                    "{IGNORE_FILE}:{}: `{p}` names no file in the tree - it was renamed or deleted and the exemption outlived it",
+                    idx + 1
+                ));
+            }
+        }
+        out.0.push([(left_path, left_start), (right_path, right_start)]);
     }
     Ok(out)
+}
+
+/// Can this path be excused by [`IGNORE_FILE`]? First-party source under `crates/` or `xtask/`
+/// cannot - mirroring `max_lines::is_unexemptable` (`UNEXEMPTABLE_PREFIXES` there), so an
+/// allowlist that swallows first-party code is a gate that has quietly stopped gating.
+fn is_unexemptable(path: &str) -> bool {
+    let normalized = path.trim_start_matches("./");
+    UNEXEMPTABLE_PREFIXES.iter().any(|prefix| normalized.starts_with(prefix))
 }
 
 /// Resolve `jscpd` from PATH (a plain name, or an absolute path if a caller passes one).
@@ -328,33 +439,131 @@ mod tests {
 
     #[test]
     fn a_comment_only_allowlist_grants_nothing() {
-        let allow = load_allowlist_with("comment", "# just a comment\n");
+        let allow = load_allowlist_with("comment", "# just a comment\n", &[]);
         assert_eq!(allow.0.len(), 0);
     }
 
-    fn load_allowlist_with(tag: &str, content: &str) -> Allowlist {
-        // Point at a scratch directory (creating the `devco/` subdir IGNORE_FILE lives under)
-        // rather than touching the real repo tree. `tag` keeps parallel tests from sharing a dir.
-        let dir = std::env::temp_dir().join(format!("jscpd-test-{}-{tag}", std::process::id()));
-        let devco = dir.join("devco");
-        std::fs::create_dir_all(&devco).unwrap();
-        std::fs::write(devco.join("dup-ignore"), content).unwrap();
-        let out = crate::jscpd::load_allowlist(&dir).expect("scratch allowlist must parse");
-        let _removed = std::fs::remove_dir_all(&dir);
-        out
+    #[test]
+    fn a_documented_entry_parses_with_its_reason() {
+        let allow = load_allowlist_with(
+            "doc",
+            "dev/a.rs:10 == dev/b.rs:12 : intentional mirror of the tokeniser\n",
+            &["dev/a.rs", "dev/b.rs"],
+        );
+        assert_eq!(allow.0.len(), 1);
+        assert_eq!(allow.0[0], [("dev/a.rs".into(), 10), ("dev/b.rs".into(), 12)]);
+    }
+
+    #[test]
+    fn a_reason_may_contain_an_arrow() {
+        // The reason is peeled off before the `==` split, so ` == ` inside the reason must not
+        // mis-split the line.
+        let allow = load_allowlist_with(
+            "arrow",
+            "dev/a.rs:10 == dev/b.rs:12 : mirror == template, both handwritten\n",
+            &["dev/a.rs", "dev/b.rs"],
+        );
+        assert_eq!(allow.0.len(), 1);
+    }
+
+    #[test]
+    fn an_entry_without_a_reason_fails_closed() {
+        let result = load_allowlist_result("noreason", "dev/a.rs:10 == dev/b.rs:12\n", &["dev/a.rs", "dev/b.rs"]);
+        assert!(result.is_err(), "a missing reason must be rejected");
+    }
+
+    #[test]
+    fn an_entry_with_an_empty_reason_fails_closed() {
+        let result = load_allowlist_result("emptyreason", "dev/a.rs:10 == dev/b.rs:12 :   \n", &["dev/a.rs", "dev/b.rs"]);
+        assert!(result.is_err(), "a blank reason must be rejected");
     }
 
     #[test]
     fn an_entry_without_a_separator_fails_closed() {
-        let dir = std::env::temp_dir().join(format!("jscpd-bad-{}", std::process::id()));
+        let result = load_allowlist_result("nosep", "dev/a.rs:10 dev/b.rs:12 : reason\n", &["dev/a.rs", "dev/b.rs"]);
+        assert!(result.is_err(), "a line without ` == ` must be rejected");
+    }
+
+    #[test]
+    fn first_party_source_cannot_be_exempted() {
+        let result = load_allowlist_result(
+            "firstparty",
+            "crates/a.rs:10 == dev/b.rs:12 : reason\n",
+            &["crates/a.rs", "dev/b.rs"],
+        );
+        assert!(result.is_err(), "a `crates/` fragment must be refused");
+        assert!(is_unexemptable("crates/sutura-domain/src/lib.rs"));
+        assert!(is_unexemptable("./xtask/src/main.rs"));
+        assert!(!is_unexemptable("dev/a.rs"));
+    }
+
+    #[test]
+    fn an_entry_naming_a_file_absent_from_the_tree_fails() {
+        let result = load_allowlist_result("stale", "dev/a.rs:10 == dev/gone.rs:12 : reason\n", &["dev/a.rs"]);
+        assert!(result.is_err(), "an entry naming a missing file must be rejected");
+    }
+
+    #[test]
+    fn census_refuses_an_empty_scan() {
+        assert!(check_census(&[], IGNORE_GLOBS).is_err());
+    }
+
+    #[test]
+    fn census_refuses_an_ignore_glob_that_matches_source() {
+        // The trap the floor closes: widening `IGNORE_GLOBS` so it covers real `.rs` would make a
+        // clone in the skipped half invisible. This must refuse.
+        assert!(check_census(&["crates/sutura-domain/src/lib.rs"], "crates/**").is_err());
+        assert!(check_census(&["dev/a.rs"], "dev/**").is_err());
+    }
+
+    #[test]
+    fn census_passes_on_real_rust_outside_the_ignore_globs() {
+        assert_eq!(check_census(&["crates/a.rs", "dev/b.rs"], IGNORE_GLOBS), Ok(()));
+    }
+
+    #[test]
+    fn decide_passes_on_no_clones() {
+        assert_eq!(decide(&[], &Allowlist::default()), Verdict::Pass);
+    }
+
+    #[test]
+    fn decide_fails_on_an_unexcused_clone() {
+        let d = dup(frag("dev/a.rs", 10), frag("dev/b.rs", 12));
+        assert_eq!(decide(&[d], &Allowlist::default()), Verdict::Fail);
+    }
+
+    #[test]
+    fn decide_passes_on_an_excused_clone() {
+        let allow = Allowlist(vec![[("dev/a.rs".into(), 10), ("dev/b.rs".into(), 12)]]);
+        let d = dup(frag("dev/a.rs", 10), frag("dev/b.rs", 12));
+        assert_eq!(decide(&[d], &allow), Verdict::Pass);
+    }
+
+    /// Parse `content` at a scratch `devco/dup-ignore` against `tree_files`, panicking on error -
+    /// for entries that are expected to load.
+    fn load_allowlist_with(tag: &str, content: &str, tree_files: &[&str]) -> Allowlist {
+        load_allowlist_result(tag, content, tree_files).expect("scratch allowlist must parse")
+    }
+
+    /// Parse `content` at a scratch `devco/dup-ignore` against `tree_files`, returning the error -
+    /// for entries that are expected to be rejected.
+    fn load_allowlist_result(tag: &str, content: &str, tree_files: &[&str]) -> Result<Allowlist, String> {
+        // Point at a scratch directory (creating the `devco/` subdir IGNORE_FILE lives under)
+        // rather than touching the real repo tree. `tag` keeps parallel tests from sharing a dir.
+        let dir = std::env::temp_dir().join(format!(
+            "jscpd-test-{}-{}-{}",
+            std::process::id(),
+            tag,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs())
+        ));
         let devco = dir.join("devco");
-        std::fs::create_dir_all(&devco).unwrap();
-        std::fs::write(devco.join("dup-ignore"), "crates/a.rs:10 crates/b.rs:12 : reason\n").unwrap();
-        let result = crate::jscpd::load_allowlist(&dir);
+        std::fs::create_dir_all(&devco).map_err(|e| e.to_string())?;
+        std::fs::write(devco.join("dup-ignore"), content).map_err(|e| e.to_string())?;
+        let files: Vec<String> = tree_files.iter().map(ToString::to_string).collect();
+        let out = crate::jscpd::load_allowlist(&dir, &files);
         let _removed = std::fs::remove_dir_all(&dir);
-        match result {
-            Err(_) => {}
-            Ok(_) => panic!("a malformed allowlist entry must be rejected"),
-        }
+        out
     }
 }

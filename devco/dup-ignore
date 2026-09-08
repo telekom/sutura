@@ -12,9 +12,11 @@
 #
 # An intentional clone belongs here with a reason; loosening the gate's thresholds is not an
 # allowlist. The tree below starts EMPTY - there are no excused clones - so an entry appearing
-# here is a visible, reviewed decision rather than a way to silence a red build. A line that
-# names a clone the gate no longer finds is inert (like a `[warn]` entry under the line cap in
-# `devco/max-lines-ignore`) and should be deleted with its reason when the clone it excused
-# leaves the tree.
+# here is a visible, reviewed decision rather than a way to silence a red build.
+#
+# An entry naming a file that is not in the tree FAILS the gate rather than sitting inert - like
+# `devco/max-lines-ignore`, which refuses an exemption that exempts nothing - and first-party
+# source under `crates/` or `xtask/` cannot be exempted here at all. Delete a stale entry with
+# its reason when the clone it excused leaves the tree.
 
 # No entries. A deliberate clone is added here with its reason.
