@@ -221,9 +221,11 @@ artefact: `checks/evaluation/cii_best_practices.go` maps the levels to fixed sco
 `inProgressScore = 2`, `passingScore = 5`, `silverScore = 7`, gold `10`. **So finishing the
 questionnaire is worth three more points, not ten**, and reaching gold is a different project again.
 
-**And the live form is not the criteria set measured below.** Project 14542 carries **196 criteria -
-19 Met, 2 Unmet, 174 unanswered** - which is the newer **OSPS** set (AC/BR/DO/GV/LE/QA), not the
-~67-item passing list. The sweep in the next section was made against that older list, so treat it
+**And the live form is not the criteria set measured below.** Project 14542 carries the newer **OSPS**
+set (AC/BR/DO/GV/LE/QA), not the ~67-item passing list, and **174 of its 196 criteria are unanswered**
+on bestpractices.dev today. The per-criterion breakdown is visible only to the registering (owner)
+account, so it is not re-verified here. The sweep in the next section was made against that older
+list, so treat it
 as **an evidence inventory rather than a percentage**: it says which properties this repository can
 prove and where the proof lives, and most OSPS items are answerable straight from it. It does not
 predict the badge percentage, and the 28% showing today is mostly *unanswered*, not *unmet*.
