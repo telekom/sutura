@@ -646,7 +646,14 @@ bullets down:
   constructor can route around it.** The second: a gap of one was printed beside three unnamed
   tables, as though the set and the shortfall were one quantity. They are not - the gap BOUNDS how
   many of the set it can explain, so two of those three really were missing - and both roots say *at
-  most N of these M* for that reason.
+  most N of these M* for that reason. **The third, a round later, is that bound running the other
+  way:** a shortfall counts tables the data system did not account for anywhere in the DATASET while
+  the set is only the part the bundle names, so the shortfall can be the larger number - and on this
+  check's own shape it always is, since an identified count of zero makes it the dataset's whole
+  table count. Both roots printed *at most 9 of the 2 table(s)*.
+  `UnaccountedTables::explained_by` is the clamp, in the domain, because two roots each remembering
+  a `min` is the rule held by recall this repository does not accept. It hid because every cell but
+  the two that RENDER runs a gap larger than its set.
 
   **What the decision does NOT reach, stated where the claim is.** Only `Short` is read. A service
   that re-spells the count as well leaves `Unreadable`, which by this crate's own words is *itself a
