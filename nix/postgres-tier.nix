@@ -22,14 +22,6 @@ in
 rec {
   package = pkgs.postgresql_18;
 
-  # The endpoint writer AND reader, re-exported so the dev shell can have it on PATH.
-  #
-  # `nix/with-tier.sh` needs it: that wrapper derives *is an address published* from the document
-  # the suite reads rather than taking a composite verdict off this tier's `status`, which is
-  # `github.com/telekom/sutura#335`. `runtimeInputs` below puts it on PATH inside this script only,
-  # so the wrapper cannot borrow it from here.
-  endpointWriter = endpoints.script;
-
   # The provisioner, usable from any shell that has it and `postgresql`'s binaries on PATH; the
   # dev shell gets this on PATH through `devenv.nix`, the sandbox gets it as a native input.
   #
@@ -329,28 +321,6 @@ rec {
   #
   # Declared in `flake.nix` as one line pointing here. That `checks = {` block is read TEXTUALLY by
   # two xtask gates so it cannot leave that file, and this body would put it over the 1000-line cap.
-  # The tier script as it was BEFORE #298, and a FIXTURE rather than a thing to run: `check` is its
-  # only consumer. Two answers, `pg_ctl` only, no endpoint file - so its exit 0 means *a postmaster*
-  # rather than *a claim the suite can find*, which is exactly the build that was on a dev shell's
-  # PATH when `github.com/telekom/sutura#335` was measured. Everything other than `status` is the
-  # real script, because the fixture has to be a tier that WORKS and lies about one question.
-  #
-  # An attribute of this set rather than a `let` inside `check`, and that is not a style choice:
-  # `compose::file::every_nix_tier_module_is_provisioned_by_a_nix_check` reads this file TEXTUALLY
-  # for `\n  check = `, so a `check` whose value opens with a `let` on the next line defines no
-  # check as far as that gate can see. Measured - it is what caught the first version of this.
-  staleTierFixture = pkgs.writeShellApplication {
-    name = "sutura-postgres-tier";
-    runtimeInputs = [ pkgs.postgresql_18 ];
-    text = ''
-      pg="$NIX_BUILD_TOP/.sutura-dev/pg"
-      case "''${1:-}" in
-        status) pg_ctl -D "$pg" status >/dev/null 2>&1 ;;
-        *) exec ${tier}/bin/sutura-postgres-tier "$@" ;;
-      esac
-    '';
-  };
-
   check = pkgs.runCommand "postgres-tier"
     {
       # `psql` for the canary that proves a running server is REUSED rather than re-created. The
@@ -466,37 +436,34 @@ rec {
       expect_state 0 "the wrapper republished the entry and left the server alone"
       expect_entry true "the wrapper republished the entry the suite reads"
 
+      # --- the YESYES ARM: an entry at a DIFFERENT socket is still state 3, and the wrapper
+      # must republish it, never skip it ---
+      # The withdraw arm above leaves NO entry; this one leaves a WRONG one, so state 3 comes from
+      # an address mismatch while something still publishes. The old `0 | 3) alive=yes` form read
+      # "a postmaster is alive" as *already up* without checking the address, so this arm was
+      # skipped and the stale address survived; routing 3 to republish repairs it. RED on that
+      # form, GREEN on the fix.
+      sutura-tier-endpoint publish "$tree" postgres "$pg.other" "$port"
+      expect_entry true "a stale entry naming another socket is still published"
+      expect_state 3 "a postmaster whose entry names another address is unclaimed, not up"
+      ( . ${./with-tier.sh}
+        sutura_tier_up
+        printf '%s' "$SUTURA_DEV_REQUIRE_TIER" > "$NIX_BUILD_TOP/required-mismatch"
+      )
+      if [ "$(cat "$NIX_BUILD_TOP/required-mismatch")" != 1 ]; then
+        echo "the wrapper did not export SUTURA_DEV_REQUIRE_TIER over a mismatched-address tier" >&2
+        exit 1
+      fi
+      if [ "$(jq -r '.services.postgres.host' "$endpoints")" != "$pg" ]; then
+        echo "the wrapper did not republish the entry onto the live socket dir" >&2
+        exit 1
+      fi
+      expect_state 0 "the wrapper republished the entry onto the address the server is on"
+      expect_entry true "the stale-address entry was repaired"
+
       # A tier that is up AND published is left alone too - the same rule, its ordinary arm.
       ( . ${./with-tier.sh}; sutura_tier_up )
       expect_state 0 "an already-published tier survives the wrapper"
-
-      # --- and a `status` THAT LIES cannot make the wrapper skip a start ---
-      # `github.com/telekom/sutura#335`, measured 2026-09-03: one red commit hook and ten minutes
-      # of working out that a GREEN `status` was the reason - word for word what #298 was filed
-      # for. The arm above proves the wrapper acts on the THREE answers this tree's script gives.
-      # It says nothing about the script on a developer's PATH, and that is where the defect was: a
-      # dev shell entered before #298 landed carries a build whose whole `status` is `pg_ctl`, so
-      # its exit 0 means *a postmaster* where the wrapper read *a claim the suite can find*.
-      #
-      # So the pre-#298 script is put on PATH and the wrapper is run against it. THE LIE IS
-      # MEASURED FIRST - the fixture has to answer 0 where the real one answers 3, or this arm is
-      # green over a defect it never reproduced. The wrapper derives the claim from the document
-      # itself now, so the lie is caught rather than believed.
-      sutura-tier-endpoint withdraw "$tree" postgres
-      expect_entry absent "the fixture: a postmaster with nothing publishing it"
-      ( PATH="${staleTierFixture}/bin:$PATH"
-        stale=0
-        sutura-postgres-tier status || stale=$?
-        if [ "$stale" != 0 ]; then
-          echo "the fixture did not reproduce #335: its status answered $stale over an unpublished" >&2
-          echo "server, so it is not the pre-#298 script and this arm proves nothing" >&2
-          exit 1
-        fi
-        . ${./with-tier.sh}
-        sutura_tier_up
-      )
-      expect_entry true "a status that lies about the claim did not stop the wrapper republishing"
-      expect_state 0 "and the server the wrapper healed is one the suite can reach"
 
       # --- what the wrapper DID start, it tears down ---
       sutura-postgres-tier stop

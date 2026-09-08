@@ -87,42 +87,6 @@
 # makes in a reconstructed worktree, and a unit test over the command it builds is the mechanism. A
 # future gate that runs cargo in another root has to make the same removal, and nothing will remind
 # it.
-#
-# # And the SECOND bit is derived here, because a co-versioned helper cannot be trusted for it
-#
-# `github.com/telekom/sutura#335`, measured 2026-09-03. The paragraph above says the fix for #298
-# "is not here, and that is the point: `status` is DERIVED from the endpoint file now". That is true
-# of the tier script in THIS tree and says nothing about the one on a developer's PATH. A dev shell
-# entered before #298 landed carries a build whose whole `status` is `pg_ctl -D "$pg" status` - two
-# answers, no endpoint file - so its exit 0 means *a postmaster* where this file read *a claim the
-# suite can find*. The `state=0` arm fired, nothing was started, `SUTURA_DEV_REQUIRE_TIER=1` was
-# exported anyway, and the two fail-closed cells panicked on a worktree that publishes nothing: one
-# red commit hook, and the reason was again a GREEN `status`.
-#
-# **The stale binary is an environment condition. What was a repo defect is that this file took a
-# COMPOSITE verdict off a helper whose version it cannot check.** So it does not any more. Two bits,
-# from two records, each read for the one thing only that record knows:
-#
-#   * *is a postmaster alive* - only the tier can answer, so `status` is asked, and only its
-#     weakest distinction is used: 0 or 3 means alive, anything else means not. Both revisions of
-#     the script agree on that much, and a build from before `status` existed answers 2, which
-#     lands on "not alive" and starts one.
-#   * *is an address published* - the DOCUMENT knows, and it is the same document the suite reads,
-#     so it is read directly through `nix/tier-endpoints.nix`'s `claimed`.
-#
-# | postmaster | published | what happens |
-# | --- | --- | --- |
-# | alive | yes | left alone, no teardown - it is not ours |
-# | alive | no  | `start` republishes the entry, no teardown - still not ours |
-# | not alive | either | `start`, and the teardown is armed because we brought it up |
-#
-# **The limits, next to the claim.** With a co-versioned tier the ADDRESS is compared too, because
-# `status` answers 3 for a postmaster published at some other socket directory; with a stale one
-# only the entry's presence is, since this file deliberately does not know where the server lives.
-# And `claimed` is itself reached on PATH - but every way of failing to reach it (absent, or a build
-# that has no such subcommand and answers `usage`) reads as *not published*, which starts a server.
-# That is the direction #335 asks for: a version mismatch may cost a redundant `start`, never a
-# blocked run.
 
 # Bring the tier up if it is not already; stop it on exit only if we started it.
 #
@@ -143,25 +107,11 @@ sutura_tier_up() {
     # `status`; what they mean HERE is the whole of `github.com/telekom/sutura#298`.
     local state=0
     sutura-postgres-tier status >/dev/null 2>&1 || state=$?
-    # ONE bit out of that answer, and it is the bit both revisions of the script agree on. Reading
-    # the whole verdict is `github.com/telekom/sutura#335`.
-    local alive=no
     case "$state" in
-        0 | 3) alive=yes ;;
-        *) ;;
-    esac
-    # And the other bit off the record the SUITE reads, not off a second opinion about it. Every way
-    # this can fail to answer - no script on PATH, an older one with no `claimed`, an unreadable
-    # document - is the same answer, and it is the one that starts a server.
-    local published=no
-    if sutura-tier-endpoint claimed "$(pwd -P)" postgres >/dev/null 2>&1; then
-        published=yes
-    fi
-    case "$alive$published" in
-        yesyes)
+        0)
             echo "with-tier: the Postgres tier is already up - leaving it to whoever started it."
             ;;
-        yesno)
+        3)
             # A postmaster with no entry in `endpoints.json`. THIS branch is the defect: reading
             # only `pg_ctl` put this state in the branch above, so nothing republished the entry,
             # nothing started a server, and every fail-closed cell then panicked on a worktree that

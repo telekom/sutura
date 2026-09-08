@@ -204,14 +204,6 @@ in
     # reason as duckdb: `postgresTier` is a let-binding in this file.
     postgresTier.tier
 
-    # And the endpoint writer/reader, which `nix/with-tier.sh` calls directly. That wrapper derives
-    # *is an address published* from `.sutura-dev/endpoints.json` rather than taking a composite
-    # verdict off `sutura-postgres-tier status`, which is `github.com/telekom/sutura#335`: a tier
-    # script from between two revisions answers 0 for a postmaster nothing publishes, and the
-    # wrapper started nothing over it. `runtimeInputs` on the tier puts this on PATH inside that
-    # script only, so the wrapper needs its own copy.
-    postgresTier.endpointWriter
-
     # The CRAP gate. Two tools because the metric needs two inputs and neither produces both:
     # cargo-llvm-cov runs the tests under LLVM coverage and writes LCOV, cargo-crap reads that
     # LCOV, computes complexity from the AST and scores. Listed here rather than inside the
