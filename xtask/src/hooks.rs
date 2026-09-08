@@ -560,6 +560,72 @@ mod tests {
                 }
             }
         }
+        let stable = tree.join("stable bin");
+        std::fs::create_dir_all(&stable).expect("the configured toolchain");
+        for tool in [
+            "cargo",
+            "rustc",
+            "rustdoc",
+            "cargo-fmt",
+            "rustfmt",
+            "cargo-clippy",
+            "clippy-driver",
+        ] {
+            let path = stable.join(tool);
+            let body = "printf '<%s>' \"$@\" >>\"${SUTURA_GATE_STABLE_LOG:?}\"\n\
+                        printf '\\n' >>\"$SUTURA_GATE_STABLE_LOG\"\nexit 1\n";
+            std::fs::write(&path, format!("#!{}\n{body}", shell.trim())).expect("write the stable fake");
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("make the fake executable");
+        }
+        // A configured toolchain must still be selected when Nix is available. The stable
+        // version probe declines the optional tool, so these cases do not provision a tier or
+        // run the native success arms (coverage stops at its first, llvm-cov probe).
+        for (gate, probe, expected) in [
+            (
+                "tests",
+                "<nextest><--version>\n",
+                "<eval><--raw><--impure><--expr><builtins.currentSystem>\n<build><.#checks.fixture-system.nextest><-L>\n",
+            ),
+            ("supply-chain", "<deny><--version>\n", "<run><.#deny>\n"),
+            ("crap", "<llvm-cov><--version>\n", "<run><.#crap>\n"),
+        ] {
+            for nix_exit in [0, 23] {
+                let marker = tree.join(format!("configured-{gate}-{nix_exit}.cargo"));
+                let stable_log = tree.join(format!("configured-{gate}-{nix_exit}.stable"));
+                let nix_log = tree.join(format!("configured-{gate}-{nix_exit}.nix"));
+                let output = Command::new(shell.trim())
+                    .args(["--noprofile", "--norc", "nix/run-gate.sh", gate])
+                    .current_dir(&root)
+                    .env_remove("BASH_ENV")
+                    .env("SUTURA_STABLE_BIN", &stable)
+                    .env("PATH", tree.join("with-nix"))
+                    .env("SUTURA_GATE_MARKER", &marker)
+                    .env("SUTURA_GATE_STABLE_LOG", &stable_log)
+                    .env("SUTURA_GATE_NIX_LOG", &nix_log)
+                    .env("SUTURA_GATE_NIX_EXIT", nix_exit.to_string())
+                    .env("CARGO_TARGET_DIR", "fixture-target")
+                    .env("CARGO_UNSTABLE_CODEGEN_BACKEND", "true")
+                    .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
+                    .output()
+                    .expect("execute configured dispatch with Nix available");
+                let selected = std::fs::read_to_string(&stable_log).unwrap_or_default();
+                let invoked = std::fs::read_to_string(&nix_log).unwrap_or_default();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if marker.exists()
+                    || selected != probe
+                    || invoked != expected
+                    || output.status.code() != Some(nix_exit)
+                    || !stdout.contains("fixture-nix backend=unset/unset")
+                {
+                    wrong.push(format!(
+                        "configured {gate}, exit={nix_exit}: {:?}; host={}; stable={selected:?}; nix={invoked:?}; {stdout:?}; {:?}",
+                        output.status.code(),
+                        marker.exists(),
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+            }
+        }
         std::fs::remove_dir_all(tree).expect("remove the owned fixture");
         assert!(wrong.is_empty(), "unpinned execution or lost pinned fallback: {wrong:#?}");
     }
