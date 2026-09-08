@@ -266,8 +266,8 @@ validate:
     # needs a network). So the steady-state tax is seconds and the first run is the expensive one.
     #
     # SEPARATED, because ordering it first would otherwise mean a machine that cannot materialise
-    # the env gets NO signal from this recipe at all, where before it got the nix checks - which
-    # retry `--offline` below - and the secret sweep. So: materialise, and if that fails say so in
+    # the env gets NO signal from this recipe at all, where before it got the nix checks and the
+    # secret sweep. So: materialise, and if that fails say so in
     # one line, run everything else, and fail at the END. A page that cannot RENDER still aborts
     # immediately, which is the whole point of running it first.
     #
@@ -298,9 +298,9 @@ validate:
 # What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds
 # the two checks that need network and therefore cannot be nix checks.
 #
-# `--offline` is retried on failure rather than passed always: a substituter that cannot be
-# reached must not silently become a local rebuild of everything, but it must not stop the gate
-# either. A skipped check is the failure mode this repo cares about most.
+# A failed check ends this invocation. An automatic offline retry also retries failed tests,
+# so a later pass can hide the failure. Network failures also leave this invocation red;
+# diagnose the failure before explicitly rerunning the task.
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -316,8 +316,7 @@ ci:
     # along - but this loop names its checks, so a name left out is a check nobody ran.
     for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
         printf '\n=== %s ===\n' "$check"
-        nix build ".#checks.$system.$check" -L \
-            || nix build ".#checks.$system.$check" -L --offline
+        nix build ".#checks.$system.$check" -L
     done
 
 # The fat-LTO build. Opt-in, never automatic: minutes of build time for throughput nobody
